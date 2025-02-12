@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -10,26 +10,71 @@ import {
   Alert,
   Platform,
   FlatList,
+  Image,
 } from "react-native";
 import { GooglePlacesAutocomplete } from "react-native-google-places-autocomplete";
+import * as ImagePicker from "expo-image-picker";
 import { AirbnbRating } from "react-native-ratings";
 import { useDispatch } from "react-redux";
 import { createReview } from "../../Slices/ReviewsSlice";
 import { selectUser } from "../../Slices/UserSlice";
 import { useSelector } from "react-redux";
+import EditPhotosModal from "../Profile/EditPhotosModal";
+import { uploadReviewPhotos } from "../../Slices/PhotosSlice";
 
 const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 
-const WriteReviewModal = ({ visible, onClose }) => {
+const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, setBusiness, setBusinessName, businessName }) => {
   const dispatch = useDispatch();
-  const [business, setBusiness] = useState(null);
-  const [businessName, setBusinessName] = useState("");
   const [rating, setRating] = useState(3);
   const [review, setReview] = useState("");
+  const [selectedPhotos, setSelectedPhotos] = useState([]);
+  const [editPhotosModalVisible, setEditPhotosModalVisible] = useState(false);  
   const user = useSelector(selectUser);
   const userId = user.id;
   const fullName = `${user.firstName} ${user?.lastName}`;
+  const googlePlacesRef = useRef(null);
 
+  useEffect(() => {
+    if (visible && business && googlePlacesRef.current) {
+      googlePlacesRef.current.setAddressText(`${business.name}, ${business.formatted_address}`);
+    }
+  }, [visible, business]);
+
+  const handlePhotoAlbumSelection = async () => {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaType,
+        allowsMultipleSelection: true,
+        quality: 1,
+      });
+    
+      if (!result.canceled) {
+        const files = result.assets.map((asset) => ({
+          uri: asset.uri,
+          name: asset.uri.split("/").pop(),
+          type: asset.type || "image/jpeg",
+          description: "",
+          tags: [],
+        }));
+    
+        setSelectedPhotos(files);
+        setReviewModalVisible(false);
+        setTimeout(() => {
+          setEditPhotosModalVisible(true); // ✅ Open EditPhotosModal
+        }, 300); // Small delay to ensure smooth transition
+      }
+  };
+
+  const handleSavePhotos = (updatedPhotos) => {
+    setSelectedPhotos(updatedPhotos);
+    setEditPhotosModalVisible(false);
+
+    setTimeout(() => {
+      setReviewModalVisible(true);
+    }, 300);
+  };
+
+  // Handle review submission
   const handleSubmit = async () => {
     if (!business || !review || !user) {
       Alert.alert("Error", "Please fill in all fields.");
@@ -37,6 +82,24 @@ const WriteReviewModal = ({ visible, onClose }) => {
     }
 
     try {
+      let uploadedPhotos = [];
+
+      // Upload photos first if user selected them
+      if (selectedPhotos.length > 0) {
+        const uploadResult = await dispatch(
+          uploadReviewPhotos({ placeId: business.place_id, files: selectedPhotos })
+        ).unwrap();
+
+        // Map uploaded photo keys to the correct schema format
+        uploadedPhotos = uploadResult.map((photoKey, index) => ({
+          photoKey,
+          uploadedBy: userId, // Include the user who uploaded it
+          description: selectedPhotos[index].description || "", // User-added description
+          tags: selectedPhotos[index].tags || [], // User-added tags
+        }));
+      }
+
+      // Prepare the review payload
       const payload = {
         placeId: business.place_id,
         businessName: business.name,
@@ -44,14 +107,18 @@ const WriteReviewModal = ({ visible, onClose }) => {
         fullName,
         rating,
         reviewText: review,
+        photos: uploadedPhotos, // Attach full photo objects
       };
 
+      // Submit the review
       await dispatch(createReview(payload)).unwrap();
+
       Alert.alert("Success", "Your review has been submitted!");
       onClose();
       setBusiness(null);
       setRating(3);
       setReview("");
+      setSelectedPhotos([]); // Clear selected photos
     } catch (error) {
       console.error("Error submitting review:", error);
       Alert.alert("Error", error.message || "Failed to submit review.");
@@ -68,11 +135,12 @@ const WriteReviewModal = ({ visible, onClose }) => {
       {/* Google Places Autocomplete */}
       <GooglePlacesAutocomplete
         placeholder="Search for a business"
+        ref={googlePlacesRef}
         fetchDetails={true}
         onPress={(data, details = null) => {
           if (details) {
             setBusiness(details);
-            setBusinessName(details.name);
+            setBusinessName(details?.name);
           }
         }}
         query={{
@@ -107,9 +175,9 @@ const WriteReviewModal = ({ visible, onClose }) => {
       <View style={{ alignSelf: "flex-start" }}>
         <AirbnbRating
           count={5}
-          defaultRating={rating}
+          defaultRating={rating || 3}
           size={20}
-          onFinishRating={setRating}
+          onFinishRating={(newRating = 3) => setRating(newRating)}
           showRating={false}
         />
       </View>
@@ -124,6 +192,30 @@ const WriteReviewModal = ({ visible, onClose }) => {
         multiline
       />
 
+      {/* Selected Photos Preview */}
+      {selectedPhotos.length > 0 && (
+        <View style={styles.photosContainer}>
+          <Text style={styles.optionLabel}>Selected Photos</Text>
+          <FlatList
+            data={selectedPhotos}
+            horizontal
+            keyExtractor={(item, index) => index.toString()}
+            renderItem={({ item }) => (
+              <View style={styles.photoWrapper}>
+                <Image source={{ uri: item.uri }} style={styles.photoPreview} />
+              </View>
+            )}
+          />
+        </View>
+      )}
+
+      <TouchableOpacity
+        style={styles.uploadButton}
+        onPress={handlePhotoAlbumSelection}
+      >
+        <Text style={styles.uploadButtonText}>Add Photos</Text>
+      </TouchableOpacity>
+
       {/* Submit Button */}
       <TouchableOpacity onPress={handleSubmit} style={styles.submitButton}>
         <Text style={styles.submitButtonText}>Submit</Text>
@@ -132,6 +224,7 @@ const WriteReviewModal = ({ visible, onClose }) => {
   );
 
   return (
+    <>
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <KeyboardAvoidingView
@@ -147,6 +240,16 @@ const WriteReviewModal = ({ visible, onClose }) => {
         </KeyboardAvoidingView>
       </View>
     </Modal>
+    {/* Edit photos modal */}
+    <EditPhotosModal
+      visible={editPhotosModalVisible}
+      photos={selectedPhotos}
+      onSave={handleSavePhotos}
+      onClose={() => {
+        setEditPhotosModalVisible(false);
+      }}
+    />
+    </>
   );
 };
 
@@ -218,4 +321,31 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 16,
   },
+  uploadButton: {
+    backgroundColor: "#388E3C",
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  photosContainer: {
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  photoWrapper: {
+    marginRight: 10,
+    borderRadius: 8,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#ccc",
+  },
+  photoPreview: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+  },
+  uploadButtonText: {
+    color: "#fff",
+    fontWeight: "bold",
+  },
+  
 });

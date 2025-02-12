@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { View, Text, Image, StyleSheet, TouchableOpacity, FlatList } from "react-native";
 import { useSelector, useDispatch } from "react-redux";
@@ -6,6 +6,7 @@ import { selectUser } from "../../Slices/UserSlice";
 import SettingsModal from "./SettingsModal";
 import EditProfileModal from "./EditProfileModal";
 import Reviews from "../Reviews/Reviews";
+import Photos from "./Photos";
 import { selectProfilePic, selectBanner, fetchProfilePic, fetchUserBanner } from "../../Slices/PhotosSlice";
 import { selectProfileReviews, fetchReviewsByUserId } from "../../Slices/ReviewsSlice";
 
@@ -18,18 +19,27 @@ export default function UserProfile() {
   const [modalVisible, setModalVisible] = useState(false);
   const [activeSection, setActiveSection] = useState("reviews");
   const [editModalVisible, setEditModalVisible] = useState(false);
+  const [shouldFetch, setShouldFetch] = useState(true);
   
   const bannerPlaceholder = '';
   const userId = user?.id;
   const numberOfFriends = user?.friends?.length;
   
   useEffect(() => {
-    if (userId) {
+    if (userId && shouldFetch) {
       dispatch(fetchProfilePic(userId));
       dispatch(fetchUserBanner(userId));
       dispatch(fetchReviewsByUserId(userId));
+
+      setShouldFetch(false)
     }
   }, [userId, dispatch]);
+
+  const photos = Array.from(
+    new Set(profileReviews.flatMap((review) => review.photos?.map((photo) => photo.url) || []))
+  ).map((url) => ({ url }));
+
+  const data = activeSection === "reviews" ? profileReviews : photos;
 
   return (
     <>
@@ -74,11 +84,12 @@ export default function UserProfile() {
                 <Text style={styles.navButtonText}>Photos</Text>
               </TouchableOpacity>
             </View>
+            {activeSection === "reviews" && <Reviews reviews={profileReviews} />}
+            {activeSection === "photos" && <Photos photos={photos} />}
           </>
         }
-        data={activeSection === "reviews" ? profileReviews : []} 
-        keyExtractor={(item, index) => index.toString()} 
-        renderItem={({ item }) => <Reviews reviews={[item]} />} 
+        data={data} 
+        keyExtractor={(item, index) => index.toString()}   
       />
       <SettingsModal
         visible={modalVisible}

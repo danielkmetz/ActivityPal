@@ -5,6 +5,33 @@ import axios from 'axios';
 // Define your API base URL
 const BASE_URL = `${process.env.EXPO_PUBLIC_SERVER_URL}`;
 
+// Helper function to upload a file to S3 using a presigned URL
+const uploadFileToS3 = async (file, url) => {
+  try {
+    // Fetch the file as a Blob
+    const response = await fetch(file.uri);
+    const blob = await response.blob();
+
+    // Perform the PUT request to upload the binary data
+    const uploadResponse = await fetch(url, {
+      method: "PUT",
+      headers: {
+        "Content-Type": file.type, // Correct MIME type
+      },
+      body: blob, // Upload the raw binary content
+    });
+
+    if (!uploadResponse.ok) {
+      throw new Error(`Failed to upload file. Status: ${uploadResponse.status}`);
+    }
+
+    return true;
+  } catch (error) {
+    console.error("Error uploading file to S3:", error);
+    return false;
+  }
+};
+
 // Thunk to upload a logo
 export const uploadLogo = createAsyncThunk(
   'photos/uploadLogo',
@@ -180,7 +207,44 @@ export const uploadPhotos = createAsyncThunk(
       }
     }
 );
-                    
+
+// Thunk to upload review photos and then fetch presigned URLs
+export const uploadReviewPhotos = createAsyncThunk(
+  "photos/uploadReviewPhotos",
+  async ({ placeId, files }, { rejectWithValue }) => {
+    try {
+      // Step 1: Request pre-signed URLs from the backend
+      const response = await axios.post(`${BASE_URL}/photos/upload/${placeId}`, {
+        files: files.map((file) => ({
+          name: file.name,
+          type: getMimeType(file.name), // Ensure correct MIME type
+        })),
+      });
+
+      const { presignedUrls } = response.data;
+      let uploadedPhotoKeys = [];
+
+      // Step 2: Upload each file to S3
+      await Promise.all(
+        files.map(async (file, index) => {
+          const { url, photoKey } = presignedUrls[index];
+
+          const success = await uploadFileToS3(file, url);
+          if (success) {
+            uploadedPhotoKeys.push(photoKey);
+          }
+        })
+      );
+
+      // Return uploaded photo keys (optional)
+      return uploadedPhotoKeys;
+    } catch (error) {
+      console.error("Error in uploadReviewPhotos thunk:", error);
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
 // Fetch photo URLs for display
 export const fetchPhotos = createAsyncThunk(
     'photos/fetchPhotos',
@@ -192,6 +256,19 @@ export const fetchPhotos = createAsyncThunk(
         return rejectWithValue(error.response?.data || error.message);
       }
     }
+);
+
+// Fetch photo URLs for display
+export const fetchReviewPhotos = createAsyncThunk(
+  'photos/fetchReviewPhotos',
+  async (photoKeys, { rejectWithValue }) => {
+    try {
+      const response = await axios.get(`${BASE_URL}/photos/photos/get-urls`);
+      return response.data.presignedUrls; // Return photo metadata with URLs
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
 );
 
 export const uploadProfilePic = createAsyncThunk(
@@ -346,6 +423,7 @@ const photoSlice = createSlice({
         profilePic: null,
         banner: null,
         otherUserBanner: null,
+        reviewPhotos: null,
         uploadLoading: false,
         fetchLoading: false,
         uploadError: null,
@@ -440,6 +518,18 @@ const photoSlice = createSlice({
                 state.uploadLoading = false;
                 state.uploadError = action.payload;
             })
+            // Upload review Photos
+            .addCase(uploadReviewPhotos.pending, (state) => {
+              state.uploadLoading = true;
+              state.uploadError = null;
+            })
+            .addCase(uploadReviewPhotos.fulfilled, (state, action) => {
+                state.uploadLoading = false;
+            })
+            .addCase(uploadReviewPhotos.rejected, (state, action) => {
+                state.uploadLoading = false;
+                state.uploadError = action.payload;
+            })  
             // Fetch Photos
             .addCase(fetchPhotos.pending, (state) => {
                 state.fetchLoading = true;
@@ -450,6 +540,19 @@ const photoSlice = createSlice({
                 state.album = action.payload;
             })
             .addCase(fetchPhotos.rejected, (state, action) => {
+                state.fetchLoading = false;
+                state.fetchError = action.payload;
+            })
+            // Fetch Photos
+            .addCase(fetchReviewPhotos.pending, (state) => {
+              state.fetchLoading = true;
+              state.fetchError = null;
+            })
+            .addCase(fetchReviewPhotos.fulfilled, (state, action) => {
+                state.fetchLoading = false;
+                state.reviewPhotos = action.payload;
+            })
+            .addCase(fetchReviewPhotos.rejected, (state, action) => {
                 state.fetchLoading = false;
                 state.fetchError = action.payload;
             })

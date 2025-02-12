@@ -5,32 +5,37 @@ import {
   Image,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
   FlatList,
 } from "react-native";
 import { Ionicons, FontAwesome } from "@expo/vector-icons";
 import SettingsModal from "./SettingsModal";
-import { useSelector } from "react-redux";
+import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
 import bannerPlaceholder from '../../assets/pics/business-placeholder.png';
 import logoPlaceholder from '../../assets/pics/logo-placeholder.png';
 import EditProfileModal from "./EditProfileModal";
 import { selectLogo, fetchLogo, selectBanner, fetchBanner, selectAlbum, fetchPhotos } from "../../Slices/PhotosSlice";
-import { useDispatch } from "react-redux";
+import { useRoute, useNavigation } from "@react-navigation/native";
+import Reviews from "../Reviews/Reviews";
 
 export default function BusinessProfile() {
   const dispatch = useDispatch();
+  const navigation = useNavigation();
+  const route = useRoute();
+  const business = route?.params?.business;
+
+  const conditionalSection = business ? "reviews" : "about";
+  const [activeSection, setActiveSection] = useState(conditionalSection);
   const [modalVisible, setModalVisible] = useState(false);
-  const [activeSection, setActiveSection] = useState("about"); // Manage active section
   const [editModalVisible, setEditModalVisible] = useState(false);
-  const user = useSelector(selectUser).businessDetails;
+  const user = business ? business : useSelector(selectUser).businessDetails;
   const logo = useSelector(selectLogo);
   const banner = useSelector(selectBanner);
   const photos = useSelector(selectAlbum);
   const businessName = user?.businessName;
   const placeId = user?.placeId;
-  const likes = 120; // Placeholder for likes
-  const avgRating = 4.2; // Placeholder for average rating
+  const likes = 120; 
+  const avgRating = 4.2; 
   const location = user?.location;
   const phone = user?.phone || "Enter a phone number";
   const description = user?.description || "Enter a description of your business";
@@ -43,151 +48,149 @@ export default function BusinessProfile() {
     }
   }, [placeId]);
 
-  // Helper function to render stars based on the rating
   const renderStars = (rating) => {
     const stars = [];
     for (let i = 1; i <= 5; i++) {
       if (i <= Math.floor(rating)) {
-        // Full star
         stars.push(<Ionicons key={i} name="star" size={20} color="gold" />);
       } else if (i - rating < 1 && rating % 1 !== 0) {
-        // Half star
         stars.push(<Ionicons key={i} name="star-half" size={20} color="gold" />);
       } else {
-        // Empty star
         stars.push(<Ionicons key={i} name="star-outline" size={20} color="gray" />);
       }
     }
     return stars;
   };
 
-  return (
+  const renderHeader = () => (
     <>
-      <ScrollView style={styles.container}>
-        {/* Banner Background */}
-        <Image source={banner ? {uri: banner} : bannerPlaceholder} style={styles.banner} />
-
-        {/* Profile Section */}
-        <View style={styles.profileContainer}>
-
-          {/* Profile Picture */} 
-          <Image 
-            source={logo ? {uri: logo} : logoPlaceholder} 
-            style={styles.profilePicture}
-            resizeMode="contain" 
-          />
-        
-          {/* Business Name and Settings */}
-          <View style={styles.nameSettings}>
-            <Text style={styles.businessName}>{businessName}</Text>
-            <TouchableOpacity
-              style={styles.settingsIcon}
-              onPress={() => setModalVisible(true)}
-            >
-              <Ionicons name="settings-sharp" size={24} color="gray" />
-            </TouchableOpacity>
+      {business && (
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <Ionicons name="chevron-back" size={24} color="gray" />
+        </TouchableOpacity>
+      )}
+      <Image source={banner ? { uri: banner } : bannerPlaceholder} style={styles.banner} />
+      <View style={styles.profileContainer}>
+        <Image source={logo ? { uri: logo } : logoPlaceholder} style={styles.profilePicture} resizeMode="contain" />
+        <View style={styles.nameSettings}>
+          <Text style={styles.businessName}>{businessName}</Text>
+          { !business && 
+          <TouchableOpacity style={styles.settingsIcon} onPress={() => setModalVisible(true)}>
+            <Ionicons name="settings-sharp" size={24} color="gray" />
+          </TouchableOpacity>
+          }
+        </View>
+        <View style={business ? styles.indicatorContainerRestricted : styles.indicatorsContainer}>
+          <View style={styles.indicator}>
+            <Text style={styles.indicatorLabel}>
+              Likes <FontAwesome name="thumbs-up" size={14} color="gray" />
+            </Text>
+            <Text style={styles.indicatorValue}>{likes}</Text>
           </View>
-
-          {/* Indicators */}
-          <View style={styles.indicatorsContainer}>
-            <View style={styles.indicator}>
-              <Text style={styles.indicatorLabel}>
-                Likes{" "}
-                <FontAwesome name="thumbs-up" size={14} color="gray" />
-              </Text>
-              <Text style={styles.indicatorValue}>{likes}</Text>
+          <View style={styles.indicator}>
+            <Text style={styles.indicatorLabel}>Avg Rating</Text>
+            <View style={business ? [styles.starsContainer, { marginLeft: 15 }] : styles.starsContainer}>
+              {renderStars(avgRating)}
             </View>
-            <View style={styles.indicator}>
-              <Text style={styles.indicatorLabel}>Avg Rating</Text>
-              <View style={styles.starsContainer}>{renderStars(avgRating)}</View>
-            </View>
-            {/* Edit Profile Button */}
-            <TouchableOpacity
-              style={styles.editProfileButton}
-              onPress={() => setEditModalVisible(true)}
-            >
+          </View>
+          {!business && (
+            <TouchableOpacity style={styles.editProfileButton} onPress={() => setEditModalVisible(true)}>
               <Ionicons name="pencil" size={20} color="white" />
               <Text style={styles.editProfileButtonText}>Edit Profile</Text>
             </TouchableOpacity>
-          </View>
-
-          {/* Navigation Buttons */}
-          <View style={styles.divider} />
-          <View style={styles.navButtonsContainer}>
-            <TouchableOpacity
-              style={[
-                styles.navButton,
-                activeSection === "about" && styles.activeButton,
-              ]}
-              onPress={() => setActiveSection("about")}
-            >
-              <Text style={styles.navButtonText}>About</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.navButton,
-                activeSection === "photos" && styles.activeButton,
-              ]}
-              onPress={() => setActiveSection("photos")}
-            >
-              <Text style={styles.navButtonText}>Photos</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Render About Section */}
-          {activeSection === "about" && (
-            <View style={styles.aboutContainer}>
-              <Text style={styles.aboutLabel}>Address:</Text>
-              <Text>{location}</Text>
-              <Text style={styles.aboutLabel}>Phone:</Text>
-              <Text>{phone}</Text>
-              <Text style={styles.aboutLabel}>Description:</Text>
-              <Text>{description}</Text>
-            </View>
-          )}
-
-          {/* Render Photos Section */}
-          {activeSection === "photos" && (
-            <FlatList
-              data={photos}
-              keyExtractor={(item) => item.photoKey}
-              numColumns={3}
-              renderItem={({ item }) => (
-                <Image source={{ uri: item.url }} style={styles.photo} />
-              )}
-              contentContainerStyle={styles.photosGrid}
-            />
           )}
         </View>
-      </ScrollView>
+      </View>
+      <View style={styles.divider} />
+      <View style={styles.navButtonsContainer}>
+        {business && (
+          <TouchableOpacity
+            style={[styles.navButton, activeSection === "reviews" && styles.activeButton]}
+            onPress={() => setActiveSection("reviews")}
+          >
+            <Text style={styles.navButtonText}>Reviews</Text>
+          </TouchableOpacity>  
+        )}
+        <TouchableOpacity
+          style={[styles.navButton, activeSection === "about" && styles.activeButton]}
+          onPress={() => setActiveSection("about")}
+        >
+          <Text style={styles.navButtonText}>About</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.navButton, activeSection === "photos" && styles.activeButton]}
+          onPress={() => setActiveSection("photos")}
+        >
+          <Text style={styles.navButtonText}>Photos</Text>
+        </TouchableOpacity>
+      </View>
+      {activeSection === "reviews" && business && (
+        <Reviews reviews={business?.reviews}/>
+      )}
+      {activeSection === "about" && (
+        <View style={styles.aboutContainer}>
+          <Text style={styles.aboutLabel}>Address:</Text>
+          <Text>{location}</Text>
+          <Text style={styles.aboutLabel}>Phone:</Text>
+          <Text>{phone}</Text>
+          <Text style={styles.aboutLabel}>Description:</Text>
+          <Text>{description}</Text>
+        </View>
+      )}
+    </>
+  );
 
-      <SettingsModal
-        visible={modalVisible}
-        onClose={() => setModalVisible(false)}
-      />
-      <EditProfileModal
-        visible={editModalVisible}
-        setEditModalVisible={setEditModalVisible}
-        onClose={() => setEditModalVisible(false)}
-        bannerPlaceholder={bannerPlaceholder}
-        aboutInfo={{
-          address: location,
-          phone,
-          description,
-        }}
-      />
+  return (
+    <>
+    <FlatList
+      style={styles.container}
+      data={activeSection === "photos" ? photos : []}
+      keyExtractor={(item) => item.photoKey}
+      numColumns={3}
+      ListHeaderComponent={renderHeader()}
+      renderItem={({ item }) =>
+        activeSection === "photos" ? <Image source={{ uri: item.url }} style={styles.photo} /> : null
+      }
+      contentContainerStyle={styles.photosGrid}
+      showsVerticalScrollIndicator={false}
+    />
+    <SettingsModal
+      visible={modalVisible}
+      onClose={() => setModalVisible(false)}
+    />
+    <EditProfileModal
+      visible={editModalVisible}
+      setEditModalVisible={setEditModalVisible}
+      onClose={() => setEditModalVisible(false)}
+      bannerPlaceholder={bannerPlaceholder}
+      aboutInfo={{
+        address: location,
+        phone,
+        description,
+      }}
+    />
     </>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f5f5f5",
   },
+  backButton: {
+    position: "absolute",
+    top: 40,
+    left: 20,
+    zIndex: 10,
+    backgroundColor: "rgba(255, 255, 255, 0.8)",
+    borderRadius: 20,
+    padding: 8,
+    marginTop: 20,
+  },
   banner: {
     height: 200,
-    backgroundColor: "#0073e6", // Banner background color
     position: "relative", // To position the settings icon inside the banner
     width: '100%',
   },
@@ -228,6 +231,12 @@ const styles = StyleSheet.create({
     width: "80%", // Adjust width for spacing
     marginLeft: 15,
   },
+  indicatorContainerRestricted: {
+    flexDirection: 'row',
+    marginTop: 10,
+    width: '80%',
+    marginLeft: 15,
+  },
   indicator: {
     flexDirection: "column",
     alignItems: "center",
@@ -256,9 +265,8 @@ const styles = StyleSheet.create({
   },
   navButtonsContainer: {
     flexDirection: "row",
-    justifyContent: "space-around",
     marginVertical: 10,
-    marginLeft: 15,
+    marginLeft: 5,
   },
   navButton: {
     paddingVertical: 10,

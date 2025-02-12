@@ -5,29 +5,28 @@ const User = require('../models/User');
 const mongoose = require('mongoose');
 const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
 
-// Add a new review to a business
 router.post('/:placeId', async (req, res) => {
-    const { placeId } = req.params;
-    const { userId, rating, reviewText, businessName, location, fullName } = req.body;
-    const date = Date.now;
+  const { placeId } = req.params;
+  const { userId, rating, reviewText, businessName, location, fullName, photos } = req.body; // photos = array of {photoKey, description, tags}
+  const date = Date.now();
 
-    try {
+  try {
       // Check if the business exists in the database
       let business = await Business.findOne({ placeId });
-  
+
       // If the business does not exist, create a minimal profile
       if (!business) {
-        business = new Business({
-          placeId,
-          businessName: businessName || "Unknown Business",
-          location: location || "Unknown Location",
-          firstName: "N/A", // Placeholder since no account is created
-          lastName: "N/A",  // Placeholder since no account is created
-          email: "N/A",     // Placeholder since no account is created
-          password: "N/A",  // Placeholder since no account is created
-          events: [],       // Empty array since no events exist
-          reviews: [],      // Empty array to start with
-        });
+          business = new Business({
+              placeId,
+              businessName: businessName || "Unknown Business",
+              location: location || "Unknown Location",
+              firstName: "N/A",
+              lastName: "N/A",
+              email: "N/A",
+              password: "N/A",
+              events: [],
+              reviews: [],
+          });
       }
 
       // Fetch user profile picture
@@ -36,43 +35,62 @@ router.post('/:placeId', async (req, res) => {
       let profilePicUrl = null;
 
       if (user?.profilePic?.photoKey) {
-        profilePic = user.profilePic;
-        profilePicUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+          profilePic = user.profilePic;
+          profilePicUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
       }
-  
-      // Create a new review object
+
+      // Convert `photos` array into `PhotoSchema` format and generate presigned URLs
+      const photoObjects = await Promise.all(
+          photos.map(async (photo) => {
+              const downloadUrl = await generateDownloadPresignedUrl(photo.photoKey);
+              return {
+                  photoKey: photo.photoKey,
+                  uploadedBy: userId,
+                  description: photo.description || null,
+                  tags: photo.tags || [],
+                  uploadDate: new Date(),
+                  url: downloadUrl, // Attach the pre-signed URL for fetching
+              };
+          })
+      );
+
+      // Create a new review object with photos
       const newReview = {
-        userId,
-        fullName,
-        rating,
-        reviewText,
+          userId,
+          fullName,
+          rating,
+          reviewText,
+          photos: photoObjects, // Attach processed photos with URLs to the review
+          date,
       };
 
-      const reviewResponse = {
-        placeId,
-        userId,
-        fullName,
-        rating,
-        reviewText,
-        businessName,
-        profilePic,
-        profilePicUrl,
-        date,
-      }
-  
       // Add the review to the business's reviews array
       business.reviews.push(newReview);
-  
+
       // Save the updated business document
       await business.save();
-  
-      res.status(201).json({ message: 'Review added successfully', review: reviewResponse});
-    } catch (error) {
+
+      // Format response
+      const reviewResponse = {
+          placeId,
+          userId,
+          fullName,
+          rating,
+          reviewText,
+          businessName,
+          profilePic,
+          profilePicUrl,
+          date,
+          photos: photoObjects, // Return saved photos with pre-signed URLs for confirmation
+      };
+
+      res.status(201).json({ message: 'Review added successfully', review: reviewResponse });
+  } catch (error) {
       console.error('Error adding review:', error);
       res.status(500).json({ message: 'Server error' });
-    }
+  }
 });
-  
+
 // Delete a review by its ObjectId
 router.delete('/:placeId/:reviewId', async (req, res) => {
   const { placeId, reviewId } = req.params;

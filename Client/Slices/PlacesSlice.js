@@ -1,8 +1,10 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import haversine from 'haversine-distance';
+import { getUserToken } from "../functions";
 import axios from 'axios';
 
 const apiKey = process.env.EXPO_PUBLIC_GOOGLE_KEY;
+const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
 
 const activityTypeKeywords = {
     Dining: ['restaurant', 'bar'],
@@ -188,20 +190,49 @@ export const fetchEvents = createAsyncThunk(
     }
 );
 
+export const fetchBusinessData = createAsyncThunk(
+    'places/fetchBusinessData',
+    async (placeIds, thunkAPI) => {
+        try {
+            const token = await getUserToken();
+
+            const response = await axios.post(
+                `${BASE_URL}/activities/check-businesses`, // Replace with your actual API URL
+                { placeIds },
+                {
+                    headers: {
+                        Authorization: `Bearer ${token}`, // If authentication is needed
+                    },
+                }
+            );
+
+            return response.data; // Returns an array of businesses found
+        } catch (error) {
+            console.error('Error fetching business data:', error.response?.data || error.message);
+            return thunkAPI.rejectWithValue(error.response?.data || 'Unknown error');
+        }
+    }
+);
+
+
 export const placesSlice = createSlice({
     name: 'places',
     initialState: {
         places: [],
         events: [],
+        businessData: [],
         status: 'idle',
         error: null,
     },
     reducers: {
-        resetPlaces: (state, action) => {
+        resetPlaces: (state) => {
             state.places = [];
         },
-        resetEvents: (state, action) => {
+        resetEvents: (state) => {
             state.events = [];
+        },
+        resetBusinessData: (state) => {
+            state.businessData = [];
         },
     },
     extraReducers: (builder) => {
@@ -228,13 +259,25 @@ export const placesSlice = createSlice({
             state.status = 'failed';
             state.error = action.error.message;
         })
+        .addCase(fetchBusinessData.pending, (state) => {
+            state.status = 'loading';
+        })
+        .addCase(fetchBusinessData.fulfilled, (state, action) => {
+            state.status = 'succeeded';
+            state.businessData = action.payload; // Store businesses in state
+        })
+        .addCase(fetchBusinessData.rejected, (state, action) => {
+            state.status = 'failed';
+            state.error = action.error.message;
+        })
         
     }
 });
 
 export default placesSlice.reducer;
 
-export const {resetPlaces, resetEvents} = placesSlice.actions;
+export const {resetPlaces, resetEvents, resetBusinessData} = placesSlice.actions;
 
 export const selectPlaces = (state) => state.places.places;
 export const selectEvents = (state) => state.places.events;
+export const selectBusinessData = (state) => state.places.businessData;
