@@ -116,6 +116,12 @@ function AppNavigator() {
                     headerShown: false,
                 }}
             />
+
+            <Stack.Screen
+                name="BusinessProfile"
+                component={BusinessProfile}
+                options={{ headerShown: false }}
+            />
         </Stack.Navigator>
     )
 }

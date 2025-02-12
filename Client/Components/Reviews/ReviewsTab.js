@@ -19,7 +19,8 @@ const ReviewsTab = () => {
     const dispatch = useDispatch();
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const user = useSelector(selectUser);
-    
+    const [business, setBusiness] = useState(null);
+    const [businessName, setBusinessName] = useState(null);
     const [modalVisible, setModalVisible] = useState(false);
     
     const userId = user?.id;
@@ -40,7 +41,6 @@ const ReviewsTab = () => {
 
     return (
         <View style={styles.container}>
-          <Text style={styles.title}>Reviews</Text>
           <Reviews reviews={userAndFriendsReviews}/>
           {/* Floating Action Button */}
           <TouchableOpacity style={styles.fab} onPress={openModal}>
@@ -49,7 +49,15 @@ const ReviewsTab = () => {
           </TouchableOpacity>
 
           {/* Write Review Modal */}
-          <WriteReviewModal visible={modalVisible} onClose={closeModal} />
+          <WriteReviewModal 
+            visible={modalVisible} 
+            setReviewModalVisible={setModalVisible} 
+            onClose={closeModal}
+            business={business}
+            setBusiness={setBusiness}
+            businessName={businessName}
+            setBusinessName={setBusinessName} 
+          />
         </View>
     );
 };
@@ -59,7 +67,6 @@ export default ReviewsTab;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 5,
     backgroundColor: "#f5f5f5",
     marginTop: 130,
   },

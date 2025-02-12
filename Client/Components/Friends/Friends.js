@@ -36,7 +36,7 @@ export default function Friends() {
     const otherUserData = useSelector(selectOtherUserData);
     const [activeTab, setActiveTab] = useState('friends'); // Toggle between "friends", "requests", and "search"
     const [searchQuery, setSearchQuery] = useState('');
-    console.log(friendsDetails);
+    
     useEffect(() => {
         if (friends?.length > 0) {
           dispatch(fetchFriendsDetails(friends)); // Populate friends with user details
@@ -108,7 +108,7 @@ export default function Friends() {
             {friends?.length > 0 ? (
                 <FlatList
                     data={friendsDetails}
-                    keyExtractor={(item) => item.id}
+                    keyExtractor={(item) => item._id}
                     renderItem={({ item }) => (
                         <View style={styles.friendContainer}>
                             <View style={styles.picAndName}>

@@ -15,6 +15,7 @@ import {
   getCityStateCountry, 
 } from './Slices/LocationSlice';
 import { loadToken } from './Slices/UserSlice';
+import BusinessProfile from './Components/Profile/BusinessProfile';
 
 const fetchFonts = async () => {
   return await Font.loadAsync({
@@ -53,7 +54,7 @@ function MainApp() {
   return (
     <View style={styles.container}>
       {/* Conditionally render Header based on the current route */}
-      {currentRoute !== "Profile" && currentRoute !== "OtherUserProfile" && (
+      {currentRoute !== "Profile" && currentRoute !== "OtherUserProfile" && currentRoute !== "BusinessProfile"&& (
         <View style={styles.header}>
           <Header />
         </View>

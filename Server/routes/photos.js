@@ -1,5 +1,4 @@
 const express = require('express');
-const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const Business = require('../models/Business'); // Path to your Business model
 const { generatePresignedUrl } = require('../helpers/generatePresignedUrl');
@@ -14,12 +13,6 @@ const findBusiness = async (placeId) => {
     }
     return business;
 };
-
-// Configure Multer for file uploads
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB limit
-});
 
 // Endpoint to generate pre-signed URLs
 router.post('/upload/:placeId', async (req, res) => {
@@ -98,6 +91,34 @@ router.get('/:placeId/all', async (req, res) => {
       console.error('Error fetching photos:', error);
       res.status(500).json({ message: 'Error fetching photos.', error });
     }
+});
+
+router.post('/photos/get-urls', async (req, res) => {
+  const { photoKeys } = req.body; // Expect an array of photoKeys
+
+  if (!photoKeys || !Array.isArray(photoKeys) || photoKeys.length === 0) {
+      return res.status(400).json({ message: 'No photo keys provided.' });
+  }
+
+  try {
+      // Generate presigned URLs for each photoKey
+      const presignedUrls = await Promise.all(
+          photoKeys.map(async (photoKey) => {
+              try {
+                  const url = await generateDownloadPresignedUrl(photoKey);
+                  return { photoKey, url };
+              } catch (error) {
+                  console.error(`Error generating URL for ${photoKey}:`, error);
+                  return { photoKey, error: 'Failed to generate URL' };
+              }
+          })
+      );
+
+      res.status(200).json({ presignedUrls });
+  } catch (error) {
+      console.error('Error generating presigned URLs:', error);
+      res.status(500).json({ message: 'Error generating presigned URLs.', error });
+  }
 });
   
 // Endpoint: Delete a Photo
