@@ -6,6 +6,7 @@ import {
   FlatList,
   TouchableOpacity,
   Image,
+  Dimensions,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { toggleLike } from "../../Slices/ReviewsSlice";
@@ -13,6 +14,8 @@ import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
 import CommentModal from "./CommentModal";
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
+
+const screenWidth = Dimensions.get("window").width;
 
 export default function Reviews({reviews}) {
     const dispatch = useDispatch();
@@ -48,49 +51,75 @@ export default function Reviews({reviews}) {
               console.error('Error toggling like:', error);
           }
     };
-    
+
     return (
         <>
         <FlatList
             data={reviews}
             keyExtractor={(item) => item._id}
+            showsVerticalScrollIndicator={false}
             renderItem={({ item }) => (
                 <View style={styles.reviewCard}>
-                  <View style={styles.userPicAndName}>
-                    <Image source={item.profilePicUrl ? { uri: item.profilePicUrl } : profilePicPlaceholder} style={styles.userPic} />
-                    <Text style={styles.userEmailText}>{item.fullName}</Text>
-                  </View>
-                  <Text style={styles.business}>{item.businessName}</Text>
-                          
-                    {/* Dynamically render stars */}
-                    <View style={styles.rating}>
-                        {Array.from({ length: item.rating }).map((_, index) => (
-                          <MaterialCommunityIcons 
-                            key={index}
-                            name="star" 
-                            size={20} 
-                            color="gold" 
-                          />
-                        ))}
+                    <View style={styles.section}>
+                      <View style={styles.userPicAndName}>
+                        <Image source={item.profilePicUrl ? { uri: item.profilePicUrl } : profilePicPlaceholder} style={styles.userPic} />
+                        <Text style={styles.userEmailText}>{item.fullName}</Text>
+                      </View>
+                      <Text style={styles.business}>{item.businessName}</Text>
+                            
+                      {/* Dynamically render stars */}
+                      <View style={styles.rating}>
+                          {Array.from({ length: item.rating }).map((_, index) => (
+                            <MaterialCommunityIcons 
+                              key={index}
+                              name="star" 
+                              size={20} 
+                              color="gold" 
+                            />
+                          ))}
+                      </View>
+                      <Text style={styles.review}>{item.reviewText}</Text>
+                      <Text style={styles.date}>
+                          Posted: {item.date ? new Date(item.date).toISOString().split("T")[0] : "Now"}
+                      </Text>
                     </View>
-                    <Text style={styles.review}>{item.reviewText}</Text>
-                    <Text style={styles.date}>Posted: {item.date?.split("T")[0] || "Now"}</Text>
-                        <View style={styles.actionsContainer}>
-                            <TouchableOpacity
-                                onPress={() => handleLike(item._id)}
-                                style={styles.likeButton}
-                            >
-                                <MaterialCommunityIcons name="thumb-up-outline" size={20} color="#808080" />
-                                <Text style={styles.likeCount}>{item?.likes?.length || 0}</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                onPress={() => handleOpenComments(item)}
-                                style={styles.commentButton}
-                            >
-                                <MaterialCommunityIcons name="comment-outline" size={20} color="#808080" />
-                                <Text style={styles.commentCount}>{item?.comments?.length || 0}</Text>
-                            </TouchableOpacity>
+                    {/* ✅ Render Photos (If Available) */}
+                    {item.photos?.length > 0 && (
+                        <View>
+                            <FlatList
+                                data={item.photos}
+                                horizontal
+                                pagingEnabled
+                                showsHorizontalScrollIndicator={false}
+                                keyExtractor={(photo, index) => index.toString()}
+                                renderItem={({ item: photo }) => (
+                                    <Image source={{ uri: photo.url }} style={styles.photo} />
+                                )}
+                            />
+                            {/* Dots Indicator */}
+                            <View style={styles.paginationContainer}>
+                                {item.photos.map((_, index) => (
+                                    <View key={index} style={styles.dot} />
+                                ))}
+                            </View>
                         </View>
+                    )}
+                    <View style={styles.actionsContainer}>
+                        <TouchableOpacity
+                            onPress={() => handleLike(item._id)}
+                            style={styles.likeButton}
+                        >
+                            <MaterialCommunityIcons name="thumb-up-outline" size={20} color="#808080" />
+                            <Text style={styles.likeCount}>{item?.likes?.length || 0}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            onPress={() => handleOpenComments(item)}
+                            style={styles.commentButton}
+                        >
+                            <MaterialCommunityIcons name="comment-outline" size={20} color="#808080" />
+                            <Text style={styles.commentCount}>{item?.comments?.length || 0}</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
             )}
         />
@@ -115,6 +144,9 @@ const styles = StyleSheet.create({
       backgroundColor: "#f5f5f5",
       marginTop: 130,
     },
+    section: {
+      padding: 15,
+    },
     title: {
       fontSize: 24,
       fontWeight: "bold",
@@ -122,7 +154,6 @@ const styles = StyleSheet.create({
     },
     reviewCard: {
       backgroundColor: "#fff",
-      padding: 15,
       borderRadius: 5,
       marginBottom: 10,
       elevation: 2,
@@ -230,7 +261,7 @@ const styles = StyleSheet.create({
     },
     actionsContainer: {
         flexDirection: 'row',
-        marginTop: 10,
+        padding: 15,
     },
     commentCount: {
         marginLeft: 5,
@@ -245,6 +276,23 @@ const styles = StyleSheet.create({
       height: 30,
       borderRadius: 15,
       marginRight: 10,
+    },
+    photo: {
+      width: screenWidth , // Full width of review minus padding
+      height: 400, // Larger photo height
+      borderRadius: 8,
+    },
+    paginationContainer: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        marginTop: 5,
+    },
+    dot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: '#ccc',
+        marginHorizontal: 5,
     },
   
 });

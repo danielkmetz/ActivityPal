@@ -6,6 +6,7 @@ import { sendFriendRequest, cancelFriendRequest, acceptFriendRequest, declineFri
 import { selectFriends, selectFriendRequests } from "../../Slices/UserSlice";
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import Reviews from "../Reviews/Reviews";
+import Photos from "./Photos";
 import { fetchOtherUserBanner, resetOtherUserBanner, selectOtherUserBanner } from "../../Slices/PhotosSlice";
 import { fetchReviewsByOtherUserId, selectOtherUserReviews, resetOtherUserReviews } from "../../Slices/ReviewsSlice";
 
@@ -43,6 +44,10 @@ export default function OtherUserProfile({ route, navigation }) {
     dispatch(removeFriend(user._id));
     setDropdownVisible(false);
   };
+
+  const photos = Array.from(
+    new Set(profileReviews.flatMap((review) => review.photos?.map((photo) => photo.url) || []))
+  ).map((url) => ({ url }));
 
   const renderHeader = () => (
     <>
@@ -113,16 +118,17 @@ export default function OtherUserProfile({ route, navigation }) {
           <Text style={styles.navButtonText}>Photos</Text>
         </TouchableOpacity>
       </View>
+      {activeSection === "reviews" && <Reviews reviews={profileReviews} />}
+      {activeSection === "photos" && <Photos photos={photos} />}
     </>
   );
 
   return (
     <FlatList
       style={styles.container}
-      data={activeSection === "reviews" ? profileReviews : []}
       keyExtractor={(item, index) => index.toString()}
       ListHeaderComponent={renderHeader()}
-      renderItem={({ item }) => activeSection === "reviews" && <Reviews reviews={[item]} />}
+      showsVerticalScrollIndicator={false}
     />
   );
 }

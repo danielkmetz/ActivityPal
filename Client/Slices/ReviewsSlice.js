@@ -40,7 +40,7 @@ export const deleteReview = createAsyncThunk(
 // Thunk to create a new review for a business
 export const createReview = createAsyncThunk(
   "reviews/createReview",
-  async ({ placeId, businessName, userId, rating, reviewText, date, fullName}, { rejectWithValue }) => {
+  async ({ placeId, businessName, userId, rating, reviewText, date, fullName, photos}, { rejectWithValue }) => {
     try {
       const response = await axios.post(
         `http://10.0.0.24:5000/api/reviews/${placeId}`,
@@ -51,6 +51,8 @@ export const createReview = createAsyncThunk(
             rating,
             reviewText,
             date,
+            photos,
+            
         }
       );
       return response.data.review; // Return the newly created review
@@ -153,6 +155,15 @@ export const fetchReviewsByUserId = createAsyncThunk(
               uploadDate
             }
             profilePicUrl
+            photos {  # ✅ Added photos field
+              _id
+              photoKey
+              uploadedBy
+              description
+              tags
+              uploadDate
+              url  # ✅ Added pre-signed URL for displaying photos
+            }
           }
         }
       `;
@@ -218,6 +229,15 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
               uploadDate
             }
             profilePicUrl
+            photos {  # ✅ Added photos field
+              _id
+              photoKey
+              uploadedBy
+              description
+              tags
+              uploadDate
+              url  # ✅ Added pre-signed URL for displaying photos
+            }
           }
         }
       `;
@@ -307,7 +327,7 @@ export const fetchReviewsByOtherUserId = createAsyncThunk(
 const reviewsSlice = createSlice({
   name: "reviews",
   initialState: {
-    reviews: [],
+    businessReviews: [],
     localReviews: [],
     profileReviews: [],
     otherUserReviews: [],
@@ -326,6 +346,9 @@ const reviewsSlice = createSlice({
     },
     resetOtherUserReviews: (state) => {
       state.otherUserReviews = [];
+    },
+    resetBusinessReviews: (state) => {
+      state.businessReviews = [];
     },
   },
   extraReducers: (builder) => {
@@ -362,7 +385,7 @@ const reviewsSlice = createSlice({
       })
       .addCase(fetchReviewsByPlaceId.fulfilled, (state, action) => {
         state.loading = "idle";
-        state.reviews = action.payload;
+        state.businessReviews = action.payload;
       })
       .addCase(fetchReviewsByPlaceId.rejected, (state, action) => {
         state.loading = "idle";
@@ -388,7 +411,10 @@ const reviewsSlice = createSlice({
       })
       .addCase(createReview.fulfilled, (state, action) => {
         state.loading = "idle";
-        state.reviews.push(action.payload); // Add the new review
+        // Ensure state.userAndFriendsReviews is initialized
+        if (!Array.isArray(state.userAndFriendsReviews)) {
+          state.userAndFriendsReviews = [];
+        }
         state.userAndFriendsReviews = [action.payload, ...state.userAndFriendsReviews];
       })
       .addCase(createReview.rejected, (state, action) => {
@@ -481,9 +507,10 @@ const reviewsSlice = createSlice({
 
 export default reviewsSlice.reducer;
 
-export const { resetProfileReviews, setLocalReviews, resetOtherUserReviews } = reviewsSlice.actions;
+export const { resetProfileReviews, setLocalReviews, resetOtherUserReviews, resetBusinessReviews } = reviewsSlice.actions;
 
 export const selectProfileReviews = (state) => state.reviews.profileReviews;
+export const selectBusinessReviews = (state) => state.reviews.busienssReviews;
 export const selectOtherUserReviews = (state) => state.reviews.otherUserReviews;
 export const selectLoading = (state) => state.reviews.loading;
 export const selectError = (state) => state.reviews.error;

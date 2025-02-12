@@ -11,7 +11,6 @@ export default function SettingsModal({ visible, onClose }) {
 
     const handleLogout = () => {
         dispatch(logout())
-        dispatch(resetBanner());
         dispatch(resetProfilePicture());
         dispatch(resetLogo());
     }
