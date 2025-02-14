@@ -10,6 +10,7 @@ import BusinessProfile from '../Profile/BusinessProfile';
 import UserProfile from '../Profile/UserProfile';
 import MyEventsPage from '../BusinessEvents/MyEventsPage';
 import ReviewsTab from '../Reviews/ReviewsTab';
+import Notifications from '../Notifications/Notifications'
 import BusinessReviews from '../Reviews/BusinessReviews';
 import Insights from '../Insights/Insights';
 import Friends from '../Friends/Friends';
@@ -46,8 +47,8 @@ function TabNavigator() {
                     } else if (route.name === "My Events") {
                         iconName = 'calendar-multiselect';
                         IconComponent = MaterialCommunityIcons;
-                    } else if (route.name === "Reviews") {
-                        iconName = 'clipboard-edit';
+                    } else if (route.name === "Notifications") {
+                        iconName = 'bell';
                         IconComponent = MaterialCommunityIcons;
                     } else if (route.name === "Insights") {
                         iconName = 'chart-bar';
@@ -68,10 +69,6 @@ function TabNavigator() {
             })}
         >
             
-            {/* Conditional Rendering for Activities */}
-            {!isBusiness && <Tab.Screen name="Home" component={Home} />}
-            {!isBusiness && <Tab.Screen name="Activities" component={ActivityPage} />}
-
             {/* Conditional Rendering Based on Login Status */}
             {user ? (
             // Logged-in User Screens
@@ -87,7 +84,9 @@ function TabNavigator() {
                 ) : (
                 // User-specific Screens
                 <>
-                    <Tab.Screen name="Reviews" component={ReviewsTab} />
+                    <Tab.Screen name="Home" component={Home} />
+                    <Tab.Screen name="Activities" component={ActivityPage} />
+                    <Tab.Screen name="Notifications" component={Notifications} />
                     <Tab.Screen name="Friends"component={Friends} />
                     <Tab.Screen name="Profile" component={UserProfile} />
                 </>
@@ -95,7 +94,10 @@ function TabNavigator() {
             </>
             ) : (
             // Guest Users (Login Screen for Restricted Areas)
-            <Tab.Screen name="Login" component={LoginPage} />
+            <>
+                <Tab.Screen name="Activities" component={ActivityPage} />
+                <Tab.Screen name="Login" component={LoginPage} />
+            </>
             )}
         </Tab.Navigator>
     );

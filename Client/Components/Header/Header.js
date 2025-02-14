@@ -1,14 +1,14 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, Image } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectWeather, selectCoordinates, selectLocation, fetchWeather } from '../../Slices/LocationSlice';
 
-export default function Header() {
+export default function Header({ currentRoute }) {
     const dispatch = useDispatch();
     const coordinates = useSelector(selectCoordinates);
     const weather = useSelector(selectWeather);
     const location = useSelector(selectLocation);
-
+    
     useEffect(() => {
         if (coordinates) {
             dispatch(fetchWeather(coordinates));
@@ -19,32 +19,55 @@ export default function Header() {
     const weatherIcon = weather?.condition?.icon
         ? `https:${weather.condition.icon}` // Add 'https:' to make it a valid URL
         : null;
+    
+    // Determine dynamic title based on the current route
+    const getTitle = () => {
+        switch (currentRoute) {
+            case "Activities":
+                return "Activities";
+            case "Home":
+                return "ActivityPal";
+            case "Friends":
+                return "Your Friends";
+            case "Notifications":
+                return "Notifications";
+            default:
+                return "ActivityPal";
+        }
+    };
+
+    const route = getTitle();
 
     return (
         <View style={styles.header}>
             {/* Location Display */}
-            <View style={styles.locationContainer}>
+            {/* <View style={styles.locationContainer}>
                 <Image
                     source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
                     style={styles.pinIcon}
                 />
                 <Text style={styles.locationText}>{location?.city || "Unknown City"}</Text>
-            </View>
+            </View> */}
 
             {/* Weather Display */}
-            <View style={styles.weatherContainer}>
+            {/* <View style={styles.weatherContainer}>
                 {weatherIcon && (
                     <Image source={{ uri: weatherIcon }} style={styles.weatherIcon} />
                 )}
                 <Text style={styles.weatherText}>
                     {weatherDescription.split(' ')[0]} {/* Display the first word */}
-                </Text>
-            </View>
+                {/* </Text> */}
+            {/* </View>  */}
             
             {/* Title */}
             <View style={styles.headerContent}>
-                <Text style={styles.title}>ActivityPal</Text>
+                <Text style={styles.title}>{route}</Text>
             </View>
+            {
+                route === "Activites" && (
+                    <TouchableOpacity></TouchableOpacity>
+                )
+            }
         </View>
     );
 }
@@ -57,12 +80,12 @@ const styles = StyleSheet.create({
     },
     headerContent: {
         flexDirection: 'row',
-        justifyContent: 'center',
+        //justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 10,
     },
     title: {
-        fontSize: 35,
+        fontSize: 30,
         color: 'black',
         fontWeight: 'bold',
         fontFamily: "Poppins Bold",

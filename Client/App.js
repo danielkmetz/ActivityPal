@@ -1,9 +1,9 @@
 import 'react-native-get-random-values';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, View } from 'react-native';
 import AppNavigator from './Components/Navigator/Navigator';
-import { NavigationContainer, useNavigation } from '@react-navigation/native';
+import { NavigationContainer, useNavigation, useNavigationState } from '@react-navigation/native';
 import { Provider } from 'react-redux';
 import Header from './Components/Header/Header';
 import store from './store';
@@ -27,7 +27,6 @@ const fetchFonts = async () => {
 function MainApp() {
   const dispatch = useDispatch();
   const coordinates = useSelector(selectCoordinates);
-  const [currentRoute, setCurrentRoute] = useState(null);
   const navigation = useNavigation();
 
   useEffect(() => {
@@ -41,22 +40,29 @@ function MainApp() {
     }
   }, [coordinates, dispatch]);
 
-  useEffect(() => {
-    // Add a listener to track the current route name
-    const unsubscribe = navigation.addListener('state', () => {
-      const route = navigation.getCurrentRoute();
-      setCurrentRoute(route.name);
-    });
+  // Get current route name using navigation state
+  const currentRoute = useNavigationState((state) => {
+    if (!state || !state.routes || state.index === undefined) return null;
+    
+    // Get top-level active screen (likely "TabNavigator")
+    const stackRoute = state.routes[state.index];
 
-    return unsubscribe;
-  }, [navigation]);
+    // Check if it's a nested navigator (which is the case here)
+    if (stackRoute.state?.routes) {
+      // Get the active tab screen inside TabNavigator
+      const tabRoute = stackRoute.state.routes[stackRoute.state.index];
+      return tabRoute.name;
+    }
+
+    return stackRoute.name;
+  });
 
   return (
     <View style={styles.container}>
       {/* Conditionally render Header based on the current route */}
       {currentRoute !== "Profile" && currentRoute !== "OtherUserProfile" && currentRoute !== "BusinessProfile"&& (
         <View style={styles.header}>
-          <Header />
+          <Header currentRoute={currentRoute}/>
         </View>
       )}
       <AppNavigator />

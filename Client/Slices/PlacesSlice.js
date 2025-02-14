@@ -281,3 +281,4 @@ export const {resetPlaces, resetEvents, resetBusinessData} = placesSlice.actions
 export const selectPlaces = (state) => state.places.places;
 export const selectEvents = (state) => state.places.events;
 export const selectBusinessData = (state) => state.places.businessData;
+export const selectStatus = (state) => state.places.status;
