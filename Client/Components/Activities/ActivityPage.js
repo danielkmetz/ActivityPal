@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, FlatList, StyleSheet, TouchableOpacity, Text, Image } from 'react-native';
+import { View, FlatList, StyleSheet, TouchableOpacity, Text, Image, ActivityIndicator } from 'react-native';
 import Preferences from '../Preferences/Preferences';
-import { selectEvents, selectPlaces, selectBusinessData, fetchBusinessData } from '../../Slices/PlacesSlice';
+import { selectEvents, selectPlaces, selectBusinessData, fetchBusinessData, selectStatus} from '../../Slices/PlacesSlice';
 import Activities from './Activities';
 import Events from './Events';
 import { useSelector, useDispatch } from 'react-redux';
@@ -15,6 +15,7 @@ import Map from '../Map/Map';
 const ActivityPage = () => {
     const dispatch = useDispatch();
     const [modalVisible, setModalVisible] = useState(false);
+    const status = useSelector(selectStatus);
     const activities = useSelector(selectPlaces);
     const events = useSelector(selectEvents);
     const eventType = useSelector(selectEventType);
@@ -23,7 +24,7 @@ const ActivityPage = () => {
     const placeIds = activities?.map(activity => activity.place_id);
 
     useEffect(() => {
-        if (placeIds.length > 0 ) {
+        if (placeIds.length > 0) {
             dispatch(fetchBusinessData(placeIds));
         }
     }, [dispatch, JSON.stringify(placeIds)]);
@@ -32,71 +33,37 @@ const ActivityPage = () => {
     const mergedActivities = useMemo(() => {
         return activities.map(activity => {
             const business = businessData.find(biz => biz.placeId === activity.place_id);
-            return business 
-                ? { ...activity, events: business.events || [], business } 
+            return business
+                ? { ...activity, events: business.events || [], business }
                 : { ...activity, events: [] };
         });
     }, [activities, businessData]);
-    
-    //Places with special events to the top of the list
+
+    // Places with special events appear at the top
     const sortedActivities = useMemo(() => {
         return [...mergedActivities].sort((a, b) => {
             const aHasEvent = a.events.length > 0;
             const bHasEvent = b.events.length > 0;
-    
-            if (aHasEvent && !bHasEvent) return -1; // Place events at the top
-            if (!aHasEvent && bHasEvent) return 1;
-            return 0; // Keep original order otherwise
+            return aHasEvent && !bHasEvent ? -1 : !aHasEvent && bHasEvent ? 1 : 0;
         });
     }, [mergedActivities]);
 
-    const handleOpenPreferences = () => {
-        setModalVisible(true);
-    };
+    const handleOpenPreferences = () => setModalVisible(true);
 
     // Determine data and loading state based on eventType
     const data = eventType !== "Event" ? sortedActivities : events;
-    const isLoading = data?.length === 0;
 
     return (
         <View style={styles.container}>
-            <TouchableOpacity onPress={handleOpenPreferences} style={styles.imageContainer}>
-                <Image 
-                    source={homeImage} 
-                    style={styles.image} 
-                />
-                <Text style={styles.imageText}>Find what fits my vibe</Text>
-            </TouchableOpacity>
-            
-            {/* Quick Filter Icons */}
-            <View style={styles.filterContainer}>
-                <View style={styles.filterItem}>
-                    <Text style={styles.filterText}>Date Night</Text>
-                    <Image source={heart} style={styles.filterIcon} />
+            {status === "loading" ? (
+                // Show loading indicator while fetching data
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color="#2196F3" />
                 </View>
-                <View style={styles.filterItem}>
-                    <Text style={styles.filterText}>Drinks & Dining</Text>
-                    <Image source={tableware} style={styles.filterIcon} />
-                </View>
-                <View style={styles.filterItem}>
-                    <Text style={styles.filterText}>Events</Text>
-                    <Image source={tickets} style={styles.filterIcon} />
-                </View>
-            </View>
-            
-            <Map />
-                        
-            {/* Preferences Modal */}
-            <Preferences
-                visible={modalVisible}
-                onClose={() => setModalVisible(false)}
-            />
-
-            
-            {isLoading ? (
-                null
             ) : (
-                <FlatList
+                <>
+                {events.length > 0 || activities.length > 0 ? (
+                    <FlatList
                     data={data}
                     keyExtractor={(item) => item.id || item.reference || String(Math.random())}
                     renderItem={({ item }) =>
@@ -109,15 +76,44 @@ const ActivityPage = () => {
                     contentContainerStyle={styles.list}
                     showsVerticalScrollIndicator={false}
                 />
-            )}
+                ) : (
+                <>
+                    {/* Quick Filter Icons */}
+                    <View style={styles.filterContainer}>
+                        <View style={styles.filterItem}>
+                            <Text style={styles.filterText}>Date Night</Text>
+                            <Image source={heart} style={styles.filterIcon} />
+                        </View>
+                        <View style={styles.filterItem}>
+                            <Text style={styles.filterText}>Drinks & Dining</Text>
+                            <Image source={tableware} style={styles.filterIcon} />
+                        </View>
+                        <View style={styles.filterItem}>
+                            <Text style={styles.filterText}>Events</Text>
+                            <Image source={tickets} style={styles.filterIcon} />
+                        </View>
+                    </View>
 
-            {/* Floating Change Preferences Button */}
-            <TouchableOpacity
-                onPress={handleOpenPreferences}
-                style={styles.floatingButton}
-            >
-                <Text style={styles.floatingButtonText}>Preferences</Text>
-            </TouchableOpacity>
+            
+                </>     
+                )
+                }
+
+                {/* Floating Change Preferences Button */}
+                <TouchableOpacity
+                    onPress={handleOpenPreferences}
+                    style={styles.floatingButton}
+                >
+                    <Text style={styles.floatingButtonText}>Preferences</Text>
+                </TouchableOpacity>
+
+                {/* Preferences Modal */}
+                <Preferences
+                    visible={modalVisible}
+                    onClose={() => setModalVisible(false)}
+                />
+                </>
+            )}
         </View>
     );
 };
@@ -129,22 +125,15 @@ const styles = StyleSheet.create({
         flex: 1,
         padding: 16,
         backgroundColor: '#f5f5f5',
-        //marginTop: 120,
+        marginTop: 125,
     },
-    title: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        textAlign: 'center',
-        marginVertical: 10,
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     list: {
         paddingBottom: 20,
-    },
-    placeholderText: {
-        textAlign: 'center',
-        fontSize: 16,
-        color: '#888',
-        marginTop: 20,
     },
     floatingButton: {
         position: 'absolute',
@@ -154,11 +143,11 @@ const styles = StyleSheet.create({
         paddingVertical: 12,
         paddingHorizontal: 20,
         borderRadius: 25,
-        elevation: 5, // Adds shadow on Android
+        elevation: 5,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.3,
-        shadowRadius: 2, // Adds shadow on iOS
+        shadowRadius: 2,
     },
     floatingButtonText: {
         color: 'white',
@@ -173,7 +162,6 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
         justifyContent: 'center',
         alignItems: 'center',
-        marginTop: 140,
     },
     image: {
         width: '100%',
