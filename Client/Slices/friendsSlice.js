@@ -20,7 +20,7 @@ export const sendFriendRequest = createAsyncThunk(
                 },
             }
         );
-        return response.data; // Assuming API returns a success message
+        return { recipientId }; // Assuming API returns a success message
       } catch (error) {
         return rejectWithValue(error.response.data);
       }
@@ -44,7 +44,7 @@ export const cancelFriendRequest = createAsyncThunk(
         );
         return { recipientId }; // Return recipientId to update state
       } catch (error) {
-        return rejectWithValue(error.response?.data || 'An error occurred');
+        return rejectWithValue(error.response?.data || 'An error occurred')
       }
     }
 );
@@ -158,7 +158,12 @@ const friendsSlice = createSlice({
     extraReducers: (builder) => {
       builder
         .addCase(sendFriendRequest.fulfilled, (state, action) => {
-          state.friendRequests.sent.push(action.meta.arg); // Add recipientId to sent requests
+          console.log("Action payload:", action.payload); // Debugging log
+          if (action.payload?.recipientId) {
+            state.friendRequests.sent = [...state.friendRequests.sent, action.payload.recipientId];
+          }
+
+          console.log("Updated friendRequests.sent:", state.friendRequests.sent)
         })
         .addCase(acceptFriendRequest.fulfilled, (state, action) => {
           // Add to friends and remove from received requests
@@ -190,7 +195,7 @@ const friendsSlice = createSlice({
             state.error = action.payload;
         })
         .addCase(cancelFriendRequest.fulfilled, (state, action) => {
-            const { recipientId } = action.payload;
+            const recipientId = action.payload.recipientId.toString();
         
             // Ensure all IDs are strings for comparison
             state.friendRequests.sent = state.friendRequests.sent.filter(

@@ -9,7 +9,6 @@ import LoginPage from '../Login/Login';
 import BusinessProfile from '../Profile/BusinessProfile';
 import UserProfile from '../Profile/UserProfile';
 import MyEventsPage from '../BusinessEvents/MyEventsPage';
-import ReviewsTab from '../Reviews/ReviewsTab';
 import Notifications from '../Notifications/Notifications'
 import BusinessReviews from '../Reviews/BusinessReviews';
 import Insights from '../Insights/Insights';
@@ -27,6 +26,7 @@ function TabNavigator() {
 
     return (
         <Tab.Navigator
+            initialRouteName={user ? (isBusiness ? "Reviews" : "Home") : "Activities"}
             screenOptions={({ route }) => ({
                 tabBarIcon: ({ color, size }) => {
                     let iconName;
@@ -55,6 +55,9 @@ function TabNavigator() {
                         IconComponent = MaterialCommunityIcons;
                     } else if (route.name === "Friends") {
                         iconName = 'account-multiple';
+                        IconComponent = MaterialCommunityIcons;
+                    } else if (route.name === "Reviews") {
+                        iconName = 'clipboard';
                         IconComponent = MaterialCommunityIcons;
                     } 
 

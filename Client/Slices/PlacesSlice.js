@@ -14,11 +14,25 @@ const activityTypeKeywords = {
     // Add other categories as needed
 };
 
+const quickFilters = {
+    dateNight: ['restaurant', 'bar', 'top golf', 'bowling', 'movie theater'],
+    drinksAndDining: ['restaurant', 'bar', 'cafe', 'brewery', 'winery', 'cocktail bar'],
+    outdoor: ['park', 'hiking', 'beach', 'outdoor dining', 'lake', 'campground', 'botanical garden'],
+    movieNight: ['movie theater', 'drive-in theater', 'indoor theater', 'cinema', 'IMAX'],
+    budgetFriendly: ['park', 'museum', 'free activities', 'library', 'public events', 'coffee shop'],
+    gaming: ['arcade', 'esports arena', 'bowling', 'billiards', 'mini golf', 'escape room', 'laser tag'],
+    artAndCulture: ['museum', 'art gallery', 'theater', 'historical site', 'live performance', 'concert venue'],
+    familyFun: ['amusement park', 'zoo', 'aquarium', 'trampoline park', 'family entertainment center', 'science museum'],
+    petFriendly: ['dog park', 'pet-friendly restaurant', 'hiking trails', 'beach', 'outdoor cafe',],
+    liveMusic: ['live music venue', 'concert hall', 'jazz club', 'music festival', 'karaoke bar', 'rooftop bar with live music', 'patio', 'outdoor seating'],
+    whatsClose: ['establishment', 'entertainment'],
+};
+
 export const fetchNearbyPlaces = createAsyncThunk(
     'places/fetchNearbyPlaces',
     async ({ lat, lng, radius, budget, activityType }) => {
         try {
-            const keywords = activityTypeKeywords[activityType] || [];
+            const keywords = quickFilters[activityType] || [];
 
             // Define a function to filter and format place results
             const filterAndFormatPlaces = (places) => {
@@ -87,9 +101,6 @@ export const fetchNearbyPlaces = createAsyncThunk(
         }
     }
 );
-
-// Google Time Zone API URL
-const TIMEZONE_API_URL = 'https://maps.googleapis.com/maps/api/timezone/json';
 
 export const fetchEvents = createAsyncThunk(
     'places/fetchEvents',

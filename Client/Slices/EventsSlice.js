@@ -1,12 +1,14 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import axios from "axios";
 
+const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
+
 // Thunk for fetching events
 export const fetchEvents = createAsyncThunk(
     "events/fetchEvents",
     async (placeId, { rejectWithValue }) => {
       try {
-        const response = await axios.get(`http://10.0.0.24:5000/api/business/events/${placeId}`);
+        const response = await axios.get(`${BASE_URL}/business/events/${placeId}`);
         return response.data.events; // Return the events array on success
       } catch (error) {
         const errorMessage =
@@ -21,7 +23,7 @@ export const createEvent = createAsyncThunk(
     "events/createEvent",
     async ({ placeId, title, date, description }, { rejectWithValue }) => {
       try {
-        const response = await axios.post(`http://10.0.0.24:5000/api/business/events/${placeId}`, {
+        const response = await axios.post(`${BASE_URL}/business/events/${placeId}`, {
           title,
           date,
           description,
@@ -41,7 +43,7 @@ export const editEvent = createAsyncThunk(
     async ({ placeId, eventId, title, date, description }, { rejectWithValue }) => {
       try {
         const response = await axios.put(
-          `http://10.0.0.24:5000/api/business/events/${placeId}/${eventId}`,
+          `${BASE_URL}business/events/${placeId}/${eventId}`,
           {
             title,
             date,
@@ -63,7 +65,7 @@ export const deleteEvent = createAsyncThunk(
     "events/deleteEvent",
     async ({ placeId, eventId }, { rejectWithValue }) => {
       try {
-        const response = await axios.delete(`http://10.0.0.24:5000/api/business/events/${placeId}/${eventId}`);
+        const response = await axios.delete(`${BASE_URL}/business/events/${placeId}/${eventId}`);
         return response.data.events; // Return the updated events list
       } catch (error) {
         const errorMessage =

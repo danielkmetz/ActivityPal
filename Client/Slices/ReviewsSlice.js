@@ -1,7 +1,8 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import axios from "axios";
 
-const GRAPHQL_ENDPOINT = "http://10.0.0.24:5000/api/graphql";
+const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
+const GRAPHQL_ENDPOINT = `${BASE_URL}/graphql`;
 
 // Thunk to retrieve reviews by placeId
 export const fetchReviewsByPlaceId = createAsyncThunk(
@@ -9,7 +10,7 @@ export const fetchReviewsByPlaceId = createAsyncThunk(
   async (placeId, { rejectWithValue }) => {
     try {
       const response = await axios.get(
-        `http://10.0.0.24:5000/api/reviews/${placeId}`
+        `${BASE_URL}/reviews/${placeId}`
       );
       return response.data.reviews; // Return the reviews array
     } catch (error) {
@@ -26,7 +27,7 @@ export const deleteReview = createAsyncThunk(
   async ({ placeId, reviewId }, { rejectWithValue }) => {
     try {
       const response = await axios.delete(
-        `http://10.0.0.24:5000/api/reviews/${placeId}/${reviewId}`
+        `${BASE_URL}/reviews/${placeId}/${reviewId}`
       );
       return response.data.reviews; // Return the updated reviews list
     } catch (error) {
@@ -43,7 +44,7 @@ export const createReview = createAsyncThunk(
   async ({ placeId, businessName, userId, rating, reviewText, date, fullName, photos}, { rejectWithValue }) => {
     try {
       const response = await axios.post(
-        `http://10.0.0.24:5000/api/reviews/${placeId}`,
+        `${BASE_URL}/reviews/${placeId}`,
         {
             businessName,
             fullName,
@@ -69,7 +70,7 @@ export const toggleLike = createAsyncThunk(
     async ({ placeId, reviewId, userId, fullName }, { rejectWithValue }) => {
       try {
         const response = await axios.post(
-          `http://10.0.0.24:5000/api/reviews/${placeId}/${reviewId}/like`,
+          `${BASE_URL}/reviews/${placeId}/${reviewId}/like`,
           { userId, fullName }
         );
         console.log(`Likes count for review ${reviewId}:`, response.data.likes.length);
@@ -81,36 +82,67 @@ export const toggleLike = createAsyncThunk(
 );
 
 export const addComment = createAsyncThunk(
-    'reviews/addComment',
-    async ({ placeId, reviewId, userId, fullName, commentText }, { rejectWithValue }) => {
+  'reviews/addComment',
+  async ({ placeId, reviewId, userId, fullName, commentText }, { rejectWithValue }) => {
       try {
-        const response = await axios.post(
-          `http://10.0.0.24:5000/api/reviews/${placeId}/${reviewId}/comment`,
-          { userId, commentText, fullName }
-        );
-        return { reviewId, comments: response.data.comments };
+          console.log("📤 Sending API request to add comment...", {
+              placeId,
+              reviewId,
+              userId,
+              fullName,
+              commentText
+          });
+
+          const response = await axios.post(
+              `${BASE_URL}/reviews/${placeId}/${reviewId}/comment`,
+              { userId, commentText, fullName }
+          );
+
+          console.log("✅ API Response:", response.data);
+
+          // ✅ Ensure we are correctly extracting the comment object
+          if (!response.data.comment || !response.data.comment._id) {
+              console.log("❌ API did not return a valid comment:", response.data);
+              return rejectWithValue("Failed to add comment");
+          }
+
+          return {
+              reviewId,
+              commentId: response.data.comment._id, // ✅ Correctly extracting the commentId
+              comments: [response.data.comment], // ✅ Wrap in an array to prevent reducer errors
+          };
       } catch (error) {
-        return rejectWithValue(error.response?.data?.message || 'Failed to add comment');
+          console.error("🚨 Error in addComment thunk:", error.response?.data || error.message);
+          return rejectWithValue(error.response?.data?.message || 'Failed to add comment');
       }
-    }
+  }
 );
 
 // Add a reply to a specific comment
 export const addReply = createAsyncThunk(
-    'reviews/addReply',
-    async ({ placeId, reviewId, commentId, userId, fullName, commentText }, { rejectWithValue }) => {
-        try {
-            const response = await axios.post(
-                `http://10.0.0.24:5000/api/reviews/${placeId}/${reviewId}/${commentId}/reply`,
-                { userId, fullName, commentText }
-            );
-            console.log('Backend response:', response.data);
-            return { reviewId, commentId, replies: response.data.replies };
-        } catch (error) {
-            console.error('Error in thunk:', error.response?.data || error.message);
-            return rejectWithValue(error.response?.data || 'Error adding reply');
-        }
-    }
+  'reviews/addReply',
+  async ({ placeId, reviewId, commentId, userId, fullName, commentText }, { rejectWithValue }) => {
+      try {
+          const response = await axios.post(
+              `${BASE_URL}/reviews/${placeId}/${reviewId}/${commentId}/reply`,
+              { userId, fullName, commentText }
+          );
+
+          if (!response.data.reply || !response.data.reply._id) {
+              return rejectWithValue("Failed to add reply");
+          }
+
+          return {
+              reviewId,
+              commentId,
+              replyId: response.data.reply._id, 
+              replies: [response.data.reply], 
+              userId: response.data.parentCommentOwner, 
+          };
+      } catch (error) {
+          return rejectWithValue(error.response?.data || 'Error adding reply');
+      }
+  }
 );
 
 export const fetchReviewsByUserId = createAsyncThunk(
@@ -186,7 +218,6 @@ export const fetchReviewsByUserId = createAsyncThunk(
   }
 )
 
-// ✅ GraphQL Thunk to Fetch User & Friends Reviews
 export const fetchReviewsByUserAndFriends = createAsyncThunk(
   "reviews/fetchByUserAndFriends",
   async (userId, { rejectWithValue }) => {
@@ -212,12 +243,104 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
               userId
               fullName
               date
-              replies {
+              replies {  
                 _id
                 commentText
                 userId
                 fullName
                 date
+                replies {  
+                  _id
+                  commentText
+                  userId
+                  fullName
+                  date
+                  replies {  
+                    _id
+                    commentText
+                    userId
+                    fullName
+                    date
+                    replies {  
+                      _id
+                      commentText
+                      userId
+                      fullName
+                      date
+                      replies {  
+                        _id
+                        commentText
+                        userId
+                        fullName
+                        date
+                        replies {  
+                          _id
+                          commentText
+                          userId
+                          fullName
+                          date
+                          replies {  
+                            _id
+                            commentText
+                            userId
+                            fullName
+                            date
+                            replies {  
+                              _id
+                              commentText
+                              userId
+                              fullName
+                              date
+                              replies {  
+                                _id
+                                commentText
+                                userId
+                                fullName
+                                date
+                                replies {  
+                                  _id
+                                  commentText
+                                  userId
+                                  fullName
+                                  date
+                                  replies {  
+                                    _id
+                                    commentText
+                                    userId
+                                    fullName
+                                    date
+                                    replies {  
+                                      _id
+                                      commentText
+                                      userId
+                                      fullName
+                                      date
+                                      replies {  
+                                        _id
+                                        commentText
+                                        userId
+                                        fullName
+                                        date
+                                        replies {  
+                                          _id
+                                          commentText
+                                          userId
+                                          fullName
+                                          date
+                                          
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
               }
             }
             profilePic {
@@ -229,14 +352,14 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
               uploadDate
             }
             profilePicUrl
-            photos {  # ✅ Added photos field
+            photos {  
               _id
               photoKey
               uploadedBy
               description
               tags
               uploadDate
-              url  # ✅ Added pre-signed URL for displaying photos
+              url  
             }
           }
         }
@@ -439,50 +562,63 @@ const reviewsSlice = createSlice({
         );
       })
       .addCase(addComment.fulfilled, (state, action) => {
-        const { reviewId, comments } = action.payload; // Ensure `comments` includes the new comment
-        const otherUserReviews = state.otherUserReviews.find((review) => review._id === reviewId);
-        const reviewUserFriends = state.userAndFriendsReviews.find((review) => review._id === reviewId);
-        const profileReviews = state.profileReviews.find((review) => review._id === reviewId);
-        if (otherUserReviews) {
-            // Push the new comment to the existing comments array
-            otherUserReviews.comments = [...otherUserReviews.comments, ...comments];
-        }
-        if (reviewUserFriends) {
-          // Push the new comment to the existing comments array
-          reviewUserFriends.comments = [...reviewUserFriends.comments, ...comments];
-        }
-        if (profileReviews) {
-          // Push the new comment to the existing comments array
-          profileReviews.comments = [...profileReviews.comments, ...comments];
-        }
+        const { reviewId, comments } = action.payload;
+        
+        const updateComments = (review) => {
+            if (review) {
+                if (!Array.isArray(review.comments)) {
+                    review.comments = []; // ✅ Ensure it's an array
+                }
+                review.comments.push(...comments); // ✅ Safely append the new comment
+            }
+        };
+    
+        updateComments(state.otherUserReviews.find((r) => r._id === reviewId));
+        updateComments(state.userAndFriendsReviews.find((r) => r._id === reviewId));
+        updateComments(state.profileReviews.find((r) => r._id === reviewId));
       })
       .addCase(addReply.pending, (state) => {
         state.loading = true;
       })
       .addCase(addReply.fulfilled, (state, action) => {
         const { reviewId, commentId, replies } = action.payload;
-        const userAndFriendsReviews = state.userAndFriendsReviews.find((r) => r._id === reviewId);
-        const otherUserReviews = state.otherUserReviews.find((r) => r._id === reviewId);
-        const profileReviews = state.profileReviews.find((r) => r._id === reviewId);
-        if (userAndFriendsReviews) {
-          const comment = userAndFriendsReviews.comments.find((c) => c._id === commentId);
-          if (comment) {
-            comment.replies = replies; // Update replies with the latest from the backend
-          }
-        }
-        if (otherUserReviews) {
-          const comment = otherUserReviews.comments.find((c) => c._id === commentId);
-          if (comment) {
-            comment.replies = replies; // Update replies with the latest from the backend
-          }
-        }
-        if (profileReviews) {
-          const comment = profileReviews.comments.find((c) => c._id === commentId);
-          if (comment) {
-            comment.replies = replies; // Update replies with the latest from the backend
-          }
-        }
-        state.loading = false;
+    
+        const updateReplies = (comments) => {
+            return comments.map((comment) => {
+                if (comment._id === commentId) {
+                    return {
+                        ...comment,
+                        replies: [...(comment.replies || []), ...replies], // ✅ Ensure new array reference
+                    };
+                }
+    
+                if (Array.isArray(comment.replies)) {
+                    return {
+                        ...comment,
+                        replies: updateReplies(comment.replies), // ✅ Ensure nested replies update correctly
+                    };
+                }
+    
+                return comment;
+            });
+        };
+    
+        const updateReview = (reviews) => {
+            const reviewIndex = reviews.findIndex((r) => r._id === reviewId);
+            if (reviewIndex !== -1) {
+                const review = reviews[reviewIndex];
+    
+                // ✅ Ensure React re-renders by creating a new object reference
+                reviews[reviewIndex] = {
+                    ...review,
+                    comments: updateReplies(review.comments || []),
+                };
+            }
+        };
+    
+        updateReview(state.userAndFriendsReviews);
+        updateReview(state.otherUserReviews);
+        updateReview(state.profileReviews);
       })
       .addCase(addReply.rejected, (state, action) => {
         state.loading = false;

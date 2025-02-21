@@ -10,7 +10,7 @@ export const loginUser = createAsyncThunk(
     "user/loginUser",
     async ({ email, password, isBusiness }, { rejectWithValue, dispatch }) => {
       try {
-        const response = await axios.post("http://10.0.0.24:5000/api/auth/login", {
+        const response = await axios.post(`${BASE_URL}/auth/login`, {
           email,
           password,
           isBusiness,
@@ -33,7 +33,7 @@ export const registerUser = createAsyncThunk(
   "user/registerUser",
   async ({ email, password, firstName, lastName, isBusiness, placeId, businessName, location }, { rejectWithValue }) => {
     try {
-      const response = await fetch("http://10.0.0.24:5000/api/auth/register", {
+      const response = await fetch(`${BASE_URL}/auth/register`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -56,7 +56,7 @@ export const registerUser = createAsyncThunk(
 
 export const loadToken = createAsyncThunk(
   "user/loadToken",
-  async (_, { rejectWithValue, dispatch }) => {
+  async (_, { rejectWithValue }) => {
     try {
       const token = await AsyncStorage.getItem('authToken');
       if (!token) {
@@ -65,7 +65,7 @@ export const loadToken = createAsyncThunk(
       }
 
       // Validate the token with the backend
-      const response = await axios.get("http://10.0.0.24:5000/api/auth/validate", {
+      const response = await axios.get(`${BASE_URL}/auth/validate`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -89,7 +89,7 @@ export const updateBusinessInfo = createAsyncThunk(
 
       // Make the request to the backend
       const response = await axios.patch(
-        "http://10.0.0.24:5000/api/businessUsers/update",
+        `${BASE_URL}/businessUsers/update`,
         businessInfo,
         {
           headers: {
@@ -131,6 +131,28 @@ export const acceptFriendRequest = createAsyncThunk(
       return rejectWithValue(
         error.response?.data?.message || "Failed to accept friend request"
       );
+    }
+  }
+);
+
+// Send a friend request
+export const sendFriendRequest = createAsyncThunk(
+  'user/sendFriendRequest',
+  async (recipientId, { rejectWithValue }) => {
+    try {
+      const token = await getUserToken();
+
+      const response = await axios.post(`${BASE_URL}/friends/send-friend-request`, 
+          { recipientId },
+          {
+              headers: {
+                  Authorization: `Bearer ${token}`, // Include the token here
+              },
+          }
+      );
+      return { recipientId }; // Assuming API returns a success message
+    } catch (error) {
+      return rejectWithValue(error.response.data);
     }
   }
 );
@@ -366,10 +388,20 @@ const userSlice = createSlice({
         state.friendRequests.received = state.friendRequests.received.filter(
           id => id !== newFriend._id
         );
+
+        state.friendRequestDetails = state.friendRequestDetails.filter(
+          user => user._id !== newFriend._id
+        );
       })
       .addCase(declineFriendRequest.fulfilled, (state, action) => {
+        const senderId = action.payload;
+
         state.friendRequests.received = state.friendRequests.received.filter(
-          (id) => id !== action.payload
+          (id) => id !== senderId
+        );
+
+        state.friendRequestDetails = state.friendRequestDetails.filter(
+          user => user._id !== senderId
         );
       })
       .addCase(removeFriend.fulfilled, (state, action) => {
@@ -400,11 +432,16 @@ const userSlice = createSlice({
       })
       .addCase(fetchFriendRequestsDetails.fulfilled, (state, action) => {
         state.loading = false;
-        state.friendRequestsDetails = action.payload; // Store full details of friend requests
+        state.friendRequestDetails = action.payload; // Store full details of friend requests
       })
       .addCase(fetchFriendRequestsDetails.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload;
+      })
+      .addCase(sendFriendRequest.fulfilled, (state, action) => {
+        if (action.payload?.recipientId) {
+          state.friendRequests.sent = [...state.friendRequests.sent, action.payload.recipientId];
+        }
       })
   },
 });

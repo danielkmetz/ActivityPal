@@ -1,10 +1,229 @@
-import React from 'react';
-import { View } from 'react-native';
+import React, { useEffect } from 'react';
+import {
+    View,
+    Text,
+    FlatList,
+    TouchableOpacity,
+    StyleSheet,
+    Image,
+    Button,
+} from 'react-native';
+import { useDispatch, useSelector } from 'react-redux';
+import { selectUser } from '../../Slices/UserSlice';
+import { selectNotifications, fetchNotifications, markNotificationRead, setNotifications, createNotification } from '../../Slices/NotificationsSlice';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { acceptFriendRequest, declineFriendRequest, selectFriendRequestDetails } from '../../Slices/UserSlice';
+import moment from 'moment';
+import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
+import CommentModal from '../Reviews/CommentModal';
 
 export default function Notifications() {
-    return (
-        <View>
+    const dispatch = useDispatch();
+    const user = useSelector(selectUser);
+    const notifications = useSelector(selectNotifications);
+    const friendRequestDetails = useSelector(selectFriendRequestDetails);
 
+    useEffect(() => {
+        dispatch(fetchNotifications(user.id));
+    }, [dispatch]);
+
+    const handleNotificationPress = (notificationId) => {
+        dispatch(markNotificationRead({ userId: user.id, notificationId }));
+    };
+
+    const handleAcceptRequest = async (senderId) => {
+        try {
+            await dispatch(acceptFriendRequest(senderId));
+            
+            await dispatch(createNotification({
+                userId: senderId,  // The sender of the request gets notified
+                type: 'friendRequestAccepted',
+                message: `${user.firstName} ${user.lastName} accepted your friend request.`,
+                relatedId: user.id, // The ID of the user who accepted the request
+                typeRef: 'User'
+            }));
+    
+            // Filter out the accepted friend request from notifications
+            const updatedNotifications = notifications.filter(
+                (notification) => !(notification.type === 'friendRequest' && notification.relatedId === senderId)
+            );
+    
+            // Dispatch the updated notifications list
+            dispatch(setNotifications(updatedNotifications));    
+        } catch (error) {
+            console.error('Error accepting friend request:', error);
+        }
+    };
+    
+    const handleDeclineRequest = async (senderId) => {
+        try {
+            await dispatch(declineFriendRequest(senderId));
+    
+            // Filter out the declined friend request from notifications
+            const updatedNotifications = notifications.filter(
+                (notification) => !(notification.type === 'friendRequest' && notification.relatedId === senderId)
+            );
+    
+            dispatch(setNotifications(updatedNotifications));
+        } catch (error) {
+            console.error('Error declining friend request:', error);
+        }
+    };
+    
+    const getIcon = (type) => {
+        switch (type) {
+            case 'like':
+                return <MaterialCommunityIcons name="thumb-up-outline" size={24} color="#1877F2" />;
+            case 'comment':
+                return <MaterialCommunityIcons name="comment-outline" size={24} color="#1877F2" />;
+            case 'friendRequest':
+                return <MaterialCommunityIcons name="account-plus-outline" size={24} color="#42B72A" />;
+            case 'event':
+                return <MaterialCommunityIcons name="calendar-star" size={24} color="#F28B24" />;
+            default:
+                return <MaterialCommunityIcons name="bell-outline" size={24} color="#808080" />;
+        }
+    };
+
+    console.log(notifications)
+
+    return (
+        <View style={styles.container}>
+            <FlatList
+                data={[...notifications].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))} // Sort by newest
+                keyExtractor={(item) => item._id}
+                renderItem={({ item }) => {
+                    const sender = friendRequestDetails.find(user => user._id === item.relatedId);
+                    return (
+                        <TouchableOpacity
+                            style={[styles.notificationCard, !item.read && styles.unreadNotification]}
+                            onPress={() => handleNotificationPress(item._id)}
+                        >
+                            {item.type !== 'friendRequest' && (
+                            <View style={styles.iconContainer}>
+                                {getIcon(item.type)}
+                            </View>
+                            )}
+                            <View style={[styles.textContainer, item.type === 'friendRequest' && { marginLeft: 10 }]}>
+                                {item.type === 'friendRequest' && sender ? (
+                                    <View style={styles.friendRequestContainer}>
+                                        <Image
+                                            source={sender.presignedProfileUrl ? { uri: sender.presignedProfileUrl } : profilePicPlaceholder}
+                                            style={styles.profilePic}
+                                        />
+                                        <Text style={styles.message}>{item.message}</Text>
+                                    </View>
+                                ) : (
+                                    <Text style={styles.message}>{item.message}</Text>
+                                )}
+                                <View style={styles.momentContainer}>
+                                    {item.type === 'friendRequest' && (
+                                        <View style={styles.iconContainer}>
+                                            {getIcon(item.type)}
+                                        </View>
+                                    )}
+                                    <Text style={styles.timestamp}>{moment(item.createdAt).fromNow()}</Text>
+                                </View>
+                                {item.type === 'friendRequest' && sender && (
+                                    <View style={styles.buttonGroup}>
+                                        <TouchableOpacity style={styles.acceptButton} onPress={() => handleAcceptRequest(item.relatedId)}>
+                                            <Text style={styles.buttonText}>Accept</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity style={styles.declineButton} onPress={() => handleDeclineRequest(item.relatedId)}>
+                                            <Text style={styles.buttonText}>Decline</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
+                            </View>
+                            {!item.read && <View style={styles.unreadDot} />}
+                        </TouchableOpacity>
+                    );
+                }}
+            />
         </View>
-    )
-};
+    );
+}
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: "#F0F2F5",
+        paddingVertical: 10,
+        marginTop: 120,
+    },
+    notificationCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#fff',
+        padding: 10,
+        marginVertical: 5,
+        borderRadius: 8,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.2,
+        shadowRadius: 2,
+        elevation: 3,
+    },
+    unreadNotification: {
+        backgroundColor: "#E7F3FF",
+    },
+    iconContainer: {
+        marginRight: 10, 
+    },
+    textContainer: {
+        flex: 1,
+    },
+    momentContainer: {
+        flexDirection: 'row'
+    },
+    friendRequestContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 5,
+    },
+    profilePic: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        marginRight: 10,
+    },
+    message: {
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: '#333',
+    },
+    timestamp: {
+        fontSize: 12,
+        color: '#777',
+        marginTop: 2,
+    },
+    unreadDot: {
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+        backgroundColor: "#1877F2",
+        marginLeft: 10,
+    },
+    buttonGroup: {
+        flexDirection: 'row',
+        marginTop: 8,
+    },
+    acceptButton: {
+        backgroundColor: "#007bff",
+        paddingVertical: 5,
+        paddingHorizontal: 10,
+        borderRadius: 5,
+        marginRight: 10,
+    },
+    declineButton: {
+        backgroundColor: "#6c757d",
+        paddingVertical: 5,
+        paddingHorizontal: 10,
+        borderRadius: 5,
+    },
+    buttonText: {
+        color: "#fff",
+        fontSize: 14,
+        fontWeight: 'bold',
+    }
+});

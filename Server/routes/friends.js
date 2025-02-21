@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
+const mongoose = require('mongoose');
 const verifyToken = require('../middleware/verifyToken'); // Import your middleware
 
 // Send Friend Request
@@ -37,7 +38,11 @@ router.post('/send-friend-request', verifyToken, async (req, res) => {
     await sender.save();
     await recipient.save();
 
-    res.status(200).json({ message: 'Friend request sent successfully.' });
+    res.status(200).json({ 
+      message: 'Friend request sent successfully.',
+      recipientId,
+      updatedSentRequests: sender.friendRequests.sent, 
+    });
   } catch (error) {
     console.error('Error sending friend request:', error);
     res.status(500).json({ message: 'Server error.', error });
@@ -52,35 +57,59 @@ router.post('/accept-friend-request', verifyToken, async (req, res) => {
 
     const recipient = await User.findById(recipientId);
     const sender = await User.findById(senderId).select(
-      '_ id firstName lastName email isBusiness friends profilePic'
-    ); // Fetch sender details
+      '_id firstName lastName email isBusiness friends profilePic friendRequests'
+    ); // Fetch sender details with friendRequests
+
+    // Log to check the state of the users before modifying
+    console.log('Recipient:', recipient);
+    console.log('Sender:', sender);
 
     if (!sender) {
       return res.status(404).json({ message: 'Sender user not found.' });
     }
 
-    if (!recipient.friendRequests?.received.includes(senderId)) {
+    if (!recipient.friendRequests || !recipient.friendRequests.received) {
+      console.error(`Recipient's friendRequests.received is undefined:`, recipient.friendRequests);
+      return res.status(400).json({ message: 'Recipient has no friend request data.' });
+    }
+
+    if (!sender.friendRequests || !sender.friendRequests.sent) {
+      console.error(`Sender's friendRequests.sent is undefined:`, sender.friendRequests);
+      return res.status(400).json({ message: 'Sender has no friend request data.' });
+    }
+
+    if (!recipient.friendRequests.received.includes(senderId)) {
       return res.status(400).json({ message: 'No friend request from this user.' });
     }
 
-    // Remove from friendRequests
+    // Proceed with removing the friend request and updating friends list
     recipient.friendRequests.received = recipient.friendRequests.received.filter(
       id => id.toString() !== senderId
     );
+
     sender.friendRequests.sent = sender.friendRequests.sent.filter(
       id => id.toString() !== recipientId
     );
 
-    // Add to friends list
     recipient.friends.push(senderId);
     sender.friends.push(recipientId);
 
     await recipient.save();
     await sender.save();
 
+    // Remove friend request notification
+    await User.findByIdAndUpdate(recipientId, {
+      $pull: {
+        notifications: {
+          type: 'friendRequest',
+          relatedId: new mongoose.Types.ObjectId(senderId),
+        },
+      },
+    });
+
     res.status(200).json({
       message: 'Friend request accepted.',
-      friend: sender, // Return full sender details
+      friend: sender,
     });
   } catch (error) {
     console.error('Error accepting friend request:', error);
@@ -147,6 +176,25 @@ router.delete('/remove-friend/:friendId', verifyToken, async (req, res) => {
     await user.save();
     await friend.save();
 
+    // Check for friend request acceptance notification in both users
+    await User.findByIdAndUpdate(friend, {
+      $pull: {
+        notifications: {
+          type: 'friendRequestAccepted',
+          relatedId: new mongoose.Types.ObjectId(user),
+        },
+      },
+    });
+
+    await User.findByIdAndUpdate(user, {
+      $pull: {
+        notifications: {
+          type: 'friendRequestAccepted',
+          relatedId: new mongoose.Types.ObjectId(friend),
+        },
+      },
+    });
+
     res.status(200).json({ message: 'Friend removed successfully.' });
   } catch (error) {
     console.error('Error removing friend:', error);
@@ -203,6 +251,15 @@ router.post('/cancel-friend-request', verifyToken, async (req, res) => {
   
       await sender.save();
       await recipient.save();
+
+      await User.findByIdAndUpdate(recipientId, {
+        $pull: {
+            notifications: {
+                type: 'friendRequest',
+                relatedId: new mongoose.Types.ObjectId(senderId),
+            }
+        }
+      });
   
       res.status(200).json({ message: 'Friend request canceled.' });
     } catch (error) {

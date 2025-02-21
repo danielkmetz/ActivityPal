@@ -1,7 +1,8 @@
-import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, Image, TouchableOpacity, TextInput } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectWeather, selectCoordinates, selectLocation, fetchWeather } from '../../Slices/LocationSlice';
+import PreferencesModal from '../Preferences/Preferences';
 
 export default function Header({ currentRoute }) {
     const dispatch = useDispatch();
@@ -28,7 +29,7 @@ export default function Header({ currentRoute }) {
             case "Home":
                 return "ActivityPal";
             case "Friends":
-                return "Your Friends";
+                return "Friends";
             case "Notifications":
                 return "Notifications";
             default:
@@ -39,36 +40,34 @@ export default function Header({ currentRoute }) {
     const route = getTitle();
 
     return (
+        <>
         <View style={styles.header}>
-            {/* Location Display */}
-            {/* <View style={styles.locationContainer}>
-                <Image
-                    source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
-                    style={styles.pinIcon}
-                />
-                <Text style={styles.locationText}>{location?.city || "Unknown City"}</Text>
-            </View> */}
-
-            {/* Weather Display */}
-            {/* <View style={styles.weatherContainer}>
-                {weatherIcon && (
-                    <Image source={{ uri: weatherIcon }} style={styles.weatherIcon} />
-                )}
-                <Text style={styles.weatherText}>
-                    {weatherDescription.split(' ')[0]} {/* Display the first word */}
-                {/* </Text> */}
-            {/* </View>  */}
-            
             {/* Title */}
             <View style={styles.headerContent}>
                 <Text style={styles.title}>{route}</Text>
+                <View style={styles.indicators}>
+                {/* Location Display */}
+                <View style={styles.locationContainer}>
+                    <Image
+                        source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
+                        style={styles.pinIcon}
+                    />
+                    <Text style={styles.locationText}>{location?.city || "Unknown City"}</Text>
+                </View>
+
+                {/* Weather Display */}
+                {/* <View style={styles.weatherContainer}>
+                    {weatherIcon && (
+                        <Image source={{ uri: weatherIcon }} style={styles.weatherIcon} />
+                    )}
+                    <Text style={styles.weatherText}>
+                        {weatherDescription.split(' ')[0]}
+                    </Text>
+                </View> */}
+                </View> 
             </View>
-            {
-                route === "Activites" && (
-                    <TouchableOpacity></TouchableOpacity>
-                )
-            }
         </View>
+        </>
     );
 }
 
@@ -80,7 +79,7 @@ const styles = StyleSheet.create({
     },
     headerContent: {
         flexDirection: 'row',
-        //justifyContent: 'center',
+        justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: 10,
     },
@@ -89,36 +88,36 @@ const styles = StyleSheet.create({
         color: 'black',
         fontWeight: 'bold',
         fontFamily: "Poppins Bold",
+        flex: 1,
     },
-    weatherContainer: {
-        position: 'absolute',
-        top: 58,
-        right: 10,
-        flexDirection: 'column',
+    indicators: {
+        flexDirection: 'row',
         alignItems: 'center',
     },
-    weatherIcon: {
-        width: 40,
-        height: 40,
-    },
-    weatherText: {
-        fontSize: 13,
-        color: 'white',
-        fontWeight: 'bold',
-    },
+    // weatherContainer: {
+    //     flexDirection: 'column',
+    //     alignItems: 'center',
+    //     marginLeft: 10,
+    // },
+    // weatherIcon: {
+    //     width: 30,
+    //     height: 30,
+    // },
+    // weatherText: {
+    //     fontSize: 12,
+    //     color: 'white',
+    //     fontWeight: 'bold',
+    // },
     locationContainer: {
-        position: 'absolute',
-        top: 70,
-        left: 10,
         flexDirection: 'column',
         alignItems: 'center',
     },
     pinIcon: {
-        width: 20,
-        height: 20,
+        width: 18,
+        height: 18,
     },
     locationText: {
-        fontSize: 12,
+        fontSize: 11,
         color: 'white',
         fontWeight: 'bold',
         marginTop: 5,

@@ -15,8 +15,9 @@ import {
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg'
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { selectUser } from '../../Slices/UserSlice';
-import { addComment, setLocalReviews, selectLocalReviews, addReply } from '../../Slices/ReviewsSlice';
+import { addComment, addReply } from '../../Slices/ReviewsSlice';
 import { useSelector, useDispatch } from 'react-redux';
+import { createNotification } from '../../Slices/NotificationsSlice';
 import { Avatar } from '@rneui/themed';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -37,9 +38,27 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews }) 
     const userId = user?.id;
     const businessReviews = user?.businessDetails?.reviews || [];
 
-    console.log(replyingTo)
+    useEffect(() => {
+      // Find the updated review in Redux state
+      const updatedReview = reviews.find(r => r._id === review._id);
+  
+      if (updatedReview) {
+          setSelectedReview(updatedReview);
+      }
+    }, [reviews]);
+  
 
-    
+    const findCommentOrReply = (comments, targetId) => {
+      for (const comment of comments) {
+          if (comment._id === targetId) return comment;
+          if (comment.replies && comment.replies.length > 0) {
+              const nestedReply = findCommentOrReply(comment.replies, targetId);
+              if (nestedReply) return nestedReply;
+          }
+      }
+      return null;
+    };
+
     const getTimeSincePosted = (dateString) => {
         return dayjs(dateString).fromNow();
     };
@@ -52,150 +71,151 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews }) 
     };
     
     const onAddComment = async (reviewId, text) => {
-            if (!text) return;
-
-            try {
-                await dispatch(
-                    addComment({
-                        placeId: review.placeId ? review.placeId : userPlaceId,
-                        reviewId,
-                        userId,
-                        fullName,
-                        commentText: text,
-                    })
-                );
-            } catch (error) {
-                console.error('Error adding comment:', error);
-            }
-    };
-    
-    const handleAddComment = async () => {
-        if (!commentText) return;
-
-        // Optimistically update the selected review's comments
-        const updatedReview = {
-        ...review,
-        comments: [...review.comments, { userId: review.userId, commentText, fullName }],
-        };
-
-        setSelectedReview(updatedReview); // Update the selected review in real time
-
-        try {
-        await onAddComment(review._id, commentText); // Save the comment to the backend
-        setCommentText(''); // Clear the input
-
-        // Scroll to the end after adding a comment
-        setTimeout(() => {
-            if (flatListRef.current) {
-            flatListRef.current.scrollToEnd({ animated: true });
-            }
-        }, 100); // Delay to ensure the comment is rendered
-        } catch (error) {
-        console.error('Error adding comment:', error);
-        }
-    };
-
-    const handleAddReply = async () => {
-        if (!commentText || !replyingTo) return;
-
-        // Optimistically update the local state
-        const updatedReview = {
-          ...review,
-          comments: review.comments.map((comment) => {
-            if (comment._id === replyingTo) {
-              return {
-                ...comment,
-                replies: [...comment.replies, { userId, fullName, commentText, date: new Date() }],
-              };
-            }
-            return comment;
-          }),
-        };
-    
-        setSelectedReview(updatedReview);
-    
-        try {
-          await dispatch(
-            addReply({
-              placeId: review.placeId ? review.placeId : userPlaceId,
-              reviewId: review._id,
-              commentId: replyingTo,
-              userId,
-              fullName,
-              commentText,
-            })
+      if (!text) return;
+  
+      try {
+          const response = await dispatch(
+              addComment({
+                  placeId: review.placeId ? review.placeId : userPlaceId,
+                  reviewId,
+                  userId,
+                  fullName,
+                  commentText: text,
+              })
           );
-          setCommentText(''); // Clear the input field
-          setReplyingTo(null); // Reset replying state
-        } catch (error) {
-          console.error('Error adding reply:', error);
-        }
+  
+          if (!response.payload || response.payload === "Failed to add comment") {
+              return null;
+          }
+  
+          return response.payload;
+      } catch (error) {
+          return null;
+      }
     };
+  
+    const handleAddComment = async () => {
+      if (!commentText) return;
+  
+      // Optimistically update the selected review's comments
+      const updatedReview = {
+          ...review,
+          comments: [...review.comments, { userId, fullName, commentText }],
+      };
+  
+      setSelectedReview(updatedReview);
+  
+      try {
+          // Wait for backend to generate `commentId`
+          const newComment = await onAddComment(review._id, commentText);
+          if (!newComment) return;
+  
+          setCommentText(''); // Clear input field
+  
+          // Scroll to end after adding a comment
+          setTimeout(() => {
+              if (flatListRef.current) {
+                  flatListRef.current.scrollToEnd({ animated: true });
+              }
+          }, 100);
+  
+          if (review.userId !== userId && newComment.commentId) {
+              await dispatch(
+                  createNotification({
+                      userId: review.userId,
+                      type: 'comment',
+                      message: `${fullName} commented on your review.`,
+                      relatedId: userId,
+                      typeRef: 'User',
+                      targetId: review._id,
+                      commentId: newComment.commentId,
+                  })
+              );
+          }
+      } catch (error) {}
+    };
+  
+    const handleAddReply = async () => {
+      if (!commentText || !replyingTo) {
+          return;
+      }
+  
+      setSelectedReview(updatedReview);
+  
+      try {
+          const { payload } = await dispatch(
+              addReply({
+                  placeId: review.placeId ? review.placeId : userPlaceId,
+                  reviewId: review._id,
+                  commentId: replyingTo,
+                  userId,
+                  fullName,
+                  commentText,
+              })
+          );
+  
+          if (!payload || !payload.replyId) {
+              return;
+          }
 
+          setCommentText('');
+  
+          // Dispatch notification
+          await dispatch(
+              createNotification({
+                  userId: payload.userId,
+                  type: 'reply',
+                  message: `${fullName} replied to your comment.`,
+                  relatedId: userId,
+                  typeRef: 'User',
+                  targetId: review._id,
+                  commentId: replyingTo,
+                  replyId: payload.replyId,
+              })
+          );
+      } catch (error) {}
+    };
+  
+    //console.log(review.comments);
     const handleAddNestedReply = async (replyId, nestedReplyText) => {
-        if (!nestedReplyText || !replyId) {
-            console.log('Invalid reply ID or text:', replyId, nestedReplyText);
-            return;
-        }
-    
-        const newReply = {
-            _id: Date.now(),
-            userId,
-            fullName,
-            commentText: nestedReplyText,
-            date: new Date(),
-            replies: [],
-        };
-        
-        const addNestedReply = (comments, replyId, newReply) => {
-            return comments.map((comment) => {
-                console.log('Current comment:', JSON.stringify(comment, null, 2));
-                if (comment._id === replyId) {
-                    console.log('Match found, adding reply:', newReply);
-                    return {
-                        ...comment,
-                        replies: [...(comment.replies || []), newReply],
-                    };
-                }
-                return {
-                    ...comment,
-                    replies: addNestedReply(comment.replies || [], replyId, newReply),
-                };
-            });
-        };
-        
-        const updatedReview = {
-            ...review,
-            comments: addNestedReply(review.comments, replyId, newReply),
-        };
-
-        // Automatically expand the parent comment or reply
-        setExpandedReplies((prevState) => ({
-            ...prevState,
-            [replyId]: true, // Expand the parent to show the new reply
-        }));
-
-        setSelectedReview(updatedReview);
-    
-        try {
-            await dispatch(
-                addReply({
-                    placeId: review.placeId ? review.placeId : userPlaceId,
-                    reviewId: review._id,
-                    commentId: replyId,
-                    userId,
-                    fullName,
-                    commentText: nestedReplyText,
-                })
-            );
-        } catch (error) {
-            console.error('Error adding reply:', error);
-        }
-    };  
-    
+      if (!nestedReplyText || !replyId) {
+          return;
+      }
+      console.log(replyId)
+      try {
+          const { payload } = await dispatch(
+              addReply({
+                  placeId: review.placeId ? review.placeId : userPlaceId,
+                  reviewId: review._id,
+                  commentId: replyId, // The parent reply ID
+                  userId,
+                  fullName,
+                  commentText: nestedReplyText,
+              })
+          );
+  
+          if (!payload || !payload.replyId || !payload.userId || payload.userId === userId) {
+              return;
+          }
+          console.log(payload.commentId)
+          await dispatch(
+              createNotification({
+                  userId: payload.userId, // Notify the correct parent reply owner
+                  type: "reply",
+                  message: `${fullName} replied to your comment.`,
+                  relatedId: userId, // The user who replied
+                  typeRef: "User",
+                  targetId: review._id, // The review where the reply was added
+                  commentId: replyId, // The parent comment ID
+                  replyId: payload.replyId, // The generated reply ID
+              })
+          );
+      } catch (error) {}
+    };
+  
     const handleReplyButtonClick = (commentId) => {
-      setReplyingTo(prevState => (prevState === commentId ? null : commentId)); 
-      setCommentText(''); // Clear the text input when switching replies
+      setReplyingTo((prevReplyingTo) => (prevReplyingTo === commentId ? null : commentId));
+      setCommentText(''); // Clear input when switching between replies
     };
   
     useEffect(() => {
@@ -244,6 +264,7 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews }) 
                     ref={flatListRef} // Attach the ref to the FlatList
                     style={styles.comments}
                     data={review.comments || []}
+                    extraData={review.comments}
                     keyExtractor={(item, index) => `${review._id}-${index}`}
                     renderItem={({ item }) => (
                         <View style={styles.commentCard}>
@@ -291,14 +312,19 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews }) 
                                 </View>
                         )}
 
-                        {/* Render replies */}
-                        {expandedReplies[item._id] && item.replies && (
+                        {/* Render replies safely */}
+                        {expandedReplies[item._id] && Array.isArray(item.replies) && item.replies.length > 0 ? (
                             <View style={styles.repliesContainer}>
-                            {item.replies.map((reply) => (
-                                <Reply key={reply._id} reply={reply} onAddReply={handleAddNestedReply} getTimeSincePosted={getTimeSincePosted}/>
-                            ))}
+                                {item.replies.map((reply) => (
+                                    <Reply 
+                                        key={reply._id} 
+                                        reply={reply} 
+                                        onAddReply={handleAddNestedReply} 
+                                        getTimeSincePosted={getTimeSincePosted}
+                                    />
+                                ))}
                             </View>
-                        )}
+                        ) : null}
                         </View>
                     )}
                 />

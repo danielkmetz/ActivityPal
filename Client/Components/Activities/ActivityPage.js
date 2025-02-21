@@ -1,27 +1,45 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, FlatList, StyleSheet, TouchableOpacity, Text, Image, ActivityIndicator } from 'react-native';
-import Preferences from '../Preferences/Preferences';
-import { selectEvents, selectPlaces, selectBusinessData, fetchBusinessData, selectStatus} from '../../Slices/PlacesSlice';
+import { View, FlatList, StyleSheet, TouchableOpacity, Text, Image, ActivityIndicator, } from 'react-native';
+import PreferencesModal from '../Preferences/Preferences';
+import { selectEvents, selectPlaces, selectBusinessData, fetchBusinessData, selectStatus, fetchEvents, fetchNearbyPlaces} from '../../Slices/PlacesSlice';
 import Activities from './Activities';
 import Events from './Events';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectEventType } from '../../Slices/PreferencesSlice';
-import homeImage from '../../assets/pics/home_pic.webp';
-import heart from '../../assets/pics/heart.png';
+import { selectCoordinates } from '../../Slices/LocationSlice';
+import { milesToMeters } from '../../functions';
+import heart from '../../assets/pics/heart2.png';
 import tableware from '../../assets/pics/tableware.webp';
-import tickets from '../../assets/pics/tickets.png'; 
+import tickets from '../../assets/pics/tickets2.png'; 
+import hiking from '../../assets/pics/hiking.png';
+import popcorn from '../../assets/pics/popcorn.png';
+import budgetFriendly from '../../assets/pics/budget-friendly.png';
+import arcade from '../../assets/pics/arcade.png';
+import art from '../../assets/pics/art.png';
+import family from '../../assets/pics/family.png';
+import dog from '../../assets/pics/dog.png';
+import microphone from '../../assets/pics/microphone.png';
+import map from '../../assets/pics/map.png';
 import Map from '../Map/Map';
 
 const ActivityPage = () => {
     const dispatch = useDispatch();
-    const [modalVisible, setModalVisible] = useState(false);
     const status = useSelector(selectStatus);
     const activities = useSelector(selectPlaces);
     const events = useSelector(selectEvents);
     const eventType = useSelector(selectEventType);
     const businessData = useSelector(selectBusinessData);
+    const coordinates = useSelector(selectCoordinates);
+    const [ prefModalVisible, setPrefModalVisible ] = useState(false);
 
     const placeIds = activities?.map(activity => activity.place_id);
+    const lat = coordinates?.lat;
+    const lng = coordinates?.lng;
+    const manualDistance = milesToMeters(10);
+    const closeDistance = milesToMeters(3);
+    const eventDistance = 50;
+    const manualBudget = "$$$$";
+    const lowBudget = "$"
 
     useEffect(() => {
         if (placeIds.length > 0) {
@@ -48,12 +66,43 @@ const ActivityPage = () => {
         });
     }, [mergedActivities]);
 
-    const handleOpenPreferences = () => setModalVisible(true);
-
     // Determine data and loading state based on eventType
     const data = eventType !== "Event" ? sortedActivities : events;
 
+    const handleOpenPreferences = () => setPrefModalVisible(true);
+
+    const handleActivityFetch = (type) => {
+        if (type === "events") {
+            dispatch(fetchEvents({ lat, lng, radius: eventDistance}));
+        } else if (type === "budgetFriendly") {
+            dispatch(fetchNearbyPlaces({ 
+                lat, 
+                lng, 
+                radius: manualDistance, 
+                budget: lowBudget, 
+                activityType: type
+            }))
+        } else if (type === 'whatsClose') {
+            dispatch(fetchNearbyPlaces({
+                lat,
+                lng,
+                radius: closeDistance,
+                budget: manualBudget,
+                activityType: type,
+            }))
+        } else {
+            dispatch(fetchNearbyPlaces({
+                lat,
+                lng,
+                radius: manualDistance,
+                budget: manualBudget,
+                activityType: type,
+            }))
+        }
+    }
+
     return (
+        <>
         <View style={styles.container}>
             {status === "loading" ? (
                 // Show loading indicator while fetching data
@@ -75,46 +124,113 @@ const ActivityPage = () => {
                     }
                     contentContainerStyle={styles.list}
                     showsVerticalScrollIndicator={false}
-                />
+                    />
                 ) : (
                 <>
+                    <Text style={styles.filterTitle}>Quick Filters</Text>
                     {/* Quick Filter Icons */}
                     <View style={styles.filterContainer}>
-                        <View style={styles.filterItem}>
+                        <TouchableOpacity 
+                            style={styles.filterItem}
+                            onPress={() => handleActivityFetch('dateNight')}
+                        >
                             <Text style={styles.filterText}>Date Night</Text>
                             <Image source={heart} style={styles.filterIcon} />
-                        </View>
-                        <View style={styles.filterItem}>
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                            style={styles.filterItem}
+                            onPress={() => handleActivityFetch('dateAndDining')}
+                        >
                             <Text style={styles.filterText}>Drinks & Dining</Text>
                             <Image source={tableware} style={styles.filterIcon} />
-                        </View>
-                        <View style={styles.filterItem}>
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                            style={styles.filterItem}
+                            onPress={() => handleActivityFetch('events')}
+                        >
                             <Text style={styles.filterText}>Events</Text>
                             <Image source={tickets} style={styles.filterIcon} />
-                        </View>
-                    </View>
-
-            
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                            style={styles.filterItem}
+                            onPress={() => handleActivityFetch('outdoor')}
+                        >
+                            <Text style={styles.filterText}>Outdoor</Text>
+                            <Image source={hiking} style={styles.filterIcon} />
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                            style={styles.filterItem}
+                            onPress={() => handleActivityFetch('movieNight')}
+                        >
+                            <Text style={styles.filterText}>Movie Night</Text>
+                            <Image source={popcorn} style={styles.filterIcon} />
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                            style={styles.filterItem}
+                            onPress={() => handleActivityFetch('budgetFriendly')}
+                        >
+                            <Text style={styles.filterText}>Budget Friendly</Text>
+                            <Image source={budgetFriendly} style={styles.filterIcon} />
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                            style={styles.filterItem}
+                            onPress={() => handleActivityFetch('gaming')}
+                        >
+                            <Text style={styles.filterText}>Gaming</Text>
+                            <Image source={arcade} style={styles.filterIcon} />
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                            style={styles.filterItem}
+                            onPress={() => handleActivityFetch('artAndCulture')}
+                        >
+                            <Text style={styles.filterText}>Art & Culture</Text>
+                            <Image source={art} style={styles.filterIcon} />
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                            style={styles.filterItem}
+                            onPress={() => handleActivityFetch('familyFun')}
+                        >
+                            <Text style={styles.filterText}>Family Fun</Text>
+                            <Image source={family} style={styles.filterIcon} />
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                            style={styles.filterItem}
+                            onPress={() => handleActivityFetch('petFriendly')}
+                        >
+                            <Text style={styles.filterText}>Pet Friendly</Text>
+                            <Image source={dog} style={styles.filterIcon} />
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                            style={styles.filterItem}
+                            onPress={() => handleActivityFetch('liveMusic')}
+                        >
+                            <Text style={styles.filterText}>Live Music</Text>
+                            <Image source={microphone} style={styles.filterIcon} />
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                            style={styles.filterItem}
+                            onPress={() => handleActivityFetch('whatsClose')}
+                        >
+                            <Text style={styles.filterText}>What's Close</Text>
+                            <Image source={map} style={styles.filterIcon} />
+                        </TouchableOpacity>
+                    </View>            
                 </>     
-                )
-                }
-
-                {/* Floating Change Preferences Button */}
-                <TouchableOpacity
-                    onPress={handleOpenPreferences}
-                    style={styles.floatingButton}
-                >
-                    <Text style={styles.floatingButtonText}>Preferences</Text>
-                </TouchableOpacity>
-
-                {/* Preferences Modal */}
-                <Preferences
-                    visible={modalVisible}
-                    onClose={() => setModalVisible(false)}
-                />
+                )}
                 </>
             )}
+            <TouchableOpacity
+                onPress={handleOpenPreferences}
+                style={styles.floatingButton}
+            >
+                <Text style={styles.floatingButtonText}>Preferences</Text>
+            </TouchableOpacity>
         </View>
+        <PreferencesModal 
+            visible={prefModalVisible}
+            onClose={() => setPrefModalVisible(false)}
+        />
+        </>
     );
 };
 
@@ -178,6 +294,7 @@ const styles = StyleSheet.create({
     },
     filterContainer: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         justifyContent: 'space-around',
         alignItems: 'center',
         marginBottom: 30,
@@ -186,6 +303,8 @@ const styles = StyleSheet.create({
     },
     filterItem: {
         alignItems: 'center',
+        width: '30%',
+        marginBottom: 15,
     },
     filterIcon: {
         width: 50,
@@ -197,5 +316,12 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         color: 'black',
         marginBottom: 7,
+        textAlign: 'center',
+    },
+    filterTitle: {
+        fontSize: 20,
+        marginLeft: 30,
+        fontFamily: 'Poppins Bold',
+        marginTop : 30,
     },
 });

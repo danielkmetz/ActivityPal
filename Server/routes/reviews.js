@@ -169,117 +169,141 @@ router.get('/:placeId', async (req, res) => {
 
 // Toggle like on a review
 router.post('/:placeId/:reviewId/like', async (req, res) => {
-    const { placeId, reviewId } = req.params;
-    const { userId, fullName } = req.body;
-  
-    try {
+  const { placeId, reviewId } = req.params;
+  const { userId, fullName } = req.body;
+
+  try {
       const business = await Business.findOne({ placeId });
       if (!business) {
-        return res.status(404).json({ message: 'Business not found' });
+          return res.status(404).json({ message: 'Business not found' });
       }
-  
+
       const review = business.reviews.id(reviewId);
       if (!review) {
-        return res.status(404).json({ message: 'Review not found' });
+          return res.status(404).json({ message: 'Review not found' });
       }
-  
-      // Check if the user has already liked the review
-      const likeIndex = review.likes.findIndex((like) => like.userId === userId);
-  
-      if (likeIndex > -1) {
-        // User has already liked the review, so remove the like
-        review.likes.splice(likeIndex, 1);
-      } else {
-        // Add the like
-        review.likes.push({ userId, fullName });
-      }
-  
-      await business.save();
 
-      res.status(200).json({ message: 'Like toggled successfully', likes: review.likes });
-    } catch (error) {
-      console.error('Error toggling like:', error);
+      // Find if the user has already liked the review
+      const likeIndex = review.likes.findIndex((like) => like.userId === userId);
+      const reviewOwnerId = review.userId; // Owner of the review
+
+      if (likeIndex > -1) {
+          // ✅ User already liked → Unlike the review
+          review.likes.splice(likeIndex, 1);
+          await business.save();
+
+          // ✅ Remove the like notification from the review owner's notifications list
+          await User.findByIdAndUpdate(reviewOwnerId, {
+            $pull: { 
+                notifications: { 
+                    type: 'like', 
+                    relatedId: new mongoose.Types.ObjectId(reviewId) // 🔥 Ensure proper ObjectId comparison
+                } 
+            }
+          }, { new: true });
+
+          return res.status(200).json({ message: 'Like removed', likes: review.likes });
+      } else {
+          // ✅ User has not liked → Like the review
+          review.likes.push({ userId, fullName, date: new Date() });
+          await business.save();
+
+          return res.status(200).json({ message: 'Like added', likes: review.likes });
+      }
+  } catch (error) {
+      console.error("Error toggling like:", error);
       res.status(500).json({ message: 'Server error' });
-    }
+  }
 });
 
 // Add a comment to a review
 router.post('/:placeId/:reviewId/comment', async (req, res) => {
-    const { placeId, reviewId } = req.params;
-    const { userId, commentText, fullName } = req.body;
-  
-    try {
+  const { placeId, reviewId } = req.params;
+  const { userId, commentText, fullName } = req.body;
+
+  try {
       const business = await Business.findOne({ placeId });
       if (!business) {
-        return res.status(404).json({ message: 'Business not found' });
+          return res.status(404).json({ message: 'Business not found' });
       }
-  
+
       const review = business.reviews.id(reviewId);
       if (!review) {
-        return res.status(404).json({ message: 'Review not found' });
+          return res.status(404).json({ message: 'Review not found' });
       }
-  
-      // Add the new comment
-      review.comments.push({ userId, commentText, fullName });
-  
+
+      // Create a new comment object
+      const newComment = { userId, commentText, fullName };
+
+      // Add the new comment and get its reference
+      const addedComment = review.comments.create(newComment);
+      review.comments.push(addedComment);
+
       await business.save();
-  
-      res.status(201).json({ message: 'Comment added successfully', comments: review.comments });
-    } catch (error) {
+
+      res.status(201).json({ 
+          message: 'Comment added successfully', 
+          comment: addedComment // Returning the newly created comment
+      });
+  } catch (error) {
       console.error('Error adding comment:', error);
       res.status(500).json({ message: 'Server error' });
-    }
+  }
 });
 
 router.post('/:placeId/:reviewId/:commentId/reply', async (req, res) => {
-    const { placeId, reviewId, commentId } = req.params;
-    const { userId, fullName, commentText } = req.body;
+  const { placeId, reviewId, commentId } = req.params;
+  const { userId, fullName, commentText } = req.body;
 
-    try {
-        const business = await Business.findOne({ placeId });
-        if (!business) return res.status(404).json({ message: 'Business not found' });
+  try {
+      const business = await Business.findOne({ placeId });
+      if (!business) return res.status(404).json({ message: 'Business not found' });
 
-        const review = business.reviews.id(reviewId);
-        if (!review) return res.status(404).json({ message: 'Review not found' });
+      const review = business.reviews.id(reviewId);
+      if (!review) return res.status(404).json({ message: 'Review not found' });
 
-        const findCommentOrReply = (comments = [], targetId) => {
-            for (const comment of comments) {
-                if (comment._id.toString() === targetId) return comment;
-                if (comment.replies && comment.replies.length > 0) {
-                    const nestedReply = findCommentOrReply(comment.replies, targetId);
-                    if (nestedReply) return nestedReply;
-                }
-            }
-            return null;
-        };
+      // Recursive function to find a comment or reply by ID
+      const findCommentOrReply = (comments = [], targetId) => {
+          for (const comment of comments) {
+              if (comment._id.toString() === targetId) return comment;
+              if (comment.replies && comment.replies.length > 0) {
+                  const nestedReply = findCommentOrReply(comment.replies, targetId);
+                  if (nestedReply) return nestedReply;
+              }
+          }
+          return null;
+      };
 
-        const target = findCommentOrReply(review.comments, commentId);
-        if (!target) {
-            console.error('Target not found for ID:', commentId);
-            return res.status(404).json({ message: 'Comment or reply not found' });
-        }
+      // Find the parent comment or reply
+      const target = findCommentOrReply(review.comments, commentId);
+      if (!target) {
+          return res.status(404).json({ message: 'Comment or reply not found' });
+      }
 
-        const newReply = {
-            userId,
-            fullName,
-            commentText,
-            replies: [], // Initialize empty array for nested replies
-        };
+      // Create a new reply with Mongoose's create() method
+      const newReply = {
+        _id: new mongoose.Types.ObjectId(), // ✅ Generate a new ObjectId
+        userId,
+        fullName,
+        commentText,
+        date: new Date(),
+        replies: [], // Initialize empty array for nested replies
+      };
 
-        target.replies.push(newReply);
+      target.replies.push(newReply);
 
-        console.log('New Reply Added:', JSON.stringify(newReply, null, 2));
+      business.markModified('reviews');
+      await business.save();
 
-        business.markModified('reviews');
-        await business.save();
-
-        console.log('Successfully saved business document');
-        res.status(201).json({ message: 'Reply added successfully', replies: target.replies });
-    } catch (error) {
-        console.error('Error adding reply:', error.message, error.stack);
-        res.status(500).json({ message: 'Server error' });
-    }
+      res.status(201).json({ 
+          message: 'Reply added successfully', 
+          reply: newReply, // ✅ Now returning the newly created reply
+          parentCommentOwner: target.userId,
+      });
+  } catch (error) {
+      console.error('Error adding reply:', error.message, error.stack);
+      res.status(500).json({ message: 'Server error' });
+  }
 });
-
   
 module.exports = router;

@@ -22,6 +22,7 @@ const Reply = ({ reply, onAddReply, getTimeSincePosted }) => {
             <Text style={styles.replyDate}>{getTimeSincePosted(reply.date)}</Text>
 
             {/* Reply button */}
+            <View style={styles.replyButtonContainer}>
             <TouchableOpacity onPress={() => setShowReplyInput(!showReplyInput)} style={styles.replyButton}>
                 <MaterialCommunityIcons name="comment-outline" size={20} color="#808080" />
                 <Text style={styles.replyButtonText}>{showReplyInput ? 'Cancel' : 'Reply'}</Text>
@@ -58,7 +59,7 @@ const Reply = ({ reply, onAddReply, getTimeSincePosted }) => {
                     </Text>
                 </TouchableOpacity>
             )}
-
+            </View>
             {/* Render nested replies */}
             {expandedReplies &&
                 reply.replies.map((nestedReply) => (
@@ -84,6 +85,10 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     borderWidth: 1,
     borderColor: '#ddd',
+  },
+  replyButtonContainer: {
+    //flexDirection: 'row',
+    //alignItems: 'center'
   },
   replyAuthor: {
     fontSize: 14,
@@ -139,6 +144,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginTop: 10,
     alignItems: 'center',
+    marginRight: 10,
   },
+  expandRepliesButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  replyCountText: {
+    fontSize: 14,
+    color: '#888',
+  },
+  
   
 });

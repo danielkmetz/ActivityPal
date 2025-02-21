@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { View, Text, FlatList, Button, StyleSheet, TextInput, TouchableOpacity, Image } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { 
@@ -8,9 +8,8 @@ import {
 import { selectUser } from '../../Slices/UserSlice';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigation } from '@react-navigation/native';
+import { createNotification } from '../../Slices/NotificationsSlice';
 import { 
-    selectOtherUserData, 
-    removeFriend, 
     acceptFriendRequest, 
     declineFriendRequest ,
     selectFriendRequests,
@@ -18,9 +17,9 @@ import {
     selectLoading,
     selectError,
     selectFriendsDetails,
-    fetchFriendRequestsDetails,
-    fetchFriendsDetails
+    selectFriendRequestDetails,
 } from '../../Slices/UserSlice';
+import { setNotifications, selectNotifications } from '../../Slices/NotificationsSlice';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 
 export default function Friends() {
@@ -30,46 +29,58 @@ export default function Friends() {
     const friends = useSelector(selectFriends);
     const friendsDetails = useSelector(selectFriendsDetails);
     const friendRequests = useSelector(selectFriendRequests);
+    const friendRequestsDetails = useSelector(selectFriendRequestDetails);
     const userSuggestions = useSelector(selectUserSuggestions);
     const status = useSelector(selectLoading);
     const error = useSelector(selectError);
-    const otherUserData = useSelector(selectOtherUserData);
+    const notifications = useSelector(selectNotifications);
     const [activeTab, setActiveTab] = useState('friends'); // Toggle between "friends", "requests", and "search"
     const [searchQuery, setSearchQuery] = useState('');
     
-    useEffect(() => {
-        if (friends?.length > 0) {
-          dispatch(fetchFriendsDetails(friends)); // Populate friends with user details
+    const handleAcceptRequest = async (senderId) => {
+        try {
+            await dispatch(acceptFriendRequest(senderId));
+                
+            await dispatch(createNotification({
+                userId: senderId,  // The sender of the request gets notified
+                type: 'friendRequestAccepted',
+                message: `${user.firstName} ${user.lastName} accepted your friend request.`,
+                relatedId: user.id, // The ID of the user who accepted the request
+                typeRef: 'User'
+            }));
+        
+            // Filter out the accepted friend request from notifications
+            const updatedNotifications = notifications.filter(
+                (notification) => !(notification.type === 'friendRequest' && notification.relatedId === senderId)
+            );
+        
+            // Dispatch the updated notifications list
+            dispatch(setNotifications(updatedNotifications));    
+        } catch (error) {
+            console.error('Error accepting friend request:', error);
         }
-    }, [dispatch, friends]);
-
-    useEffect(() => {
-        if (friendRequests) {
-            dispatch(fetchFriendRequestsDetails(friendRequests?.received));
+    };
+        
+    const handleDeclineRequest = async (senderId) => {
+        try {
+            await dispatch(declineFriendRequest(senderId));
+        
+            // Filter out the declined friend request from notifications
+            const updatedNotifications = notifications.filter(
+                (notification) => !(notification.type === 'friendRequest' && notification.relatedId === senderId)
+            );
+        
+            dispatch(setNotifications(updatedNotifications));
+        } catch (error) {
+            console.error('Error declining friend request:', error);
         }
-    }, [dispatch, friendRequests])
-
-    const handleAcceptRequest = (senderId) => {
-        dispatch(acceptFriendRequest(senderId));
     };
-
-    const handleDeclineRequest = (senderId) => {
-        dispatch(declineFriendRequest(senderId));
-    };
-
-    const handleRemoveFriend = (friendId) => {
-        dispatch(removeFriend(friendId));
-    };
-
+        
     const navigateToOtherUserProfile = (user) => {
         navigation.navigate('OtherUserProfile', { user }); // Pass user data to the new screen
     };
 
     const renderFriendRequests = () => {
-        const friendRequestsDetails = otherUserData.filter((user) =>
-            friendRequests?.received?.includes(user._id)
-        );
-
         return (
             <View style={styles.sectionContainer}>
                 <Text style={styles.sectionTitle}>
@@ -81,16 +92,28 @@ export default function Friends() {
                         keyExtractor={(item) => item._id}
                         renderItem={({ item }) => (
                             <View style={styles.requestContainer}>
-                                <Text>{`${item.firstName} ${item.lastName}`}</Text>
+                                <View style={styles.picAndName}>
+                                    <Image 
+                                        source={item.presignedProfileUrl ? 
+                                            { uri: item.presignedProfileUrl} : 
+                                            profilePicPlaceholder}
+                                        style={styles.profilePic}
+                                    />
+                                    <Text>{`${item.firstName} ${item.lastName}`}</Text>
+                                </View>
                                 <View style={styles.buttonGroup}>
-                                    <Button
-                                        title="Accept"
+                                    <TouchableOpacity
                                         onPress={() => handleAcceptRequest(item._id)}
-                                    />
-                                    <Button
-                                        title="Decline"
+                                        style={styles.acceptButton}
+                                    >
+                                        <Text style={styles.acceptButtonText}>Accept</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
                                         onPress={() => handleDeclineRequest(item._id)}
-                                    />
+                                        style={styles.declineButton}
+                                    >
+                                        <Text style={styles.declineButtonText}>Decline</Text>
+                                    </TouchableOpacity>
                                 </View>
                             </View>
                         )}
@@ -185,11 +208,18 @@ export default function Friends() {
                     onPress={() => setActiveTab('friends')}
                     color={activeTab === 'friends' ? '#007bff' : '#aaa'}
                 />
-                <Button
-                    title="Friend Requests"
-                    onPress={() => setActiveTab('requests')}
-                    color={activeTab === 'requests' ? '#007bff' : '#aaa'}
-                />
+                <View style={styles.friendRequestTab}>
+                    <Button
+                        title="Friend Requests"
+                        onPress={() => setActiveTab('requests')}
+                        color={activeTab === 'requests' ? '#007bff' : '#aaa'}
+                    />
+                    {friendRequests.received.length > 0 && (
+                        <View style={styles.notificationBadge}>
+                            <Text style={styles.notificationText}>{friendRequests.length}</Text>
+                        </View>
+                    )}
+                </View>
                 <Button
                     title="Search"
                     onPress={() => setActiveTab('search')}
@@ -282,4 +312,52 @@ const styles = StyleSheet.create({
         borderRadius: 15,
         marginRight: 10,
     },
+    acceptButton: {
+        backgroundColor: '#007bff', // Blue color
+        paddingVertical: 10,
+        paddingHorizontal: 10,
+        borderRadius: 5,
+        alignItems: 'center',
+        marginRight: 0,
+    },
+    acceptButtonText: {
+        color: '#fff',
+        fontSize: 14,
+        fontWeight: 'bold',
+    },
+    declineButton: {
+        backgroundColor: '#6c757d', // Gray color
+        paddingVertical: 10,
+        paddingHorizontal: 10,
+        borderRadius: 5,
+        alignItems: 'center',
+    },
+    declineButtonText: {
+        color: '#fff',
+        fontSize: 14,
+        fontWeight: 'bold',
+    },
+    friendRequestTab: {
+        position: 'relative',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    notificationBadge: {
+        position: 'absolute',
+        top: 2,
+        right: 2,
+        backgroundColor: 'red',
+        borderRadius: 10,
+        width: 10,
+        height: 10,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    
+    notificationText: {
+        color: 'white',
+        fontSize: 12,
+        fontWeight: 'bold',
+    },
+    
 });
