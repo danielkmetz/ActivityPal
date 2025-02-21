@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Modal, View, Text, StyleSheet, TouchableOpacity, Animated } from "react-native";
 import { logout } from "../../Slices/UserSlice";
-import { resetBanner, resetLogo, resetProfilePicture } from "../../Slices/PhotosSlice";
+import { resetBanner, resetLogo, resetProfilePicture, } from "../../Slices/PhotosSlice";
 import { useDispatch } from "react-redux";
 
 export default function SettingsModal({ visible, onClose }) {
@@ -13,6 +13,7 @@ export default function SettingsModal({ visible, onClose }) {
         dispatch(logout())
         dispatch(resetProfilePicture());
         dispatch(resetLogo());
+        dispatch(resetBanner());
     }
 
     const onEditProfile = () => {

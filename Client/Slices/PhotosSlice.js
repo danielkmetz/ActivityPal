@@ -3,7 +3,7 @@ import {getMimeType, blobToBase64} from '../functions';
 import axios from 'axios';
 
 // Define your API base URL
-const BASE_URL = `${process.env.EXPO_PUBLIC_SERVER_URL}`;
+const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
 
 // Helper function to upload a file to S3 using a presigned URL
 const uploadFileToS3 = async (file, url) => {
@@ -62,7 +62,7 @@ export const fetchLogo = createAsyncThunk(
     'photos/fetchLogo',
     async (placeId, { rejectWithValue }) => {
       try {
-        const response = await axios.get(`${API_BASE_URL}/logos/${placeId}/logo`, {
+        const response = await axios.get(`${BASE_URL}/logos/${placeId}/logo`, {
           responseType: 'blob', // Fetch the logo as a blob
         });
   
@@ -337,6 +337,18 @@ export const fetchProfilePic = createAsyncThunk(
   }
 );
 
+export const fetchOtherUserProfilePic = createAsyncThunk(
+  'photos/fetchOtherUserProfilePic',
+  async (userId, { rejectWithValue }) => {
+    try {
+      const response = await axios.get(`${BASE_URL}/profilePics/${userId}/profile-pic`);
+      return response.data; // Return profile picture metadata with URL
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message);
+    }
+  }
+);
+
 export const uploadUserBanner = createAsyncThunk(
   'photos/uploadUserBanner',
   async ({ userId, file }, { rejectWithValue, dispatch }) => {
@@ -423,6 +435,7 @@ const photoSlice = createSlice({
         profilePic: null,
         banner: null,
         otherUserBanner: null,
+        otherUserProfilePic: null,
         reviewPhotos: null,
         uploadLoading: false,
         fetchLoading: false,
@@ -439,6 +452,12 @@ const photoSlice = createSlice({
       },
       resetOtherUserBanner: (state, action) => {
         state.otherUserBanner = null;
+      },
+      resetBanner: (state) => {
+        state.banner = null;
+      },
+      resetOtherUserProfilePic: (state) => {
+        state.otherUserProfilePic = null;
       },
     },
     extraReducers: (builder) => {
@@ -606,6 +625,19 @@ const photoSlice = createSlice({
                 state.fetchLoading = false;
                 state.fetchError = action.payload;
             })
+            .addCase(fetchOtherUserProfilePic.pending, (state) => {
+              state.fetchLoading = true;
+              state.fetchError = null;
+            })
+            .addCase(fetchOtherUserProfilePic.fulfilled, (state, action) => {
+                state.fetchLoading = false;
+                state.otherUserProfilePic = action.payload;
+            })
+            .addCase(fetchOtherUserProfilePic.rejected, (state, action) => {
+                state.fetchLoading = false;
+                state.fetchError = action.payload;
+            })
+            
     },
   });
   
@@ -619,7 +651,8 @@ export const selectBanner = (state) => state.photos.banner;
 export const selectAlbum = (state) => state.photos.album;
 export const selectProfilePic = (state) => state.photos.profilePic;
 export const selectOtherUserBanner = (state) => state.photos.otherUserBanner;
+export const selectOtherUserProfilePic = (state) => state.photos.otherUserProfilePic;
 
-export const { resetLogo, resetOtherUserBanner, resetProfilePicture } = photoSlice.actions;
+export const { resetLogo, resetOtherUserBanner, resetProfilePicture, resetBanner, resetOtherUserProfilePic } = photoSlice.actions;
 
 export default photoSlice.reducer;

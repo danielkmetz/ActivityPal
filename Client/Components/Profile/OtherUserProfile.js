@@ -2,21 +2,43 @@ import React, { useEffect, useState } from "react";
 import { View, Text, Image, StyleSheet, TouchableOpacity, FlatList } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useDispatch, useSelector } from "react-redux";
-import { sendFriendRequest, cancelFriendRequest, acceptFriendRequest, declineFriendRequest, removeFriend } from "../../Slices/friendsSlice";
-import { selectFriends, selectFriendRequests } from "../../Slices/UserSlice";
+import { 
+  selectFriends, 
+  selectFriendRequests, 
+  sendFriendRequest, 
+  cancelFriendRequest, 
+  acceptFriendRequest, 
+  removeFriend, 
+  declineFriendRequest 
+} from "../../Slices/UserSlice";
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import Reviews from "../Reviews/Reviews";
 import Photos from "./Photos";
-import { fetchOtherUserBanner, resetOtherUserBanner, selectOtherUserBanner } from "../../Slices/PhotosSlice";
-import { fetchReviewsByOtherUserId, selectOtherUserReviews, resetOtherUserReviews } from "../../Slices/ReviewsSlice";
+import { 
+  fetchOtherUserBanner, 
+  resetOtherUserBanner, 
+  selectOtherUserBanner,
+  fetchOtherUserProfilePic,
+  resetOtherUserProfilePic,
+  selectOtherUserProfilePic, 
+} from "../../Slices/PhotosSlice";
+import { 
+  fetchReviewsByOtherUserId, 
+  selectOtherUserReviews, 
+  resetOtherUserReviews, 
+} from "../../Slices/ReviewsSlice";
+import { createNotification } from "../../Slices/NotificationsSlice";
+import { selectUser } from "../../Slices/UserSlice";
 
 export default function OtherUserProfile({ route, navigation }) {
   const { user } = route.params;
+  const mainUser = useSelector(selectUser);
   const dispatch = useDispatch();
   const friendRequests = useSelector(selectFriendRequests);
   const banner = useSelector(selectOtherUserBanner);
   const friends = useSelector(selectFriends);
   const profileReviews = useSelector(selectOtherUserReviews);
+  const otherUserProfilePic = useSelector(selectOtherUserProfilePic);
   const [isRequestSent, setIsRequestSent] = useState(false);
   const [isRequestReceived, setIsRequestReceived] = useState(false);
   const [isFriend, setIsFriend] = useState(false);
@@ -27,6 +49,7 @@ export default function OtherUserProfile({ route, navigation }) {
     if (user) {
       dispatch(fetchOtherUserBanner(user._id));
       dispatch(fetchReviewsByOtherUserId(user._id));
+      dispatch(fetchOtherUserProfilePic(user._id));
     }
   }, [user]);
 
@@ -36,13 +59,43 @@ export default function OtherUserProfile({ route, navigation }) {
     setIsFriend(friends.includes(user._id));
   }, [friendRequests, friends, user]);
 
-  const handleAddFriend = () => dispatch(sendFriendRequest(user._id));
-  const handleCancelRequest = () => dispatch(cancelFriendRequest(user._id));
-  const handleAcceptRequest = () => dispatch(acceptFriendRequest(user._id));
+  const handleCancelRequest = async () => {
+    await dispatch(cancelFriendRequest(user._id));
+
+    // ✅ Explicitly update the state to ensure UI reflects the change
+    setIsRequestSent(false);
+  };
+
   const handleDenyRequest = () => dispatch(declineFriendRequest(user._id));
   const handleRemoveFriend = () => {
     dispatch(removeFriend(user._id));
     setDropdownVisible(false);
+  };
+
+  const handleAddFriend = async () => {
+    await dispatch(sendFriendRequest(user._id));
+
+    // ✅ Create a notification for the recipient
+    await dispatch(createNotification({
+        userId: user._id, // Receiver of the notification
+        type: 'friendRequest',
+        message: `${mainUser.firstName} ${mainUser.lastName} sent you a friend request.`,
+        relatedId: mainUser.id,
+        typeRef: 'User'
+    }));
+  };
+
+  const handleAcceptRequest = async () => {
+      await dispatch(acceptFriendRequest(user._id));
+
+      // ✅ Create a notification for the original sender
+      await dispatch(createNotification({
+          userId: user._id, // The user who sent the friend request
+          type: 'friendRequestAccepted',
+          message: `${user.firstName} accepted your friend request!`,
+          relatedId: user._id,
+          typeRef: 'User'
+      }));
   };
 
   const photos = Array.from(
@@ -56,6 +109,7 @@ export default function OtherUserProfile({ route, navigation }) {
         onPress={() => {
           dispatch(resetOtherUserBanner());
           dispatch(resetOtherUserReviews());
+          dispatch(resetOtherUserProfilePic());
           navigation.goBack();
         }}
       >
@@ -64,7 +118,7 @@ export default function OtherUserProfile({ route, navigation }) {
       <Image source={{ uri: banner?.url }} style={styles.coverPhoto} />
       <View style={styles.profileHeader}>
         <Image 
-          source={user.presignedProfileUrl ? { uri: user.presignedProfileUrl } : profilePicPlaceholder} 
+          source={otherUserProfilePic?.url ? { uri: otherUserProfilePic?.url } : profilePicPlaceholder} 
           style={styles.profilePicture} 
         />
         <Text style={styles.userName}>{`${user.firstName} ${user.lastName}`}</Text>

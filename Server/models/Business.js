@@ -13,20 +13,7 @@ const ReplySchema = new mongoose.Schema({
   fullName: { type: String, required: true },
   commentText: { type: String, required: true },
   date: { type: Date, default: Date.now },
-  replies: [
-    {
-      type: new mongoose.Schema(
-        {
-          userId: { type: String, required: true },
-          fullName: { type: String, required: true },
-          commentText: { type: String, required: true },
-          date: { type: Date, default: Date.now },
-          replies: [], // Allow deeply nested replies
-        },
-        { _id: true } // Ensure `_id` is generated for each reply
-      ),
-    },
-  ],
+  replies: [this],
 });
 
 // Define a recursive CommentSchema

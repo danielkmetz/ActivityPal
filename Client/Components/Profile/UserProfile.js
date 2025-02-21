@@ -7,6 +7,7 @@ import SettingsModal from "./SettingsModal";
 import EditProfileModal from "./EditProfileModal";
 import Reviews from "../Reviews/Reviews";
 import Photos from "./Photos";
+import profilePlaceholder from '../../assets/pics/profile-pic-placeholder.jpg'
 import { selectProfilePic, selectBanner, fetchProfilePic, fetchUserBanner } from "../../Slices/PhotosSlice";
 import { selectProfileReviews, fetchReviewsByUserId } from "../../Slices/ReviewsSlice";
 
@@ -21,7 +22,7 @@ export default function UserProfile() {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [shouldFetch, setShouldFetch] = useState(true);
   
-  const bannerPlaceholder = '';
+  const bannerPlaceholder = null;
   const userId = user?.id;
   const numberOfFriends = user?.friends?.length;
   
@@ -46,9 +47,16 @@ export default function UserProfile() {
       <FlatList
         ListHeaderComponent={
           <>
-            <Image source={{ uri: banner?.url }} style={styles.coverPhoto} />
+            {banner?.url ? (
+              <Image source={{ uri: banner?.url }} style={styles.coverPhoto} />
+            ) : (
+              <View style={styles.bannerPlaceholder} />
+            )}
             <View style={styles.profileHeader}>
-              <Image source={{ uri: profilePic?.url }} style={styles.profilePicture} />
+              <Image 
+                source={profilePic?.url ? { uri: profilePic?.url } : profilePlaceholder} 
+                style={styles.profilePicture} 
+              />
               <Text style={styles.userName}>{`${user.firstName} ${user.lastName}`}</Text>
             </View>
             <View style={styles.editContainer}>
@@ -100,6 +108,7 @@ export default function UserProfile() {
         setEditModalVisible={setEditModalVisible}
         onClose={() => setEditModalVisible(false)}
         bannerPlaceholder={bannerPlaceholder}
+        profilePicPlaceholder={profilePlaceholder}
         aboutInfo={{}}
       />
     </>
@@ -186,5 +195,10 @@ const styles = StyleSheet.create({
   navButtonText: {
     color: "black",
     fontWeight: "bold",
+  },
+  bannerPlaceholder: {
+    width: "100%",
+    height: 200,
+    backgroundColor: "teal",
   },
 });
