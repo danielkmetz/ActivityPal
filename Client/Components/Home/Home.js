@@ -4,13 +4,14 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  FlatList
 } from "react-native";
-import WriteReviewModal from "../Reviews/WriteReviewModal"; // Ensure you have this modal component ready
-import { MaterialCommunityIcons } from "@expo/vector-icons";
+import WriteReviewModal from "../Reviews/WriteReviewModal"; 
 import { 
     selectUserAndFriendsReviews,
     fetchReviewsByUserAndFriends 
 } from "../../Slices/ReviewsSlice";
+import { fetchFriendRequestsDetails, fetchFriendsDetails, selectFriends, selectFriendRequests } from "../../Slices/UserSlice";
 import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
 import Reviews from "../Reviews/Reviews";
@@ -18,6 +19,8 @@ import Reviews from "../Reviews/Reviews";
 const Home = () => {
     const dispatch = useDispatch();
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
+    const friends = useSelector(selectFriends);
+    const friendRequests = useSelector(selectFriendRequests);
     const user = useSelector(selectUser);
     const [business, setBusiness] = useState(null);
     const [businessName, setBusinessName] = useState(null);
@@ -30,6 +33,18 @@ const Home = () => {
             dispatch(fetchReviewsByUserAndFriends(userId));
         }
     }, [dispatch, user]);
+
+    useEffect(() => {
+        if (friends?.length > 0) {
+            dispatch(fetchFriendsDetails(friends)); // Populate friends with user details
+        }
+    }, [dispatch, friends]);
+    
+    useEffect(() => {
+        if (friendRequests) {
+            dispatch(fetchFriendRequestsDetails(friendRequests?.received));
+        }
+    }, [dispatch, friendRequests])    
     
     const openModal = () => {
         setModalVisible(true);
@@ -41,23 +56,30 @@ const Home = () => {
 
     return (
         <View style={styles.container}>
-          <Reviews reviews={userAndFriendsReviews}/>
-          {/* Floating Action Button */}
-          <TouchableOpacity style={styles.fab} onPress={openModal}>
-              <MaterialCommunityIcons name="plus" size={42} color="white" />
-              <Text style={styles.buttonText}>Add Review</Text>
-          </TouchableOpacity>
+            <FlatList
+                style={styles.list}
+                data={userAndFriendsReviews}
+                keyExtractor={(item, index) => index.toString()}
+                ListHeaderComponent={
+                    <View style={styles.input}>
+                    <TouchableOpacity style={styles.statusInputContainer} onPress={openModal}>
+                        <Text style={styles.inputPlaceholder}>Write a review or check in!</Text>
+                    </TouchableOpacity>
+                    </View>
+                }
+                renderItem={({ item }) => <Reviews reviews={[item]} />}
+            />
 
-          {/* Write Review Modal */}
-          <WriteReviewModal 
-            visible={modalVisible} 
-            setReviewModalVisible={setModalVisible} 
-            onClose={closeModal}
-            business={business}
-            setBusiness={setBusiness}
-            businessName={businessName}
-            setBusinessName={setBusinessName} 
-          />
+            {/* Write Review Modal */}
+            <WriteReviewModal 
+                visible={modalVisible} 
+                setReviewModalVisible={setModalVisible} 
+                onClose={closeModal}
+                business={business}
+                setBusiness={setBusiness}
+                businessName={businessName}
+                setBusinessName={setBusinessName} 
+            />
         </View>
     );
 };
@@ -65,35 +87,38 @@ const Home = () => {
 export default Home;
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-    marginTop: 130,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "bold",
-    marginBottom: 20,
-  },
-  buttonText: {
-    color: 'white',
-    flexDirection: 'row',
-  },
-  fab: {
-    position: "absolute",
-    bottom: 20,
-    right: 20,
-    width: 90,
-    height: 90,
-    borderRadius: 10,
-    backgroundColor: "#2196F3",
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 5,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    padding: 2,
-  },
+    container: {
+        flex: 1,
+        backgroundColor: "#f5f5f5",
+        marginTop: -70,
+    },
+    list: {
+        flexGrow: 1,
+    },
+    input: {
+        backgroundColor: '#009999',
+        paddingTop: 205,
+        justifyContent: 'start'
+    },
+    statusInputContainer: {
+        backgroundColor: 'white',
+        paddingVertical: 6,
+        paddingHorizontal: 15,
+        borderRadius: 10,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 3,
+        elevation: 3,
+        marginBottom: 10,
+        marginHorizontal: 20,
+        justifyContent: 'center',
+        alignItems: 'flex-start',
+        alignSelf: 'flex-start',
+        width: '90%',
+    },
+    inputPlaceholder: {
+        fontSize: 16,
+        color: 'gray',
+    },
 });

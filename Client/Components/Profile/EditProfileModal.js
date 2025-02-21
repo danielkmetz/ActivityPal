@@ -36,6 +36,7 @@ export default function EditProfileModal({
   aboutInfo,
   bannerPlaceholder,
   logoPlaceholder,
+  profilePicPlaceholder,
 }) {
   const dispatch = useDispatch();
   const isBusiness = useSelector(selectIsBusiness);
@@ -226,12 +227,15 @@ export default function EditProfileModal({
               <Image 
                 source={banner ? { uri: banner } : bannerPlaceholder} 
                 style={styles.previewImage}
-              /> :
-              <Image 
-                source={banner ? { uri: banner.url } : bannerPlaceholder} 
-                style={styles.previewImage}
-              />
-            }
+              /> : (
+                banner?.url ? (
+                  <Image source={{ uri: banner.url }} style={styles.previewImage} />
+                ) : (
+                  <View style={[styles.previewImage, styles.bannerPlaceholder]}>
+                    <Text style={styles.bannerPlaceholderText}>Upload a banner</Text>
+                  </View>
+                )
+            )}
             <TouchableOpacity style={styles.uploadButton} onPress={handleBannerSelection}>
               <Text style={styles.uploadButtonText}>Change Banner</Text>
             </TouchableOpacity>
@@ -247,7 +251,7 @@ export default function EditProfileModal({
                 resizeMode='contain'
               /> :
               <Image 
-                source={profilePic ? { uri: profilePic.url } : logoPlaceholder} 
+                source={profilePic ? { uri: profilePic.url } : profilePicPlaceholder} 
                 style={styles.previewLogo}
                 resizeMode='contain'
               />
@@ -387,5 +391,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#333",
     marginBottom: 10,
+  },
+  bannerPlaceholder: {
+    backgroundColor: "teal",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  bannerPlaceholderText: {
+    color: "white",
+    fontSize: 18,
+    fontWeight: "bold",
   },
 });

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
 import CommentModal from "./CommentModal";
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
+import { createNotification } from "../../Slices/NotificationsSlice";
 
 const screenWidth = Dimensions.get("window").width;
 
@@ -47,10 +48,30 @@ export default function Reviews({reviews}) {
           try {
               // Sync with the backend
               const { payload } = await dispatch(toggleLike({ placeId, reviewId, userId, fullName }));
+
+              // Check if the current user's ID exists in the likes array before sending a notification
+              const userLiked = payload.likes.some(like => like.userId === userId);
+
+              // Create a notification for the review owner
+              if (userLiked && reviewToUpdate.userId !== userId) { // Don't notify self-likes
+                await dispatch(createNotification({
+                    userId: reviewToUpdate.userId,
+                    type: 'like',
+                    message: `${fullName} liked your review.`,
+                    relatedId: userId,
+                    typeRef: 'Review',
+                    targetId: reviewId,
+                }));
+              }
           } catch (error) {
               console.error('Error toggling like:', error);
           }
     };
+
+    useEffect(() => {
+      console.log("🔄 Reviews Component Updated:", reviews);
+  }, [reviews]);
+  
 
     return (
         <>
