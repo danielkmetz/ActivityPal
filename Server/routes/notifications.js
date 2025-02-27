@@ -37,7 +37,7 @@ router.put('/:userId/notifications/:notificationId/read', async (req, res) => {
 router.post('/:userId/notifications', async (req, res) => {
     try {
         const { userId } = req.params;
-        const { type, message, relatedId, typeRef, targetId, commentId, replyId } = req.body;
+        const { type, message, relatedId, typeRef, targetId, commentText, commentId, replyId } = req.body;
 
         const user = await User.findById(userId);
         if (!user) {
@@ -51,8 +51,7 @@ router.post('/:userId/notifications', async (req, res) => {
                 n.relatedId.toString() === relatedId.toString() &&
                 n.targetId?.toString() === targetId?.toString() &&
                 n.commentId?.toString() === commentId?.toString() &&
-                n.replyId?.toString() === replyId?.toString() &&
-                !n.read
+                n.replyId?.toString() === replyId?.toString()
         );
 
         if (existingNotification) {
@@ -68,6 +67,7 @@ router.post('/:userId/notifications', async (req, res) => {
             targetId,    // The review ID
             commentId: commentId || null, // The comment ID (if applicable)
             replyId: replyId || null,  // The reply ID (if applicable)
+            commentText,
             read: false,
             createdAt: new Date()
         };
