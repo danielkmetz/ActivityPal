@@ -5,6 +5,77 @@ const User = require('../models/User');
 const mongoose = require('mongoose');
 const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
 
+// Retrieve a review by its reviewId
+router.get('/review/:reviewId', async (req, res) => {
+  const { reviewId } = req.params;
+  console.log(`\n🔍 Fetching review with ID: ${reviewId}`);
+
+  try {
+      // Find the business that contains the review
+      console.log(`🔎 Searching for business with review ID: ${reviewId}`);
+      const business = await Business.findOne({ "reviews._id": reviewId });
+
+      if (!business) {
+          console.warn(`⚠️ Business not found for reviewId: ${reviewId}`);
+          return res.status(404).json({ message: "Review not found" });
+      }
+
+      // Find the specific review
+      console.log(`✅ Business found: ${business.businessName}`);
+      const review = business.reviews.id(reviewId);
+
+      if (!review) {
+          console.warn(`⚠️ Review not found in business: ${business.businessName}`);
+          return res.status(404).json({ message: "Review not found" });
+      }
+
+      console.log(`📌 Review found: ${review.reviewText}`);
+
+      // Fetch user profile picture
+      console.log(`🔍 Fetching user profile picture for user ID: ${review.userId}`);
+      const user = await User.findById(review.userId).select("profilePic");
+
+      let profilePic = null;
+      let profilePicUrl = null;
+
+      if (user?.profilePic?.photoKey) {
+          try {
+              profilePic = user.profilePic;
+              profilePicUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+              console.log(`✅ Profile picture URL generated: ${profilePicUrl}`);
+          } catch (error) {
+              console.error(`❌ Error generating presigned URL for profile picture:`, error);
+          }
+      } else {
+          console.log(`⚠️ No profile picture found for user: ${review.userId}`);
+      }
+
+      // Format the review response
+      const formattedReview = {
+          _id: review._id,
+          userId: review.userId,
+          fullName: review.fullName,
+          rating: review.rating,
+          reviewText: review.reviewText,
+          date: review.date,
+          photos: review.photos || [], // Ensure empty array if no photos
+          likes: review.likes || [], // Ensure empty array if no likes
+          comments: review.comments, // Recursively format comments & replies
+          profilePic,
+          profilePicUrl, // Presigned URL for profile picture
+          businessName: business.businessName,
+          placeId: business.placeId,
+      };
+
+      console.log(`✅ Successfully retrieved review for business: ${business.businessName}`);
+      res.status(200).json(formattedReview);
+
+  } catch (error) {
+      console.error(`❌ Error retrieving review:`, error);
+      res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
 router.post('/:placeId', async (req, res) => {
   const { placeId } = req.params;
   const { userId, rating, reviewText, businessName, location, fullName, photos } = req.body; // photos = array of {photoKey, description, tags}
@@ -302,6 +373,114 @@ router.post('/:placeId/:reviewId/:commentId/reply', async (req, res) => {
       });
   } catch (error) {
       console.error('Error adding reply:', error.message, error.stack);
+      res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Delete a comment or reply by its ObjectId and remove associated notifications
+router.delete('/:placeId/:reviewId/:commentId', async (req, res) => {
+  const { placeId, reviewId, commentId } = req.params;
+  const { relatedId } = req.body; // UserId to look within notifications
+
+  try {
+      const business = await Business.findOne({ placeId });
+      if (!business) return res.status(404).json({ message: 'Business not found' });
+
+      const review = business.reviews.id(reviewId);
+      if (!review) return res.status(404).json({ message: 'Review not found' });
+
+      // Recursive function to find and remove a comment or reply
+      const removeCommentOrReply = (comments, targetId) => {
+          for (let i = 0; i < comments.length; i++) {
+              if (comments[i]._id.toString() === targetId) {
+                  const commentOwnerId = comments[i].userId; // Get owner of comment/reply
+                  comments.splice(i, 1); // Remove the comment/reply
+                  
+                  // Remove the comment/reply notification from the specified relatedId user's notifications
+                  User.findByIdAndUpdate(relatedId, {
+                      $pull: { 
+                          notifications: { 
+                              $or: [
+                                  { type: 'reply', replyId: new mongoose.Types.ObjectId(targetId) },
+                                  { type: 'comment', commentId: new mongoose.Types.ObjectId(targetId) }
+                              ]
+                          } 
+                      }
+                  }, { new: true }).catch(error => console.error("Error removing notification:", error));
+                  
+                  return true;
+              }
+              if (comments[i].replies && comments[i].replies.length > 0) {
+                  const foundInReplies = removeCommentOrReply(comments[i].replies, targetId);
+                  if (foundInReplies) return true;
+              }
+          }
+          return false;
+      };
+
+      // Attempt to remove the comment or reply
+      const deleted = removeCommentOrReply(review.comments, commentId);
+      if (!deleted) return res.status(404).json({ message: 'Comment or reply not found' });
+
+      business.markModified('reviews');
+      await business.save();
+
+      res.status(200).json({ message: 'Comment or reply deleted successfully' });
+  } catch (error) {
+      console.error('Error deleting comment or reply:', error);
+      res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Edit a comment or reply
+router.put('/:placeId/:reviewId/:commentId', async (req, res) => {
+  const { placeId, reviewId, commentId } = req.params;
+  const { userId, newText } = req.body;
+
+  if (!newText) {
+    return res.status(400).json({ message: 'Comment text cannot be empty' });
+  }
+
+  try {
+      const business = await Business.findOne({ placeId });
+      if (!business) return res.status(404).json({ message: 'Business not found' });
+
+      const review = business.reviews.id(reviewId);
+      if (!review) return res.status(404).json({ message: 'Review not found' });
+
+      // Recursive function to find and update a comment or reply
+      const updateCommentOrReply = (comments) => {
+          for (let comment of comments) {
+              if (comment._id.toString() === commentId) {
+                  if (comment.userId.toString() !== userId) {
+                      return { error: 'Unauthorized' }; // Prevent unauthorized edits
+                  }
+                  comment.commentText = newText;
+                  return { updated: comment };
+              }
+              if (comment.replies && comment.replies.length > 0) {
+                  const nestedUpdate = updateCommentOrReply(comment.replies);
+                  if (nestedUpdate) return nestedUpdate;
+              }
+          }
+          return null;
+      };
+
+      const result = updateCommentOrReply(review.comments);
+
+      if (!result) {
+          return res.status(404).json({ message: 'Comment or reply not found' });
+      } else if (result.error) {
+          return res.status(403).json({ message: result.error });
+      }
+
+      business.markModified('reviews'); // Ensure the update is saved
+      await business.save();
+
+      res.status(200).json({ message: 'Comment edited successfully', updatedComment: result.updated });
+
+  } catch (error) {
+      console.error('Error editing comment or reply:', error);
       res.status(500).json({ message: 'Server error' });
   }
 });

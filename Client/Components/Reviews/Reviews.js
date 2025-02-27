@@ -68,11 +68,6 @@ export default function Reviews({reviews}) {
           }
     };
 
-    useEffect(() => {
-      console.log("🔄 Reviews Component Updated:", reviews);
-  }, [reviews]);
-  
-
     return (
         <>
         <FlatList

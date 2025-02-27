@@ -12,6 +12,7 @@ const NotificationSchema = new mongoose.Schema({
   targetId: { type: mongoose.Schema.Types.ObjectId, ref: 'Review' }, // The review being liked/commented on
   commentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Comment', default: null }, // The comment that was liked/replied to
   replyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Comment', default: null }, // The specific reply (if applicable)
+  commentText: { type: String, default: null },
   read: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },
 });

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     View,
     Text,
@@ -16,19 +16,34 @@ import { acceptFriendRequest, declineFriendRequest, selectFriendRequestDetails }
 import moment from 'moment';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import CommentModal from '../Reviews/CommentModal';
+import { selectUserAndFriendsReviews, clearSelectedReview, fetchReviewById, selectSelectedReview, setSelectedReview } from '../../Slices/ReviewsSlice';
 
 export default function Notifications() {
     const dispatch = useDispatch();
     const user = useSelector(selectUser);
     const notifications = useSelector(selectNotifications);
     const friendRequestDetails = useSelector(selectFriendRequestDetails);
+    const userAndFriendReviews = useSelector(selectUserAndFriendsReviews);
+    const selectedReview = useSelector(selectSelectedReview);
+
+    const [targetId, setTargetId] = useState(null);
 
     useEffect(() => {
         dispatch(fetchNotifications(user.id));
     }, [dispatch]);
 
-    const handleNotificationPress = (notificationId) => {
-        dispatch(markNotificationRead({ userId: user.id, notificationId }));
+    const handleNotificationPress = (notification) => {
+        dispatch(markNotificationRead({ userId: user.id, notificationId: notification._id }));
+
+        if (notification.type === "comment" || notification.type === "reply") {
+            console.log(notification);
+            if (notification) {
+                dispatch(fetchReviewById(notification.targetId));
+                setTargetId(notification.replyId);
+            } else {
+                console.warn("Comment ID is missing in notification");
+            }
+        }
     };
 
     const handleAcceptRequest = async (senderId) => {
@@ -85,7 +100,9 @@ export default function Notifications() {
         }
     };
 
-    console.log(notifications)
+    const handleCloseComments = () => {
+        dispatch(setSelectedReview(null));
+    };
 
     return (
         <View style={styles.container}>
@@ -97,7 +114,7 @@ export default function Notifications() {
                     return (
                         <TouchableOpacity
                             style={[styles.notificationCard, !item.read && styles.unreadNotification]}
-                            onPress={() => handleNotificationPress(item._id)}
+                            onPress={() => handleNotificationPress(item)}
                         >
                             {item.type !== 'friendRequest' && (
                             <View style={styles.iconContainer}>
@@ -115,6 +132,11 @@ export default function Notifications() {
                                     </View>
                                 ) : (
                                     <Text style={styles.message}>{item.message}</Text>
+                                )}
+                                {item.commentText? (
+                                    <Text style={styles.commentText}>{item?.commentText}</Text>
+                                ) : (
+                                    null
                                 )}
                                 <View style={styles.momentContainer}>
                                     {item.type === 'friendRequest' && (
@@ -140,6 +162,18 @@ export default function Notifications() {
                     );
                 }}
             />
+
+            {/* Comment Modal */}
+            
+                <CommentModal
+                    visible={!!selectedReview}
+                    review={selectedReview}
+                    onClose={handleCloseComments}
+                    setSelectedReview={setSelectedReview}
+                    reviews={userAndFriendReviews} // You may need to adjust this
+                    targetId={targetId}
+                />
+            
         </View>
     );
 }
@@ -225,5 +259,8 @@ const styles = StyleSheet.create({
         color: "#fff",
         fontSize: 14,
         fontWeight: 'bold',
+    },
+    commentText: {
+        marginVertical: 10,
     }
 });

@@ -444,7 +444,59 @@ export const fetchReviewsByOtherUserId = createAsyncThunk(
       return rejectWithValue(error.message || "Failed to fetch reviews via GraphQL");
     }
   }
-)
+);
+
+export const deleteCommentOrReply = createAsyncThunk(
+  "reviews/deleteCommentOrReply",
+  async ({ placeId, reviewId, commentId, relatedId }, { rejectWithValue }) => {
+      try {
+          const response = await axios.delete(`${BASE_URL}/reviews/${placeId}/${reviewId}/${commentId}`, {
+              data: { relatedId },
+          });
+          return { commentId, reviewId }; // Returning deleted comment/reply ID for UI update
+      } catch (error) {
+          console.error("Error deleting comment or reply:", error.response?.data || error.message);
+          return rejectWithValue(error.response?.data?.message || "Failed to delete comment or reply");
+      }
+  }
+);
+
+export const fetchReviewById = createAsyncThunk(
+  'reviews/fetchReviewById',
+  async (reviewId, { rejectWithValue }) => {
+    try {
+      const response = await axios.get(`${BASE_URL}/reviews/review/${reviewId}`);
+      return response.data; // Returns { placeId, businessName, review }
+    } catch (error) {
+      console.error("Error fetching review:", error);
+      return rejectWithValue(error.response?.data || "Failed to fetch review");
+    }
+  }
+);
+
+export const editCommentOrReply = createAsyncThunk(
+  "reviews/editCommentOrReply",
+  async ({ placeId, reviewId, commentId, userId, newText }, { rejectWithValue }) => {
+    try {
+      const response = await axios.put(
+        `${BASE_URL}/reviews/${placeId}/${reviewId}/${commentId}`,
+        { userId, newText }
+      );
+
+      if (!response.data.updatedComment) {
+        return rejectWithValue("Failed to update comment or reply");
+      }
+
+      return {
+        reviewId,
+        commentId,
+        updatedComment: response.data.updatedComment,
+      };
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || "Failed to update comment or reply");
+    }
+  }
+);
 
 // Reviews slice
 const reviewsSlice = createSlice({
@@ -455,6 +507,7 @@ const reviewsSlice = createSlice({
     profileReviews: [],
     otherUserReviews: [],
     userAndFriendsReviews: [],
+    selectedReview: null,
     loading: "idle",
     error: null,
   },
@@ -473,6 +526,13 @@ const reviewsSlice = createSlice({
     resetBusinessReviews: (state) => {
       state.businessReviews = [];
     },
+    clearSelectedReview: (state) => {
+      state.selectedReview = null;
+      state.error = null;
+    },
+    setSelectedReview: (state, action) => {
+      state.selectedReview = action.payload;
+    }, 
   },
   extraReducers: (builder) => {
     builder
@@ -636,14 +696,123 @@ const reviewsSlice = createSlice({
       .addCase(fetchReviewsByUserAndFriends.rejected, (state, action) => {
         state.loading = "idle";
         state.error = action.payload;
-      });
-          
+      })
+      .addCase(fetchReviewById.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchReviewById.fulfilled, (state, action) => {
+        state.selectedReview = action.payload;
+        state.loading = false;
+      })
+      .addCase(fetchReviewById.rejected, (state, action) => {
+        state.error = action.payload;
+        state.loading = false;
+      })
+      .addCase(deleteCommentOrReply.fulfilled, (state, action) => {
+        const { reviewId, commentId } = action.payload;
+    
+        const removeCommentOrReply = (review) => {
+            if (!review) return;
+    
+            // ✅ First, try removing as a top-level comment
+            const commentIndex = review.comments.findIndex((comment) => comment._id === commentId);
+            if (commentIndex !== -1) {
+                review.comments.splice(commentIndex, 1);
+                return;
+            }
+    
+            // ✅ Recursively search and delete in `comment.replies`
+            const removeNestedReply = (replies) => {
+                if (!replies) return false;
+    
+                for (let i = 0; i < replies.length; i++) {
+                    if (replies[i]._id === commentId) {
+                        replies.splice(i, 1);
+                        return true;
+                    }
+    
+                    // ✅ Search deeper in nested replies
+                    if (removeNestedReply(replies[i].replies)) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+    
+            // ✅ Check each comment's replies for the nested reply
+            review.comments.forEach((comment) => {
+                removeNestedReply(comment.replies);
+            });
+        };
+    
+        // ✅ Apply the update across all relevant review categories
+        ["businessReviews", "profileReviews", "otherUserReviews", "userAndFriendsReviews"].forEach((category) => {
+            state[category].forEach((review) => {
+                if (review._id === reviewId) {
+                    removeCommentOrReply(review);
+                }
+            });
+        });
+      })
+      .addCase(editCommentOrReply.fulfilled, (state, action) => {
+        const { reviewId, commentId, updatedComment } = action.payload;
+    
+        const updateCommentOrReply = (review) => {
+            if (!review) return;
+    
+            // ✅ First, try updating a top-level comment
+            const commentIndex = review.comments.findIndex((comment) => comment._id === commentId);
+            if (commentIndex !== -1) {
+                review.comments[commentIndex] = {
+                    ...review.comments[commentIndex],
+                    commentText: updatedComment.commentText,
+                };
+                return;
+            }
+    
+            // ✅ Recursively search and update in `comment.replies`
+            const updateNestedReply = (replies) => {
+                if (!replies) return false;
+    
+                for (let i = 0; i < replies.length; i++) {
+                    if (replies[i]._id === commentId) {
+                        replies[i] = { ...replies[i], commentText: updatedComment.commentText }; // ✅ Update text
+                        return true;
+                    }
+    
+                    // ✅ Search deeper in nested replies
+                    if (updateNestedReply(replies[i].replies)) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+    
+            // ✅ Check each comment's replies for the nested reply
+            review.comments.forEach((comment) => {
+                updateNestedReply(comment.replies);
+            });
+        };
+    
+        // ✅ Apply the update across all relevant review categories
+        ["businessReviews", "profileReviews", "otherUserReviews", "userAndFriendsReviews"].forEach((category) => {
+            state[category].forEach((review) => {
+                if (review._id === reviewId) {
+                    updateCommentOrReply(review);
+                }
+            });
+        });
+      })
+      .addCase(editCommentOrReply.rejected, (state, action) => {
+          state.error = action.payload;
+      })        
   },
 });
 
 export default reviewsSlice.reducer;
 
-export const { resetProfileReviews, setLocalReviews, resetOtherUserReviews, resetBusinessReviews } = reviewsSlice.actions;
+export const { setSelectedReview, resetProfileReviews, setLocalReviews, resetOtherUserReviews, resetBusinessReviews, clearSelectedReview } = reviewsSlice.actions;
 
 export const selectProfileReviews = (state) => state.reviews.profileReviews;
 export const selectBusinessReviews = (state) => state.reviews.busienssReviews;
@@ -652,3 +821,4 @@ export const selectLoading = (state) => state.reviews.loading;
 export const selectError = (state) => state.reviews.error;
 export const selectLocalReviews = (state) => state.reviews.localReviews;
 export const selectUserAndFriendsReviews = (state) => state.reviews.userAndFriendsReviews;
+export const selectSelectedReview = (state) => state.reviews.selectedReview;
