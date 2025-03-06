@@ -37,7 +37,7 @@ router.put('/:userId/notifications/:notificationId/read', async (req, res) => {
 router.post('/:userId/notifications', async (req, res) => {
     try {
         const { userId } = req.params;
-        const { type, message, relatedId, typeRef, targetId, commentText, commentId, replyId } = req.body;
+        const { type, message, relatedId, typeRef, targetId, commentText, commentId, replyId, postType } = req.body;
 
         const user = await User.findById(userId);
         if (!user) {
@@ -69,6 +69,7 @@ router.post('/:userId/notifications', async (req, res) => {
             replyId: replyId || null,  // The reply ID (if applicable)
             commentText,
             read: false,
+            postType: postType,
             createdAt: new Date()
         };
 

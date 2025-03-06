@@ -4,23 +4,6 @@ import axios from "axios";
 const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
 const GRAPHQL_ENDPOINT = `${BASE_URL}/graphql`;
 
-// Thunk to retrieve reviews by placeId
-export const fetchReviewsByPlaceId = createAsyncThunk(
-  "reviews/fetchByPlaceId",
-  async (placeId, { rejectWithValue }) => {
-    try {
-      const response = await axios.get(
-        `${BASE_URL}/reviews/${placeId}`
-      );
-      return response.data.reviews; // Return the reviews array
-    } catch (error) {
-      const errorMessage =
-        error.response?.data?.message || error.message || "Failed to fetch reviews by placeId";
-      return rejectWithValue(errorMessage);
-    }
-  }
-);
-
 // Thunk to delete a review by user email and object ID
 export const deleteReview = createAsyncThunk(
   "reviews/deleteReview",
@@ -41,19 +24,19 @@ export const deleteReview = createAsyncThunk(
 // Thunk to create a new review for a business
 export const createReview = createAsyncThunk(
   "reviews/createReview",
-  async ({ placeId, businessName, userId, rating, reviewText, date, fullName, photos}, { rejectWithValue }) => {
+  async ({ placeId, businessName, userId, rating, reviewText, date, fullName, photos }, { rejectWithValue }) => {
     try {
       const response = await axios.post(
         `${BASE_URL}/reviews/${placeId}`,
         {
-            businessName,
-            fullName,
-            userId,
-            rating,
-            reviewText,
-            date,
-            photos,
-            
+          businessName,
+          fullName,
+          userId,
+          rating,
+          reviewText,
+          date,
+          photos,
+
         }
       );
       return response.data.review; // Return the newly created review
@@ -66,100 +49,712 @@ export const createReview = createAsyncThunk(
 );
 
 export const toggleLike = createAsyncThunk(
-    'reviews/toggleLike',
-    async ({ placeId, reviewId, userId, fullName }, { rejectWithValue }) => {
-      try {
-        const response = await axios.post(
-          `${BASE_URL}/reviews/${placeId}/${reviewId}/like`,
-          { userId, fullName }
-        );
-        console.log(`Likes count for review ${reviewId}:`, response.data.likes.length);
-        return { reviewId, likes: response.data.likes };
-      } catch (error) {
-        return rejectWithValue(error.response?.data?.message || 'Failed to toggle like');
-      }
+  'posts/toggleLike',
+  async ({ postType, placeId, postId, userId, fullName }, { rejectWithValue }) => {
+    try {
+      const response = await axios.post(
+        `${BASE_URL}/reviews/${postType}/${placeId}/${postId}/like`,
+        { userId, fullName }
+      );
+
+      console.log(`Likes count for ${postType} ${postId}:`, response.data.likes.length);
+      return { postType, postId, likes: response.data.likes };
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to toggle like');
     }
+  }
 );
 
 export const addComment = createAsyncThunk(
-  'reviews/addComment',
-  async ({ placeId, reviewId, userId, fullName, commentText }, { rejectWithValue }) => {
-      try {
-          console.log("📤 Sending API request to add comment...", {
-              placeId,
-              reviewId,
-              userId,
-              fullName,
-              commentText
-          });
+  'comments/addComment',
+  async ({ postType, placeId, postId, userId, fullName, commentText }, { rejectWithValue }) => {
+    try {
+      console.log("📤 Sending API request to add comment...", {
+        postType,
+        placeId,
+        postId,
+        userId,
+        fullName,
+        commentText
+      });
 
-          const response = await axios.post(
-              `${BASE_URL}/reviews/${placeId}/${reviewId}/comment`,
-              { userId, commentText, fullName }
-          );
+      // Updated API request to include postType in the URL
+      const response = await axios.post(
+        `${BASE_URL}/reviews/${postType}/${placeId}/${postId}/comment`,
+        { userId, commentText, fullName }
+      );
 
-          console.log("✅ API Response:", response.data);
-
-          // ✅ Ensure we are correctly extracting the comment object
-          if (!response.data.comment || !response.data.comment._id) {
-              console.log("❌ API did not return a valid comment:", response.data);
-              return rejectWithValue("Failed to add comment");
-          }
-
-          return {
-              reviewId,
-              commentId: response.data.comment._id, // ✅ Correctly extracting the commentId
-              comments: [response.data.comment], // ✅ Wrap in an array to prevent reducer errors
-          };
-      } catch (error) {
-          console.error("🚨 Error in addComment thunk:", error.response?.data || error.message);
-          return rejectWithValue(error.response?.data?.message || 'Failed to add comment');
+      // ✅ Ensure we are correctly extracting the comment object
+      if (!response.data.comment || !response.data.comment._id) {
+        return rejectWithValue("Failed to add comment");
       }
+
+      return {
+        postType,  // ✅ Distinguish between reviews and check-ins in the Redux state
+        postId,
+        commentId: response.data.comment._id, // ✅ Correctly extracting the commentId
+        comments: [response.data.comment], // ✅ Wrap in an array to prevent reducer errors
+      };
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to add comment');
+    }
   }
 );
 
 // Add a reply to a specific comment
 export const addReply = createAsyncThunk(
   'reviews/addReply',
-  async ({ placeId, reviewId, commentId, userId, fullName, commentText }, { rejectWithValue }) => {
-      try {
-          const response = await axios.post(
-              `${BASE_URL}/reviews/${placeId}/${reviewId}/${commentId}/reply`,
-              { userId, fullName, commentText }
-          );
+  async ({ postType, placeId, postId, commentId, userId, fullName, commentText }, { rejectWithValue }) => {
+    try {
+      const response = await axios.post(
+        `${BASE_URL}/reviews/${postType}/${placeId}/${postId}/${commentId}/reply`,
+        { userId, fullName, commentText }
+      );
 
-          if (!response.data.reply || !response.data.reply._id) {
-              return rejectWithValue("Failed to add reply");
-          }
-
-          return {
-              reviewId,
-              commentId,
-              replyId: response.data.reply._id, 
-              replies: [response.data.reply], 
-              userId: response.data.parentCommentOwner, 
-          };
-      } catch (error) {
-          return rejectWithValue(error.response?.data || 'Error adding reply');
+      if (!response.data.reply || !response.data.reply._id) {
+        return rejectWithValue("Failed to add reply");
       }
+
+      return {
+        postId,
+        commentId,
+        replyId: response.data.reply._id,
+        replies: [response.data.reply],
+        userId: response.data.parentCommentOwner,
+      };
+    } catch (error) {
+      return rejectWithValue(error.response?.data || 'Error adding reply');
+    }
   }
-);
+)
 
 export const fetchReviewsByUserId = createAsyncThunk(
   'reviews/fetchReviewsByUserId',
   async (userId, { rejectWithValue }) => {
     try {
       const query = `
-        query GetUserReviews($userId: String!) {
-          getUserReviews(userId: $userId) {
+        query GetUserPosts($userId: String!) {
+          getUserPosts(userId: $userId) {
+            __typename  
+
+            ... on Review {
+              _id
+              type
+              userId
+              fullName
+              date
+              placeId
+              businessName
+              likes {
+                userId
+                fullName
+              }
+              comments {
+                _id
+                commentText
+                userId
+                fullName
+                date
+                replies {
+                  _id
+                  commentText
+                  userId
+                  fullName
+                  date
+                  replies {
+                    _id
+                    commentText
+                    userId
+                    fullName
+                    date
+                    replies {
+                      _id
+                      commentText
+                      userId
+                      fullName
+                      date
+                      replies {
+                        _id
+                        commentText
+                        userId
+                        fullName
+                        date
+                        replies {
+                          _id
+                          commentText
+                          userId
+                          fullName
+                          date
+                          replies {
+                            _id
+                            commentText
+                            userId
+                            fullName
+                            date
+                            replies {
+                              _id
+                              commentText
+                              userId
+                              fullName
+                              date
+                              replies {
+                                _id
+                                commentText
+                                userId
+                                fullName
+                                date
+                                replies {
+                                  _id
+                                  commentText
+                                  userId
+                                  fullName
+                                  date
+                                  replies {
+                                    _id
+                                    commentText
+                                    userId
+                                    fullName
+                                    date
+                                    replies {
+                                      _id
+                                      commentText
+                                      userId
+                                      fullName
+                                      date
+                                      replies {
+                                        _id
+                                        commentText
+                                        userId
+                                        fullName
+                                        date
+                                        replies {
+                                          _id
+                                          commentText
+                                          userId
+                                          fullName
+                                          date
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              profilePic {
+                _id
+                photoKey
+                uploadedBy
+                description
+                tags
+                uploadDate
+              }
+              profilePicUrl
+              photos {
+                _id
+                photoKey
+                uploadedBy
+                description
+                tags
+                uploadDate
+                url
+              }
+              rating
+              reviewText
+            }
+
+            ... on CheckIn {
+              _id
+              type
+              userId
+              fullName
+              date
+              placeId
+              businessName
+              message
+              taggedUsers {
+                _id
+                fullName
+              }
+              likes {
+                userId
+                fullName
+              }
+              comments {
+                _id
+                commentText
+                userId
+                fullName
+                date
+                replies {
+                  _id
+                  commentText
+                  userId
+                  fullName
+                  date
+                  replies {
+                    _id
+                    commentText
+                    userId
+                    fullName
+                    date
+                    replies {
+                      _id
+                      commentText
+                      userId
+                      fullName
+                      date
+                      replies {
+                        _id
+                        commentText
+                        userId
+                        fullName
+                        date
+                        replies {
+                          _id
+                          commentText
+                          userId
+                          fullName
+                          date
+                          replies {
+                            _id
+                            commentText
+                            userId
+                            fullName
+                            date
+                            replies {
+                              _id
+                              commentText
+                              userId
+                              fullName
+                              date
+                              replies {
+                                _id
+                                commentText
+                                userId
+                                fullName
+                                date
+                                replies {
+                                  _id
+                                  commentText
+                                  userId
+                                  fullName
+                                  date
+                                  replies {
+                                    _id
+                                    commentText
+                                    userId
+                                    fullName
+                                    date
+                                    replies {
+                                      _id
+                                      commentText
+                                      userId
+                                      fullName
+                                      date
+                                      replies {
+                                        _id
+                                        commentText
+                                        userId
+                                        fullName
+                                        date
+                                        replies {
+                                          _id
+                                          commentText
+                                          userId
+                                          fullName
+                                          date
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              profilePic {
+                _id
+                photoKey
+                uploadedBy
+                description
+                tags
+                uploadDate
+              }
+              profilePicUrl
+              photos {
+                _id
+                photoKey
+                uploadedBy
+                description
+                tags
+                uploadDate
+                url
+              }
+            }
+          }
+        }
+      `;
+
+      const response = await axios.post(GRAPHQL_ENDPOINT, {
+        query,
+        variables: { userId },
+      });
+
+      if (response.data.errors) {
+        throw new Error(response.data.errors[0].message);
+      }
+
+      return response.data.data.getUserPosts || [];
+    } catch (error) {
+      if (error.response) {
+        return rejectWithValue(
+          `GraphQL Request Failed - Status: ${error.response.status}, Message: ${error.response.data?.message || "Unknown Error"}`
+        );
+      } else if (error.request) {
+        return rejectWithValue("No response from GraphQL server. Please check your network connection.");
+      } else {
+        return rejectWithValue(error.message || "Failed to fetch posts via GraphQL");
+      }
+    }
+  }
+);
+
+export const fetchPostsByOtherUserId = createAsyncThunk(
+  'reviews/fetchReviewsByOtherUserId',
+  async (userId, { rejectWithValue }) => {
+    try {
+      const query = `
+        query GetUserPosts($userId: String!) {
+          getUserPosts(userId: $userId) {
+            __typename  
+
+            ... on Review {
+              _id
+              type
+              userId
+              fullName
+              date
+              placeId
+              businessName
+              likes {
+                userId
+                fullName
+              }
+              comments {
+                _id
+                commentText
+                userId
+                fullName
+                date
+                replies {
+                  _id
+                  commentText
+                  userId
+                  fullName
+                  date
+                  replies {
+                    _id
+                    commentText
+                    userId
+                    fullName
+                    date
+                    replies {
+                      _id
+                      commentText
+                      userId
+                      fullName
+                      date
+                      replies {
+                        _id
+                        commentText
+                        userId
+                        fullName
+                        date
+                        replies {
+                          _id
+                          commentText
+                          userId
+                          fullName
+                          date
+                          replies {
+                            _id
+                            commentText
+                            userId
+                            fullName
+                            date
+                            replies {
+                              _id
+                              commentText
+                              userId
+                              fullName
+                              date
+                              replies {
+                                _id
+                                commentText
+                                userId
+                                fullName
+                                date
+                                replies {
+                                  _id
+                                  commentText
+                                  userId
+                                  fullName
+                                  date
+                                  replies {
+                                    _id
+                                    commentText
+                                    userId
+                                    fullName
+                                    date
+                                    replies {
+                                      _id
+                                      commentText
+                                      userId
+                                      fullName
+                                      date
+                                      replies {
+                                        _id
+                                        commentText
+                                        userId
+                                        fullName
+                                        date
+                                        replies {
+                                          _id
+                                          commentText
+                                          userId
+                                          fullName
+                                          date
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              profilePic {
+                _id
+                photoKey
+                uploadedBy
+                description
+                tags
+                uploadDate
+              }
+              profilePicUrl
+              photos {
+                _id
+                photoKey
+                uploadedBy
+                description
+                tags
+                uploadDate
+                url
+              }
+              rating
+              reviewText
+            }
+
+            ... on CheckIn {
+              _id
+              type
+              userId
+              fullName
+              date
+              placeId
+              businessName
+              message
+              taggedUsers {
+                _id
+                fullName
+              }
+              likes {
+                userId
+                fullName
+              }
+              comments {
+                _id
+                commentText
+                userId
+                fullName
+                date
+                replies {
+                  _id
+                  commentText
+                  userId
+                  fullName
+                  date
+                  replies {
+                    _id
+                    commentText
+                    userId
+                    fullName
+                    date
+                    replies {
+                      _id
+                      commentText
+                      userId
+                      fullName
+                      date
+                      replies {
+                        _id
+                        commentText
+                        userId
+                        fullName
+                        date
+                        replies {
+                          _id
+                          commentText
+                          userId
+                          fullName
+                          date
+                          replies {
+                            _id
+                            commentText
+                            userId
+                            fullName
+                            date
+                            replies {
+                              _id
+                              commentText
+                              userId
+                              fullName
+                              date
+                              replies {
+                                _id
+                                commentText
+                                userId
+                                fullName
+                                date
+                                replies {
+                                  _id
+                                  commentText
+                                  userId
+                                  fullName
+                                  date
+                                  replies {
+                                    _id
+                                    commentText
+                                    userId
+                                    fullName
+                                    date
+                                    replies {
+                                      _id
+                                      commentText
+                                      userId
+                                      fullName
+                                      date
+                                      replies {
+                                        _id
+                                        commentText
+                                        userId
+                                        fullName
+                                        date
+                                        replies {
+                                          _id
+                                          commentText
+                                          userId
+                                          fullName
+                                          date
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              profilePic {
+                _id
+                photoKey
+                uploadedBy
+                description
+                tags
+                uploadDate
+              }
+              profilePicUrl
+              photos {
+                _id
+                photoKey
+                uploadedBy
+                description
+                tags
+                uploadDate
+                url
+              }
+            }
+          }
+        }
+      `;
+
+      const response = await axios.post(GRAPHQL_ENDPOINT, {
+        query,
+        variables: { userId },
+      });
+
+      if (response.data.errors) {
+        throw new Error(response.data.errors[0].message);
+      }
+
+      return response.data.data.getUserPosts || [];
+    } catch (error) {
+      if (error.response) {
+        return rejectWithValue(
+          `GraphQL Request Failed - Status: ${error.response.status}, Message: ${error.response.data?.message || "Unknown Error"}`
+        );
+      } else if (error.request) {
+        return rejectWithValue("No response from GraphQL server. Please check your network connection.");
+      } else {
+        return rejectWithValue(error.message || "Failed to fetch posts via GraphQL");
+      }
+    }
+  }
+);
+
+export const fetchReviewsByUserAndFriends = createAsyncThunk(
+  "reviews/fetchUserActivity",
+  async (userId, { rejectWithValue }) => {
+    try {
+      const query = `
+        query GetUserActivity($userId: String!) {
+          getUserActivity(userId: $userId) {
             _id
-            businessName
-            placeId
             userId
             fullName
+            businessName
+            placeId
             rating
             reviewText
             date
+            message
+            timestamp
+            taggedUsers {
+              _id
+              fullName
+            }
             likes {
               userId
               fullName
@@ -176,158 +771,84 @@ export const fetchReviewsByUserId = createAsyncThunk(
                 userId
                 fullName
                 date
-              }
-            }
-            profilePic {
-              _id
-              photoKey
-              uploadedBy
-              description
-              tags
-              uploadDate
-            }
-            profilePicUrl
-            photos {  # ✅ Added photos field
-              _id
-              photoKey
-              uploadedBy
-              description
-              tags
-              uploadDate
-              url  # ✅ Added pre-signed URL for displaying photos
-            }
-          }
-        }
-      `;
-
-      // Make GraphQL request
-      const response = await axios.post(GRAPHQL_ENDPOINT, {
-        query,
-        variables: { userId },
-      });
-
-      if (response.data.errors) {
-        throw new Error(response.data.errors[0].message);
-      }
-
-      return response.data.data.getUserReviews;
-
-    } catch (error) {
-      return rejectWithValue(error.message || "Failed to fetch reviews via GraphQL");
-    }
-  }
-)
-
-export const fetchReviewsByUserAndFriends = createAsyncThunk(
-  "reviews/fetchByUserAndFriends",
-  async (userId, { rejectWithValue }) => {
-    try {
-      const query = `
-        query GetUserAndFriendsReviews($userId: String!) {
-          getUserAndFriendsReviews(userId: $userId) {
-            _id
-            businessName
-            placeId
-            userId
-            fullName
-            rating
-            reviewText
-            date
-            likes {
-              userId
-              fullName
-            }
-            comments {
-              _id
-              commentText
-              userId
-              fullName
-              date
-              replies {  
-                _id
-                commentText
-                userId
-                fullName
-                date
-                replies {  
+                replies {
                   _id
                   commentText
                   userId
                   fullName
                   date
-                  replies {  
+                  replies {
                     _id
                     commentText
                     userId
                     fullName
                     date
-                    replies {  
+                    replies {
                       _id
                       commentText
                       userId
                       fullName
                       date
-                      replies {  
+                      replies {
                         _id
                         commentText
                         userId
                         fullName
                         date
-                        replies {  
+                        replies {
                           _id
                           commentText
                           userId
                           fullName
                           date
-                          replies {  
+                          replies {
                             _id
                             commentText
                             userId
                             fullName
                             date
-                            replies {  
+                            replies {
                               _id
                               commentText
                               userId
                               fullName
                               date
-                              replies {  
+                              replies {
                                 _id
                                 commentText
                                 userId
                                 fullName
                                 date
-                                replies {  
+                                replies {
                                   _id
                                   commentText
                                   userId
                                   fullName
                                   date
-                                  replies {  
+                                  replies {
                                     _id
                                     commentText
                                     userId
                                     fullName
                                     date
-                                    replies {  
+                                    replies {
                                       _id
                                       commentText
                                       userId
                                       fullName
                                       date
-                                      replies {  
+                                      replies {
                                         _id
                                         commentText
                                         userId
                                         fullName
                                         date
-                                        replies {  
+                                        replies {
                                           _id
                                           commentText
                                           userId
                                           fullName
                                           date
-                                          
                                         }
                                       }
                                     }
@@ -352,20 +873,20 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
               uploadDate
             }
             profilePicUrl
-            photos {  
+            photos {
               _id
               photoKey
               uploadedBy
               description
               tags
               uploadDate
-              url  
+              url
             }
+            type
           }
         }
       `;
 
-      // Make GraphQL request
       const response = await axios.post(GRAPHQL_ENDPOINT, {
         query,
         variables: { userId },
@@ -375,20 +896,97 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
         throw new Error(response.data.errors[0].message);
       }
 
-      return response.data.data.getUserAndFriendsReviews;
+      if (!response.data.data || !response.data.data.getUserActivity) {
+        throw new Error("GraphQL response did not return expected data.");
+      }
+
+      return response.data.data.getUserActivity;
     } catch (error) {
-      return rejectWithValue(error.message || "Failed to fetch reviews via GraphQL");
+      console.error("❌ Error in fetchUserActivity thunk:", error);
+
+      // Check if the error has a response (server-side error)
+      if (error.response) {
+        console.error("❌ Axios Error Response:", JSON.stringify(error.response.data, null, 2));
+        console.error(`❌ Status Code: ${error.response.status}`);
+        console.error(`❌ Status Text: ${error.response.statusText}`);
+
+        if (error.response.data.errors) {
+          console.error("❌ GraphQL Error Messages:", error.response.data.errors.map(err => err.message).join("; "));
+        }
+
+        return rejectWithValue(
+          error.response.data.errors
+            ? error.response.data.errors.map(err => err.message).join("; ")
+            : `Request failed with status code ${error.response.status}`
+        );
+      }
+
+      // Handle network errors or other unexpected errors
+      console.error("❌ Network or Unknown Error:", error.message);
+      return rejectWithValue(error.message || "Failed to fetch user activity via GraphQL");
     }
   }
 );
 
-export const fetchReviewsByOtherUserId = createAsyncThunk(
-  'reviews/fetchReviewsByOtherUserId',
-  async (userId, { rejectWithValue }) => {
+export const deleteCommentOrReply = createAsyncThunk(
+  "reviews/deleteCommentOrReply",
+  async ({ postType, placeId, postId, commentId, relatedId }, { rejectWithValue }) => {
+    try {
+      const response = await axios.delete(`${BASE_URL}/reviews/${postType}/${placeId}/${postId}/${commentId}`, {
+        data: { relatedId },
+      });
+      return { commentId, postId }; // Returning deleted comment/reply ID for UI update
+    } catch (error) {
+      console.error("Error deleting comment or reply:", error.response?.data || error.message);
+      return rejectWithValue(error.response?.data?.message || "Failed to delete comment or reply");
+    }
+  }
+);
+
+export const fetchPostById = createAsyncThunk(
+  'reviews/fetchReviewById',
+  async ({ postType, postId }, { rejectWithValue }) => {
+    try {
+      const response = await axios.get(`${BASE_URL}/reviews/${postType}/${postId}`);
+      return response.data; // Returns { placeId, businessName, review }
+    } catch (error) {
+      console.error("Error fetching review:", error);
+      return rejectWithValue(error.response?.data || "Failed to fetch review");
+    }
+  }
+);
+
+export const editCommentOrReply = createAsyncThunk(
+  "reviews/editCommentOrReply",
+  async ({ postType, placeId, postId, commentId, userId, newText }, { rejectWithValue }) => {
+    try {
+      const response = await axios.put(
+        `${BASE_URL}/reviews/${postType}/${placeId}/${postId}/${commentId}`,
+        { userId, newText }
+      );
+
+      if (!response.data.updatedComment) {
+        return rejectWithValue("Failed to update comment or reply");
+      }
+
+      return {
+        postId,
+        commentId,
+        updatedComment: response.data.updatedComment,
+      };
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || "Failed to update comment or reply");
+    }
+  }
+);
+
+export const fetchReviewsByPlaceId = createAsyncThunk(
+  'reviews/fetchReviewsByPlaceId',
+  async (placeId, { rejectWithValue }) => {
     try {
       const query = `
-        query GetUserReviews($userId: String!) {
-          getUserReviews(userId: $userId) {
+        query GetBusinessReviews($placeId: String!) {
+          getBusinessReviews(placeId: $placeId) {
             _id
             businessName
             placeId
@@ -415,15 +1013,16 @@ export const fetchReviewsByOtherUserId = createAsyncThunk(
                 date
               }
             }
-            profilePic {
+            profilePicUrl
+            photos {
               _id
               photoKey
               uploadedBy
               description
               tags
               uploadDate
+              url # ✅ Pre-signed URL for review photos
             }
-            profilePicUrl
           }
         }
       `;
@@ -431,69 +1030,17 @@ export const fetchReviewsByOtherUserId = createAsyncThunk(
       // Make GraphQL request
       const response = await axios.post(GRAPHQL_ENDPOINT, {
         query,
-        variables: { userId },
+        variables: { placeId },
       });
 
       if (response.data.errors) {
         throw new Error(response.data.errors[0].message);
       }
 
-      return response.data.data.getUserReviews;
+      return response.data.data.getBusinessReviews;
 
     } catch (error) {
       return rejectWithValue(error.message || "Failed to fetch reviews via GraphQL");
-    }
-  }
-);
-
-export const deleteCommentOrReply = createAsyncThunk(
-  "reviews/deleteCommentOrReply",
-  async ({ placeId, reviewId, commentId, relatedId }, { rejectWithValue }) => {
-      try {
-          const response = await axios.delete(`${BASE_URL}/reviews/${placeId}/${reviewId}/${commentId}`, {
-              data: { relatedId },
-          });
-          return { commentId, reviewId }; // Returning deleted comment/reply ID for UI update
-      } catch (error) {
-          console.error("Error deleting comment or reply:", error.response?.data || error.message);
-          return rejectWithValue(error.response?.data?.message || "Failed to delete comment or reply");
-      }
-  }
-);
-
-export const fetchReviewById = createAsyncThunk(
-  'reviews/fetchReviewById',
-  async (reviewId, { rejectWithValue }) => {
-    try {
-      const response = await axios.get(`${BASE_URL}/reviews/review/${reviewId}`);
-      return response.data; // Returns { placeId, businessName, review }
-    } catch (error) {
-      console.error("Error fetching review:", error);
-      return rejectWithValue(error.response?.data || "Failed to fetch review");
-    }
-  }
-);
-
-export const editCommentOrReply = createAsyncThunk(
-  "reviews/editCommentOrReply",
-  async ({ placeId, reviewId, commentId, userId, newText }, { rejectWithValue }) => {
-    try {
-      const response = await axios.put(
-        `${BASE_URL}/reviews/${placeId}/${reviewId}/${commentId}`,
-        { userId, newText }
-      );
-
-      if (!response.data.updatedComment) {
-        return rejectWithValue("Failed to update comment or reply");
-      }
-
-      return {
-        reviewId,
-        commentId,
-        updatedComment: response.data.updatedComment,
-      };
-    } catch (error) {
-      return rejectWithValue(error.response?.data?.message || "Failed to update comment or reply");
     }
   }
 );
@@ -518,7 +1065,7 @@ const reviewsSlice = createSlice({
       state.error = null;
     },
     setLocalReviews: (state, action) => {
-        state.localReviews = action.payload;
+      state.localReviews = action.payload;
     },
     resetOtherUserReviews: (state) => {
       state.otherUserReviews = [];
@@ -532,7 +1079,24 @@ const reviewsSlice = createSlice({
     },
     setSelectedReview: (state, action) => {
       state.selectedReview = action.payload;
-    }, 
+    },
+    addCheckInUserAndFriendsReviews: (state, action) => {
+      const newCheckIn = action.payload;
+
+      // ✅ Add new check-in to the top of the list
+      state.userAndFriendsReviews = [
+        newCheckIn,
+        ...state.userAndFriendsReviews,
+      ];
+    },
+    addCheckInProfileReviews: (state, action) => {
+      const newCheckIn = action.payload;
+
+      state.profileReviews = [
+        newCheckIn,
+        ...state.profileReviews,
+      ]
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -549,15 +1113,15 @@ const reviewsSlice = createSlice({
         state.loading = "idle";
         state.error = action.payload;
       })
-      .addCase(fetchReviewsByOtherUserId.pending, (state) => {
+      .addCase(fetchPostsByOtherUserId.pending, (state) => {
         state.loading = "pending";
         state.error = null;
       })
-      .addCase(fetchReviewsByOtherUserId.fulfilled, (state, action) => {
+      .addCase(fetchPostsByOtherUserId.fulfilled, (state, action) => {
         state.loading = "idle";
         state.otherUserReviews = action.payload;
       })
-      .addCase(fetchReviewsByOtherUserId.rejected, (state, action) => {
+      .addCase(fetchPostsByOtherUserId.rejected, (state, action) => {
         state.loading = "idle";
         state.error = action.payload;
       })
@@ -605,77 +1169,80 @@ const reviewsSlice = createSlice({
         state.error = action.payload;
       })
       .addCase(toggleLike.fulfilled, (state, action) => {
-        const { reviewId, likes } = action.payload;
-      
-        // Update `reviews` state
+        const { postId, likes, } = action.payload; // Ensure correct payload structure
+
+        // ✅ Update `profileReviews` state
         state.profileReviews = state.profileReviews.map((review) =>
-          review._id === reviewId ? { ...review, likes } : review
-        );
-      
-        // Update `localReviews` state (if applicable)
-        state.userAndFriendsReviews = state.userAndFriendsReviews.map((review) =>
-          review._id === reviewId ? { ...review, likes } : review
+          review._id === postId ? { ...review, likes: [...likes] } : review
         );
 
+        // ✅ Update `userAndFriendsReviews` state
+        state.userAndFriendsReviews = state.userAndFriendsReviews.map((review) =>
+          review._id === postId ? { ...review, likes: [...likes] } : review
+        );
+
+        // ✅ Update `otherUserReviews` state
         state.otherUserReviews = state.otherUserReviews.map((review) =>
-          review._id === reviewId ? { ...review, likes } : review
+          review._id === postId ? { ...review, likes: [...likes] } : review
         );
       })
       .addCase(addComment.fulfilled, (state, action) => {
-        const { reviewId, comments } = action.payload;
-        
+        const { postId, comments } = action.payload;
+
         const updateComments = (review) => {
-            if (review) {
-                if (!Array.isArray(review.comments)) {
-                    review.comments = []; // ✅ Ensure it's an array
-                }
-                review.comments.push(...comments); // ✅ Safely append the new comment
+          if (review) {
+            if (!Array.isArray(review.comments)) {
+              review.comments = []; // ✅ Ensure it's an array
             }
+            review.comments.push(...comments); // ✅ Append safely
+          }
         };
-    
-        updateComments(state.otherUserReviews.find((r) => r._id === reviewId));
-        updateComments(state.userAndFriendsReviews.find((r) => r._id === reviewId));
-        updateComments(state.profileReviews.find((r) => r._id === reviewId));
+
+
+        updateComments(state.otherUserReviews?.find((r) => r._id === postId));
+        updateComments(state.userAndFriendsReviews?.find((r) => r._id === postId));
+        updateComments(state.profileReviews?.find((r) => r._id === postId));
+
       })
       .addCase(addReply.pending, (state) => {
         state.loading = true;
       })
       .addCase(addReply.fulfilled, (state, action) => {
-        const { reviewId, commentId, replies } = action.payload;
-    
+        const { postId, commentId, replies } = action.payload;
+
         const updateReplies = (comments) => {
-            return comments.map((comment) => {
-                if (comment._id === commentId) {
-                    return {
-                        ...comment,
-                        replies: [...(comment.replies || []), ...replies], // ✅ Ensure new array reference
-                    };
-                }
-    
-                if (Array.isArray(comment.replies)) {
-                    return {
-                        ...comment,
-                        replies: updateReplies(comment.replies), // ✅ Ensure nested replies update correctly
-                    };
-                }
-    
-                return comment;
-            });
-        };
-    
-        const updateReview = (reviews) => {
-            const reviewIndex = reviews.findIndex((r) => r._id === reviewId);
-            if (reviewIndex !== -1) {
-                const review = reviews[reviewIndex];
-    
-                // ✅ Ensure React re-renders by creating a new object reference
-                reviews[reviewIndex] = {
-                    ...review,
-                    comments: updateReplies(review.comments || []),
-                };
+          return comments.map((comment) => {
+            if (comment._id === commentId) {
+              return {
+                ...comment,
+                replies: [...(comment.replies || []), ...replies], // ✅ Ensure new array reference
+              };
             }
+
+            if (Array.isArray(comment.replies)) {
+              return {
+                ...comment,
+                replies: updateReplies(comment.replies), // ✅ Ensure nested replies update correctly
+              };
+            }
+
+            return comment;
+          });
         };
-    
+
+        const updateReview = (reviews) => {
+          const reviewIndex = reviews.findIndex((r) => r._id === postId);
+          if (reviewIndex !== -1) {
+            const review = reviews[reviewIndex];
+
+            // ✅ Ensure React re-renders by creating a new object reference
+            reviews[reviewIndex] = {
+              ...review,
+              comments: updateReplies(review.comments || []),
+            };
+          }
+        };
+
         updateReview(state.userAndFriendsReviews);
         updateReview(state.otherUserReviews);
         updateReview(state.profileReviews);
@@ -697,125 +1264,125 @@ const reviewsSlice = createSlice({
         state.loading = "idle";
         state.error = action.payload;
       })
-      .addCase(fetchReviewById.pending, (state) => {
+      .addCase(fetchPostById.pending, (state) => {
         state.loading = true;
         state.error = null;
       })
-      .addCase(fetchReviewById.fulfilled, (state, action) => {
+      .addCase(fetchPostById.fulfilled, (state, action) => {
         state.selectedReview = action.payload;
         state.loading = false;
       })
-      .addCase(fetchReviewById.rejected, (state, action) => {
+      .addCase(fetchPostById.rejected, (state, action) => {
         state.error = action.payload;
         state.loading = false;
       })
       .addCase(deleteCommentOrReply.fulfilled, (state, action) => {
-        const { reviewId, commentId } = action.payload;
-    
+        const { postId, commentId } = action.payload;
+
         const removeCommentOrReply = (review) => {
-            if (!review) return;
-    
-            // ✅ First, try removing as a top-level comment
-            const commentIndex = review.comments.findIndex((comment) => comment._id === commentId);
-            if (commentIndex !== -1) {
-                review.comments.splice(commentIndex, 1);
-                return;
+          if (!review) return;
+
+          // ✅ First, try removing as a top-level comment
+          const commentIndex = review.comments.findIndex((comment) => comment._id === commentId);
+          if (commentIndex !== -1) {
+            review.comments.splice(commentIndex, 1);
+            return;
+          }
+
+          // ✅ Recursively search and delete in `comment.replies`
+          const removeNestedReply = (replies) => {
+            if (!replies) return false;
+
+            for (let i = 0; i < replies.length; i++) {
+              if (replies[i]._id === commentId) {
+                replies.splice(i, 1);
+                return true;
+              }
+
+              // ✅ Search deeper in nested replies
+              if (removeNestedReply(replies[i].replies)) {
+                return true;
+              }
             }
-    
-            // ✅ Recursively search and delete in `comment.replies`
-            const removeNestedReply = (replies) => {
-                if (!replies) return false;
-    
-                for (let i = 0; i < replies.length; i++) {
-                    if (replies[i]._id === commentId) {
-                        replies.splice(i, 1);
-                        return true;
-                    }
-    
-                    // ✅ Search deeper in nested replies
-                    if (removeNestedReply(replies[i].replies)) {
-                        return true;
-                    }
-                }
-                return false;
-            };
-    
-            // ✅ Check each comment's replies for the nested reply
-            review.comments.forEach((comment) => {
-                removeNestedReply(comment.replies);
-            });
+            return false;
+          };
+
+          // ✅ Check each comment's replies for the nested reply
+          review.comments.forEach((comment) => {
+            removeNestedReply(comment.replies);
+          });
         };
-    
+
         // ✅ Apply the update across all relevant review categories
         ["businessReviews", "profileReviews", "otherUserReviews", "userAndFriendsReviews"].forEach((category) => {
-            state[category].forEach((review) => {
-                if (review._id === reviewId) {
-                    removeCommentOrReply(review);
-                }
-            });
+          state[category].forEach((review) => {
+            if (review._id === postId) {
+              removeCommentOrReply(review);
+            }
+          });
         });
       })
       .addCase(editCommentOrReply.fulfilled, (state, action) => {
-        const { reviewId, commentId, updatedComment } = action.payload;
-    
+        const { postId, commentId, updatedComment } = action.payload;
+
         const updateCommentOrReply = (review) => {
-            if (!review) return;
-    
-            // ✅ First, try updating a top-level comment
-            const commentIndex = review.comments.findIndex((comment) => comment._id === commentId);
-            if (commentIndex !== -1) {
-                review.comments[commentIndex] = {
-                    ...review.comments[commentIndex],
-                    commentText: updatedComment.commentText,
-                };
-                return;
-            }
-    
-            // ✅ Recursively search and update in `comment.replies`
-            const updateNestedReply = (replies) => {
-                if (!replies) return false;
-    
-                for (let i = 0; i < replies.length; i++) {
-                    if (replies[i]._id === commentId) {
-                        replies[i] = { ...replies[i], commentText: updatedComment.commentText }; // ✅ Update text
-                        return true;
-                    }
-    
-                    // ✅ Search deeper in nested replies
-                    if (updateNestedReply(replies[i].replies)) {
-                        return true;
-                    }
-                }
-                return false;
+          if (!review) return;
+
+          // ✅ First, try updating a top-level comment
+          const commentIndex = review.comments.findIndex((comment) => comment._id === commentId);
+          if (commentIndex !== -1) {
+            review.comments[commentIndex] = {
+              ...review.comments[commentIndex],
+              commentText: updatedComment.commentText,
             };
-    
-            // ✅ Check each comment's replies for the nested reply
-            review.comments.forEach((comment) => {
-                updateNestedReply(comment.replies);
-            });
+            return;
+          }
+
+          // ✅ Recursively search and update in `comment.replies`
+          const updateNestedReply = (replies) => {
+            if (!replies) return false;
+
+            for (let i = 0; i < replies.length; i++) {
+              if (replies[i]._id === commentId) {
+                replies[i] = { ...replies[i], commentText: updatedComment.commentText }; // ✅ Update text
+                return true;
+              }
+
+              // ✅ Search deeper in nested replies
+              if (updateNestedReply(replies[i].replies)) {
+                return true;
+              }
+            }
+            return false;
+          };
+
+          // ✅ Check each comment's replies for the nested reply
+          review.comments.forEach((comment) => {
+            updateNestedReply(comment.replies);
+          });
         };
-    
+
         // ✅ Apply the update across all relevant review categories
         ["businessReviews", "profileReviews", "otherUserReviews", "userAndFriendsReviews"].forEach((category) => {
-            state[category].forEach((review) => {
-                if (review._id === reviewId) {
-                    updateCommentOrReply(review);
-                }
-            });
+          state[category].forEach((review) => {
+            if (review._id === postId) {
+              updateCommentOrReply(review);
+            }
+          });
         });
       })
       .addCase(editCommentOrReply.rejected, (state, action) => {
-          state.error = action.payload;
-      })        
+        state.error = action.payload;
+      })
   },
 });
 
 export default reviewsSlice.reducer;
 
-export const { setSelectedReview, resetProfileReviews, setLocalReviews, resetOtherUserReviews, resetBusinessReviews, clearSelectedReview } = reviewsSlice.actions;
+export const { setSelectedReview, addCheckInUserAndFriendsReviews, addCheckInProfileReviews, resetProfileReviews, setLocalReviews, resetOtherUserReviews, resetBusinessReviews, clearSelectedReview } = reviewsSlice.actions;
 
 export const selectProfileReviews = (state) => state.reviews.profileReviews;
-export const selectBusinessReviews = (state) => state.reviews.busienssReviews;
+export const selectBusinessReviews = (state) => state.reviews.businessReviews;
 export const selectOtherUserReviews = (state) => state.reviews.otherUserReviews;
 export const selectLoading = (state) => state.reviews.loading;
 export const selectError = (state) => state.reviews.error;

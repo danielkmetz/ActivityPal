@@ -16,7 +16,7 @@ import { acceptFriendRequest, declineFriendRequest, selectFriendRequestDetails }
 import moment from 'moment';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import CommentModal from '../Reviews/CommentModal';
-import { selectUserAndFriendsReviews, clearSelectedReview, fetchReviewById, selectSelectedReview, setSelectedReview } from '../../Slices/ReviewsSlice';
+import { selectUserAndFriendsReviews, clearSelectedReview, fetchPostById, selectSelectedReview, setSelectedReview } from '../../Slices/ReviewsSlice';
 
 export default function Notifications() {
     const dispatch = useDispatch();
@@ -36,9 +36,11 @@ export default function Notifications() {
         dispatch(markNotificationRead({ userId: user.id, notificationId: notification._id }));
 
         if (notification.type === "comment" || notification.type === "reply") {
-            console.log(notification);
             if (notification) {
-                dispatch(fetchReviewById(notification.targetId));
+                console.log(postType)
+                const postType = notification.postType;
+        
+                dispatch(fetchPostById({postType, postId: notification.targetId}));
                 setTargetId(notification.replyId);
             } else {
                 console.warn("Comment ID is missing in notification");
@@ -104,6 +106,8 @@ export default function Notifications() {
         dispatch(setSelectedReview(null));
     };
 
+    //console.log(notifications);
+
     return (
         <View style={styles.container}>
             <FlatList
@@ -116,13 +120,13 @@ export default function Notifications() {
                             style={[styles.notificationCard, !item.read && styles.unreadNotification]}
                             onPress={() => handleNotificationPress(item)}
                         >
-                            {item.type !== 'friendRequest' && (
+                            {item?.type !== 'friendRequest' && (
                             <View style={styles.iconContainer}>
                                 {getIcon(item.type)}
                             </View>
                             )}
                             <View style={[styles.textContainer, item.type === 'friendRequest' && { marginLeft: 10 }]}>
-                                {item.type === 'friendRequest' && sender ? (
+                                {item?.type === 'friendRequest' && sender ? (
                                     <View style={styles.friendRequestContainer}>
                                         <Image
                                             source={sender.presignedProfileUrl ? { uri: sender.presignedProfileUrl } : profilePicPlaceholder}
@@ -133,7 +137,7 @@ export default function Notifications() {
                                 ) : (
                                     <Text style={styles.message}>{item.message}</Text>
                                 )}
-                                {item.commentText? (
+                                {item?.commentText? (
                                     <Text style={styles.commentText}>{item?.commentText}</Text>
                                 ) : (
                                     null
@@ -162,9 +166,7 @@ export default function Notifications() {
                     );
                 }}
             />
-
             {/* Comment Modal */}
-            
                 <CommentModal
                     visible={!!selectedReview}
                     review={selectedReview}

@@ -18,7 +18,18 @@ export const markNotificationRead = createAsyncThunk('notifications/markRead', a
 // Create a new notification for a user
 export const createNotification = createAsyncThunk(
     'notifications/createNotification',
-    async ({ userId, type, message, relatedId, typeRef, commentText = null, targetId = null, commentId = null, replyId = null  }, { rejectWithValue }) => {
+    async ({ 
+        userId, 
+        type, 
+        message, 
+        relatedId, 
+        typeRef, 
+        commentText = null, 
+        targetId = null, 
+        commentId = null, 
+        replyId = null,
+        postType = null,  
+    }, { rejectWithValue }) => {
         try {
             const response = await axios.post(`${BASE_URL}/notifications/${userId}/notifications`, {
                 type,
@@ -29,6 +40,7 @@ export const createNotification = createAsyncThunk(
                 commentId,
                 replyId,
                 commentText,
+                postType,
             });
             return response.data.notification;
         } catch (error) {

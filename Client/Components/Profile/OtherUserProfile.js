@@ -23,7 +23,7 @@ import {
   selectOtherUserProfilePic, 
 } from "../../Slices/PhotosSlice";
 import { 
-  fetchReviewsByOtherUserId, 
+  fetchPostsByOtherUserId, 
   selectOtherUserReviews, 
   resetOtherUserReviews, 
 } from "../../Slices/ReviewsSlice";
@@ -48,7 +48,7 @@ export default function OtherUserProfile({ route, navigation }) {
   useEffect(() => {
     if (user) {
       dispatch(fetchOtherUserBanner(user._id));
-      dispatch(fetchReviewsByOtherUserId(user._id));
+      dispatch(fetchPostsByOtherUserId(user._id));
       dispatch(fetchOtherUserProfilePic(user._id));
     }
   }, [user]);

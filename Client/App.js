@@ -15,6 +15,7 @@ import {
   getCityStateCountry, 
 } from './Slices/LocationSlice';
 import { loadToken } from './Slices/UserSlice';
+import { PaperProvider } from 'react-native-paper';
 import BusinessProfile from './Components/Profile/BusinessProfile';
 
 const fetchFonts = async () => {
@@ -78,9 +79,11 @@ export default function App() {
 
   return (
     <Provider store={store}>
-      <NavigationContainer>
-        <MainApp />
-      </NavigationContainer>
+      <PaperProvider>
+        <NavigationContainer>
+          <MainApp />
+        </NavigationContainer>
+      </PaperProvider>
     </Provider>
   );
 }
