@@ -20,6 +20,7 @@ const friends = require('./routes/friends');
 const users = require('./routes/users');
 const activities = require('./routes/activities');
 const notifications = require('./routes/notifications');
+const checkIns = require('./routes/checkIns');
 
 // Initialize app
 const app = express();
@@ -57,6 +58,7 @@ app.use('/api/users', users);
 app.use('/api/profilePics', profilePics);
 app.use('/api/activities', activities);
 app.use('/api/notifications', notifications);
+app.use('/api/checkIns', checkIns);
 
 // Start server
 const PORT = process.env.PORT || 5000;

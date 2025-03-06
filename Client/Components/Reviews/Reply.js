@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { View, Text, TouchableOpacity, TextInput, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import React, { useState, } from 'react';
+import { View, Text, TouchableOpacity, TextInput, StyleSheet, } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 const Reply = ({
@@ -93,6 +93,24 @@ const Reply = ({
                 <MaterialCommunityIcons name="comment-outline" size={20} color="#808080" />
                 <Text style={styles.replyButtonText}>{showReplyInput ? 'Cancel' : 'Reply'}</Text>
               </TouchableOpacity>
+
+              {/* Expand/collapse replies */}
+            {reply.replies && reply.replies.length > 0 && (
+              <TouchableOpacity
+                onPress={() => setNestedExpandedReplies(!nestedExpandedReplies)}
+                style={styles.expandRepliesButton}
+              >
+                <MaterialCommunityIcons
+                  name={nestedExpandedReplies ? 'chevron-up' : 'chevron-down'}
+                  size={20}
+                  color="#808080"
+                />
+                <Text style={styles.replyCountText}>
+                  {reply.replies.length} {reply.replies.length > 1 ? 'replies' : 'reply'}
+                </Text>
+              </TouchableOpacity>
+            )}
+            
             </View>
 
             {/* Nested reply input */}
@@ -110,22 +128,6 @@ const Reply = ({
               </View>
             )}
 
-            {/* Expand/collapse replies */}
-            {reply.replies && reply.replies.length > 0 && (
-              <TouchableOpacity
-                onPress={() => setNestedExpandedReplies(!nestedExpandedReplies)}
-                style={styles.expandRepliesButton}
-              >
-                <MaterialCommunityIcons
-                  name={nestedExpandedReplies ? 'chevron-up' : 'chevron-down'}
-                  size={20}
-                  color="#808080"
-                />
-                <Text style={styles.replyCountText}>
-                  {reply.replies.length} {reply.replies.length > 1 ? 'replies' : 'reply'}
-                </Text>
-              </TouchableOpacity>
-            )}
             {/* Render nested replies */}
             {nestedExpandedReplies &&
               reply.replies.map((nestedReply) => (
@@ -209,6 +211,7 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     paddingHorizontal: 10,
     marginRight: 10,
+    
   },
   commentButton: {
     backgroundColor: '#4caf50',

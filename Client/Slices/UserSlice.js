@@ -308,6 +308,7 @@ const userSlice = createSlice({
         received: [],
       };
       state.friendsDetails = [];
+      state.businessName = null;
     },
     setFriends: (state, action) => {
       state.friends = action.payload;
@@ -317,7 +318,10 @@ const userSlice = createSlice({
     },
     setFriendRequests: (state, action) => {
       state.friendRequests = action.payload;
-    }
+    },
+    resetBusinessName: (state) => {
+      state.businessName = null;
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -446,7 +450,7 @@ const userSlice = createSlice({
   },
 });
 
-export const { logout, setFriendsDetails, setFriends } = userSlice.actions;
+export const { logout, setFriendsDetails, setFriends, } = userSlice.actions;
 
 export const selectUser = (state) => state.user.user;
 export const selectLoading = (state) => state.user.loading;

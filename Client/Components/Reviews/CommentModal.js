@@ -9,9 +9,8 @@ import {
   StyleSheet,
   Animated,
   Easing,
-  KeyboardAvoidingView,
-  Platform,
   Keyboard,
+  Image,
   Dimensions,
 } from 'react-native';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg'
@@ -26,8 +25,9 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import Reply from './Reply';
 import ModalBox from 'react-native-modal';
 
+const screenWidth = Dimensions.get("window").width;
+
 dayjs.extend(relativeTime);
-const SCREEN_HEIGHT = Dimensions.get("window").height;
 
 function CommentModal({ visible, review, onClose, setSelectedReview, reviews, targetId }) {
   const dispatch = useDispatch();
@@ -41,8 +41,10 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
   const [isModalVisible, setModalVisible] = useState(false);
   const [nestedReplyInput, setNestedReplyInput] = useState(false)
   const [nestedExpandedReplies, setNestedExpandedReplies] = useState({});
+  const [keybaordHeight, setKeyboardHeight] = useState(null)
+  const [isInputCovered, setIsInputCovered] = useState(false);
   const slideAnim = useRef(new Animated.Value(300)).current; // Start off-screen to the right
-  const keyboardAnim = useRef(new Animated.Value(0)).current;
+  const shiftAnim = useRef(new Animated.Value(0)).current;
   const flatListRef = useRef(null); // Ref for the FlatList
   const user = useSelector(selectUser);
   const fullName = `${user?.firstName} ${user?.lastName}` || null;
@@ -51,46 +53,42 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
   const commentRefs = useRef({});
   const [inputHeight, setInputHeight] = useState(40); // Default height 40px
   const [contentHeight, setContentHeight] = useState(40);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const inputRef = useRef(null);
+
   const businessReviews = user?.businessDetails?.reviews || [];
 
-  console.log(SCREEN_HEIGHT)
-
   useEffect(() => {
-    const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', (event) => {
-      console.log('🔹 Keyboard Opened! Height:', event.endCoordinates.height);
-  
+    const showSubscription = Keyboard.addListener('keyboardWillShow', (event) => {
       const keyboardHeight = event.endCoordinates.height;
-      const safeShift = Math.min(keyboardHeight); // Prevents excessive shift
+      setKeyboardHeight(keyboardHeight);
+      setIsInputCovered(true);
 
-      console.log(keyboardHeight);
-      console.log(safeShift)
-  
-      Animated.timing(keyboardAnim, {
-        toValue: -safeShift, // Adjust shift to prevent over-shifting
+      Animated.timing(shiftAnim, {
+        toValue: -keyboardHeight + 50,
         duration: 300,
         easing: Easing.out(Easing.ease),
         useNativeDriver: true,
       }).start();
     });
-  
-    const keyboardDidHideListener = Keyboard.addListener('keyboardDidHide', () => {
-      console.log('🔸 Keyboard Closed');
-  
-      Animated.timing(keyboardAnim, {
-        toValue: 0, // Reset position
+
+    const hideSubscription = Keyboard.addListener('keyboardWillHide', () => {
+      setKeyboardHeight(0);
+      setIsInputCovered(false);
+
+      Animated.timing(shiftAnim, {
+        toValue: 0,
         duration: 300,
         easing: Easing.out(Easing.ease),
         useNativeDriver: true,
       }).start();
     });
-  
+
     return () => {
-      keyboardDidShowListener.remove();
-      keyboardDidHideListener.remove();
+      showSubscription.remove();
+      hideSubscription.remove();
     };
   }, []);
-  
+
   useEffect(() => {
     // Find the updated review in Redux state
     const updatedReview = reviews?.find(r => r?._id === review?._id);
@@ -126,14 +124,18 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
     }));
   };
 
-  const onAddComment = async (reviewId, text) => {
-    if (!text) return;
+  const onAddComment = async (postType, postId, text) => {
+    if (!text) {
+      console.log("❌ onAddComment: No text provided, exiting...");
+      return;
+    }
 
     try {
       const response = await dispatch(
         addComment({
-          placeId: review.placeId ? review.placeId : userPlaceId,
-          reviewId,
+          postType,
+          placeId: review?.placeId || userPlaceId,
+          postId,
           userId,
           fullName,
           commentText: text,
@@ -141,42 +143,48 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
       );
 
       if (!response.payload || response.payload === "Failed to add comment") {
+        console.log("❌ onAddComment: API response payload is invalid:", response.payload);
         return null;
       }
 
       return response.payload;
     } catch (error) {
+      console.error("🚨 onAddComment: Error dispatching addComment:", error);
       return null;
     }
   };
 
   const handleAddComment = async () => {
-    if (!commentText) return;
+    if (!commentText) {
+      return;
+    }
 
-    // Optimistically update the selected review's comments
-    const updatedReview = {
-      ...review,
-      comments: [...review.comments, { userId, fullName, commentText }],
-    };
+    if (!review) {
+      return;
+    }
 
-    setSelectedReview(updatedReview);
+    const postType = review?.type || "review"; // Default to 'review' if type is missing
 
     try {
-      // Wait for backend to generate `commentId`
-      const newComment = await onAddComment(review._id, commentText);
-      if (!newComment) return;
+      const newComment = await onAddComment(postType, review._id, commentText);
+
+      if (!newComment) {
+        console.log("❌ handleAddComment: Failed to add comment, rolling back UI update...");
+        return;
+      }
 
       if (review.userId !== userId && newComment.commentId) {
         await dispatch(
           createNotification({
             userId: review.userId,
-            type: 'comment',
-            message: `${fullName} commented on your review.`,
+            type: "comment",
+            message: `${fullName} commented on your ${postType}.`,
             relatedId: userId,
-            typeRef: 'User',
+            typeRef: "User",
             targetId: review._id,
             commentId: newComment.commentId,
-            commentText: commentText,
+            commentText,
+            postType: postType,
           })
         );
       }
@@ -187,7 +195,9 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
           flatListRef.current.scrollToEnd({ animated: true });
         }
       }, 100);
-    } catch (error) { }
+    } catch (error) {
+      console.error("🚨 handleAddComment: Error adding comment:", error);
+    }
   };
 
   const handleAddReply = async () => {
@@ -196,8 +206,9 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
     try {
       const { payload } = await dispatch(
         addReply({
+          postType: review.type,
           placeId: review.placeId ? review.placeId : userPlaceId,
-          reviewId: review._id,
+          postId: review._id,
           commentId: replyingTo,
           userId,
           fullName,
@@ -224,13 +235,14 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
         createNotification({
           userId: payload.userId,
           type: 'reply',
-          message: `${fullName} replied to your comment.`,
+          message: `${fullName} replied to your ${review.type}.`,
           relatedId: userId,
           typeRef: 'User',
           targetId: review._id,
           commentId: replyingTo,
           replyId: payload.replyId,
           commentText: commentText,
+          postType: review.type,
         })
       );
     } catch (error) { }
@@ -244,14 +256,18 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
     try {
       const { payload } = await dispatch(
         addReply({
+          postType: review.type,
           placeId: review.placeId ? review.placeId : userPlaceId,
-          reviewId: review._id,
+          postId: review._id,
           commentId: replyId, // The parent reply ID
           userId,
           fullName,
           commentText: nestedReplyText,
         })
       );
+
+      setReplyingTo(null);
+      setCommentText('');
 
       if (!payload || !payload.replyId || !payload.userId || payload.userId === userId) {
         return;
@@ -261,13 +277,14 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
         createNotification({
           userId: payload.userId, // Notify the correct parent reply owner
           type: "reply",
-          message: `${fullName} replied to your comment.`,
+          message: `${fullName} replied to your ${review.type}.`,
           relatedId: userId, // The user who replied
           typeRef: "User",
           targetId: review._id, // The review where the reply was added
           commentId: replyId, // The parent comment ID
           replyId: payload.replyId, // The generated reply ID
           commentText: nestedReplyText,
+          postType: review.type,
         })
       );
     } catch (error) { }
@@ -312,8 +329,9 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
       if (selectedComment) {
         await dispatch(
           deleteCommentOrReply({
+            postType: review.type,
             placeId: review.placeId,
-            reviewId: review._id,
+            postId: review._id,
             commentId: selectedComment._id,
             relatedId: review.userId, // ✅ Use review owner's userId
           })
@@ -329,8 +347,9 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
 
         await dispatch(
           deleteCommentOrReply({
+            postType: review.type,
             placeId: review.placeId,
-            reviewId: review._id,
+            postId: review._id,
             commentId: selectedReply._id, // ✅ Reply ID
             relatedId: parentComment.userId, // ✅ Parent comment's userId
           })
@@ -354,16 +373,18 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
   const handleSaveEdit = async () => {
     if (!selectedComment && !selectedReply) return;
 
+    const postType = review.type;
     const isReply = selectedReply !== null;
     const commentId = isReply ? selectedReply._id : selectedComment._id;
-    const reviewId = review._id;
+    const postId = review._id;
     const placeId = review.placeId;
 
     try {
       await dispatch(
         editCommentOrReply({
+          postType,
           placeId,
-          reviewId,
+          postId,
           commentId,
           userId,
           newText: editedText, // Updated text
@@ -485,213 +506,258 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
   }, [visible, targetId, review?.comments]);
 
   return (
-    <Modal transparent visible={visible} animationType="none">
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{ flex: 1 }}
-      >
-        <View style={styles.overlay}>
-          <Animated.View style={[styles.modalContainer, { transform: [{ translateX: slideAnim }, { translateY: keyboardAnim }] }]}>
-            <FlatList
-              onScrollBeginDrag={() => console.log('📜 FlatList Scrolled')}
-              onLayout={() => console.log('📌 FlatList Mounted')}
-              onContentSizeChange={(width, height) => console.log('📏 FlatList Content Height:', height)}
-              ref={flatListRef} // Attach the ref to the FlatList
-              style={styles.comments}
-              data={review?.comments || []}
-              extraData={review?.comments}
-              keyExtractor={(item, index) => `${review?._id}-${index}`}
-              getItemLayout={(data, index) => ({
-                length: 100, // Approximate height of each comment item
-                offset: 100 * index,
-                index,
-              })}
-              ListHeaderComponent={(
-                <View style={styles.header}>
-                  <View style={styles.userInfo}>
-                    <Avatar
-                      size={48}
-                      rounded
-                      source={review?.profilePicUrl ? { uri: review?.profilePicUrl } : profilePicPlaceholder} // Show image if avatarUrl exists
-                      icon={!review?.avatarUrl ? { name: 'person', type: 'material', color: '#fff' } : null} // Show icon if no avatarUrl
-                      containerStyle={{ backgroundColor: '#ccc' }} // Set background color for the generic avatar
-                    />
-                    <Text style={styles.reviewerName}>{review?.fullName}</Text>
-                  </View>
-                  <Text style={styles.businessName}>{review?.businessName}</Text>
+    <Modal transparent visible={visible} animationType="none" avoidKeyboard={true}>
+      <Animated.View style={[styles.modalContainer, { transform: [{ translateX: slideAnim }, { translateY: shiftAnim }] }]}>
+        <FlatList
+          onScrollBeginDrag={() => console.log('📜 FlatList Scrolled')}
+          onLayout={() => console.log('📌 FlatList Mounted')}
+          onContentSizeChange={(width, height) => console.log('📏 FlatList Content Height:', height)}
+          ref={flatListRef} // Attach the ref to the FlatList
+          style={styles.comments}
+          data={review?.comments || []}
+          extraData={review?.comments}
+          keyExtractor={(item, index) => `${review?._id}-${index}`}
+          getItemLayout={(data, index) => ({
+            length: 100, // Approximate height of each comment item
+            offset: 100 * index,
+            index,
+          })}
+          ListHeaderComponent={(
+            <View style={styles.header}>
+              <View style={styles.headerText}>
+                <View style={styles.userInfo}>
+                  <Avatar
+                    size={48}
+                    rounded
+                    source={review?.profilePicUrl ? { uri: review?.profilePicUrl } : profilePicPlaceholder} // Show image if avatarUrl exists
+                    icon={!review?.avatarUrl ? { name: 'person', type: 'material', color: '#fff' } : null} // Show icon if no avatarUrl
+                    containerStyle={{ backgroundColor: '#ccc' }} // Set background color for the generic avatar
+                  />
+                  <Text style={styles.reviewerName}>
+                    <Text style={styles.fullName}>{review?.fullName}</Text>
+                    {review?.type === "check-in" && review?.taggedUsers?.length > 0 && " is with "}
+                    {review?.type === "check-in" && Array.isArray(review?.taggedUsers) && review?.taggedUsers.length > 0
+                      ? review?.taggedUsers.map((user, index) => (
+                        <Text key={user._id} style={styles.taggedUser}>
+                          {user.fullName}
+                          {index !== review?.taggedUsers.length - 1 ? ", " : ""}
+                        </Text>
+                      ))
+                      : ""}
 
-                  {/* Dynamically render stars */}
-                  <View style={styles.rating}>
-                    {Array.from({ length: review?.rating }).map((_, index) => (
-                      <MaterialCommunityIcons
-                        key={index}
-                        name="star"
-                        size={20}
-                        color="gold"
-                      />
+                    {/* ✅ Force business name to appear on the next line using \n */}
+                    {review?.type === "check-in" && (
+                      <Text>
+                        {" "}
+                        at
+                        {"\n"} {/* ✅ Forces new line */}
+                        <Text style={styles.businessName}>{review.businessName}</Text>
+                      </Text>
+                    )}
+                  </Text>
+
+                </View>
+                <Text style={styles.businessName}>
+                  {review?.type === "review" ? review?.businessName : ""}
+                </Text>
+
+                {/* Dynamically render stars */}
+                <View style={styles.rating}>
+                  {Array.from({ length: review?.rating }).map((_, index) => (
+                    <MaterialCommunityIcons
+                      key={index}
+                      name="star"
+                      size={20}
+                      color="gold"
+                    />
+                  ))}
+                </View>
+                <Text style={styles.reviewText}>{review?.type === "review" ? review?.reviewText : review?.message}</Text>
+              </View>
+              {/* ✅ Render Photos (If Available) */}
+              {review?.photos?.length > 0 && (
+                <View>
+                  <FlatList
+                    data={review?.photos}
+                    horizontal
+                    pagingEnabled
+                    showsHorizontalScrollIndicator={false}
+                    keyExtractor={(item) => item._id}
+                    renderItem={({ item }) => (
+                      <Image source={{ uri: item?.url }} style={styles.photo} />
+                    )}
+                  />
+                  {/* Dots Indicator */}
+                  <View style={styles.paginationContainer}>
+                    {review?.photos.map((_, index) => (
+                      <View key={index} style={styles.dot} />
                     ))}
                   </View>
-                  <Text style={styles.reviewText}>{review?.reviewText}</Text>
-                  <Text>{getTimeSincePosted(review?.date)}</Text>
                 </View>
-
               )}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  onLongPress={() => handleLongPress(item)}
-                >
-                  <View style={styles.commentCard}>
-                    <View style={styles.commentBubble}>
-                      <Text style={styles.commentAuthor}>{item.fullName}:</Text>
-
-                      {/* Show TextInput if editing, otherwise show text */}
-                      {isEditing && selectedComment?._id === item._id ? (
-                        <TextInput
-                          style={styles.editInput}
-                          value={editedText}
-                          onChangeText={setEditedText}
-                          autoFocus={true}
-                          multiline
-                        />
-                      ) : (
-                        <Text style={styles.commentText}>{item.commentText}</Text>
-                      )}
-                    </View>
-
-                    <View style={styles.replyContainer}>
-                      <Text style={styles.commentDate}>{getTimeSincePosted(item.date)}</Text>
-
-                      {/* Show Save and Cancel buttons when editing */}
-                      {isEditing && selectedComment?._id === item._id ? (
-                        <>
-                          <TouchableOpacity onPress={handleSaveEdit} style={styles.saveButton}>
-                            <Text style={styles.saveButtonText}>Save</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => setIsEditing(false)} style={styles.cancelButton}>
-                            <Text style={styles.cancelButtonText}>Cancel</Text>
-                          </TouchableOpacity>
-                        </>
-                      ) : (
-                        <TouchableOpacity onPress={() => handleReplyButtonClick(item._id)} style={styles.replyButton}>
-                          <MaterialCommunityIcons name="comment-outline" size={20} color="#808080" />
-                          <Text style={styles.replyButtonText}>
-                            {replyingTo === item._id ? 'Cancel' : 'Reply'}
-                          </Text>
-                        </TouchableOpacity>
-                      )}
-
-                      {/* Nested Replies Toggle */}
-                      {item.replies && item.replies.length > 0 && (
-                        <TouchableOpacity onPress={() => toggleReplies(item?._id)} style={styles.expandRepliesButton}>
-                          <MaterialCommunityIcons
-                            name={expandedReplies[item?._id] ? 'chevron-up' : 'chevron-down'}
-                            size={20}
-                            color="#808080"
-                          />
-                          <Text style={styles.replyCountText}>{item?.replies?.length} {item?.replies?.length > 1 ? 'replies' : 'reply'}</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-
-                    {replyingTo === item._id && (
-                      <View style={styles.nestedReplyInputContainer}>
-                        <TextInput
-                          style={styles.nestedReplyInput}
-                          placeholder="Write a reply..."
-                          value={commentText}
-                          onChangeText={setCommentText}
-                        />
-                        <TouchableOpacity style={styles.commentButton} onPress={handleAddReply}>
-                          <Text style={styles.commentButtonText}>Reply</Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
-
-                    {/* Render replies safely */}
-                    {expandedReplies[item?._id] && Array.isArray(item?.replies) && item?.replies?.length > 0 ? (
-                      <View style={styles.repliesContainer}>
-                        {item?.replies.map((reply) => (
-                          <TouchableOpacity key={reply._id} onLongPress={() => handleLongPress(reply, true)}>
-                            <Reply
-                              key={reply?._id}
-                              reply={reply}
-                              onAddReply={handleAddNestedReply}
-                              getTimeSincePosted={getTimeSincePosted}
-                              nestedExpandedReplies={nestedExpandedReplies}
-                              setNestedExpandedReplies={setNestedExpandedReplies}
-                              commentRefs={commentRefs}
-                              handleLongPress={handleLongPress}
-                              setSelectedReply={setSelectedReply}
-                              setSelectedComment={setSelectedComment}
-                              parentCommentId={item._id}
-                              nestedReplyInput={nestedReplyInput}
-                              setNestedReplyInput={setNestedReplyInput}
-                              handleEditComment={handleEditComment}
-                              handleSaveEdit={handleSaveEdit}
-                              setIsEditing={setIsEditing}
-                              setEditedText={setEditedText}
-                              isEditing={isEditing}
-                              editedText={editedText}
-                              selectedReply={selectedReply}
-                            />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    ) : null}
-                  </View>
-                </TouchableOpacity>
+              {review?.type === "check-in" && (
+                <Image
+                  source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
+                  style={styles.pinIcon}
+                />
               )}
-            />
-            {(replyingTo === null && !nestedReplyInput && !isEditing) && (
-              <>
-                <View style={styles.commentInputContainer}>
-                  <TextInput
-                    style={[styles.commentInput, { height: inputHeight }]}
-                    onFocus={() => console.log('📝 TextInput Focused')}
-                    onBlur={() => console.log('📝 TextInput Lost Focus')}
-                    placeholder={'Write a comment...'}
-                    value={commentText}
-                    onChangeText={setCommentText}
-                    multiline={true} // ✅ Enables multiple lines
-                    textAlignVertical="top" // ✅ Aligns text to top
-                    onContentSizeChange={(event) => {
-                      setContentHeight(event.nativeEvent.contentSize.height);
-                    }}
-                  />
-                  <TouchableOpacity
-                    style={styles.commentButton}
-                    onPress={handleAddComment}
-                  >
-                    <Text style={styles.commentButtonText}>{'Post'}</Text>
-                  </TouchableOpacity>
-                </View>
-                <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                  <Text style={styles.closeButtonText}>Close</Text>
-                </TouchableOpacity>
-              </>
-            )}
-            <ModalBox
-              isVisible={isModalVisible}
-              onBackdropPress={() => setModalVisible(false)}
-              style={styles.bottomModal}
+
+              <Text style={styles.reviewDate}>{getTimeSincePosted(review?.date)} ago</Text>
+            </View>
+
+          )}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              onLongPress={() => handleLongPress(item)}
             >
-              <View style={styles.modalContent}>
-                <TouchableOpacity onPress={handleEditComment} style={styles.modalButton}>
-                  <MaterialCommunityIcons name="pencil-outline" size={20} color="black" />
-                  <Text style={styles.modalButtonText}>Edit</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={handleDeleteCommentOrReply} style={styles.modalButton}>
-                  <MaterialCommunityIcons name="delete-outline" size={20} color="red" />
-                  <Text style={styles.modalButtonTextRed}>Delete</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.modalCancelButton}>
-                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
+              <View style={styles.commentCard}>
+                <View style={styles.commentBubble}>
+                  <Text style={styles.commentAuthor}>{item.fullName}:</Text>
+
+                  {/* Show TextInput if editing, otherwise show text */}
+                  {isEditing && selectedComment?._id === item._id ? (
+                    <TextInput
+                      style={styles.editInput}
+                      value={editedText}
+                      onChangeText={setEditedText}
+                      autoFocus={true}
+                      multiline
+                    />
+                  ) : (
+                    <Text style={styles.commentText}>{item.commentText}</Text>
+                  )}
+                </View>
+
+                <View style={styles.replyContainer}>
+                  <Text style={styles.commentDate}>{getTimeSincePosted(item.date)}</Text>
+
+                  {/* Show Save and Cancel buttons when editing */}
+                  {isEditing && selectedComment?._id === item._id ? (
+                    <>
+                      <TouchableOpacity onPress={handleSaveEdit} style={styles.saveButton}>
+                        <Text style={styles.saveButtonText}>Save</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => setIsEditing(false)} style={styles.cancelButton}>
+                        <Text style={styles.cancelButtonText}>Cancel</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <TouchableOpacity onPress={() => handleReplyButtonClick(item._id)} style={styles.replyButton}>
+                      <MaterialCommunityIcons name="comment-outline" size={20} color="#808080" />
+                      <Text style={styles.replyButtonText}>
+                        {replyingTo === item._id ? 'Cancel' : 'Reply'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {/* Nested Replies Toggle */}
+                  {item.replies && item.replies.length > 0 && (
+                    <TouchableOpacity onPress={() => toggleReplies(item?._id)} style={styles.expandRepliesButton}>
+                      <MaterialCommunityIcons
+                        name={expandedReplies[item?._id] ? 'chevron-up' : 'chevron-down'}
+                        size={20}
+                        color="#808080"
+                      />
+                      <Text style={styles.replyCountText}>{item?.replies?.length} {item?.replies?.length > 1 ? 'replies' : 'reply'}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {replyingTo === item._id && (
+                  <View style={styles.nestedReplyInputContainer}>
+                    <TextInput
+                      style={styles.nestedReplyInput}
+                      placeholder="Write a reply..."
+                      value={commentText}
+                      onChangeText={setCommentText}
+                    />
+                    <TouchableOpacity style={styles.commentButton} onPress={handleAddReply}>
+                      <Text style={styles.commentButtonText}>Reply</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* Render replies safely */}
+                {expandedReplies[item?._id] && Array.isArray(item?.replies) && item?.replies?.length > 0 ? (
+                  <View style={styles.repliesContainer}>
+                    {item?.replies.map((reply) => (
+                      <TouchableOpacity key={reply._id} onLongPress={() => handleLongPress(reply, true)}>
+                        <Reply
+                          key={reply?._id}
+                          reply={reply}
+                          onAddReply={handleAddNestedReply}
+                          getTimeSincePosted={getTimeSincePosted}
+                          nestedExpandedReplies={nestedExpandedReplies}
+                          setNestedExpandedReplies={setNestedExpandedReplies}
+                          commentRefs={commentRefs}
+                          handleLongPress={handleLongPress}
+                          setSelectedReply={setSelectedReply}
+                          setSelectedComment={setSelectedComment}
+                          parentCommentId={item._id}
+                          nestedReplyInput={nestedReplyInput}
+                          setNestedReplyInput={setNestedReplyInput}
+                          handleEditComment={handleEditComment}
+                          handleSaveEdit={handleSaveEdit}
+                          setIsEditing={setIsEditing}
+                          setEditedText={setEditedText}
+                          isEditing={isEditing}
+                          editedText={editedText}
+                          selectedReply={selectedReply}
+                        />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : null}
               </View>
-            </ModalBox>
-          </Animated.View>
-        </View>
-      </KeyboardAvoidingView>
+            </TouchableOpacity>
+          )}
+        />
+        {(replyingTo === null && !nestedReplyInput && !isEditing) && (
+          <>
+            <View style={styles.commentInputContainer}>
+              <TextInput
+                style={[styles.commentInput, { height: inputHeight }]}
+                placeholder={'Write a comment...'}
+                value={commentText}
+                onChangeText={setCommentText}
+                multiline={true} // ✅ Enables multiple lines
+                textAlignVertical="top" // ✅ Aligns text to top
+                onContentSizeChange={(event) => {
+                  setContentHeight(event.nativeEvent.contentSize.height);
+                }}
+              />
+              <TouchableOpacity
+                style={styles.commentButton}
+                onPress={handleAddComment}
+              >
+                <Text style={styles.commentButtonText}>{'Post'}</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <Text style={styles.closeButtonText}>Close</Text>
+            </TouchableOpacity>
+          </>
+        )}
+        <ModalBox
+          isVisible={isModalVisible}
+          onBackdropPress={() => setModalVisible(false)}
+          style={styles.bottomModal}
+        >
+          <View style={styles.modalContent}>
+            <TouchableOpacity onPress={handleEditComment} style={styles.modalButton}>
+              <MaterialCommunityIcons name="pencil-outline" size={20} color="black" />
+              <Text style={styles.modalButtonText}>Edit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleDeleteCommentOrReply} style={styles.modalButton}>
+              <MaterialCommunityIcons name="delete-outline" size={20} color="red" />
+              <Text style={styles.modalButtonTextRed}>Delete</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.modalCancelButton}>
+              <Text style={styles.modalCancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </ModalBox>
+      </Animated.View>
     </Modal>
   );
 }
@@ -706,14 +772,11 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     backgroundColor: '#fff',
-    padding: 15,
+    //padding: 15,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     width: '100%',
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    right: 0,
+    height: '100%',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
@@ -769,7 +832,12 @@ const styles = StyleSheet.create({
     borderBottomColor: '#ccc',
     justifyContent: 'center',
   },
+  headerText: {
+    padding: 15,
+  },
   reviewerName: {
+    flexWrap: 'wrap',
+    flexShrink: 1,
     fontSize: 16,
     marginBottom: 10,
     marginLeft: 10,
@@ -782,7 +850,9 @@ const styles = StyleSheet.create({
   reviewText: {
     fontSize: 16,
     fontWeight: 'bold',
-    marginBottom: 10,
+  },
+  reviewDate: {
+    marginLeft: 10,
   },
   commentBubble: {
     backgroundColor: '#f0f2f5',
@@ -803,6 +873,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 10,
+    padding: 15,
   },
   commentInput: {
     flex: 1,
@@ -825,20 +896,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#777',
     marginRight: 10,
+    marginLeft: 20,
   },
   commentButtonText: {
     color: '#fff',
     fontWeight: 'bold',
   },
   closeButton: {
-    marginTop: 20,
     alignSelf: 'center',
+    marginBottom: 30,
   },
   closeButtonText: {
     color: '#4caf50',
     fontWeight: 'bold',
     fontSize: 16,
-    marginBottom: 10,
   },
   userInfo: {
     flexDirection: 'row',
@@ -853,6 +924,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 10,
+    marginBottom: 30,
+    marginHorizontal: 10,
   },
   nestedReplyInput: {
     flex: 1,
@@ -915,6 +988,28 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     color: '#333',
     fontWeight: 'bold',
+  },
+  photo: {
+    width: screenWidth, // Full width of review minus padding
+    height: 400, // Larger photo height
+    borderRadius: 8,
+  },
+  paginationContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 5,
+  },
+  fullName: {
+    fontWeight: 'bold'
+  },
+  taggedUser: {
+    fontWeight: 'bold'
+  },
+  pinIcon: {
+    width: 50,
+    height: 50,
+    alignSelf: 'center',
+    marginBottom: 10,
   },
 
 });

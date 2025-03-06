@@ -8,6 +8,7 @@ import reviewsReducer from './Slices/ReviewsSlice';
 import photosReducer from './Slices/PhotosSlice';
 import friendsReducer from './Slices/friendsSlice';
 import notificationsReducer from './Slices/NotificationsSlice';
+import checkInsReducer from './Slices/CheckInsSlice';
 
 const store = configureStore({
     reducer: combineReducers({
@@ -20,6 +21,7 @@ const store = configureStore({
        photos: photosReducer,
        friends: friendsReducer,
        notifications: notificationsReducer,
+       checkIns: checkInsReducer,
     })
 });
 
