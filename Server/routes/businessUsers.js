@@ -41,4 +41,27 @@ router.patch("/update", verifyToken, async (req, res) => {
   }
 });
 
+router.get("/name/:id", verifyToken, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // Validate the ID format
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid business user ID format" });
+    }
+
+    // Find the business user by their _id
+    const businessUser = await BusinessUser.findById(id).select("businessName");
+
+    if (!businessUser) {
+      return res.status(404).json({ message: "Business user not found" });
+    }
+
+    res.status(200).json({ businessName: businessUser.businessName });
+  } catch (error) {
+    console.error("Error fetching business user name:", error);
+    res.status(500).json({ message: "An error occurred while fetching business user name" });
+  }
+});
+
 module.exports = router;

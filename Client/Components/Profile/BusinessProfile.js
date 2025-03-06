@@ -16,7 +16,9 @@ import logoPlaceholder from '../../assets/pics/logo-placeholder.png';
 import EditProfileModal from "./EditProfileModal";
 import { selectLogo, fetchLogo, selectBanner, fetchBanner, selectAlbum, fetchPhotos } from "../../Slices/PhotosSlice";
 import { useRoute, useNavigation } from "@react-navigation/native";
+import { resetBusinessReviews, fetchReviewsByPlaceId, selectBusinessReviews } from '../../Slices/ReviewsSlice';
 import Reviews from "../Reviews/Reviews";
+import Photos from "./Photos";
 
 export default function BusinessProfile() {
   const dispatch = useDispatch();
@@ -29,6 +31,7 @@ export default function BusinessProfile() {
   const [modalVisible, setModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const user = business ? business : useSelector(selectUser).businessDetails;
+  const reviews = useSelector(selectBusinessReviews);
   const logo = useSelector(selectLogo);
   const banner = useSelector(selectBanner);
   const photos = useSelector(selectAlbum);
@@ -45,6 +48,7 @@ export default function BusinessProfile() {
       dispatch(fetchLogo(placeId));
       dispatch(fetchBanner(placeId));
       dispatch(fetchPhotos(placeId));
+      dispatch(fetchReviewsByPlaceId(placeId));
     }
   }, [placeId]);
 
@@ -125,7 +129,7 @@ export default function BusinessProfile() {
         </TouchableOpacity>
       </View>
       {activeSection === "reviews" && business && (
-        <Reviews reviews={business?.reviews}/>
+        <Reviews reviews={reviews}/>
       )}
       {activeSection === "about" && (
         <View style={styles.aboutContainer}>
@@ -137,6 +141,7 @@ export default function BusinessProfile() {
           <Text>{description}</Text>
         </View>
       )}
+      {activeSection === "photos" && <Photos photos={photos} />}
     </>
   );
 
@@ -144,13 +149,11 @@ export default function BusinessProfile() {
     <>
     <FlatList
       style={styles.container}
-      data={activeSection === "photos" ? photos : []}
+      data={null}
       keyExtractor={(item) => item.photoKey}
       numColumns={3}
       ListHeaderComponent={renderHeader()}
-      renderItem={({ item }) =>
-        activeSection === "photos" ? <Image source={{ uri: item.url }} style={styles.photo} /> : null
-      }
+      renderItem={null}
       contentContainerStyle={styles.photosGrid}
       showsVerticalScrollIndicator={false}
     />
@@ -172,7 +175,6 @@ export default function BusinessProfile() {
     </>
   );
 }
-
 
 const styles = StyleSheet.create({
   container: {
@@ -289,7 +291,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   photosGrid: {
-    padding: 10,
+    padding: 0,
   },
   photo: {
     width: 100,

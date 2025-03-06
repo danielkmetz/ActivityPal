@@ -54,6 +54,8 @@ const Home = () => {
         setModalVisible(false);
     };
 
+    //console.log(userAndFriendsReviews)
+
     return (
         <View style={styles.container}>
             <FlatList

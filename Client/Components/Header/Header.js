@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, TextInput } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectWeather, selectCoordinates, selectLocation, fetchWeather } from '../../Slices/LocationSlice';
-import PreferencesModal from '../Preferences/Preferences';
 
 export default function Header({ currentRoute }) {
     const dispatch = useDispatch();
