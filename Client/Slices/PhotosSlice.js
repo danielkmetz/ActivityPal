@@ -428,6 +428,18 @@ export const fetchOtherUserBanner = createAsyncThunk(
   }
 );
 
+export const fetchBusinessBanner = createAsyncThunk(
+  'photos/fetchBusinessBanner',
+  async (placeId, { rejectWithValue }) => {
+    try {
+      const response = await axios.get(`${BASE_URL}/banners/${placeId}/banner-business`);
+      return response.data; // Return profile picture metadata with URL
+    } catch (error) {
+      return rejectWithValue(error.response?.data || error.message)
+    }
+  }
+);
+
 const photoSlice = createSlice({
     name: 'photos',
     initialState: {
@@ -435,6 +447,7 @@ const photoSlice = createSlice({
         profilePic: null,
         banner: null,
         otherUserBanner: null,
+        businessBanner: null,
         otherUserProfilePic: null,
         reviewPhotos: null,
         uploadLoading: false,
@@ -637,7 +650,18 @@ const photoSlice = createSlice({
                 state.fetchLoading = false;
                 state.fetchError = action.payload;
             })
-            
+            .addCase(fetchBusinessBanner.pending, (state) => {
+              state.fetchLoading = true;
+              state.fetchError = null;
+            })
+            .addCase(fetchBusinessBanner.fulfilled, (state, action) => {
+                state.fetchLoading = false;
+                state.businessBanner = action.payload;
+            })
+            .addCase(fetchBusinessBanner.rejected, (state, action) => {
+                state.fetchLoading = false;
+                state.fetchError = action.payload;
+            })            
     },
   });
   
@@ -652,6 +676,7 @@ export const selectAlbum = (state) => state.photos.album;
 export const selectProfilePic = (state) => state.photos.profilePic;
 export const selectOtherUserBanner = (state) => state.photos.otherUserBanner;
 export const selectOtherUserProfilePic = (state) => state.photos.otherUserProfilePic;
+export const selectBusinessBanner = (state) => state.photos.businessBanner;
 
 export const { resetLogo, resetOtherUserBanner, resetProfilePicture, resetBanner, resetOtherUserProfilePic } = photoSlice.actions;
 

@@ -2,6 +2,8 @@ const express = require("express");
 const router = express.Router();
 const verifyToken = require("../middleware/verifyToken");
 const BusinessUser = require("../models/Business"); // Update with your schema location
+const mongoose = require('mongoose');
+const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
 
 // Update business info
 router.patch("/update", verifyToken, async (req, res) => {
@@ -61,6 +63,45 @@ router.get("/name/:id", verifyToken, async (req, res) => {
   } catch (error) {
     console.error("Error fetching business user name:", error);
     res.status(500).json({ message: "An error occurred while fetching business user name" });
+  }
+});
+
+router.post("/favorites", verifyToken, async (req, res) => {
+  const { businessIds } = req.body;
+
+  try {
+    // Validate input
+    if (!businessIds || !Array.isArray(businessIds)) {
+      return res.status(400).json({ message: "businessIds must be an array" });
+    }
+
+    // Fetch businesses using placeId (since it's stored as a string)
+    const businesses = await BusinessUser.find({ placeId: { $in: businessIds } });
+
+    if (!businesses.length) {
+      return res.status(404).json({ message: "No businesses found for the provided IDs" });
+    }
+
+    // Generate presigned URLs for profile pictures
+    const businessesWithPresignedUrls = await Promise.all(
+      businesses.map(async (business) => {
+        let profilePicUrl = null;
+
+        if (business.logoKey) {
+          profilePicUrl = await generateDownloadPresignedUrl(business.logoKey);
+        }
+
+        return {
+          ...business.toObject(),
+          profilePicUrl, // Add presigned URL to response
+        };
+      })
+    );
+
+    res.status(200).json({ businesses: businessesWithPresignedUrls });
+  } catch (error) {
+    console.error("🚨 Error fetching favorite businesses:", error);
+    res.status(500).json({ message: "An error occurred while fetching favorite businesses" });
   }
 });
 

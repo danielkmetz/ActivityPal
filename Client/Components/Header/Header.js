@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, TextInput } from 'react-native';
+import React, { useEffect, } from 'react';
+import { View, Text, StyleSheet, Image, } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectWeather, selectCoordinates, selectLocation, fetchWeather } from '../../Slices/LocationSlice';
 
@@ -8,7 +8,7 @@ export default function Header({ currentRoute }) {
     const coordinates = useSelector(selectCoordinates);
     const weather = useSelector(selectWeather);
     const location = useSelector(selectLocation);
-    
+
     useEffect(() => {
         if (coordinates) {
             dispatch(fetchWeather(coordinates));
@@ -19,7 +19,7 @@ export default function Header({ currentRoute }) {
     const weatherIcon = weather?.condition?.icon
         ? `https:${weather.condition.icon}` // Add 'https:' to make it a valid URL
         : null;
-    
+
     // Determine dynamic title based on the current route
     const getTitle = () => {
         switch (currentRoute) {
@@ -31,6 +31,12 @@ export default function Header({ currentRoute }) {
                 return "Friends";
             case "Notifications":
                 return "Notifications";
+            case "My Events":
+                return "My Events";
+            case "Reviews":
+                return "Reviews";
+            case "Insights":
+                return "Insights";
             default:
                 return "ActivityPal";
         }
@@ -40,22 +46,22 @@ export default function Header({ currentRoute }) {
 
     return (
         <>
-        <View style={styles.header}>
-            {/* Title */}
-            <View style={styles.headerContent}>
-                <Text style={styles.title}>{route}</Text>
-                <View style={styles.indicators}>
-                {/* Location Display */}
-                <View style={styles.locationContainer}>
-                    <Image
-                        source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
-                        style={styles.pinIcon}
-                    />
-                    <Text style={styles.locationText}>{location?.city || "Unknown City"}</Text>
-                </View>
+            <View style={styles.header}>
+                {/* Title */}
+                <View style={styles.headerContent}>
+                    <Text style={styles.title}>{route}</Text>
+                    <View style={styles.indicators}>
+                        {/* Location Display */}
+                        <View style={styles.locationContainer}>
+                            <Image
+                                source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
+                                style={styles.pinIcon}
+                            />
+                            <Text style={styles.locationText}>{location?.city || "Unknown City"}</Text>
+                        </View>
 
-                {/* Weather Display */}
-                {/* <View style={styles.weatherContainer}>
+                        {/* Weather Display */}
+                        {/* <View style={styles.weatherContainer}>
                     {weatherIcon && (
                         <Image source={{ uri: weatherIcon }} style={styles.weatherIcon} />
                     )}
@@ -63,9 +69,9 @@ export default function Header({ currentRoute }) {
                         {weatherDescription.split(' ')[0]}
                     </Text>
                 </View> */}
-                </View> 
+                    </View>
+                </View>
             </View>
-        </View>
         </>
     );
 }

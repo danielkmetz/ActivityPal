@@ -125,25 +125,26 @@ router.get('/:userId/banner-user', async (req, res) => {
     }
 });  
 
-// Fetch Banner Route for business
-router.get("/:placeId/banner-business", async (req, res) => {
-    const { placeId } = req.params;
+router.get('/:placeId/banner-business', async (req, res) => {
+  const { placeId } = req.params;
 
-    try {
-        const business = await Business.findOne({ placeId });
-        if (!business || !business.bannerKey) {
-            return res.status(404).json({ message: "Banner not found" });
-        }
+  try {
+    const user = await Business.findOne({ placeId });
 
-        const { body: objectStream, contentType } = await getObjectFromS3(business.bannerKey);
-
-        // Pipe the S3 object stream directly to the client
-        res.setHeader("Content-Type", contentType || "application/octet-stream");
-        objectStream.pipe(res);
-    } catch (error) {
-        console.error("Error retrieving banner:", error);
-        res.status(500).json({ message: "Error retrieving banner", error: error.message });
+    const { bannerKey } = user || {}; // Expect only one profilePic object
+    if (!bannerKey) {
+      return res.status(404).json({ message: 'Banner not found.' });
     }
-});
+
+    const url = await generateDownloadPresignedUrl(bannerKey);
+
+    res.status(200).json({
+      url, // Include pre-signed URL in the response
+    });
+  } catch (error) {
+    console.error('Error fetching banner:', error);
+    res.status(500).json({ message: 'Error fetching banner.', error });
+  }
+});  
 
 module.exports = router;

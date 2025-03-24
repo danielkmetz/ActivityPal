@@ -24,7 +24,7 @@ export const deleteReview = createAsyncThunk(
 // Thunk to create a new review for a business
 export const createReview = createAsyncThunk(
   "reviews/createReview",
-  async ({ placeId, businessName, userId, rating, reviewText, date, fullName, photos }, { rejectWithValue }) => {
+  async ({ placeId, businessName, userId, rating, reviewText, date, fullName, photos, taggedUsers, location }, { rejectWithValue }) => {
     try {
       const response = await axios.post(
         `${BASE_URL}/reviews/${placeId}`,
@@ -36,9 +36,11 @@ export const createReview = createAsyncThunk(
           reviewText,
           date,
           photos,
-
+          taggedUsers,
+          location,
         }
       );
+      console.log(response.data.review)
       return response.data.review; // Return the newly created review
     } catch (error) {
       const errorMessage =
@@ -145,6 +147,10 @@ export const fetchReviewsByUserId = createAsyncThunk(
               date
               placeId
               businessName
+              taggedUsers {
+                _id
+                fullName
+              }
               likes {
                 userId
                 fullName
@@ -261,7 +267,12 @@ export const fetchReviewsByUserId = createAsyncThunk(
                 photoKey
                 uploadedBy
                 description
-                tags
+                taggedUsers {
+                  _id
+                  fullName
+                  x
+                  y
+                }
                 uploadDate
                 url
               }
@@ -398,7 +409,12 @@ export const fetchReviewsByUserId = createAsyncThunk(
                 photoKey
                 uploadedBy
                 description
-                tags
+                taggedUsers {
+                  _id
+                  fullName
+                  x
+                  y
+                }
                 uploadDate
                 url
               }
@@ -448,6 +464,10 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
               date
               placeId
               businessName
+              taggedUsers {
+                _id
+                fullName
+              }
               likes {
                 userId
                 fullName
@@ -564,7 +584,12 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
                 photoKey
                 uploadedBy
                 description
-                tags
+                taggedUsers {
+                  _id
+                  fullName
+                  x
+                  y
+                }
                 uploadDate
                 url
               }
@@ -701,7 +726,12 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
                 photoKey
                 uploadedBy
                 description
-                tags
+                taggedUsers {
+                  _id
+                  fullName
+                  x
+                  y
+                }
                 uploadDate
                 url
               }
@@ -750,7 +780,6 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
             reviewText
             date
             message
-            timestamp
             taggedUsers {
               _id
               fullName
@@ -859,7 +888,7 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
                           }
                         }
                       }
-                    }
+                    } 
                   }
                 }
               }
@@ -878,7 +907,12 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
               photoKey
               uploadedBy
               description
-              tags
+              taggedUsers {
+                _id
+                fullName
+                x
+                y
+              }
               uploadDate
               url
             }
@@ -988,6 +1022,7 @@ export const fetchReviewsByPlaceId = createAsyncThunk(
         query GetBusinessReviews($placeId: String!) {
           getBusinessReviews(placeId: $placeId) {
             _id
+            type
             businessName
             placeId
             userId
@@ -995,6 +1030,10 @@ export const fetchReviewsByPlaceId = createAsyncThunk(
             rating
             reviewText
             date
+            taggedUsers {
+              _id
+              fullName
+            }  
             likes {
               userId
               fullName
@@ -1019,7 +1058,10 @@ export const fetchReviewsByPlaceId = createAsyncThunk(
               photoKey
               uploadedBy
               description
-              tags
+              taggedUsers {
+                _id
+                fullName
+              }
               uploadDate
               url # ✅ Pre-signed URL for review photos
             }
@@ -1043,7 +1085,7 @@ export const fetchReviewsByPlaceId = createAsyncThunk(
       return rejectWithValue(error.message || "Failed to fetch reviews via GraphQL");
     }
   }
-);
+)
 
 // Reviews slice
 const reviewsSlice = createSlice({
@@ -1062,7 +1104,7 @@ const reviewsSlice = createSlice({
     resetProfileReviews: (state) => {
       state.profileReviews = [];
       state.loading = "idle";
-      state.error = null;
+      state.error = null
     },
     setLocalReviews: (state, action) => {
       state.localReviews = action.payload;
@@ -1185,6 +1227,10 @@ const reviewsSlice = createSlice({
         state.otherUserReviews = state.otherUserReviews.map((review) =>
           review._id === postId ? { ...review, likes: [...likes] } : review
         );
+
+        state.businessReviews = state.businessReviews.map((review) =>
+          review._id === postId ? { ...review, likes: [...likes] } : review
+        );
       })
       .addCase(addComment.fulfilled, (state, action) => {
         const { postId, comments } = action.payload;
@@ -1198,11 +1244,10 @@ const reviewsSlice = createSlice({
           }
         };
 
-
         updateComments(state.otherUserReviews?.find((r) => r._id === postId));
         updateComments(state.userAndFriendsReviews?.find((r) => r._id === postId));
         updateComments(state.profileReviews?.find((r) => r._id === postId));
-
+        updateComments(state.businessReviews?.find((r) => r._id === postId));
       })
       .addCase(addReply.pending, (state) => {
         state.loading = true;
@@ -1246,6 +1291,7 @@ const reviewsSlice = createSlice({
         updateReview(state.userAndFriendsReviews);
         updateReview(state.otherUserReviews);
         updateReview(state.profileReviews);
+        updateReview(state.businessReviews);
       })
       .addCase(addReply.rejected, (state, action) => {
         state.loading = false;

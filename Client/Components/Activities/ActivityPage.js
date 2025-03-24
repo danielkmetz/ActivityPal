@@ -217,8 +217,6 @@ const ActivityPage = () => {
 
                                                 const imageUrl = placeImages[placeId];
 
-                                                console.log(data);
-
                                                 return (
                                                     <TouchableOpacity onPress={() => handlePress(data)}>
                                                         <View style={styles.row}>
