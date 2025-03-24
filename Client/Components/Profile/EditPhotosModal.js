@@ -5,8 +5,7 @@ import EditPhotoDetailsModal from "./EditPhotoDetailsModal";
 const { width: screenWidth } = Dimensions.get("window");
 const columnWidth = (screenWidth) / 3; // 40 for padding/margin adjustments
 
-export default function EditPhotosModal({ visible, photos, onSave, onClose }) {
-  const [photoList, setPhotoList] = useState([]);
+export default function EditPhotosModal({ visible, photos, onSave, onClose, photoList, setPhotoList, isPromotion }) {
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
 
@@ -39,7 +38,7 @@ export default function EditPhotosModal({ visible, photos, onSave, onClose }) {
         <ScrollView contentContainerStyle={styles.scrollContainer}>
           <Text style={styles.title}>Edit Photos</Text>
           <View style={styles.photoGrid}>
-            {photoList.map((photo, index) => (
+            {photoList?.map((photo, index) => (
               <TouchableOpacity key={index} onPress={() => handlePhotoClick(photo)}>
                 <Image source={{ uri: photo.uri }} style={styles.photoThumbnail} />
               </TouchableOpacity>
@@ -63,6 +62,7 @@ export default function EditPhotosModal({ visible, photos, onSave, onClose }) {
           photo={selectedPhoto}
           onSave={handlePhotoSave}
           onClose={() => setDetailsModalVisible(false)}
+          isPromotion={isPromotion}
         />
       </View>
     </Modal>

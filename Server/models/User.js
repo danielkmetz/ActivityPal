@@ -4,7 +4,13 @@ const PhotoSchema = new mongoose.Schema({
   photoKey: { type: String, required: true }, // Unique identifier for the photo (e.g., S3 key)
   uploadedBy: { type: String, required: true }, // Email of the user who uploaded the photo
   description: { type: String, default: null }, // Optional description for the photo
-  tags: [{ type: String }], // Optional tags for categorizing the photo
+  taggedUsers: [
+    {
+      userId: { type: String, required: true }, // Store user ID reference
+      x: { type: Number, required: true }, // X coordinate of tag
+      y: { type: Number, required: true }, // Y coordinate of tag
+    },
+  ],
   uploadDate: { type: Date, default: Date.now }, // Date the photo was uploaded
 });
 
@@ -35,7 +41,7 @@ const CheckInSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  timestamp: {
+  date: {
     type: Date,
     default: Date.now // Auto-generates timestamp
   },
@@ -63,7 +69,7 @@ const CheckInSchema = new mongoose.Schema({
 const NotificationSchema = new mongoose.Schema({
   type: {
     type: String,
-    enum: ['friendRequest', 'friendRequestAccepted', 'like', 'comment', 'reply', 'event'],
+    enum: ['friendRequest', 'friendRequestAccepted', 'like', 'comment', 'reply', 'event', 'tag', 'photoTag'],
     required: true,
   },
   message: { type: String, required: true },
@@ -125,6 +131,12 @@ const UserSchema = new mongoose.Schema({
   },
   notifications: [NotificationSchema],
   checkIns: [CheckInSchema],
+  favorites: [
+    {
+      placeId: { type: String, required: true }, // Store the establishment ID
+      favoritedAt: { type: Date, default: Date.now }, // Timestamp of when it was favorited
+    },
+  ],
   createdAt: {
     type: Date,
     default: Date.now,

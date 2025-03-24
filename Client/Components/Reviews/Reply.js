@@ -130,7 +130,7 @@ const Reply = ({
 
             {/* Render nested replies */}
             {nestedExpandedReplies &&
-              reply.replies.map((nestedReply) => (
+              reply?.replies?.map((nestedReply) => (
                 <Reply
                   key={nestedReply._id}
                   reply={nestedReply}

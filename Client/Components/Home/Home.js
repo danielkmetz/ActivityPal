@@ -14,6 +14,7 @@ import {
 import { fetchFriendRequestsDetails, fetchFriendsDetails, selectFriends, selectFriendRequests } from "../../Slices/UserSlice";
 import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
+import { fetchFavorites } from "../../Slices/FavoritesSlice";
 import Reviews from "../Reviews/Reviews";
 
 const Home = () => {
@@ -31,6 +32,7 @@ const Home = () => {
     useEffect(() => {
         if (user) {
             dispatch(fetchReviewsByUserAndFriends(userId));
+            dispatch(fetchFavorites(userId));
         }
     }, [dispatch, user]);
 
@@ -53,8 +55,6 @@ const Home = () => {
     const closeModal = () => {
         setModalVisible(false);
     };
-
-    //console.log(userAndFriendsReviews)
 
     return (
         <View style={styles.container}>

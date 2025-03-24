@@ -44,35 +44,35 @@ router.post('/:userId/notifications', async (req, res) => {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        // 🔍 Check if a similar unread notification already exists
-        const existingNotification = user.notifications.find(
-            (n) => 
-                n.type === type &&
-                n.relatedId.toString() === relatedId.toString() &&
-                n.targetId?.toString() === targetId?.toString() &&
-                n.commentId?.toString() === commentId?.toString() &&
-                n.replyId?.toString() === replyId?.toString()
+        // 🔍 Check if an unread notification with the same type, relatedId, and targetId exists
+        const existingNotification = user.notifications.find(n => 
+            n.type === type &&  
+            n.relatedId.toString() === relatedId.toString() &&
+            (n.targetId?.toString() === targetId?.toString() || (n.targetId === undefined && targetId === undefined)) &&
+            (n.commentId?.toString() === commentId?.toString() || (n.commentId === undefined && commentId === undefined)) &&
+            (n.replyId?.toString() === replyId?.toString() || (n.replyId === undefined && replyId === undefined))
         );
 
         if (existingNotification) {
             return res.status(409).json({ error: 'Duplicate, notification already exists' });
         }
 
-        // ✅ Add the notification if it does not already exist
+        // ✅ Create the notification
         const newNotification = {
             type,
             message,
-            relatedId,   // User who triggered the notification (e.g., the liker, commenter)
+            relatedId,   
             typeRef,
-            targetId,    // The review ID
-            commentId: commentId || null, // The comment ID (if applicable)
-            replyId: replyId || null,  // The reply ID (if applicable)
-            commentText,
+            targetId,    
+            commentId: commentId || null,
+            replyId: replyId || null,
+            commentText: commentText || null,
             read: false,
-            postType: postType,
+            postType,
             createdAt: new Date()
         };
 
+        // ✅ Save notification to the user's notification array
         user.notifications.push(newNotification);
         await user.save();
 

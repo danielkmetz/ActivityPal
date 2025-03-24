@@ -28,7 +28,7 @@ export const createNotification = createAsyncThunk(
         targetId = null, 
         commentId = null, 
         replyId = null,
-        postType = null,  
+        postType,  
     }, { rejectWithValue }) => {
         try {
             const response = await axios.post(`${BASE_URL}/notifications/${userId}/notifications`, {

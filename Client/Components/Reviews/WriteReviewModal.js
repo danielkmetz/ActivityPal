@@ -23,6 +23,8 @@ import EditPhotosModal from "../Profile/EditPhotosModal";
 import { uploadReviewPhotos } from "../../Slices/PhotosSlice";
 import { createCheckIn } from "../../Slices/CheckInsSlice";
 import TagFriendsModal from "./TagFriendsModal";
+import EditPhotoDetailsModal from "../Profile/EditPhotoDetailsModal";
+import { createNotification } from "../../Slices/NotificationsSlice";
 
 const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 
@@ -36,6 +38,9 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
   const [taggedUsers, setTaggedUsers] = useState([]);
   const [selectedTab, setSelectedTab] = useState("review");
   const [tagFriendsModalVisible, setTagFriendsModalVisible] = useState(false);
+  const [previewPhoto, setPreviewPhoto] = useState(null);
+  const [photoDetailsEditing, setPhotoDetailsEditing] = useState(false);
+  const [photoList, setPhotoList] = useState([]);
   const user = useSelector(selectUser);
   const userId = user.id;
   const fullName = `${user.firstName} ${user?.lastName}`;
@@ -47,6 +52,13 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
     }
   }, [visible, business]);
 
+  // Update photoList whenever photos prop changes
+  useEffect(() => {
+    if (selectedPhotos) {
+      setPhotoList(selectedPhotos);
+    }
+  }, [selectedPhotos]);
+
   const handlePhotoAlbumSelection = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaType,
@@ -55,19 +67,16 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
     });
 
     if (!result.canceled) {
-      const files = result.assets.map((asset) => ({
+      const newFiles = result.assets.map((asset) => ({
         uri: asset.uri,
         name: asset.uri.split("/").pop(),
         type: asset.type || "image/jpeg",
         description: "",
-        tags: [],
+        taggedUsers: [],
       }));
 
-      setSelectedPhotos(files);
-      setReviewModalVisible(false);
-      setTimeout(() => {
-        setEditPhotosModalVisible(true); // ✅ Open EditPhotosModal
-      }, 300); // Small delay to ensure smooth transition
+      setSelectedPhotos((prevPhotos) => [...prevPhotos, ...newFiles]);
+      setEditPhotosModalVisible(true);
     }
   };
 
@@ -82,88 +91,138 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
 
   // Handle review submission
   const handleSubmit = async () => {
-    console.log("Selected Tab:", selectedTab);
-    console.log("Business:", business);
-    console.log("Review Text:", review.trim());
-    console.log("Check-In Message:", checkInMessage.trim());
-  
     if (!business || (selectedTab === "review" && !review.trim())) {
       Alert.alert("Error", "Please fill in all required fields.");
-  
-      if (!business) console.log("⚠️ Business is missing!");
-      if (selectedTab === "review" && !review.trim()) console.log("⚠️ Review text is missing!");
-  
       return;
     }
-  
+
     try {
       let uploadedPhotos = [];
-  
+
       // Upload photos if user selected any
       if (selectedPhotos.length > 0) {
         const uploadResult = await dispatch(
           uploadReviewPhotos({ placeId: business.place_id, files: selectedPhotos })
         ).unwrap();
-  
+
         uploadedPhotos = uploadResult.map((photoKey, index) => ({
           photoKey,
           uploadedBy: userId,
           description: selectedPhotos[index].description || "",
-          tags: selectedPhotos[index].tags || [],
+          taggedUsers: selectedPhotos[index].taggedUsers
+            ? selectedPhotos[index].taggedUsers.map(user => ({
+              userId: user._id,  // Store only user ID
+              x: user.x,          // Include x coordinate for tag positioning
+              y: user.y           // Include y coordinate for tag positioning
+            }))
+            : [],
         }));
       }
-  
+
+      let postId = null;
+
       if (selectedTab === "review") {
         // Prepare and submit a review
-        const reviewPayload = {
-          placeId: business.place_id,
-          businessName: business.name,
-          userId,
-          fullName,
-          rating,
-          reviewText: review.trim(),
-          photos: uploadedPhotos,
-        };
-  
-        console.log("📤 Submitting Review:", reviewPayload);
-        await dispatch(createReview(reviewPayload)).unwrap();
+       const reviewResponse = await dispatch(
+          createReview({
+            placeId: business.place_id,
+            businessName: business.name,
+            userId,
+            fullName,
+            rating,
+            reviewText: review.trim(),
+            photos: uploadedPhotos,
+            taggedUsers,
+          })
+        ).unwrap();
+
+        postId = reviewResponse._id;
+
         Alert.alert("Success", "Your review has been submitted!");
       } else {
         // Extract only Object IDs from tagged friends
         const taggedUserIds = taggedUsers.map((friend) => friend._id);
-  
+
         // Prepare and submit a check-in
-        const checkInPayload = {
-          placeId: business.place_id,
-          businessName: business.name,
-          userId,
-          fullName,
-          message: checkInMessage.trim() || null, // Allow empty message
-          taggedUsers: taggedUserIds, // Send only Object IDs
-          photos: uploadedPhotos,
-          timestamp: new Date().toISOString(),
-        };
-  
-        console.log("📤 Submitting Check-In:", checkInPayload);
-        await dispatch(createCheckIn(checkInPayload)).unwrap();
+        const checkInResponse = await dispatch(
+          createCheckIn({
+            placeId: business.place_id,
+            location: business.formatted_address,
+            businessName: business.name,
+            userId,
+            fullName,
+            message: checkInMessage.trim() || null,
+            taggedUsers: taggedUserIds,
+            photos: uploadedPhotos,
+          })
+        ).unwrap();
+
+        postId = checkInResponse._id;
+
         Alert.alert("Success", "Your check-in has been posted!");
       }
-  
+
+      // Send notifications to tagged users in the post
+      for (const taggedUser of taggedUsers) {
+        console.log("📢 Sending Review/Check-in Tag Notification to:", taggedUser._id);
+        await dispatch(
+          createNotification({
+            userId: taggedUser._id,
+            type: "tag",
+            message: `${fullName} tagged you in a ${selectedTab === "review" ? "review" : "check-in"}!`,
+            relatedId: userId, // The user who created the post
+            typeRef: "User",
+            targetId: postId, // The review or check-in ID
+            postType: selectedTab, 
+          })
+        );
+      }
+
+      // Send notifications to users tagged in photos
+      for (const photo of uploadedPhotos) {
+        for (const taggedUser of photo.taggedUsers) {
+          console.log("📸 Sending Photo Tag Notification to:", taggedUser.userId);
+          await dispatch(
+            createNotification({
+              userId: taggedUser.userId, 
+              type: "photoTag",
+              message: `${fullName} tagged you in a photo!`,
+              relatedId: userId,
+              typeRef: "User",
+              targetId: postId,
+              postType: selectedTab, 
+            })
+          );
+        }
+      }
+
       // Reset state after submission
       onClose();
       setBusiness(null);
       setRating(3);
       setReview("");
-      setCheckInMessage(""); // Ensure it's cleared
+      setCheckInMessage("");
       setSelectedPhotos([]);
       setTaggedUsers([]);
-  
+
     } catch (error) {
-      console.error("❌ Error submitting:", error);
       Alert.alert("Error", error.message || "Failed to submit.");
     }
   };
-  
+
+  const handlePreviewImagePress = (photo) => {
+    setPreviewPhoto(photo);
+    setPhotoDetailsEditing(true);
+  }
+
+  const handlePhotoSave = (updatedPhoto) => {
+    setPhotoList((prev) =>
+      prev.map((photo) => (photo.uri === updatedPhoto.uri ? updatedPhoto : photo))
+    );
+  };
+
+  const handleRating = (newRating = 3) => setRating(newRating);
+
   const renderContent = () => (
     <View style={styles.modalContainer}>
       <TouchableOpacity onPress={onClose} style={styles.closeIcon}>
@@ -230,9 +289,9 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
           <View style={{ alignSelf: "flex-start" }}>
             <AirbnbRating
               count={5}
-              defaultRating={rating || 3}
+              defaultRating={rating ?? 3}
               size={20}
-              onFinishRating={(newRating = 3) => setRating(newRating)}
+              onFinishRating={handleRating}
               showRating={false}
             />
           </View>
@@ -269,9 +328,9 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
             horizontal
             keyExtractor={(item, index) => index.toString()}
             renderItem={({ item }) => (
-              <View style={styles.photoWrapper}>
+              <TouchableOpacity style={styles.photoWrapper} onPress={() => handlePreviewImagePress(item)}>
                 <Image source={{ uri: item.uri }} style={styles.photoPreview} />
-              </View>
+              </TouchableOpacity>
             )}
           />
         </View>
@@ -321,6 +380,25 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
         onSave={setTaggedUsers} // Update selected tagged users
         onClose={() => setTagFriendsModalVisible(false)}
       />
+      {/* Edit photos modal */}
+      <EditPhotosModal
+        visible={editPhotosModalVisible}
+        photos={selectedPhotos}
+        onSave={handleSavePhotos}
+        photoList={photoList}
+        setPhotoList={setPhotoList}
+        onClose={() => {
+          setEditPhotosModalVisible(false);
+        }}
+      />
+      {/* Edit Photo Details Modal */}
+      <EditPhotoDetailsModal
+        visible={photoDetailsEditing}
+        photo={previewPhoto}
+        onClose={() => setPhotoDetailsEditing(false)}
+        onSave={handlePhotoSave}
+        setPhotoList={setPhotoList}
+      />
     </View>
   );
 
@@ -341,15 +419,6 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
           </KeyboardAvoidingView>
         </View>
       </Modal>
-      {/* Edit photos modal */}
-      <EditPhotosModal
-        visible={editPhotosModalVisible}
-        photos={selectedPhotos}
-        onSave={handleSavePhotos}
-        onClose={() => {
-          setEditPhotosModalVisible(false);
-        }}
-      />
     </>
   );
 };

@@ -14,11 +14,14 @@ import { selectUser } from "../../Slices/UserSlice";
 import bannerPlaceholder from '../../assets/pics/business-placeholder.png';
 import logoPlaceholder from '../../assets/pics/logo-placeholder.png';
 import EditProfileModal from "./EditProfileModal";
-import { selectLogo, fetchLogo, selectBanner, fetchBanner, selectAlbum, fetchPhotos } from "../../Slices/PhotosSlice";
+import { selectLogo, fetchLogo, selectBusinessBanner, fetchBusinessBanner, selectAlbum, fetchPhotos } from "../../Slices/PhotosSlice";
 import { useRoute, useNavigation } from "@react-navigation/native";
-import { resetBusinessReviews, fetchReviewsByPlaceId, selectBusinessReviews } from '../../Slices/ReviewsSlice';
+import { fetchReviewsByPlaceId, selectBusinessReviews } from '../../Slices/ReviewsSlice';
 import Reviews from "../Reviews/Reviews";
 import Photos from "./Photos";
+import { selectFavorites, addFavorite, removeFavorite } from "../../Slices/FavoritesSlice";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import ModalBox from 'react-native-modal';
 
 export default function BusinessProfile() {
   const dispatch = useDispatch();
@@ -31,22 +34,41 @@ export default function BusinessProfile() {
   const [modalVisible, setModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const user = business ? business : useSelector(selectUser).businessDetails;
+  const mainUser = useSelector(selectUser);
+  const mainUserFavorites = useSelector(selectFavorites);
   const reviews = useSelector(selectBusinessReviews);
   const logo = useSelector(selectLogo);
-  const banner = useSelector(selectBanner);
+  const banner = useSelector(selectBusinessBanner);
   const photos = useSelector(selectAlbum);
   const businessName = user?.businessName;
   const placeId = user?.placeId;
-  const likes = 120; 
-  const avgRating = 4.2; 
+  const likes = 120;
+  const avgRating = 4.2;
   const location = user?.location;
   const phone = user?.phone || "Enter a phone number";
   const description = user?.description || "Enter a description of your business";
+  const [isFavorited, setIsFavorited] = useState(mainUserFavorites?.includes(placeId));
+  const [favoriteModalVisible, setFavoriteModalVisible] = useState(false);
+
+  const handleFavoritePress = () => {
+    if (isFavorited) {
+      setFavoriteModalVisible(true); // Show the modal for removal confirmation
+    } else {
+      dispatch(addFavorite({ userId: mainUser.id, placeId }));
+      setIsFavorited(true); // ✅ Update local state immediately
+    }
+  };
+  
+  const handleRemoveFavorite = () => {
+    dispatch(removeFavorite({ userId: mainUser.id, placeId }));
+    setIsFavorited(false); // ✅ Update local state immediately
+    setFavoriteModalVisible(false);
+  };
 
   useEffect(() => {
     if (placeId) {
       dispatch(fetchLogo(placeId));
-      dispatch(fetchBanner(placeId));
+      dispatch(fetchBusinessBanner(placeId));
       dispatch(fetchPhotos(placeId));
       dispatch(fetchReviewsByPlaceId(placeId));
     }
@@ -73,15 +95,15 @@ export default function BusinessProfile() {
           <Ionicons name="chevron-back" size={24} color="gray" />
         </TouchableOpacity>
       )}
-      <Image source={banner ? { uri: banner } : bannerPlaceholder} style={styles.banner} />
+      <Image source={banner?.url ? { uri: banner?.url } : bannerPlaceholder} style={styles.banner} />
       <View style={styles.profileContainer}>
         <Image source={logo ? { uri: logo } : logoPlaceholder} style={styles.profilePicture} resizeMode="contain" />
         <View style={styles.nameSettings}>
           <Text style={styles.businessName}>{businessName}</Text>
-          { !business && 
-          <TouchableOpacity style={styles.settingsIcon} onPress={() => setModalVisible(true)}>
-            <Ionicons name="settings-sharp" size={24} color="gray" />
-          </TouchableOpacity>
+          {!business &&
+            <TouchableOpacity style={styles.settingsIcon} onPress={() => setModalVisible(true)}>
+              <Ionicons name="settings-sharp" size={24} color="gray" />
+            </TouchableOpacity>
           }
         </View>
         <View style={business ? styles.indicatorContainerRestricted : styles.indicatorsContainer}>
@@ -97,10 +119,18 @@ export default function BusinessProfile() {
               {renderStars(avgRating)}
             </View>
           </View>
-          {!business && (
+          {!business ? (
             <TouchableOpacity style={styles.editProfileButton} onPress={() => setEditModalVisible(true)}>
               <Ionicons name="pencil" size={20} color="white" />
               <Text style={styles.editProfileButtonText}>Edit Profile</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.favoriteButton, isFavorited && styles.isFavorited]}
+              onPress={handleFavoritePress}
+            >
+              <Ionicons name="star" size={20} color="white" />
+              <Text style={styles.editProfileButtonText}>{isFavorited ? "Favorited" : "Favorite"}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -113,7 +143,7 @@ export default function BusinessProfile() {
             onPress={() => setActiveSection("reviews")}
           >
             <Text style={styles.navButtonText}>Reviews</Text>
-          </TouchableOpacity>  
+          </TouchableOpacity>
         )}
         <TouchableOpacity
           style={[styles.navButton, activeSection === "about" && styles.activeButton]}
@@ -129,7 +159,7 @@ export default function BusinessProfile() {
         </TouchableOpacity>
       </View>
       {activeSection === "reviews" && business && (
-        <Reviews reviews={reviews}/>
+        <Reviews reviews={reviews} />
       )}
       {activeSection === "about" && (
         <View style={styles.aboutContainer}>
@@ -142,36 +172,59 @@ export default function BusinessProfile() {
         </View>
       )}
       {activeSection === "photos" && <Photos photos={photos} />}
+
     </>
   );
 
   return (
     <>
-    <FlatList
-      style={styles.container}
-      data={null}
-      keyExtractor={(item) => item.photoKey}
-      numColumns={3}
-      ListHeaderComponent={renderHeader()}
-      renderItem={null}
-      contentContainerStyle={styles.photosGrid}
-      showsVerticalScrollIndicator={false}
-    />
-    <SettingsModal
-      visible={modalVisible}
-      onClose={() => setModalVisible(false)}
-    />
-    <EditProfileModal
-      visible={editModalVisible}
-      setEditModalVisible={setEditModalVisible}
-      onClose={() => setEditModalVisible(false)}
-      bannerPlaceholder={bannerPlaceholder}
-      aboutInfo={{
-        address: location,
-        phone,
-        description,
-      }}
-    />
+      <FlatList
+        style={styles.container}
+        data={null}
+        keyExtractor={(item) => item.photoKey}
+        numColumns={3}
+        ListHeaderComponent={renderHeader()}
+        renderItem={null}
+        contentContainerStyle={styles.photosGrid}
+        showsVerticalScrollIndicator={false}
+      />
+      <SettingsModal
+        visible={modalVisible}
+        onClose={() => setModalVisible(false)}
+      />
+      <EditProfileModal
+        visible={editModalVisible}
+        setEditModalVisible={setEditModalVisible}
+        onClose={() => setEditModalVisible(false)}
+        bannerPlaceholder={bannerPlaceholder}
+        aboutInfo={{
+          address: location,
+          phone,
+          description,
+        }}
+      />
+      {/* React Native Modal */}
+      <ModalBox
+        isVisible={favoriteModalVisible}
+        onBackdropPress={() => setFavoriteModalVisible(false)}
+        style={styles.bottomModal} // ✅ Match styling
+      >
+        <View style={styles.modalContent}>
+          {/* Modal Title */}
+          <Text style={styles.modalTitle}>Remove from Favorites?</Text>
+
+          {/* Remove Button */}
+          <TouchableOpacity onPress={handleRemoveFavorite} style={styles.modalButton}>
+            <MaterialCommunityIcons name="delete-outline" size={20} color="red" />
+            <Text style={styles.modalButtonTextRed}>Remove</Text>
+          </TouchableOpacity>
+
+          {/* Cancel Button */}
+          <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.modalCancelButton}>
+            <Text style={styles.modalCancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </ModalBox>
     </>
   );
 }
@@ -329,5 +382,64 @@ const styles = StyleSheet.create({
     marginLeft: 5,
     fontWeight: "bold",
   },
-  
+  favoriteButton: {
+    backgroundColor: "teal",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 5,
+    marginLeft: 10,
+  },
+  isFavorited: {
+    backgroundColor: 'gray',
+  },
+  bottomModal: {
+    justifyContent: "flex-end",
+    margin: 0,
+  },
+  modalContent: {
+    backgroundColor: "#fff",
+    padding: 20,
+    borderTopLeftRadius: 15,
+    borderTopRightRadius: 15,
+    alignItems: "center",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 10,
+    color: "#333",
+  },
+  modalButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 15,
+    width: "100%",
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+    justifyContent: "center",
+  },
+  modalButtonText: {
+    fontSize: 16,
+    marginLeft: 10,
+    color: "#333",
+  },
+  modalButtonTextRed: {
+    fontSize: 16,
+    marginLeft: 10,
+    color: "red",
+  },
+  modalCancelButton: {
+    padding: 15,
+    width: "100%",
+    alignItems: "center",
+    borderTopWidth: 1,
+    borderTopColor: "#eee",
+  },
+  modalCancelButtonText: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#007bff",
+  },
 });

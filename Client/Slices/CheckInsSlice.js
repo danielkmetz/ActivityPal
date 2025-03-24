@@ -26,8 +26,6 @@ export const createCheckIn = createAsyncThunk(
     try {
       const response = await axios.post(`${API_URL}/post`, checkInData);
 
-      console.log(response.data.data)
-
       await dispatch(addCheckInUserAndFriendsReviews(response.data.data));
       await dispatch(addCheckInProfileReviews(response.data.data));
 

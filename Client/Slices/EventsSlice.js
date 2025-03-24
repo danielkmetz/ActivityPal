@@ -21,12 +21,15 @@ export const fetchEvents = createAsyncThunk(
 // Thunk for creating an event
 export const createEvent = createAsyncThunk(
     "events/createEvent",
-    async ({ placeId, title, date, description }, { rejectWithValue }) => {
+    async ({ placeId, title, date, description, photos, recurring, recurringDays }, { rejectWithValue }) => {
       try {
         const response = await axios.post(`${BASE_URL}/business/events/${placeId}`, {
           title,
           date,
           description,
+          photos,
+          recurring,
+          recurringDays,
         });
         return response.data.event; // Return the newly created event
       } catch (error) {
@@ -40,14 +43,17 @@ export const createEvent = createAsyncThunk(
 // Thunk to edit an event
 export const editEvent = createAsyncThunk(
     "events/editEvent",
-    async ({ placeId, eventId, title, date, description }, { rejectWithValue }) => {
+    async ({ placeId, eventId, title, date, description, photos, recurring, recurringDays }, { rejectWithValue }) => {
       try {
         const response = await axios.put(
-          `${BASE_URL}business/events/${placeId}/${eventId}`,
+          `${BASE_URL}/business/events/${placeId}/${eventId}`,
           {
             title,
             date,
             description,
+            photos,
+            recurring,
+            recurringDays,
           }
         );
   

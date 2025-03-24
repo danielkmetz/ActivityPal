@@ -10,6 +10,8 @@ import Photos from "./Photos";
 import profilePlaceholder from '../../assets/pics/profile-pic-placeholder.jpg'
 import { selectProfilePic, selectBanner, fetchProfilePic, fetchUserBanner } from "../../Slices/PhotosSlice";
 import { selectProfileReviews, fetchReviewsByUserId } from "../../Slices/ReviewsSlice";
+import { selectFavorites, fetchFavorites } from "../../Slices/FavoritesSlice";
+import Favorites from "./Favorites";
 
 export default function UserProfile() {
   const dispatch = useDispatch();
@@ -21,16 +23,18 @@ export default function UserProfile() {
   const [activeSection, setActiveSection] = useState("reviews");
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [shouldFetch, setShouldFetch] = useState(true);
+  const favorites = useSelector(selectFavorites);
   
   const bannerPlaceholder = null;
   const userId = user?.id;
   const numberOfFriends = user?.friends?.length;
-  
+
   useEffect(() => {
     if (userId && shouldFetch) {
       dispatch(fetchProfilePic(userId));
       dispatch(fetchUserBanner(userId));
       dispatch(fetchReviewsByUserId(userId));
+      dispatch(fetchFavorites(userId));
 
       setShouldFetch(false)
     }
@@ -47,7 +51,7 @@ export default function UserProfile() {
       <FlatList
         ListHeaderComponent={
           <>
-            {banner?.url ? (
+            {banner ? (
               <Image source={{ uri: banner?.url }} style={styles.coverPhoto} />
             ) : (
               <View style={styles.bannerPlaceholder} />
@@ -83,7 +87,7 @@ export default function UserProfile() {
                 style={[styles.navButton, activeSection === "reviews" && styles.activeButton]}
                 onPress={() => setActiveSection("reviews")}
               >
-                <Text style={styles.navButtonText}>My Reviews</Text>
+                <Text style={styles.navButtonText}>Posts</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.navButton, activeSection === "photos" && styles.activeButton]}
@@ -91,9 +95,16 @@ export default function UserProfile() {
               >
                 <Text style={styles.navButtonText}>Photos</Text>
               </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.navButton, activeSection === "favorites" && styles.activeButton]}
+                onPress={() => setActiveSection("favorites")}
+              >
+                <Text style={styles.navButtonText}>Favorited</Text>
+              </TouchableOpacity>
             </View>
             {activeSection === "reviews" && <Reviews reviews={profileReviews} />}
             {activeSection === "photos" && <Photos photos={photos} />}
+            {activeSection === "favorites" && <Favorites favorites={favorites} />}
           </>
         }
         data={data} 

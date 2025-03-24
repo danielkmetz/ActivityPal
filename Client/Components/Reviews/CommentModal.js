@@ -12,6 +12,7 @@ import {
   Keyboard,
   Image,
   Dimensions,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg'
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -53,9 +54,8 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
   const commentRefs = useRef({});
   const [inputHeight, setInputHeight] = useState(40); // Default height 40px
   const [contentHeight, setContentHeight] = useState(40);
-  const inputRef = useRef(null);
-
-  const businessReviews = user?.businessDetails?.reviews || [];
+  const [photoTapped, setPhotoTapped] = useState(null);
+  const scrollX = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const showSubscription = Keyboard.addListener('keyboardWillShow', (event) => {
@@ -169,9 +169,11 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
       const newComment = await onAddComment(postType, review._id, commentText);
 
       if (!newComment) {
-        console.log("❌ handleAddComment: Failed to add comment, rolling back UI update...");
         return;
       }
+
+      setReplyingTo(null);
+      setCommentText('');
 
       if (review.userId !== userId && newComment.commentId) {
         await dispatch(
@@ -505,13 +507,14 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
     }
   }, [visible, targetId, review?.comments]);
 
+  const toggleTaggedUsers = (photoKey) => {
+    setPhotoTapped(photoTapped === photoKey ? null : photoKey);
+  };
+
   return (
     <Modal transparent visible={visible} animationType="none" avoidKeyboard={true}>
       <Animated.View style={[styles.modalContainer, { transform: [{ translateX: slideAnim }, { translateY: shiftAnim }] }]}>
         <FlatList
-          onScrollBeginDrag={() => console.log('📜 FlatList Scrolled')}
-          onLayout={() => console.log('📌 FlatList Mounted')}
-          onContentSizeChange={(width, height) => console.log('📏 FlatList Content Height:', height)}
           ref={flatListRef} // Attach the ref to the FlatList
           style={styles.comments}
           data={review?.comments || []}
@@ -535,15 +538,13 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
                   />
                   <Text style={styles.reviewerName}>
                     <Text style={styles.fullName}>{review?.fullName}</Text>
-                    {review?.type === "check-in" && review?.taggedUsers?.length > 0 && " is with "}
-                    {review?.type === "check-in" && Array.isArray(review?.taggedUsers) && review?.taggedUsers.length > 0
-                      ? review?.taggedUsers.map((user, index) => (
-                        <Text key={user._id} style={styles.taggedUser}>
-                          {user.fullName}
-                          {index !== review?.taggedUsers.length - 1 ? ", " : ""}
-                        </Text>
-                      ))
-                      : ""}
+                    {review?.taggedUsers?.length > 0 && " is with "}
+                    {Array.isArray(review?.taggedUsers) && review?.taggedUsers?.map((user, index) => (
+                      <Text key={user?.userId || `tagged-${index}`} style={styles.taggedUser}>
+                        {user?.fullName}
+                        {index !== review?.taggedUsers.length - 1 ? ", " : ""}
+                      </Text>
+                    ))}
 
                     {/* ✅ Force business name to appear on the next line using \n */}
                     {review?.type === "check-in" && (
@@ -552,6 +553,12 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
                         at
                         {"\n"} {/* ✅ Forces new line */}
                         <Text style={styles.businessName}>{review.businessName}</Text>
+                        {review.photos.length > 0 && (
+                          <Image
+                            source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
+                            style={styles.smallPinIcon}
+                          />
+                        )}
                       </Text>
                     )}
                   </Text>
@@ -583,19 +590,90 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
                     pagingEnabled
                     showsHorizontalScrollIndicator={false}
                     keyExtractor={(item) => item._id}
-                    renderItem={({ item }) => (
-                      <Image source={{ uri: item?.url }} style={styles.photo} />
+                    onScroll={Animated.event(
+                      [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+                      { useNativeDriver: false } // Native driver is false since we animate layout properties
+                    )}
+                    scrollEventThrottle={16}
+
+                    renderItem={({ item: photo }) => (
+                      <View>
+                        <Image source={{ uri: photo?.url }} style={styles.photo} />
+
+                        {/* Invisible Tap Layer (Prevents Blinking) */}
+                        <TouchableWithoutFeedback onPress={() => toggleTaggedUsers(photo.photoKey)}>
+                          <View style={styles.tapArea} />
+                        </TouchableWithoutFeedback>
+
+                        {/* Render Tagged Users ONLY if the photo is tapped */}
+                        {photoTapped === photo.photoKey &&
+                          photo.taggedUsers?.map((taggedUser, index) => (
+                            <View
+                              key={index}
+                              style={[
+                                styles.taggedLabel,
+                                { top: taggedUser.y, left: taggedUser.x },
+                              ]}
+                            >
+                              <Text style={styles.tagText}>{taggedUser.fullName}</Text>
+                            </View>
+                          ))}
+                      </View>
                     )}
                   />
                   {/* Dots Indicator */}
-                  <View style={styles.paginationContainer}>
-                    {review?.photos.map((_, index) => (
-                      <View key={index} style={styles.dot} />
-                    ))}
-                  </View>
+                  {review.photos.length > 1 ? (
+                    <View style={styles.paginationContainer}>
+                      {review.photos.map((_, index) => {
+                        let dotSize;
+
+                        if (review.photos.length === 2) {
+                          // Exactly 2 photos → Only 2 dot sizes
+                          dotSize = scrollX.interpolate({
+                            inputRange: [(index - 1) * screenWidth, index * screenWidth, (index + 1) * screenWidth],
+                            outputRange: [8, 10, 8], // Simple 2-size swap
+                            extrapolate: "clamp",
+                          });
+                        } else if (review.photos.length === 3) {
+                          // Exactly 3 photos → Only 2 dot sizes
+                          dotSize = scrollX.interpolate({
+                            inputRange: [(index - 1) * screenWidth, index * screenWidth, (index + 1) * screenWidth],
+                            outputRange: [7, 10, 7], // No smooth shrinking
+                            extrapolate: "clamp",
+                          });
+                        } else {
+                          // 4+ photos → Smooth scaling effect
+                          dotSize = scrollX.interpolate({
+                            inputRange: [
+                              (index - 3) * screenWidth, (index - 2) * screenWidth, (index - 1) * screenWidth,
+                              index * screenWidth, // Active dot
+                              (index + 1) * screenWidth, (index + 2) * screenWidth, (index + 3) * screenWidth,
+                            ],
+                            outputRange: [5, 6.5, 8, 10, 8, 6.5, 5], // Smooth scaling
+                            extrapolate: "clamp",
+                          });
+                        }
+                        return (
+                          <Animated.View
+                            key={index}
+                            style={[
+                              styles.dot,
+                              {
+                                width: dotSize,
+                                height: dotSize,
+                                borderRadius: dotSize, // Keep circular
+                              },
+                            ]}
+                          />
+                        );
+                      })}
+                    </View>
+                  ) : (
+                    <View style={styles.paginationContainer} />
+                  )}
                 </View>
               )}
-              {review?.type === "check-in" && (
+              {review?.type === "check-in" && review.photos.length === 0 && (
                 <Image
                   source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
                   style={styles.pinIcon}
@@ -680,7 +758,7 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
                 {/* Render replies safely */}
                 {expandedReplies[item?._id] && Array.isArray(item?.replies) && item?.replies?.length > 0 ? (
                   <View style={styles.repliesContainer}>
-                    {item?.replies.map((reply) => (
+                    {item?.replies?.map((reply) => (
                       <TouchableOpacity key={reply._id} onLongPress={() => handleLongPress(reply, true)}>
                         <Reply
                           key={reply?._id}
@@ -992,12 +1070,14 @@ const styles = StyleSheet.create({
   photo: {
     width: screenWidth, // Full width of review minus padding
     height: 400, // Larger photo height
-    borderRadius: 8,
+    //borderRadius: 8,
   },
   paginationContainer: {
+    //position: 'absolute',
+    //bottom: -15,
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 5,
+    alignSelf: 'center',
   },
   fullName: {
     fontWeight: 'bold'
@@ -1010,6 +1090,43 @@ const styles = StyleSheet.create({
     height: 50,
     alignSelf: 'center',
     marginBottom: 10,
+  },
+  paginationContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 5,
+  },
+  dot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#ccc',
+    marginHorizontal: 3,
+    marginBottom: 10,
+  },
+  
+  tapArea: {
+    position: "absolute",
+    width: "100%",
+    height: "100%",
+  },
+  taggedLabel: {
+    position: "absolute",
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+  },
+  tagText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  smallPinIcon: {
+    width: 20,
+    height: 20,
+    marginLeft: 10,
+    marginTop: 10,
   },
 
 });

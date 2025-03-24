@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -14,16 +14,16 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useSelector, useDispatch } from "react-redux";
 import { selectIsBusiness, selectUser } from "../../Slices/UserSlice";
-import { 
-  uploadLogo, 
-  selectLogo, 
-  uploadBanner, 
-  selectBanner, 
-  uploadPhotos, 
-  selectPhotos, 
-  selectProfilePic, 
+import {
+  uploadLogo,
+  selectLogo,
+  uploadBanner,
+  selectBanner,
+  uploadPhotos,
+  selectPhotos,
+  selectProfilePic,
   uploadProfilePic,
-  uploadUserBanner, 
+  uploadUserBanner,
 } from "../../Slices/PhotosSlice"; // Import your thunks
 import EditAboutInfoModal from "./EditAboutInfoModal";
 import EditPhotosModal from "./EditPhotosModal";
@@ -48,12 +48,20 @@ export default function EditProfileModal({
   const [editAboutModalVisible, setEditAboutModalVisible] = useState(false);
   const [selectedPhotos, setSelectedPhotos] = useState([]);
   const [editPhotosModalVisible, setEditPhotosModalVisible] = useState(false);
+  const [photoList, setPhotoList] = useState([]);
   const translateX = useRef(new Animated.Value(0)).current;
-  
+
   const placeId = user?.placeId;
   const userId = generalUser?.id;
   const fullName = `${user?.firstName} ${user?.lastName}`;
-  
+
+  // Update photoList whenever photos prop changes
+  useEffect(() => {
+    if (selectedPhotos) {
+      setPhotoList(selectedPhotos);
+    }
+  }, [selectedPhotos]);
+
   const handleOpenEditAboutModal = () => {
     Animated.timing(translateX, {
       toValue: -SCREEN_WIDTH,
@@ -80,12 +88,12 @@ export default function EditProfileModal({
       aspect: [1, 1], // Square aspect ratio
       quality: 1,
     });
-  
+
     if (!result.canceled) {
       const uri = result.assets[0].uri;
       const name = uri.split('/').pop();
       const extension = name.split('.').pop().toLowerCase(); // Extract file extension
-  
+
       // Map extensions to MIME types
       const mimeTypeMap = {
         jpg: 'image/jpeg',
@@ -93,13 +101,13 @@ export default function EditProfileModal({
         png: 'image/png',
         gif: 'image/gif',
       };
-  
+
       const file = {
         uri,
         name,
         type: mimeTypeMap[extension] || 'application/octet-stream', // Default to octet-stream if unknown
       };
-  
+
       dispatch(uploadLogo({ placeId, file }))
         .unwrap()
         .then(() => {
@@ -119,12 +127,12 @@ export default function EditProfileModal({
       aspect: [1, 1], // Square aspect ratio
       quality: 1,
     });
-  
+
     if (!result.canceled) {
       const uri = result.assets[0].uri;
       const name = uri.split('/').pop();
       const extension = name.split('.').pop().toLowerCase(); // Extract file extension
-  
+
       // Map extensions to MIME types
       const mimeTypeMap = {
         jpg: 'image/jpeg',
@@ -132,14 +140,14 @@ export default function EditProfileModal({
         png: 'image/png',
         gif: 'image/gif',
       };
-  
+
       const file = {
         uri,
         name,
         type: mimeTypeMap[extension] || 'application/octet-stream', // Default to octet-stream if unknown
       };
-  
-      dispatch(isBusiness ? uploadBanner({ placeId, file }) : uploadUserBanner({userId, file}))
+
+      dispatch(isBusiness ? uploadBanner({ placeId, file }) : uploadUserBanner({ userId, file }))
         .unwrap()
         .then(() => {
           console.log('Banner uploaded successfully');
@@ -183,7 +191,7 @@ export default function EditProfileModal({
       allowsMultipleSelection: true,
       quality: 1,
     });
-  
+
     if (!result.canceled) {
       const files = result.assets.map((asset) => ({
         uri: asset.uri,
@@ -192,7 +200,7 @@ export default function EditProfileModal({
         description: "",
         tags: [],
       }));
-  
+
       setSelectedPhotos(files);
       setEditPhotosModalVisible(true);
     }
@@ -223,9 +231,9 @@ export default function EditProfileModal({
           {/* Section for Current Banner */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Current Banner Image</Text>
-            {isBusiness ? 
-              <Image 
-                source={banner ? { uri: banner } : bannerPlaceholder} 
+            {isBusiness ?
+              <Image
+                source={banner ? { uri: banner } : bannerPlaceholder}
                 style={styles.previewImage}
               /> : (
                 banner?.url ? (
@@ -235,7 +243,7 @@ export default function EditProfileModal({
                     <Text style={styles.bannerPlaceholderText}>Upload a banner</Text>
                   </View>
                 )
-            )}
+              )}
             <TouchableOpacity style={styles.uploadButton} onPress={handleBannerSelection}>
               <Text style={styles.uploadButtonText}>Change Banner</Text>
             </TouchableOpacity>
@@ -245,13 +253,13 @@ export default function EditProfileModal({
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Current {isBusiness ? 'Logo' : 'Profile Picture'}</Text>
             {isBusiness ?
-              <Image 
-                source={logo ? { uri: logo } : logoPlaceholder} 
+              <Image
+                source={logo ? { uri: logo } : logoPlaceholder}
                 style={styles.previewLogo}
                 resizeMode='contain'
               /> :
-              <Image 
-                source={profilePic ? { uri: profilePic.url } : profilePicPlaceholder} 
+              <Image
+                source={profilePic ? { uri: profilePic.url } : profilePicPlaceholder}
                 style={styles.previewLogo}
                 resizeMode='contain'
               />
@@ -285,7 +293,7 @@ export default function EditProfileModal({
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Add Photos</Text>
             <View style={styles.photoGrid}>
-              {selectedPhotos.map((photo, index) => (
+              {selectedPhotos?.map((photo, index) => (
                 <Image
                   key={index}
                   source={{ uri: photo.uri }}
@@ -317,6 +325,8 @@ export default function EditProfileModal({
         photos={selectedPhotos}
         onSave={handleSavePhotos}
         onClose={() => setEditPhotosModalVisible(false)}
+        photoList={photoList}
+        setPhotoList={setPhotoList}
       />
     </Modal>
   );

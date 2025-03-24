@@ -1,4 +1,4 @@
-import React, { useState, } from "react";
+import React, { useState, useRef } from "react";
 import {
   View,
   Text,
@@ -7,7 +7,9 @@ import {
   TouchableOpacity,
   Image,
   Dimensions,
+  Animated,
 } from "react-native";
+import { Avatar } from '@rneui/themed';
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { toggleLike } from "../../Slices/ReviewsSlice";
 import { useSelector, useDispatch } from "react-redux";
@@ -15,13 +17,17 @@ import { selectUser } from "../../Slices/UserSlice";
 import CommentModal from "./CommentModal";
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import { createNotification } from "../../Slices/NotificationsSlice";
-
-const screenWidth = Dimensions.get("window").width;
+import PhotoItem from "./PhotoItem";
+import PhotoPaginationDots from "./PhotoPaginationDots";
 
 export default function Reviews({ reviews }) {
   const dispatch = useDispatch();
   const user = useSelector(selectUser);
   const [selectedReview, setSelectedReview] = useState(null); // For the modal
+  const [photoTapped, setPhotoTapped] = useState(null);
+  const lastTapRef = useRef({});
+  const [likedAnimations, setLikedAnimations] = useState({});
+  const scrollX = useRef(new Animated.Value(0)).current;
 
   const userId = user?.id
   const fullName = `${user?.firstName} ${user?.lastName}`;
@@ -37,21 +43,21 @@ export default function Reviews({ reviews }) {
   const handleLike = async (postType, postId) => {
     // Determine where to find the post (reviews for businesses, check-ins for users)
     const postToUpdate = reviews.find((review) => review._id === postId);
-  
+
     if (!postToUpdate) {
       console.error(`${postType} with ID ${postId} not found.`);
       return;
     }
-  
+
     const placeId = postToUpdate.placeId;
-    
+
     try {
       // Sync with the backend
       const { payload } = await dispatch(toggleLike({ postType, placeId, postId, userId, fullName }));
-  
+
       // Check if the current user's ID exists in the likes array before sending a notification
       const userLiked = payload?.likes?.some((like) => like.userId === userId);
-  
+
       // Create a notification for the post owner
       if (userLiked && postToUpdate.userId !== userId) { // Avoid self-notifications
         await dispatch(createNotification({
@@ -69,6 +75,61 @@ export default function Reviews({ reviews }) {
     }
   };
 
+  const handleLikeWithAnimation = async (postType, postId) => {
+    const now = Date.now();
+
+    if (!lastTapRef.current || typeof lastTapRef.current !== "object") {
+      lastTapRef.current = {};
+    }
+
+    if (!lastTapRef.current[postId]) {
+      lastTapRef.current[postId] = 0;
+    }
+
+    if (now - lastTapRef.current[postId] < 300) {
+      const postBeforeUpdate = reviews.find((review) => review._id === postId);
+      const wasLikedBefore = postBeforeUpdate?.likes?.some((like) => like.userId === user?.id);
+
+      await handleLike(postType, postId);
+
+      if (!wasLikedBefore) {
+        if (!likedAnimations[postId]) {
+          setLikedAnimations((prev) => ({
+            ...prev,
+            [postId]: new Animated.Value(0),
+          }));
+        }
+
+        const animation = likedAnimations[postId] || new Animated.Value(0);
+
+        Animated.timing(animation, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }).start(() => {
+          setTimeout(() => {
+            Animated.timing(animation, {
+              toValue: 0,
+              duration: 500,
+              useNativeDriver: true,
+            }).start();
+          }, 500);
+        });
+
+        setLikedAnimations((prev) => ({
+          ...prev,
+          [postId]: animation,
+        }));
+      }
+    }
+
+    lastTapRef.current[postId] = now;
+  };
+
+  const toggleTaggedUsers = (photoKey) => {
+    setPhotoTapped(photoTapped === photoKey ? null : photoKey);
+  };
+
   return (
     <>
       <FlatList
@@ -79,9 +140,17 @@ export default function Reviews({ reviews }) {
           <View style={styles.reviewCard}>
             <View style={styles.section}>
               <View style={styles.userPicAndName}>
-                <Image source={item.profilePicUrl ? { uri: item.profilePicUrl } : profilePicPlaceholder} style={styles.userPic} />
+                <View style={styles.profilePic}>
+                  <Avatar
+                    size={45}
+                    rounded
+                    source={item?.profilePicUrl ? { uri: item?.profilePicUrl } : profilePicPlaceholder} // Show image if avatarUrl exists
+                    icon={!item?.avatarUrl ? { name: 'person', type: 'material', color: '#fff' } : null} // Show icon if no avatarUrl
+                    containerStyle={{ backgroundColor: '#ccc' }} // Set background color for the generic avatar
+                  />
+                </View>
 
-                {item.type === "review" ? (
+                {item?.taggedUsers?.length === 0 ? (
                   <Text style={styles.userEmailText}>{item.fullName}</Text>
                 ) : (
                   <Text>
@@ -95,18 +164,40 @@ export default function Reviews({ reviews }) {
                             {index < item.taggedUsers.length - 1 ? ", " : ""}
                           </Text>
                         ))}
-                        
-                        {" "}at{" "}
-                        {"\n"}
-                        <Text style={styles.businessCheckIn} numberOfLines={0}>{item.businessName}</Text>
+                        {item.type === "check-in" && (
+                          <>
+                            {" "}at{"\n"}
+                            <Text style={styles.businessCheckIn} numberOfLines={null}>
+                              {item.businessName}
+                            </Text>
+                          </>
+                        )}
+                        {item.type === "check-in" && item.photos.length > 0 && (
+                          <Image
+                            source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
+                            style={styles.smallPinIcon}
+                          />
+                        )}
                       </>
                     ) : null}
                   </Text>
                 )}
+                {item.type === "check-in" && item.taggedUsers.length === 0 && (
+                  <>
+                    <Text> is at </Text>
+                    <Text style={styles.business} numberOfLines={0}>{item.businessName}</Text>
+                    {item.photos.length > 0 && (
+                      <Image
+                        source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
+                        style={styles.smallPinIcon}
+                      />
+                    )}
+                  </>
+                )}
               </View>
               {item.type === 'check-in' && <Text style={styles.message}>{item.message || null}</Text>}
               {item.type == "review" && <Text style={styles.business}>{item.businessName}</Text>}
-              {item.type === "check-in" && (
+              {item.type === "check-in" && item.photos.length === 0 && (
                 <Image
                   source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
                   style={styles.pinIcon}
@@ -114,21 +205,23 @@ export default function Reviews({ reviews }) {
               )}
 
               {/* Dynamically render stars */}
-              <View style={styles.rating}>
-                {Array.from({ length: item.rating }).map((_, index) => (
-                  <MaterialCommunityIcons
-                    key={index}
-                    name="star"
-                    size={20}
-                    color="gold"
-                  />
-                ))}
-              </View>
-              <Text style={styles.review}>{item.reviewText}</Text>
-              <Text style={styles.date}>
-                Posted: {item.date ? new Date(item.date).toISOString().split("T")[0] : "Now"}
-              </Text>
+              {item.type === "review" && (
+                <>
+                  <View style={styles.rating}>
+                    {Array.from({ length: item.rating }).map((_, index) => (
+                      <MaterialCommunityIcons
+                        key={index}
+                        name="star"
+                        size={20}
+                        color="gold"
+                      />
+                    ))}
+                  </View>
+                  <Text style={styles.review}>{item.reviewText}</Text>
+                </>
+              )}
             </View>
+
             {/* ✅ Render Photos (If Available) */}
             {item.photos?.length > 0 && (
               <View>
@@ -138,18 +231,31 @@ export default function Reviews({ reviews }) {
                   pagingEnabled
                   showsHorizontalScrollIndicator={false}
                   keyExtractor={(photo, index) => index.toString()}
+                  scrollEnabled={item.photos.length > 1}
+                  onScroll={Animated.event(
+                    [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+                    { useNativeDriver: false } // Native driver is false since we animate layout properties
+                  )}
+                  scrollEventThrottle={16}
                   renderItem={({ item: photo }) => (
-                    <Image source={{ uri: photo.url }} style={styles.photo} />
+                    <PhotoItem
+                      photo={photo}
+                      reviewItem={item} // this is the full review item (probably a post or comment)
+                      likedAnimations={likedAnimations}
+                      photoTapped={photoTapped}
+                      toggleTaggedUsers={toggleTaggedUsers}
+                      handleLikeWithAnimation={handleLikeWithAnimation}
+                    />
                   )}
                 />
-                {/* Dots Indicator */}
-                <View style={styles.paginationContainer}>
-                  {item.photos.map((_, index) => (
-                    <View key={index} style={styles.dot} />
-                  ))}
-                </View>
+
+                <PhotoPaginationDots photos={item.photos} scrollX={scrollX}/>
               </View>
             )}
+
+            <Text style={styles.date}>
+              Posted: {item.date ? new Date(item.date).toISOString().split("T")[0] : "Now"}
+            </Text>
             <View style={styles.actionsContainer}>
               <TouchableOpacity
                 onPress={() => handleLike(item.type, item._id)}
@@ -204,6 +310,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     elevation: 2,
   },
+  profilePic: {
+    marginRight: 10,
+  },
   business: {
     fontSize: 16,
     fontWeight: "bold",
@@ -212,12 +321,12 @@ const styles = StyleSheet.create({
   date: {
     fontSize: 12,
     color: "#555",
-    marginTop: 5,
+    marginLeft: 10,
+    marginTop: 10,
   },
   rating: {
     fontSize: 14,
     flexDirection: 'row',
-
   },
   review: {
     fontSize: 16,
@@ -247,6 +356,7 @@ const styles = StyleSheet.create({
   userEmailText: {
     fontSize: 18,
     fontWeight: 'bold',
+    marginLeft: 10,
   },
   likeContainer: {
     flexDirection: 'row',
@@ -316,6 +426,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 15,
+    padding: 6,
   },
   userPic: {
     width: 30,
@@ -323,39 +434,39 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     marginRight: 10,
   },
-  photo: {
-    width: screenWidth, // Full width of review minus padding
-    height: 400, // Larger photo height
-    borderRadius: 8,
-  },
-  paginationContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 5,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#ccc',
-    marginHorizontal: 5,
-  },
   pinIcon: {
     width: 50,
     height: 50,
     marginTop: 15,
     alignSelf: 'center'
   },
+  smallPinIcon: {
+    width: 20,
+    height: 20,
+    marginLeft: 5,
+  },
   message: {
     marginBottom: 15,
     fontSize: 16,
   },
   businessCheckIn: {
-    flexWrap: 'wrap',
     width: '100%',
-    flexShrink: 1,
     fontWeight: "bold",
     color: '#555',
-  }
+  },
+  tapArea: {
+    position: "absolute",
+    width: "100%",
+    height: "100%",
+  },
+  activeDot: {
+    width: 10, // Slightly larger width
+    height: 10, // Slightly larger height
+    borderRadius: 5, // Ensure it's still circular
+    backgroundColor: 'blue', // Highlighted color for active dot
+  },
+  inactiveDot: {
+    backgroundColor: 'gray', // Default color for inactive dots
+  },
 
 });

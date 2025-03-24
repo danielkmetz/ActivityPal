@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -15,9 +15,16 @@ import { selectFriendsDetails } from "../../Slices/UserSlice";
 
 const { width } = Dimensions.get("window"); // Get screen width
 
-const TagFriendsModal = ({ visible, onClose, onSave }) => {
+const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false }) => {
   const [selectedFriends, setSelectedFriends] = useState([]);
   const friendsDetails = useSelector(selectFriendsDetails);
+
+  // **Reset selection if the modal is for photo tagging**
+  useEffect(() => {
+    if (visible && isPhotoTagging) {
+      setSelectedFriends([]); // Clear previous selections
+    }
+  }, [visible, isPhotoTagging]);
 
   // Toggle selection of friends (store full object instead of just the ID)
   const toggleFriendSelection = (friend) => {

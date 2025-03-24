@@ -6,7 +6,6 @@ import {
     TouchableOpacity,
     StyleSheet,
     Image,
-    Button,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { selectUser } from '../../Slices/UserSlice';
@@ -16,7 +15,7 @@ import { acceptFriendRequest, declineFriendRequest, selectFriendRequestDetails }
 import moment from 'moment';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import CommentModal from '../Reviews/CommentModal';
-import { selectUserAndFriendsReviews, clearSelectedReview, fetchPostById, selectSelectedReview, setSelectedReview } from '../../Slices/ReviewsSlice';
+import { selectUserAndFriendsReviews, fetchPostById, selectSelectedReview, setSelectedReview } from '../../Slices/ReviewsSlice';
 
 export default function Notifications() {
     const dispatch = useDispatch();
@@ -35,7 +34,7 @@ export default function Notifications() {
     const handleNotificationPress = (notification) => {
         dispatch(markNotificationRead({ userId: user.id, notificationId: notification._id }));
 
-        if (notification.type === "comment" || notification.type === "reply") {
+        if (notification.type === "comment" || notification.type === "reply" || notification.type === "like" || notification.type === "tag" || notification.type === "photoTag") {
             if (notification) {
                 console.log(postType)
                 const postType = notification.postType;
@@ -105,8 +104,6 @@ export default function Notifications() {
     const handleCloseComments = () => {
         dispatch(setSelectedReview(null));
     };
-
-    //console.log(notifications);
 
     return (
         <View style={styles.container}>
