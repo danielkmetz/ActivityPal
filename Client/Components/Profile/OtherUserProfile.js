@@ -29,6 +29,8 @@ import {
 } from "../../Slices/ReviewsSlice";
 import { createNotification } from "../../Slices/NotificationsSlice";
 import { selectUser } from "../../Slices/UserSlice";
+import Favorites from "./Favorites";
+import { fetchOtherUserFavorites, selectOtherUserFavorites } from "../../Slices/FavoritesSlice";
 
 export default function OtherUserProfile({ route, navigation }) {
   const { user } = route.params;
@@ -37,6 +39,7 @@ export default function OtherUserProfile({ route, navigation }) {
   const friendRequests = useSelector(selectFriendRequests);
   const banner = useSelector(selectOtherUserBanner);
   const friends = useSelector(selectFriends);
+  const favorites = useSelector(selectOtherUserFavorites);
   const profileReviews = useSelector(selectOtherUserReviews);
   const otherUserProfilePic = useSelector(selectOtherUserProfilePic);
   const [isRequestSent, setIsRequestSent] = useState(false);
@@ -45,11 +48,14 @@ export default function OtherUserProfile({ route, navigation }) {
   const [dropdownVisible, setDropdownVisible] = useState(false);
   const [activeSection, setActiveSection] = useState("reviews");
 
+  console.log(user);
+
   useEffect(() => {
     if (user) {
       dispatch(fetchOtherUserBanner(user._id));
       dispatch(fetchPostsByOtherUserId(user._id));
       dispatch(fetchOtherUserProfilePic(user._id));
+      dispatch(fetchOtherUserFavorites(user._id));
     }
   }, [user]);
 
@@ -163,7 +169,7 @@ export default function OtherUserProfile({ route, navigation }) {
           style={[styles.navButton, activeSection === "reviews" && styles.activeButton]}
           onPress={() => setActiveSection("reviews")}
         >
-          <Text style={styles.navButtonText}>My Reviews</Text>
+          <Text style={styles.navButtonText}>Posts</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.navButton, activeSection === "photos" && styles.activeButton]}
@@ -171,9 +177,16 @@ export default function OtherUserProfile({ route, navigation }) {
         >
           <Text style={styles.navButtonText}>Photos</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.navButton, activeSection === "favorites" && styles.activeButton]}
+          onPress={() => setActiveSection("favorites")}
+        >
+          <Text style={styles.navButtonText}>Favorites</Text>
+        </TouchableOpacity>
       </View>
       {activeSection === "reviews" && <Reviews reviews={profileReviews} />}
       {activeSection === "photos" && <Photos photos={photos} />}
+      {activeSection === "favorites" && <Favorites favorites={favorites} />}
     </>
   );
 

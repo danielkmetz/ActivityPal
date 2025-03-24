@@ -2,9 +2,15 @@ const mongoose = require('mongoose');
 
 const PhotoSchema = new mongoose.Schema({
   photoKey: { type: String, required: true }, // Unique identifier for the photo (e.g., S3 key)
-  uploadedBy: { type: String, required: true }, // Email of the user who uploaded the photo
+  uploadedBy: { type: String, required: true }, // User who uploaded the photo
   description: { type: String, default: null }, // Optional description for the photo
-  tags: [{ type: String }], // Optional tags for categorizing the photo
+  taggedUsers: [
+    {
+      userId: { type: String, required: true }, // Store user ID reference
+      x: { type: Number, required: true }, // X coordinate of tag
+      y: { type: Number, required: true }, // Y coordinate of tag
+    },
+  ], // Tagged users with coordinates
   uploadDate: { type: Date, default: Date.now }, // Date the photo was uploaded
 });
 
@@ -40,6 +46,36 @@ const ReviewSchema = new mongoose.Schema({
     },
   ],
   comments: [CommentSchema],
+  taggedUsers: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User", // References User model to tag friends
+    },
+  ],
+});
+
+const PromotionSchema = new mongoose.Schema({
+  title: { type: String, required: true }, // Promotion title
+  description: { type: String, required: true }, // Promotion details
+  startDate: { type: Date, required: true }, // Promotion start date
+  endDate: { type: Date, required: true }, // Promotion end date
+  businessId: { type: mongoose.Schema.Types.ObjectId, ref: "Business" }, // Business reference
+  photos: [PhotoSchema], // Image key (optional)
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+  recurring: { type: Boolean, default: false },
+  recurringDays: [{ type: String, enum: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] }],
+});
+
+const EventSchema = new mongoose.Schema({
+  title: { type: String, required: true }, // Promotion title
+  description: { type: String, required: true }, // Promotion details
+  date: { type: Date, default: null }, // Promotion start date
+  photos: [PhotoSchema], // Image key (optional)
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+  recurring: { type: Boolean, default: false },
+  recurringDays: [{ type: String, enum: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] }],
 });
 
 const BusinessSchema = new mongoose.Schema({
@@ -88,13 +124,8 @@ const BusinessSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
-  events: [
-    {
-      title: { type: String, required: true },
-      date: { type: Date, required: true },
-      description: { type: String, required: true },
-    },
-  ],
+  promotions: [PromotionSchema],
+  events: [EventSchema],
   reviews: [ReviewSchema],
   photos: [PhotoSchema],
   createdAt: {
