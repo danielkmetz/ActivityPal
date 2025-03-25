@@ -94,23 +94,47 @@ const ActivityPage = () => {
 
     // Merge business events into activities only when businessData is available
     const mergedActivities = useMemo(() => {
+        const today = new Date();
+        const todayStr = today.toISOString().split("T")[0]; // format: YYYY-MM-DD
+        const weekday = today.toLocaleDateString("en-US", { weekday: "long" }); // e.g., "Monday"
+    
         return activities.map(activity => {
             const business = businessData.find(biz => biz.placeId === activity.place_id);
-            return business
-                ? { ...activity, events: business.events || [], business }
-                : { ...activity, events: [] };
+    
+            if (business) {
+                const validEvents = (business.events || []).filter(event => {
+                    const isOneTimeToday = event.date === todayStr;
+                    const isRecurringToday = event.recurringDays?.includes(weekday);
+                    return isOneTimeToday || isRecurringToday;
+                });
+    
+                const validPromotions = (business.promotions || []).filter(promo => {
+                    return promo.recurringDays?.includes(weekday);
+                });
+    
+                return {
+                    ...activity,
+                    events: validEvents,
+                    promotions: validPromotions,
+                    business,
+                };
+            }
+    
+            return { ...activity, events: [], promotions: [] };
         });
-    }, [activities, businessData]);
+    }, [activities, businessData]);      
 
-    // Places with special events appear at the top
     const sortedActivities = useMemo(() => {
         return [...mergedActivities].sort((a, b) => {
-            const aHasEvent = a.events.length > 0;
-            const bHasEvent = b.events.length > 0;
-            return aHasEvent && !bHasEvent ? -1 : !aHasEvent && bHasEvent ? 1 : 0;
+            const aHasHighlight = (a.events.length > 0 || a.promotions.length > 0);
+            const bHasHighlight = (b.events.length > 0 || b.promotions.length > 0);
+    
+            return aHasHighlight && !bHasHighlight ? -1 
+                 : !aHasHighlight && bHasHighlight ? 1 
+                 : 0;
         });
     }, [mergedActivities]);
-
+    
     // Determine data and loading state based on eventType
     const data = eventType !== "Event" ? sortedActivities : events;
 
@@ -235,7 +259,6 @@ const ActivityPage = () => {
 
                                     </View>
 
-
                                     <Text style={styles.filterTitle}>Quick Filters</Text>
 
                                     {/* Quick Filter Icons */}
@@ -290,7 +313,7 @@ export default ActivityPage;
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        padding: 16,
+        //padding: 16,
         backgroundColor: '#f5f5f5',
         marginTop: 125,
     },

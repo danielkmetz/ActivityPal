@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import axios from 'axios';
+import * as Location from 'expo-location';
 
 const apiKey = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 const weatherKey = process.env.EXPO_PUBLIC_WEATHER;
@@ -25,18 +26,26 @@ const fetchWeatherData = async (lat, lng) => {
 
 export const getCurrentCoordinates = createAsyncThunk(
     'location/getCurrentCoordinates',
-    async () => {
-        const url = `https://www.googleapis.com/geolocation/v1/geolocate?key=${apiKey}`;
-
-        try {
-            const response = await axios.post(url, {});
-
-            const {lat, lng} = response.data.location;
-            
-            return ({lat, lng})
-        } catch (error) {
-            console.error("Error getting location:", error);
+    async (_, { rejectWithValue }) => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+  
+        if (status !== 'granted') {
+          return rejectWithValue('Permission to access location was denied');
         }
+  
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+  
+        return {
+          lat: location.coords.latitude,
+          lng: location.coords.longitude,
+        };
+      } catch (error) {
+        console.error("Error getting location:", error);
+        return rejectWithValue(error.message);
+      }
     }
 );
 

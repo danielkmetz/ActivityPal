@@ -6,7 +6,6 @@ import {
   FlatList,
   TouchableOpacity,
   Image,
-  Dimensions,
   Animated,
 } from "react-native";
 import { Avatar } from '@rneui/themed';
@@ -104,7 +103,7 @@ export default function Reviews({ reviews }) {
 
         Animated.timing(animation, {
           toValue: 1,
-          duration: 200,
+          duration: 50,
           useNativeDriver: true,
         }).start(() => {
           setTimeout(() => {
@@ -245,6 +244,7 @@ export default function Reviews({ reviews }) {
                       photoTapped={photoTapped}
                       toggleTaggedUsers={toggleTaggedUsers}
                       handleLikeWithAnimation={handleLikeWithAnimation}
+                      lastTapRef={lastTapRef}
                     />
                   )}
                 />
