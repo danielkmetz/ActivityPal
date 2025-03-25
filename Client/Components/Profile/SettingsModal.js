@@ -3,6 +3,7 @@ import { Modal, View, Text, StyleSheet, TouchableOpacity, Animated } from "react
 import { logout } from "../../Slices/UserSlice";
 import { resetBanner, resetLogo, resetProfilePicture, } from "../../Slices/PhotosSlice";
 import { useDispatch } from "react-redux";
+import { resetPlaces, resetEvents, resetBusinessData } from "../../Slices/PlacesSlice";
 
 export default function SettingsModal({ visible, onClose }) {
     const dispatch = useDispatch();
@@ -14,6 +15,9 @@ export default function SettingsModal({ visible, onClose }) {
         dispatch(resetProfilePicture());
         dispatch(resetLogo());
         dispatch(resetBanner());
+        dispatch(resetPlaces());
+        dispatch(resetEvents());
+        dispatch(resetBusinessData());
     }
 
     const onEditProfile = () => {

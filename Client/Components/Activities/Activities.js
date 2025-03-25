@@ -36,20 +36,31 @@ const Activities = ({ activity }) => {
                 <Image source={{ uri: activity.icon }} style={styles.icon} />
             )}
             
-            {/* Name */}
-            {activity.name && <Text style={styles.name}>{activity.name}</Text>}
-            
-            {/* Vicinity */}
-            {activity.vicinity && <Text style={styles.vicinity}>{activity.vicinity}</Text>}
+            <View style={styles.infoContainer}>
+                {/* Name */}
+                {activity.name && <Text style={styles.name}>{activity.name}</Text>}
+                
+                {/* Vicinity */}
+                {activity.vicinity && <Text style={styles.vicinity}>{activity.vicinity}</Text>}
 
-            {/* Distance */}
-            {activity.distance && <Text style={styles.vicinity}>{activity.distance} miles</Text>}
+                {/* Distance */}
+                {activity.distance && <Text style={styles.vicinity}>{activity.distance} miles</Text>}
+            </View>
 
             {/* Special Event Indicator */}
             {activity.events.length > 0 && (
                 <TouchableOpacity onPress={() => setExpanded(!expanded)} style={styles.eventContainer}>
                     <Animated.View style={[styles.redDot, { opacity: blinkAnim }]} />
                     <Text style={styles.eventText}>🔥 Special Event Happening Today!</Text>
+                    <Text style={styles.chevron}>{expanded ? '▲' : '▼'}</Text>
+                </TouchableOpacity>
+            )}
+
+            {/* Special Event Indicator */}
+            {activity.promotions.length > 0 && (
+                <TouchableOpacity onPress={() => setExpanded(!expanded)} style={styles.eventContainer}>
+                    <Animated.View style={[styles.redDot, { opacity: blinkAnim }]} />
+                    <Text style={styles.eventText}>Special Promotions Today!</Text>
                     <Text style={styles.chevron}>{expanded ? '▲' : '▼'}</Text>
                 </TouchableOpacity>
             )}
@@ -66,6 +77,18 @@ const Activities = ({ activity }) => {
                     ))}
                 </View>
             )}
+
+            {/* Expanded Event Details */}
+            {expanded && activity.promotions.length > 0 && (
+                <View style={styles.eventDetails}>
+                    {activity.promotions.map((promotion, index) => (
+                        <View key={index} style={styles.eventItem}>
+                            <Text style={styles.eventTitle}>{promotion.title}</Text>
+                            <Text style={styles.eventDescription}>{promotion.description}</Text>
+                        </View>
+                    ))}
+                </View>
+            )}
         </TouchableOpacity>
     );
 };
@@ -75,20 +98,22 @@ export default Activities;
 const styles = StyleSheet.create({
     container: {
         backgroundColor: 'white',
-        padding: 10,
         marginVertical: 8,
         borderRadius: 8,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.3,
         shadowRadius: 3,
-        elevation: 3,
+        elevation: 5,
+        paddingBottom: 10,
     },
     photo: {
         width: '100%',
         height: 200,
-        borderRadius: 8,
         marginBottom: 8,
+    },
+    infoContainer: {
+        padding: 10,
     },
     icon: {
         width: 50,
@@ -103,16 +128,14 @@ const styles = StyleSheet.create({
     vicinity: {
         fontSize: 14,
         color: '#666',
-        marginBottom: 4,
     },
     eventContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 8,
+        padding: 8,
         paddingHorizontal: 10,
-        backgroundColor: '#FFEBEE',
-        borderRadius: 6,
-        marginTop: 10,
+        backgroundColor: '#33cccc',
+        
     },
     redDot: {
         width: 10,
@@ -124,19 +147,17 @@ const styles = StyleSheet.create({
     eventText: {
         fontSize: 14,
         fontWeight: 'bold',
-        color: '#D32F2F',
+        color: 'black',
         flex: 1,
     },
     chevron: {
         fontSize: 18,
         fontWeight: 'bold',
-        color: '#D32F2F',
+        color: 'black',
     },
     eventDetails: {
-        backgroundColor: '#FFEBEE',
+        backgroundColor: '#99e6e6',
         padding: 10,
-        borderRadius: 6,
-        marginTop: 5,
     },
     eventItem: {
         marginBottom: 10,
@@ -144,7 +165,7 @@ const styles = StyleSheet.create({
     eventTitle: {
         fontSize: 16,
         fontWeight: 'bold',
-        color: '#B71C1C',
+        color: 'black',
     },
     eventDescription: {
         fontSize: 14,
