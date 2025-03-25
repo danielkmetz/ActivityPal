@@ -11,9 +11,8 @@ const PhotoItem = ({
     photoTapped,
     toggleTaggedUsers,
     handleLikeWithAnimation,
+    lastTapRef,
 }) => {
-    const lastTapRef = useRef({});
-
     const animation = likedAnimations[reviewItem._id] || new Animated.Value(0);
 
     const handleTap = () => {
