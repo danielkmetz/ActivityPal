@@ -17,13 +17,13 @@ const activityTypeKeywords = {
 const quickFilters = {
     dateNight: ['restaurant', 'bar', 'top golf', 'bowling', 'movie theater'],
     drinksAndDining: ['restaurant', 'bar', 'cafe', 'brewery', 'winery', 'cocktail bar'],
-    outdoor: ['park', 'hiking', 'beach', 'outdoor dining', 'lake', 'campground', 'botanical garden'],
-    movieNight: ['movie theater', 'drive-in theater', 'indoor theater', 'cinema', 'IMAX'],
-    budgetFriendly: ['park', 'museum', 'free activities', 'library', 'public events', 'coffee shop'],
-    gaming: ['arcade', 'esports arena', 'bowling', 'billiards', 'mini golf', 'escape room', 'laser tag'],
-    artAndCulture: ['museum', 'art gallery', 'theater', 'historical site', 'live performance', 'concert venue'],
-    familyFun: ['amusement park', 'zoo', 'aquarium', 'trampoline park', 'family entertainment center', 'science museum'],
-    petFriendly: ['dog park', 'pet-friendly restaurant', 'hiking trails', 'beach', 'outdoor cafe',],
+    outdoor: ['park', 'hiking', 'beach', 'lake', 'campground', 'botanical garden'],
+    movieNight: ['movie theater', 'drive-in theater', 'IMAX'],
+    budgetFriendly: ['establishment'],
+    gaming: ['arcade', 'bowling', 'escape room', 'laser tag'],
+    artAndCulture: ['museum', 'art gallery'],
+    familyFun: ['amusement park', 'zoo', 'aquarium', 'trampoline park', 'family entertainment', 'museum'],
+    petFriendly: ['pet friendly', 'pet friendly restaurant'],
     liveMusic: ['live music venue', 'concert hall', 'jazz club', 'music festival', 'karaoke bar', 'rooftop bar with live music', 'patio', 'outdoor seating'],
     whatsClose: ['establishment', 'entertainment'],
 };
@@ -32,7 +32,8 @@ export const fetchNearbyPlaces = createAsyncThunk(
     'places/fetchNearbyPlaces',
     async ({ lat, lng, radius, budget, activityType }) => {
         try {
-            const keywords = quickFilters[activityType] || [];
+            const isBudgetFriendly = activityType === 'budgetFriendly';
+            const keywords = isBudgetFriendly ? [''] : (quickFilters[activityType] || []);
 
             // Define a function to filter and format place results
             const filterAndFormatPlaces = (places) => {
@@ -44,8 +45,23 @@ export const fetchNearbyPlaces = createAsyncThunk(
                         !place.types.includes("lodging") &&
                         !place.types.includes("airport") &&
                         !place.types.includes("store") &&
+                        !place.types.includes("storage") &&
+                        !place.types.includes("golf_course") && // Exclude golf courses by type
+                        !place.types.includes("meal_takeaway") &&
+                        !/Country Club|Golf Course|Golf Club|Links/i.test(place.name) && // Exclude by name
+                        !(activityType === "gaming" && (
+                            place.types.includes("park") ||
+                            place.types.includes("restaurant") ||
+                            place.types.includes("meal_takeaway") ||
+                            place.types.includes("meal_delivery") ||
+                            place.types.includes("cafe") ||
+                            place.types.includes("food") ||
+                            place.types.includes("bakery") ||
+                            place.types.includes("bar")
+                        )) && 
                         place.opening_hours?.open_now &&
                         (
+                            (isBudgetFriendly && (place.price_level === 0 || place.price_level === 1)) ||
                             (budget === "$" && (place.price_level === 0 || place.price_level === 1)) ||
                             (budget === "$$" && (place.price_level <= 2)) ||
                             (budget === "$$$" && (place.price_level <= 3)) ||

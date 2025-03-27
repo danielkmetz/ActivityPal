@@ -11,6 +11,8 @@ import notificationsReducer from './Slices/NotificationsSlice';
 import checkInsReducer from './Slices/CheckInsSlice';
 import favoritesReducer from './Slices/FavoritesSlice';
 import promotionsReducer from './Slices/PromotionsSlice';
+import GooglePlacesReducer from './Slices/GooglePlacesSlice';
+import PaginationReducer from './Slices/PaginationSlice';
 
 const store = configureStore({
     reducer: combineReducers({
@@ -26,6 +28,8 @@ const store = configureStore({
        checkIns: checkInsReducer,
        favorites: favoritesReducer,
        promotions: promotionsReducer,
+       GooglePlaces: GooglePlacesReducer,
+       pagination: PaginationReducer,
     })
 });
 

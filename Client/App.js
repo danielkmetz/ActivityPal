@@ -1,7 +1,7 @@
 import 'react-native-get-random-values';
 import React, { useEffect, } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, SafeAreaView } from 'react-native';
 import AppNavigator from './Components/Navigator/Navigator';
 import { NavigationContainer, useNavigation, useNavigationState } from '@react-navigation/native';
 import { Provider } from 'react-redux';
@@ -16,7 +16,7 @@ import {
 } from './Slices/LocationSlice';
 import { loadToken } from './Slices/UserSlice';
 import { PaperProvider } from 'react-native-paper';
-import BusinessProfile from './Components/Profile/BusinessProfile';
+import { selectGooglePlaces } from './Slices/GooglePlacesSlice';
 
 const fetchFonts = async () => {
   return await Font.loadAsync({
@@ -27,9 +27,9 @@ const fetchFonts = async () => {
 
 function MainApp() {
   const dispatch = useDispatch();
+  const activities = useSelector(selectGooglePlaces);
   const coordinates = useSelector(selectCoordinates);
-  const navigation = useNavigation();
-
+  
   useEffect(() => {
     dispatch(getCurrentCoordinates());
     dispatch(loadToken());
@@ -61,7 +61,12 @@ function MainApp() {
   return (
     <View style={styles.container}>
       {/* Conditionally render Header based on the current route */}
-      {currentRoute !== "Profile" && currentRoute !== "OtherUserProfile" && currentRoute !== "BusinessProfile"&& (
+      {
+        currentRoute !== "Profile" && 
+        currentRoute !== "OtherUserProfile" && 
+        currentRoute !== "BusinessProfile"&& 
+        !(currentRoute === "Activities" && activities.length > 0) &&
+      (
         <View style={styles.header}>
           <Header currentRoute={currentRoute}/>
         </View>
