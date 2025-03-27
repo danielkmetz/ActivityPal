@@ -22,7 +22,8 @@ const activities = require('./routes/activities');
 const notifications = require('./routes/notifications');
 const checkIns = require('./routes/checkIns');
 const favorites = require('./routes/favorites');
-const promotions = require('./routes/businessPromotions')
+const promotions = require('./routes/businessPromotions');
+const google = require('./routes/googlePlaces');
 
 // Initialize app
 const app = express();
@@ -63,6 +64,7 @@ app.use('/api/notifications', notifications);
 app.use('/api/checkIns', checkIns);
 app.use('/api/favorites', favorites);
 app.use('/api/promotions', promotions);
+app.use('/api/google', google);
 
 // Start server
 const PORT = process.env.PORT || 5000;

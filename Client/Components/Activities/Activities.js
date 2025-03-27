@@ -41,10 +41,10 @@ const Activities = ({ activity }) => {
                 {activity.name && <Text style={styles.name}>{activity.name}</Text>}
                 
                 {/* Vicinity */}
-                {activity.vicinity && <Text style={styles.vicinity}>{activity.vicinity}</Text>}
+                {activity.address && <Text style={styles.vicinity}>{activity.address}</Text>}
 
                 {/* Distance */}
-                {activity.distance && <Text style={styles.vicinity}>{activity.distance} miles</Text>}
+                {activity.distance && <Text style={styles.vicinity}>{Number(activity.distance).toFixed(3)} miles</Text>}
             </View>
 
             {/* Special Event Indicator */}
