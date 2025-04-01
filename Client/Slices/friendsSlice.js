@@ -158,7 +158,6 @@ const friendsSlice = createSlice({
     extraReducers: (builder) => {
       builder
         .addCase(sendFriendRequest.fulfilled, (state, action) => {
-          console.log("Action payload:", action.payload); // Debugging log
           if (action.payload?.recipientId) {
             state.friendRequests.sent = [...state.friendRequests.sent, action.payload.recipientId];
           }

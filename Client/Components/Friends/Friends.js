@@ -1,17 +1,17 @@
-import React, { useState } from 'react';
-import { View, Text, FlatList, Button, StyleSheet, TextInput, TouchableOpacity, Image } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, FlatList, Button, StyleSheet, TextInput, TouchableOpacity, Image, Alert } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
-import { 
+import {
     fetchUserSuggestions,
-    selectUserSuggestions, 
+    selectUserSuggestions,
 } from '../../Slices/friendsSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigation } from '@react-navigation/native';
 import { createNotification } from '../../Slices/NotificationsSlice';
-import { 
-    acceptFriendRequest, 
-    declineFriendRequest ,
+import {
+    acceptFriendRequest,
+    declineFriendRequest,
     selectFriendRequests,
     selectFriends,
     selectLoading,
@@ -20,7 +20,10 @@ import {
     selectFriendRequestDetails,
 } from '../../Slices/UserSlice';
 import { setNotifications, selectNotifications } from '../../Slices/NotificationsSlice';
+import { selectInvites, fetchInvites, deleteInvite } from '../../Slices/InvitesSlice';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
+import InviteModal from '../ActivityInvites/InviteModal';
+import InviteDetailsModal from '../ActivityInvites/InviteDetailsModal';
 
 export default function Friends() {
     const navigation = useNavigation();
@@ -31,16 +34,28 @@ export default function Friends() {
     const friendRequests = useSelector(selectFriendRequests);
     const friendRequestsDetails = useSelector(selectFriendRequestDetails);
     const userSuggestions = useSelector(selectUserSuggestions);
+    const invites = useSelector(selectInvites) || [];
     const status = useSelector(selectLoading);
     const error = useSelector(selectError);
     const notifications = useSelector(selectNotifications);
     const [activeTab, setActiveTab] = useState('friends'); // Toggle between "friends", "requests", and "search"
     const [searchQuery, setSearchQuery] = useState('');
-    
+    const [showInviteModal, setShowInviteModal] = useState(false);
+    const [showDetailsModal, setShowDetailsModal] = useState(false);
+    const [selectedInvite, setSelectedInvite] = useState(null);
+    const [inviteToEdit, setInviteToEdit] = useState(null);
+    const [isEditing, setIsEditing] = useState(false);
+
+    useEffect(() => {
+        if (user) {
+            dispatch(fetchInvites(user.id));
+        }
+    }, [user]);
+
     const handleAcceptRequest = async (senderId) => {
         try {
             await dispatch(acceptFriendRequest(senderId));
-                
+
             await dispatch(createNotification({
                 userId: senderId,  // The sender of the request gets notified
                 type: 'friendRequestAccepted',
@@ -48,83 +63,101 @@ export default function Friends() {
                 relatedId: user.id, // The ID of the user who accepted the request
                 typeRef: 'User'
             }));
-        
+
             // Filter out the accepted friend request from notifications
             const updatedNotifications = notifications.filter(
                 (notification) => !(notification.type === 'friendRequest' && notification.relatedId === senderId)
             );
-        
+
             // Dispatch the updated notifications list
-            dispatch(setNotifications(updatedNotifications));    
+            dispatch(setNotifications(updatedNotifications));
         } catch (error) {
             console.error('Error accepting friend request:', error);
         }
     };
-        
+
     const handleDeclineRequest = async (senderId) => {
         try {
             await dispatch(declineFriendRequest(senderId));
-        
+
             // Filter out the declined friend request from notifications
             const updatedNotifications = notifications.filter(
                 (notification) => !(notification.type === 'friendRequest' && notification.relatedId === senderId)
             );
-        
+
             dispatch(setNotifications(updatedNotifications));
         } catch (error) {
             console.error('Error declining friend request:', error);
         }
     };
-        
+
+    const handleDelete = async (invite) => {
+        try {
+            console.log(invite);
+          const recipientIds = invite.recipients.map(r => r.userId);
+    
+          await dispatch(
+            deleteInvite({
+              senderId: user.id,
+              inviteId: invite._id,
+              recipientIds,
+            })
+          ).unwrap();
+    
+          Alert.alert('Invite Deleted', 'The invite was successfully removed.');
+        } catch (err) {
+          console.error('❌ Failed to delete invite:', err);
+          Alert.alert('Error', 'Could not delete the invite. Please try again.');
+        }
+    }
+    ;
     const navigateToOtherUserProfile = (user) => {
         navigation.navigate('OtherUserProfile', { user }); // Pass user data to the new screen
     };
 
-    const renderFriendRequests = () => {
-        return (
-            <View style={styles.sectionContainer}>
-                <Text style={styles.sectionTitle}>
-                    Friend Requests: {friendRequestsDetails.length || 0}
-                </Text>
-                {friendRequestsDetails.length > 0 ? (
-                    <FlatList
-                        data={friendRequestsDetails}
-                        keyExtractor={(item) => item._id}
-                        renderItem={({ item }) => (
-                            <View style={styles.requestContainer}>
-                                <View style={styles.picAndName}>
-                                    <Image 
-                                        source={item.presignedProfileUrl ? 
-                                            { uri: item.presignedProfileUrl} : 
-                                            profilePicPlaceholder}
-                                        style={styles.profilePic}
-                                    />
-                                    <Text>{`${item.firstName} ${item.lastName}`}</Text>
-                                </View>
-                                <View style={styles.buttonGroup}>
-                                    <TouchableOpacity
-                                        onPress={() => handleAcceptRequest(item._id)}
-                                        style={styles.acceptButton}
-                                    >
-                                        <Text style={styles.acceptButtonText}>Accept</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity
-                                        onPress={() => handleDeclineRequest(item._id)}
-                                        style={styles.declineButton}
-                                    >
-                                        <Text style={styles.declineButtonText}>Decline</Text>
-                                    </TouchableOpacity>
-                                </View>
+    const renderFriendRequests = () => (
+        <View style={styles.sectionContainer}>
+            <Text style={styles.sectionTitle}>
+                Friend Requests: {friendRequestsDetails.length || 0}
+            </Text>
+            {friendRequestsDetails.length > 0 ? (
+                <FlatList
+                    data={friendRequestsDetails}
+                    keyExtractor={(item) => item._id}
+                    renderItem={({ item }) => (
+                        <View style={styles.requestContainer}>
+                            <View style={styles.picAndName}>
+                                <Image
+                                    source={item.presignedProfileUrl
+                                        ? { uri: item.presignedProfileUrl }
+                                        : profilePicPlaceholder}
+                                    style={styles.profilePic}
+                                />
+                                <Text>{`${item.firstName} ${item.lastName}`}</Text>
                             </View>
-                        )}
-                    />
-                ) : (
-                    <Text style={styles.emptyText}>No friend requests</Text>
-                )}
-            </View>
-        );
-    };
-    
+                            <View style={styles.buttonGroup}>
+                                <TouchableOpacity
+                                    onPress={() => handleAcceptRequest(item._id)}
+                                    style={styles.acceptButton}
+                                >
+                                    <Text style={styles.acceptButtonText}>Accept</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={() => handleDeclineRequest(item._id)}
+                                    style={styles.declineButton}
+                                >
+                                    <Text style={styles.declineButtonText}>Decline</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    )}
+                />
+            ) : (
+                <Text style={styles.emptyText}>No friend requests</Text>
+            )}
+        </View>
+    );
+
     const renderFriendsList = () => (
         <View style={styles.sectionContainer}>
             <Text style={styles.sectionTitle}>Friends: {friends?.length || 0}</Text>
@@ -135,9 +168,9 @@ export default function Friends() {
                     renderItem={({ item }) => (
                         <View style={styles.friendContainer}>
                             <View style={styles.picAndName}>
-                                <Image 
-                                    source={item.presignedProfileUrl ? 
-                                        { uri: item.presignedProfileUrl} : 
+                                <Image
+                                    source={item.presignedProfileUrl ?
+                                        { uri: item.presignedProfileUrl } :
                                         profilePicPlaceholder}
                                     style={styles.profilePic}
                                 />
@@ -158,15 +191,89 @@ export default function Friends() {
         </View>
     );
 
+    const renderEventInvites = () => {
+        const sentInvites = invites.filter(invite => invite.senderId === user.id);
+        const receivedInvites = invites.filter(invite =>
+            invite.senderId !== user.id && invite.status !== 'accepted'
+        );
+        const acceptedInvites = invites.filter(invite =>
+            invite.recipients?.some(r => r.userId?.toString() === user.id && r.status === 'accepted')
+        );    
+    
+        const renderInviteRow = (invite) => (
+            <View key={invite._id} style={styles.inviteItem}>
+                <View style={{ flex: 1 }}>
+                    <Text style={styles.inviteText}>
+                        {invite.business?.businessName || 'Unknown Location'}
+                    </Text>
+                    <Text style={styles.inviteDateTime}>
+                        {new Date(invite.dateTime).toLocaleString()}
+                    </Text>
+                </View>
+                <TouchableOpacity
+                    style={styles.detailsButton}
+                    onPress={() => {
+                        setSelectedInvite(invite);
+                        setShowDetailsModal(true);
+                    }}
+                >
+                    <Text style={styles.detailsButtonText}>Details</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    
+        return (
+            <View style={styles.sectionContainer}>
+                <Text style={styles.sectionTitle}>Vybe Requests:</Text>
+    
+                <Text style={styles.subheading}>Received</Text>
+                {receivedInvites.length > 0
+                    ? receivedInvites.map(renderInviteRow)
+                    : <Text style={styles.emptyText}>No received invites</Text>
+                }
+
+                <Text style={styles.subheading}>Accepted</Text>
+                {acceptedInvites.length > 0
+                    ? acceptedInvites.map(renderInviteRow)
+                    : <Text style={styles.emptyText}>No accepted invites</Text>
+                }
+    
+                <Text style={styles.subheading}>Sent</Text>
+                {sentInvites.length > 0
+                    ? sentInvites.map(renderInviteRow)
+                    : <Text style={styles.emptyText}>No sent invites</Text>
+                }
+    
+                <InviteDetailsModal
+                    visible={showDetailsModal}
+                    onClose={() => {
+                        setSelectedInvite(null);
+                        setShowDetailsModal(false);
+                    }}
+                    invite={selectedInvite}
+                    userId={user?.id}
+                    friends={friendsDetails}
+                    onEdit={(invite) => {
+                        setInviteToEdit(invite);
+                        setShowDetailsModal(false);
+                        setShowInviteModal(true); // short delay to allow closing animation
+                        setIsEditing(true);
+                    }}
+                    onDelete={handleDelete}
+                />
+            </View>
+        );
+    };
+    
     const renderSearch = () => {
         const handleSearchChange = (query) => {
             setSearchQuery(query);
-    
+
             if (query.trim()) {
                 dispatch(fetchUserSuggestions(query));
             }
         };
-    
+
         return (
             <View style={styles.sectionContainer}>
                 <Text style={styles.sectionTitle}>Search Users</Text>
@@ -198,39 +305,62 @@ export default function Friends() {
     };
 
     return (
-        <View style={styles.container}>
-            {status === 'loading' && <Text>Loading...</Text>}
-            {status === 'failed' && <Text style={styles.errorText}>Error: {error}</Text>}
+        <>
+            <View style={styles.container}>
+                {status === 'loading' && <Text>Loading...</Text>}
+                {status === 'failed' && <Text style={styles.errorText}>Error: {error}</Text>}
 
-            <View style={styles.tabContainer}>
-                <Button
-                    title="Your Friends"
-                    onPress={() => setActiveTab('friends')}
-                    color={activeTab === 'friends' ? '#007bff' : '#aaa'}
-                />
-                <View style={styles.friendRequestTab}>
+                <View style={styles.tabContainer}>
                     <Button
-                        title="Friend Requests"
-                        onPress={() => setActiveTab('requests')}
-                        color={activeTab === 'requests' ? '#007bff' : '#aaa'}
+                        title="Your Friends"
+                        onPress={() => setActiveTab('friends')}
+                        color={activeTab === 'friends' ? '#007bff' : '#aaa'}
                     />
-                    {friendRequests.received.length > 0 && (
-                        <View style={styles.notificationBadge}>
-                            <Text style={styles.notificationText}>{friendRequests.length}</Text>
-                        </View>
-                    )}
+                    <View style={styles.friendRequestTab}>
+                        <Button
+                            title="Requests"
+                            onPress={() => setActiveTab('requests')}
+                            color={activeTab === 'requests' ? '#007bff' : '#aaa'}
+                        />
+                        {friendRequests.received.length > 0 && (
+                            <View style={styles.notificationBadge}>
+                                <Text style={styles.notificationText}>{friendRequests.length}</Text>
+                            </View>
+                        )}
+                    </View>
+                    <Button
+                        title="Search"
+                        onPress={() => setActiveTab('search')}
+                        color={activeTab === 'search' ? '#007bff' : '#aaa'}
+                    />
+                    <Button
+                        title="+ Invite"
+                        onPress={() => {
+                            // 👇 open your invite modal or navigate to invite creation screen
+                            setShowInviteModal(true); // or navigate('CreateInvite')
+                        }}
+                        color="#28a745"
+                    />
                 </View>
-                <Button
-                    title="Search"
-                    onPress={() => setActiveTab('search')}
-                    color={activeTab === 'search' ? '#007bff' : '#aaa'}
-                />
-            </View>
 
-            {activeTab === 'friends' && renderFriendsList()}
-            {activeTab === 'requests' && renderFriendRequests()}
-            {activeTab === 'search' && renderSearch()}
-        </View>
+                {activeTab === 'friends' && renderFriendsList()}
+                {activeTab === 'requests' && (
+                    <>
+                        {renderFriendRequests()}
+                        {renderEventInvites()}
+                    </>
+                )}
+                {activeTab === 'search' && renderSearch()}
+            </View>
+            <InviteModal
+                visible={showInviteModal}
+                onClose={() => setShowInviteModal(false)}
+                friends={friendsDetails}
+                setShowInviteModal={setShowInviteModal}
+                initialInvite={inviteToEdit}
+                isEditing={isEditing}
+            />
+        </>
     );
 }
 
@@ -353,11 +483,61 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    
+
     notificationText: {
         color: 'white',
         fontSize: 12,
         fontWeight: 'bold',
     },
-    
+    invitesCard: {
+        marginTop: 20,
+        padding: 12,
+        backgroundColor: '#f1f9ff',
+        borderRadius: 8,
+    },
+
+    inviteItem: {
+        marginBottom: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#ddd',
+        paddingBottom: 8,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+    },
+
+    inviteText: {
+        fontSize: 15,
+        color: '#333',
+    },
+
+    inviteNote: {
+        fontSize: 14,
+        color: '#666',
+        marginTop: 4,
+        fontStyle: 'italic',
+    },
+
+    inviteDateTime: {
+        fontSize: 13,
+        color: '#999',
+        marginTop: 4,
+    },
+    subheading: {
+        fontSize: 16,
+        fontWeight: '600',
+        marginBottom: 10,
+        color: '#444',
+    },
+    detailsButton: {
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        backgroundColor: '#007bff',
+        borderRadius: 5,
+        alignSelf: 'center',
+        marginLeft: 12,
+    },
+    detailsButtonText: {
+        color: '#fff',
+        fontWeight: '600',
+    },        
 });

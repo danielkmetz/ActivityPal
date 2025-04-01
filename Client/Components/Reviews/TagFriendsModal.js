@@ -15,16 +15,16 @@ import { selectFriendsDetails } from "../../Slices/UserSlice";
 
 const { width } = Dimensions.get("window"); // Get screen width
 
-const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false }) => {
+const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isEventInvite }) => {
   const [selectedFriends, setSelectedFriends] = useState([]);
   const friendsDetails = useSelector(selectFriendsDetails);
 
   // **Reset selection if the modal is for photo tagging**
   useEffect(() => {
-    if (visible && isPhotoTagging) {
+    if (isPhotoTagging) {
       setSelectedFriends([]); // Clear previous selections
     }
-  }, [visible, isPhotoTagging]);
+  }, [isPhotoTagging]);
 
   // Toggle selection of friends (store full object instead of just the ID)
   const toggleFriendSelection = (friend) => {
@@ -43,7 +43,10 @@ const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false }) =
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.modalContainer}>
-          <Text style={styles.modalTitle}>🏷️ Tag Friends</Text>
+          <Text style={styles.modalTitle}>
+            {!isEventInvite ? '🏷️ Tag Friends' : '📅 Invite Friends'}
+          </Text>
+
 
           {/* Friend List with Profile Picture & Custom Checkboxes */}
           <FlatList
