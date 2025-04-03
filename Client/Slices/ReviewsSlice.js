@@ -770,7 +770,8 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
     try {
       const query = `
         query GetUserActivity($userId: String!) {
-          getUserActivity(userId: $userId) {
+        getUserActivity(userId: $userId) {
+          ... on Review {
             _id
             userId
             fullName
@@ -779,7 +780,6 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
             rating
             reviewText
             date
-            message
             taggedUsers {
               _id
               fullName
@@ -818,77 +818,7 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
                       userId
                       fullName
                       date
-                      replies {
-                        _id
-                        commentText
-                        userId
-                        fullName
-                        date
-                        replies {
-                          _id
-                          commentText
-                          userId
-                          fullName
-                          date
-                          replies {
-                            _id
-                            commentText
-                            userId
-                            fullName
-                            date
-                            replies {
-                              _id
-                              commentText
-                              userId
-                              fullName
-                              date
-                              replies {
-                                _id
-                                commentText
-                                userId
-                                fullName
-                                date
-                                replies {
-                                  _id
-                                  commentText
-                                  userId
-                                  fullName
-                                  date
-                                  replies {
-                                    _id
-                                    commentText
-                                    userId
-                                    fullName
-                                    date
-                                    replies {
-                                      _id
-                                      commentText
-                                      userId
-                                      fullName
-                                      date
-                                      replies {
-                                        _id
-                                        commentText
-                                        userId
-                                        fullName
-                                        date
-                                        replies {
-                                          _id
-                                          commentText
-                                          userId
-                                          fullName
-                                          date
-                                        }
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    } 
+                    }
                   }
                 }
               }
@@ -918,8 +848,91 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
             }
             type
           }
+
+          ... on ActivityInvite {
+            _id
+            sender {
+              id
+              firstName
+              lastName
+              profilePicUrl
+            }
+            recipients {
+              user {
+                id
+                firstName
+                lastName
+                profilePicUrl
+              }
+              status
+            }
+            placeId
+            businessName
+            businessLogoUrl
+            note
+            dateTime
+            message
+            isPublic
+            status
+            createdAt
+            type
+
+            # NEW: Likes
+            likes {
+              userId
+              fullName
+            }
+
+            # NEW: Comments and Replies
+            comments {
+              _id
+              userId
+              fullName
+              commentText
+              date
+              replies {
+                _id
+                userId
+                fullName
+                commentText
+                date
+                # Optionally support deeper replies here if needed
+              }
+            }
+          }
+
+          ... on CheckIn {
+            _id
+            userId
+            fullName
+            placeId
+            businessName
+            date
+            message
+            taggedUsers {
+              _id
+              fullName
+            }
+            profilePicUrl
+            photos {
+              _id
+              photoKey
+              uploadedBy
+              description
+              taggedUsers {
+                _id
+                fullName
+                x
+                y
+              }
+              uploadDate
+              url
+            }
+            type
+          }
         }
-      `;
+      }
+    `;
 
       const response = await axios.post(GRAPHQL_ENDPOINT, {
         query,
@@ -1119,6 +1132,9 @@ const reviewsSlice = createSlice({
       state.selectedReview = null;
       state.error = null;
     },
+    setUserAndFriendsReviews: (state, action) => {
+      state.userAndFriendsReviews = [...action.payload]; // ✅ new array reference
+    },    
     setSelectedReview: (state, action) => {
       state.selectedReview = action.payload;
     },
@@ -1425,7 +1441,7 @@ const reviewsSlice = createSlice({
 
 export default reviewsSlice.reducer;
 
-export const { setSelectedReview, addCheckInUserAndFriendsReviews, addCheckInProfileReviews, resetProfileReviews, setLocalReviews, resetOtherUserReviews, resetBusinessReviews, clearSelectedReview } = reviewsSlice.actions;
+export const { setUserAndFriendsReviews, setSelectedReview, addCheckInUserAndFriendsReviews, addCheckInProfileReviews, resetProfileReviews, setLocalReviews, resetOtherUserReviews, resetBusinessReviews, clearSelectedReview } = reviewsSlice.actions;
 
 export const selectProfileReviews = (state) => state.reviews.profileReviews;
 export const selectBusinessReviews = (state) => state.reviews.businessReviews;

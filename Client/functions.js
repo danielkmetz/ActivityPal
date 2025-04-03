@@ -90,3 +90,35 @@ export const getUserToken = async () => {
     throw error; // Re-throw the error to handle it in the calling function
   }
 };
+
+export const formatEventDate = (dateString) => {
+  if (!dateString) return '';
+
+  const date = new Date(dateString);
+
+  const formattedDate = date.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
+
+  const formattedTime = date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+
+  return `${formattedDate} at ${formattedTime}`;
+};
+
+export const getTimeLeft = (targetDate) => {
+  const total = new Date(targetDate) - new Date();
+  if (total <= 0) return 'Time’s up!';
+
+  const seconds = Math.floor((total / 1000) % 60);
+  const minutes = Math.floor((total / 1000 / 60) % 60);
+  const hours = Math.floor((total / (1000 * 60 * 60)) % 24);
+  const days = Math.floor(total / (1000 * 60 * 60 * 24));
+
+  return `${days > 0 ? `${days}d ` : ''}${hours}h ${minutes}m ${seconds}s`;
+};
+

@@ -12,18 +12,20 @@ import {
 import { acceptInvite, rejectInvite } from '../../Slices/InvitesSlice';
 import { PanGestureHandler } from 'react-native-gesture-handler';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
+import { useNavigation } from '@react-navigation/native';
+import { selectUserAndFriendsReviews, setUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
 
-const InviteDetailsModal = ({ visible, onClose, invite, userId, friends, onEdit, onDelete }) => {
+const InviteDetailsModal = ({ visible, onClose, invite, userId, onEdit, onDelete, setShowDetailsModal }) => {
     const dispatch = useDispatch();
+    const navigation = useNavigation();
+    const userAndFriendReviews = useSelector(selectUserAndFriendsReviews);
     if (!invite) return null;
-    const isSender = invite.senderId === userId;
+    const isSender = invite.senderId?.toString() === userId?.toString();
 
     const isRecipient = invite.recipients?.some(
         (r) => r.userId?.toString() === userId && r.status === 'pending'
     );
-    
-    console.log(isRecipient)
 
     const categorizedRecipients = {
         confirmed: [],
@@ -33,51 +35,72 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, friends, onEdit,
 
     invite.recipients?.forEach((recipient) => {
         if (recipient.status === 'accepted') {
-          categorizedRecipients.confirmed.push(recipient);
+            categorizedRecipients.confirmed.push(recipient);
         } else if (recipient.status === 'pending') {
-          categorizedRecipients.invited.push(recipient);
+            categorizedRecipients.invited.push(recipient);
         } else if (recipient.status === 'declined') {
-          categorizedRecipients.declined.push(recipient);
+            categorizedRecipients.declined.push(recipient);
         }
     });
 
     const handleAccept = async () => {
         try {
-          await dispatch(acceptInvite({ recipientId: userId, inviteId: invite._id }));
-          onClose(); // Optionally close the modal after
+          const { payload: updatedInvite } = await dispatch(
+            acceptInvite({ recipientId: userId, inviteId: invite._id })
+          );
+      
+          // Format the accepted invite like a review/check-in with a type and createdAt
+          const enrichedInvite = {
+            ...updatedInvite,
+            type: 'invite',
+            createdAt: updatedInvite.dateTime,
+          };
+      
+          // Merge it into the reviews state
+          const updatedFeed = [...userAndFriendReviews, enrichedInvite].sort(
+            (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+          );
+      
+          dispatch(setUserAndFriendsReviews(updatedFeed));
+          onClose();
         } catch (err) {
           console.error('Failed to accept invite:', err);
         }
-      };
-      
+    };
+
     const handleDecline = async () => {
         try {
-          await dispatch(rejectInvite({ recipientId: userId, inviteId: invite._id }));
-          onClose(); // Optionally close the modal after
+            await dispatch(rejectInvite({ recipientId: userId, inviteId: invite._id }));
+            onClose(); // Optionally close the modal after
         } catch (err) {
-          console.error('Failed to reject invite:', err);
+            console.error('Failed to reject invite:', err);
         }
     };
-    //console.log(invite);
+
+    const handleNavigateToBusinessProfile = () => {
+        if (invite.business && invite.business._id) {
+            setShowDetailsModal(false);
+            navigation.navigate('BusinessProfile', { business: invite.business });
+        }
+    };
 
     const renderFriendPills = (list) => (
         <View style={styles.inviteesRow}>
-          {list.map((recipient, index) => (
-            <View key={recipient.userId || index} style={styles.pill}>
-              <Image
-                source={recipient.presignedProfileUrl
-                  ? { uri: recipient.presignedProfileUrl }
-                  : profilePicPlaceholder}
-                style={styles.profilePic}
-              />
-              <Text style={styles.pillText}>
-                {recipient.firstName || 'Unknown'}
-              </Text>
-            </View>
-          ))}
+            {list.map((recipient, index) => (
+                <View key={recipient.userId || index} style={styles.pill}>
+                    <Image
+                        source={recipient.presignedProfileUrl
+                            ? { uri: recipient.presignedProfileUrl }
+                            : profilePicPlaceholder}
+                        style={styles.profilePic}
+                    />
+                    <Text style={styles.pillText}>
+                        {recipient.firstName || 'Unknown'}
+                    </Text>
+                </View>
+            ))}
         </View>
     );
-      
 
     return (
         <Modal
@@ -93,30 +116,39 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, friends, onEdit,
                         <ScrollView>
                             <Text style={styles.title}>Invite Details</Text>
 
-                            {invite.senderName && (
-                            <>
-                                <Text style={styles.label}>From:</Text>
-                                <Text style={styles.text}>{invite.senderName}</Text>
-                            </>
+                            {invite?.sender?.userId && (
+                                <>
+                                    <View style={styles.infoRow}>
+                                        <Text style={styles.label}>From:</Text>
+                                        <Image source={{ uri: invite.sender.presignedProfileUrl }} style={styles.profilePic} />
+                                        <Text style={styles.text}>
+                                            {invite?.sender?.firstName} {invite?.sender?.lastName}
+                                        </Text>
+                                    </View>
+                                </>
                             )}
-                            <Text style={styles.label}>Location:</Text>
-                            <View style={styles.logoAndName}>
-                                {invite?.business?.presignedPhotoUrl && (
-                                    <Image source={{ uri: invite?.business?.presignedPhotoUrl }} style={styles.logoPic} />
-                                )}
-                                <Text style={styles.text}>
-                                    {invite.business?.businessName || invite.placeId}
+                            <View style={styles.infoRow}>
+                                <Text style={styles.label}>Where:</Text>
+                                <TouchableOpacity style={styles.logoAndName} onPress={handleNavigateToBusinessProfile}>
+                                    {invite?.business?.presignedPhotoUrl && (
+                                        <Image source={{ uri: invite?.business?.presignedPhotoUrl }} style={styles.logoPic} />
+                                    )}
+                                    <Text style={[styles.text, { textDecorationLine: 'underline', color: '#007bff' }]}>
+                                        {invite.business?.businessName || invite.placeId}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            <View style={styles.infoRow}>
+                                <Text style={styles.label}>When:</Text>
+                                <Text style={[styles.text, { marginTop: 10 }]}>
+                                    {new Date(invite.dateTime).toLocaleString().replace(/:\d{2}\s/, ' ')}
                                 </Text>
                             </View>
 
-                            <Text style={styles.label}>Date & Time:</Text>
-                            <Text style={[styles.text, { marginTop: 10 }]}>
-                                {new Date(invite.dateTime).toLocaleString()}
-                            </Text>
-
-                            {invite.note && (
+                            {invite?.note && invite?.sender?.firstName && (
                                 <>
-                                    <Text style={styles.label}>Note:</Text>
+                                    <Text style={styles.label}>{invite.sender.firstName} said:</Text>
                                     <Text style={styles.note}>{invite.note}</Text>
                                 </>
                             )}
@@ -161,7 +193,12 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, friends, onEdit,
                                     </TouchableOpacity>
                                     <TouchableOpacity
                                         style={styles.deleteButton}
-                                        onPress={() => onDelete(invite)}
+                                        onPress={() => {
+                                            onDelete(invite);
+                                            const filteredFeed = userAndFriendReviews.filter(item => item.id !== invite._id);
+                                            dispatch(setUserAndFriendsReviews(filteredFeed));
+                                            onClose();
+                                        }}
                                     >
                                         <Text style={styles.buttonText}>Delete Invite</Text>
                                     </TouchableOpacity>
@@ -186,7 +223,7 @@ const styles = StyleSheet.create({
         padding: 20,
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
-        height: '60%',
+        height: '68%',
     },
     notch: {
         width: 50,
@@ -200,11 +237,13 @@ const styles = StyleSheet.create({
         fontSize: 20,
         fontWeight: 'bold',
         marginBottom: 10,
+        alignSelf: 'center',
     },
     label: {
-        fontSize: 14,
+        fontSize: 16,
         color: '#777',
         marginTop: 10,
+        marginRight: 5,
     },
     text: {
         fontSize: 16,
@@ -237,6 +276,7 @@ const styles = StyleSheet.create({
         height: 24,
         borderRadius: 12,
         marginRight: 6,
+        marginLeft: 5,
     },
     pillText: {
         fontSize: 14,
@@ -290,7 +330,12 @@ const styles = StyleSheet.create({
         flex: 0.9,
         alignItems: 'center',
         marginTop: 10,
-    },    
+    },
+    infoRow: {
+        flexDirection: 'row',
+        marginTop: 15,
+        alignItems: 'center'
+    }
 
 });
 
