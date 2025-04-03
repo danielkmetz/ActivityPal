@@ -18,6 +18,12 @@ const CommentSchema = new mongoose.Schema({
   replies: [ReplySchema]
 });
 
+const RequestSchema = new mongoose.Schema({
+    userId: { type:mongoose.Schema.Types.ObjectId, ref: 'User'},
+    status: {type: String, enum: ['pending', 'accepted', 'declined'], default: 'pending'},
+    requestedAt: { type: Date, default: Date.now}
+})  
+
 // Like schema
 const LikeSchema = new mongoose.Schema({
   userId: { type: String, required: true },
@@ -53,6 +59,7 @@ const ActivityInviteSchema = new mongoose.Schema({
   },
   likes: [LikeSchema],
   comments: [CommentSchema],
+  requests: [RequestSchema],
   createdAt: { type: Date, default: Date.now },
 });
 

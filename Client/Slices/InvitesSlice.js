@@ -79,6 +79,21 @@ export const editInvite = createAsyncThunk(
     }
 );
 
+export const requestInvite = createAsyncThunk(
+  'invites/requestInvite',
+  async ({ userId, inviteId }, thunkAPI) => {
+    try {
+      const res = await axios.post(`/api/activity-invites/request`, {
+        userId,
+        inviteId,
+      });
+      return res.data;
+    } catch (err) {
+      return thunkAPI.rejectWithValue(err.response?.data || 'Request failed');
+    }
+  }
+);
+
 // Slice
 const invitesSlice = createSlice({
   name: 'invites',

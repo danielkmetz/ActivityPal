@@ -110,6 +110,7 @@ const InviteModal = ({
     };
 
     const handleConfirmInvite = async () => {
+        console.log(selectedPlace)
         if (!selectedPlace || !dateTime || selectedFriends.length === 0) {
             alert('Please complete all invite details.');
             return;
@@ -119,6 +120,7 @@ const InviteModal = ({
             senderId: user.id,
             recipientIds: selectedFriends,
             placeId: selectedPlace.placeId,
+            businessName: selectedPlace.name,
             dateTime,
             message: '',
             note,
@@ -149,16 +151,18 @@ const InviteModal = ({
             if (isEditing && initialInvite) {
                 const updates = {
                     placeId: selectedPlace.placeId,
+                    businessName: selectedPlace.name,
                     dateTime,
                     note,
                     isPublic,
                 };
-    
+
                 const { payload: updatedInvite } = await dispatch(editInvite({
                     recipientId: user.id,
                     inviteId: initialInvite._id,
                     updates,
                     recipientIds: selectedFriends,
+                    businessName: selectedPlace.name,
                 }));
     
                 const enrichedInvite = {
@@ -190,13 +194,13 @@ const InviteModal = ({
     
             // Reset form
             setSelectedFriends([]);
-            setNote(null);
+            setNote('');
             setSelectedPlace(null);
             setDateTime(null);
             setShowInviteModal(false);
             setInviteToEdit(null);
             setIsEditing(false);
-            setSelectedFriends(null);
+            setSelectedFriends([]);
             onClose();
         } catch (err) {
             console.error('❌ Failed to send invite:', err);

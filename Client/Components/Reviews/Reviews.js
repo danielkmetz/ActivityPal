@@ -30,8 +30,7 @@ export default function Reviews({ reviews, ListHeaderComponent, scrollY, onScrol
   const lastTapRef = useRef({});
   const [likedAnimations, setLikedAnimations] = useState({});
   const scrollX = useRef(new Animated.Value(0)).current;
-  console.log(scrollY)
-
+  
   const userId = user?.id
   const fullName = `${user?.firstName} ${user?.lastName}`;
 

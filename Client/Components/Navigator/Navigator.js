@@ -1,5 +1,6 @@
 import React from 'react';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createBottomTabNavigator, BottomTabBar } from '@react-navigation/bottom-tabs';
+import { View, Animated } from 'react-native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { FontAwesome, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Platform } from 'react-native';
@@ -20,13 +21,30 @@ import { useSelector } from "react-redux";
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
-function TabNavigator({scrollY, onScroll}) {
+function TabNavigator({scrollY, onScroll, tabBarTranslateY}) {
     const user = useSelector(selectUser);
     const isBusiness = useSelector(selectIsBusiness);
 
     return (
         <Tab.Navigator
             initialRouteName={user ? (isBusiness ? "Reviews" : "Home") : "Activities"}
+            tabBar={(props) => (
+                <Animated.View
+                  style={{
+                    transform: [{ translateY: tabBarTranslateY }],
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    height: Platform.OS === 'ios' ? 90 : 70,
+                    backgroundColor: 'white',
+                    zIndex: 10,
+                    elevation: 10,
+                  }}
+                >
+                  <BottomTabBar {...props} />
+                </Animated.View>
+            )}
             screenOptions={({ route }) => ({
                 tabBarIcon: ({ color, size }) => {
                     let iconName;
@@ -108,11 +126,18 @@ function TabNavigator({scrollY, onScroll}) {
     );
 }
 
-function AppNavigator({scrollY, onScroll}) {
+function AppNavigator({scrollY, onScroll, headerTranslateY, tabBarTranslateY}) {
     return (
         <Stack.Navigator>
             <Stack.Screen name="TabNavigator" options={{headerShown: false}}>
-                {() => <TabNavigator scrollY={scrollY} onScroll={onScroll}/>}
+                {() => 
+                    <TabNavigator 
+                        scrollY={scrollY} 
+                        onScroll={onScroll}
+                        headerTranslateY={headerTranslateY}
+                        tabBarTranslateY={tabBarTranslateY}
+                    />
+                }
             </Stack.Screen>
 
             {/* OtherUserProfile Screen */}
