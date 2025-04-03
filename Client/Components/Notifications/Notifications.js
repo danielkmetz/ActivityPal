@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
     View,
     Text,
     FlatList,
+    Animated,
     TouchableOpacity,
     StyleSheet,
     Image,
@@ -15,7 +16,7 @@ import { acceptFriendRequest, declineFriendRequest, selectFriendRequestDetails }
 import moment from 'moment';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import CommentModal from '../Reviews/CommentModal';
-import { selectUserAndFriendsReviews, fetchPostById, selectSelectedReview, setSelectedReview } from '../../Slices/ReviewsSlice';
+import { selectUserAndFriendsReviews, fetchPostById, selectSelectedReview, setSelectedReview, toggleLike } from '../../Slices/ReviewsSlice';
 import { acceptInvite, rejectInvite } from '../../Slices/InvitesSlice';
 
 export default function Notifications() {
@@ -23,10 +24,14 @@ export default function Notifications() {
     const user = useSelector(selectUser);
     const notifications = useSelector(selectNotifications);
     const friendRequestDetails = useSelector(selectFriendRequestDetails);
-    const userAndFriendReviews = useSelector(selectUserAndFriendsReviews);
+    const reviews = useSelector(selectUserAndFriendsReviews);
     const selectedReview = useSelector(selectSelectedReview);
-
+    const [photoTapped, setPhotoTapped] = useState(null);
+    const lastTapRef = useRef({});
+    const [likedAnimations, setLikedAnimations] = useState({});
     const [targetId, setTargetId] = useState(null);
+    const userId = user?.id;
+    const fullName = `${user.firstName} ${user.lastName}`;
 
     useEffect(() => {
         dispatch(fetchNotifications(user.id));
@@ -35,12 +40,18 @@ export default function Notifications() {
     const handleNotificationPress = (notification) => {
         dispatch(markNotificationRead({ userId: user.id, notificationId: notification._id }));
 
-        if (notification.type === "comment" || notification.type === "reply" || notification.type === "like" || notification.type === "tag" || notification.type === "photoTag") {
+        if (
+            notification.type === "comment" ||
+            notification.type === "reply" ||
+            notification.type === "like" ||
+            notification.type === "tag" ||
+            notification.type === "photoTag" ||
+            notification.type === "activityInvite"
+        ) {
             if (notification) {
-                console.log(postType)
                 const postType = notification.postType;
-        
-                dispatch(fetchPostById({postType, postId: notification.targetId}));
+
+                dispatch(fetchPostById({ postType, postId: notification.targetId }));
                 setTargetId(notification.replyId);
             } else {
                 console.warn("Comment ID is missing in notification");
@@ -51,7 +62,7 @@ export default function Notifications() {
     const handleAcceptRequest = async (senderId) => {
         try {
             await dispatch(acceptFriendRequest(senderId));
-            
+
             await dispatch(createNotification({
                 userId: senderId,  // The sender of the request gets notified
                 type: 'friendRequestAccepted',
@@ -59,34 +70,34 @@ export default function Notifications() {
                 relatedId: user.id, // The ID of the user who accepted the request
                 typeRef: 'User'
             }));
-    
+
             // Filter out the accepted friend request from notifications
             const updatedNotifications = notifications.filter(
                 (notification) => !(notification.type === 'friendRequest' && notification.relatedId === senderId)
             );
-    
+
             // Dispatch the updated notifications list
-            dispatch(setNotifications(updatedNotifications));    
+            dispatch(setNotifications(updatedNotifications));
         } catch (error) {
             console.error('Error accepting friend request:', error);
         }
     };
-    
+
     const handleDeclineRequest = async (senderId) => {
         try {
             await dispatch(declineFriendRequest(senderId));
-    
+
             // Filter out the declined friend request from notifications
             const updatedNotifications = notifications.filter(
                 (notification) => !(notification.type === 'friendRequest' && notification.relatedId === senderId)
             );
-    
+
             dispatch(setNotifications(updatedNotifications));
         } catch (error) {
             console.error('Error declining friend request:', error);
         }
     };
-    
+
     const getIcon = (type) => {
         switch (type) {
             case 'like':
@@ -109,34 +120,133 @@ export default function Notifications() {
     const handleAcceptInvite = async (inviteId) => {
         try {
             await dispatch(acceptInvite({ recipientId: user.id, inviteId }));
-    
+
             const updated = notifications.map(n =>
                 n.targetId === inviteId && n.type === 'activityInvite'
                     ? { ...n, type: 'activityInviteAccepted', message: 'You accepted the invite!' }
                     : n
             );
-    
+
             await dispatch(setNotifications(updated));
         } catch (error) {
             console.error('Error accepting activity invite:', error);
         }
     };
-    
+
     const handleRejectInvite = async (inviteId) => {
         try {
             await dispatch(rejectInvite({ recipientId: user.id, inviteId }));
-    
+
             const updated = notifications.map(n =>
                 n.targetId === inviteId && n.type === 'activityInvite'
                     ? { ...n, type: 'activityInviteDeclined', message: 'You declined the invite.' }
                     : n
             );
-    
+
             await dispatch(setNotifications(updated));
         } catch (error) {
             console.error('Error rejecting activity invite:', error);
         }
-    };    
+    };
+
+    const toggleTaggedUsers = (photoKey) => {
+        setPhotoTapped(photoTapped === photoKey ? null : photoKey);
+    };
+
+    const handleLike = async (postType, postId) => {
+        // Determine where to find the post (reviews for businesses, check-ins for users)
+        const postToUpdate = reviews.find((review) => review._id === postId);
+
+        if (!postToUpdate) {
+            console.error(`${postType} with ID ${postId} not found.`);
+            return;
+        }
+
+        const placeId = postToUpdate.placeId;
+
+        try {
+            // Sync with the backend
+            const { payload } = await dispatch(toggleLike({ postType, placeId, postId, userId, fullName }));
+
+            // Check if the current user's ID exists in the likes array before sending a notification
+            const userLiked = payload?.likes?.some((like) => like.userId === userId);
+
+            // Dynamically get ownerId based on postType
+            let ownerId;
+            if (postType === 'invite') {
+                ownerId = postToUpdate.sender?.id || postToUpdate.senderId;
+            } else {
+                ownerId = postToUpdate.userId;
+            }
+
+            // Create a notification for the post owner
+            if (userLiked && ownerId !== userId) { // Avoid self-notifications
+                await dispatch(createNotification({
+                    userId: ownerId,
+                    type: 'like',
+                    message: `${fullName} liked your ${postType}.`,
+                    relatedId: userId,
+                    typeRef: postType === 'review' ? 'Review' : postType === 'check-in' ? 'CheckIn' : 'ActivityInvite',
+                    targetId: postId,
+                    postType,
+                }));
+            }
+        } catch (error) {
+            console.error(`Error toggling like for ${postType}:`, error);
+        }
+    };
+
+    const handleLikeWithAnimation = async (postType, postId) => {
+        const now = Date.now();
+
+        if (!lastTapRef.current || typeof lastTapRef.current !== "object") {
+            lastTapRef.current = {};
+        }
+
+        if (!lastTapRef.current[postId]) {
+            lastTapRef.current[postId] = 0;
+        }
+
+        if (now - lastTapRef.current[postId] < 300) {
+            const postBeforeUpdate = reviews.find((review) => review._id === postId);
+            const wasLikedBefore = postBeforeUpdate?.likes?.some((like) => like.userId === user?.id);
+
+            await handleLike(postType, postId);
+
+            if (!wasLikedBefore) {
+                if (!likedAnimations[postId]) {
+                    setLikedAnimations((prev) => ({
+                        ...prev,
+                        [postId]: new Animated.Value(0),
+                    }));
+                }
+
+                const animation = likedAnimations[postId] || new Animated.Value(0);
+
+                Animated.timing(animation, {
+                    toValue: 1,
+                    duration: 50,
+                    useNativeDriver: true,
+                }).start(() => {
+                    setTimeout(() => {
+                        Animated.timing(animation, {
+                            toValue: 0,
+                            duration: 500,
+                            useNativeDriver: true,
+                        }).start();
+                    }, 500);
+                });
+
+                setLikedAnimations((prev) => ({
+                    ...prev,
+                    [postId]: animation,
+                }));
+            }
+        }
+
+        lastTapRef.current[postId] = now;
+    };
+
 
     return (
         <View style={styles.container}>
@@ -151,9 +261,9 @@ export default function Notifications() {
                             onPress={() => handleNotificationPress(item)}
                         >
                             {item?.type !== 'friendRequest' && (
-                            <View style={styles.iconContainer}>
-                                {getIcon(item.type)}
-                            </View>
+                                <View style={styles.iconContainer}>
+                                    {getIcon(item.type)}
+                                </View>
                             )}
                             <View style={[styles.textContainer, item.type === 'friendRequest' && { marginLeft: 10 }]}>
                                 {item?.type === 'friendRequest' && sender ? (
@@ -167,7 +277,7 @@ export default function Notifications() {
                                 ) : (
                                     <Text style={styles.message}>{item.message}</Text>
                                 )}
-                                {item?.commentText? (
+                                {item?.commentText ? (
                                     <Text style={styles.commentText}>{item?.commentText}</Text>
                                 ) : (
                                     null
@@ -208,15 +318,20 @@ export default function Notifications() {
                 }}
             />
             {/* Comment Modal */}
-                <CommentModal
-                    visible={!!selectedReview}
-                    review={selectedReview}
-                    onClose={handleCloseComments}
-                    setSelectedReview={setSelectedReview}
-                    reviews={userAndFriendReviews} // You may need to adjust this
-                    targetId={targetId}
-                />
-            
+            <CommentModal
+                visible={!!selectedReview}
+                review={selectedReview}
+                onClose={handleCloseComments}
+                setSelectedReview={setSelectedReview}
+                reviews={reviews} // You may need to adjust this
+                targetId={targetId}
+                likedAnimations={likedAnimations}
+                handleLikeWithAnimation={handleLikeWithAnimation}
+                toggleTaggedUsers={toggleTaggedUsers}
+                lastTapRef={lastTapRef}
+                photoTapped={photoTapped}
+            />
+
         </View>
     );
 }
@@ -245,7 +360,7 @@ const styles = StyleSheet.create({
         backgroundColor: "#E7F3FF",
     },
     iconContainer: {
-        marginRight: 10, 
+        marginRight: 10,
     },
     textContainer: {
         flex: 1,

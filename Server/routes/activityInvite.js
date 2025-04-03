@@ -93,7 +93,7 @@ router.get('/user/:userId/invites', async (req, res) => {
 });
 
 router.post('/send', async (req, res) => {
-    const { senderId, recipientIds, placeId, dateTime, message, isPublic, note } = req.body;
+    const { senderId, recipientIds, placeId, dateTime, message, isPublic, note, businessName } = req.body;
 
     try {
         const sender = await User.findById(senderId);
@@ -101,9 +101,22 @@ router.post('/send', async (req, res) => {
             return res.status(404).json({ error: 'Sender not found' });
         }
 
-        const business = await Business.findOne({ placeId }).lean();
+        let business = await Business.findOne({ placeId }).lean();
         if (!business) {
-            return res.status(404).json({ error: 'Business not found for this placeId' });
+            const newBusiness = new Business({
+                placeId,
+                businessName: businessName || "Unknown Business",
+                location: "N/A", // make sure `location` exists in req.body if needed
+                firstName: "N/A",
+                lastName: "N/A",
+                email: "N/A",
+                password: "N/A",
+                events: [],
+                reviews: [],
+            });
+        
+            await newBusiness.save(); // ✅ persist it to MongoDB
+            business = newBusiness.toObject(); // to match `.lean()` format from the previous path
         }
 
         const formattedDateTime = dayjs(dateTime).format('MMMM D [at] h:mm A');
@@ -501,7 +514,23 @@ router.put('/edit', async (req, res) => {
         invite.status = 'sent'; // reset status
         await invite.save();
 
-        const business = await Business.findOne({ placeId: invite.placeId }).lean();
+        let business = await Business.findOne({ placeId: invite.placeId }).lean();
+        if (!business) {
+            const newBusiness = new Business({
+                placeId: invite.placeId,
+                businessName: updates.businessName || "Unknown Business",
+                location: "N/A", // make sure `location` exists in req.body if needed
+                firstName: "N/A",
+                lastName: "N/A",
+                email: "N/A",
+                password: "N/A",
+                events: [],
+                reviews: [],
+            });
+        
+            await newBusiness.save(); // ✅ persist it to MongoDB
+            business = newBusiness.toObject(); // to match `.lean()` format from the previous path
+        }
 
         let presignedPhotoUrl = null;
         if (business?.logoKey) {
@@ -676,6 +705,30 @@ router.delete('/delete', async (req, res) => {
             error: 'Failed to delete invite',
             details: err.message,
         });
+    }
+});
+
+router.post('/request', async (req, res) => {
+    const { userId, inviteId } = req.body;
+  
+    try {
+      const invite = await ActivityInvite.findById(inviteId);
+      if (!invite) return res.status(404).json({ error: 'Invite not found' });
+  
+      const alreadyRequested = invite.requests?.some(r => r.userId.toString() === userId);
+      const alreadyInvited = invite.recipients?.some(r => r.userId.toString() === userId);
+  
+      if (alreadyRequested || alreadyInvited) {
+        return res.status(400).json({ error: 'You have already requested or been invited' });
+      }
+  
+      invite.requests.push({ userId });
+      await invite.save();
+  
+      res.status(200).json({ success: true, message: 'Request sent!' });
+    } catch (err) {
+      console.error('❌ Failed to request invite:', err);
+      res.status(500).json({ error: 'Failed to request invite' });
     }
 });
 

@@ -15,7 +15,9 @@ router.get('/:postType/:postId', async (req, res) => {
     let profilePicUrl = null;
     let business = null;
     let user = null;
+    let sender = null;
     let taggedUsers = [];
+    let photosWithUrls = [];
 
     if (postType === 'review') {
       business = await Business.findOne({ "reviews._id": postId });
@@ -24,7 +26,6 @@ router.get('/:postType/:postId', async (req, res) => {
       post = business.reviews.id(postId);
       if (!post) return res.status(404).json({ message: "Review not found" });
 
-      // Fetch full details of tagged users
       if (post.taggedUsers && post.taggedUsers.length > 0) {
         taggedUsers = await User.find(
           { _id: { $in: post.taggedUsers } },
@@ -36,20 +37,23 @@ router.get('/:postType/:postId', async (req, res) => {
           fullName: `${user.firstName} ${user.lastName}`,
         }));
       }
-    }
-    else if (postType === 'check-in') {
+      
+      const postUser = await User.findById(post.userId).select("profilePic firstName lastName").lean();
+      if (postUser?.profilePic?.photoKey) {
+        profilePicUrl = await generateDownloadPresignedUrl(postUser.profilePic.photoKey);
+      }
+
+    } else if (postType === 'check-in') {
       user = await User.findOne({ "checkIns._id": postId });
       if (!user) return res.status(404).json({ message: "Check-in not found" });
 
       post = user.checkIns.id(postId);
       if (!post) return res.status(404).json({ message: "Check-in not found" });
 
-      // Fetch business if placeId exists
       if (post.placeId) {
         business = await Business.findOne({ placeId: post.placeId }).lean();
       }
 
-      // Fetch tagged users with full names
       if (post.taggedUsers && post.taggedUsers.length > 0) {
         taggedUsers = await User.find(
           { _id: { $in: post.taggedUsers } },
@@ -61,28 +65,34 @@ router.get('/:postType/:postId', async (req, res) => {
           fullName: `${user.firstName} ${user.lastName}`,
         }));
       }
-    }
-    else {
+
+      const postUser = await User.findById(post.userId).select("profilePic firstName lastName").lean();
+      if (postUser?.profilePic?.photoKey) {
+        profilePicUrl = await generateDownloadPresignedUrl(postUser.profilePic.photoKey);
+      }
+
+    } else if (postType === 'invite') {
+      post = await ActivityInvite.findById(postId).lean();
+      if (!post) return res.status(404).json({ message: "Invite not found" });
+
+      sender = await User.findById(post.senderId).select('firstName lastName profilePic').lean();
+      if (sender?.profilePic?.photoKey) {
+        profilePicUrl = await generateDownloadPresignedUrl(sender.profilePic.photoKey);
+      }
+
+      business = await Business.findOne({ placeId: post.placeId }).lean();
+    } else {
       return res.status(400).json({ message: "Invalid post type" });
     }
 
-    // Fetch user details for the post creator
-    const postUser = await User.findById(post.userId).select("profilePic firstName lastName").lean();
-
-    if (postUser?.profilePic?.photoKey) {
-      profilePicUrl = await generateDownloadPresignedUrl(postUser.profilePic.photoKey);
-    }
-
-    // ✅ Process photos: Generate pre-signed URLs & map tagged users in each photo
-    let photosWithUrls = [];
-    if (post.photos && Array.isArray(post.photos)) {
+    if ((postType === 'review' || postType === 'check-in') && Array.isArray(post.photos)) {
       photosWithUrls = await Promise.all(
         post.photos.map(async (photo) => {
           const photoTaggedUsers = await User.find(
             { _id: { $in: photo.taggedUsers.map(tag => tag.userId) } },
             { firstName: 1, lastName: 1 }
           ).lean();
-
+    
           return {
             _id: photo._id,
             photoKey: photo.photoKey,
@@ -100,23 +110,29 @@ router.get('/:postType/:postId', async (req, res) => {
         })
       );
     }
-
-    // ✅ Construct response object
+    
     const formattedPost = {
       _id: post._id,
-      userId: post.userId,
-      fullName: post.fullName || `${postUser?.firstName || ''} ${postUser?.lastName || ''}`.trim(),
+      userId: postType === 'invite' ? post.senderId : post.userId,
+      fullName:
+        postType === 'invite'
+          ? `${sender?.firstName || ''} ${sender?.lastName || ''}`.trim()
+          : post.fullName || `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
       rating: postType === 'review' ? post.rating : null,
       reviewText: postType === 'review' ? post.reviewText : null,
-      message: postType === 'check-in' ? post.message : null,
-      date: post.timestamp || post.date,
-      photos: photosWithUrls,  // ✅ Updated photos array with pre-signed URLs & tagged users
+      message: postType === 'invite' ? post.message : postType === 'check-in' ? post.message : null,
+      date: post.timestamp || post.date || post.dateTime,
+      photos: photosWithUrls,
       likes: post.likes || [],
       comments: post.comments || [],
       profilePicUrl,
-      businessName: business ? business.businessName : null,
+      businessName: business?.businessName || null,
       placeId: post.placeId || null,
-      taggedUsers,
+      recipients: postType === 'invite' ? post.recipients : undefined,
+      requests: postType === 'invite' ? post.requests || [] : undefined,
+      note: postType === 'invite' ? post.note : undefined,
+      isPublic: postType === 'invite' ? post.isPublic : undefined,
+      taggedUsers: taggedUsers.length > 0 ? taggedUsers : [],
       type: postType,
     };
 

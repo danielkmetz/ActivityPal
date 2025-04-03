@@ -47,6 +47,7 @@ function CommentModal({
   photoTapped,
 }) {
   const dispatch = useDispatch();
+  const dateTime = review?.dateTime ? review?.dateTime : review?.date;
   const [commentText, setCommentText] = useState('');
   const [replyingTo, setReplyingTo] = useState(null);
   const [expandedReplies, setExpandedReplies] = useState({});
@@ -59,7 +60,7 @@ function CommentModal({
   const [nestedExpandedReplies, setNestedExpandedReplies] = useState({});
   const [keybaordHeight, setKeyboardHeight] = useState(null)
   const [isInputCovered, setIsInputCovered] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(getTimeLeft(review.dateTime));
+  const [timeLeft, setTimeLeft] = useState(getTimeLeft(dateTime));
   const slideAnim = useRef(new Animated.Value(300)).current; // Start off-screen to the right
   const shiftAnim = useRef(new Animated.Value(0)).current;
   const flatListRef = useRef(null); // Ref for the FlatList
@@ -71,27 +72,37 @@ function CommentModal({
   const [inputHeight, setInputHeight] = useState(40); // Default height 40px
   const [contentHeight, setContentHeight] = useState(40);
   const scrollX = useRef(new Animated.Value(0)).current;
-  const postOwnerPic = review?.type === "invite" ? review?.sender?.profilePicUrl : review?.profilePicUrl;
-  const postOwnerName = review?.type === "invite" ? `${review.sender.firstName} ${review.sender.lastName}` : `${review.fullName}`
-  const totalInvited = review.recipients?.length || 0;
-  const totalGoing = review.recipients?.filter(r => r.status === 'accepted').length || 0;
+  const postOwnerPic = review?.type === "invite" ? review?.sender?.profilePicUrl
+        ? review?.sender?.profilePicUrl
+        : review?.profilePicUrl
+      : review?.profilePicUrl;
+  const postOwnerName =
+    review?.type === "invite"
+      ? review?.sender?.firstName && review?.sender?.lastName
+        ? `${review?.sender?.firstName} ${review?.sender?.lastName}`
+        : review?.fullName
+      : review?.fullName;
+  const totalInvited = review?.recipients?.length || 0;
+  const totalGoing = review?.recipients?.filter(r => r.status === 'accepted').length || 0;
+  const hasTaggedUsers = Array.isArray(review?.taggedUsers) && review.taggedUsers.length > 0;
+  const isInvite = review?.type === "invite";
 
   let reviewOwner;
-  if (review.type === "invite") {
-    reviewOwner = review.sender.id;
+  if (isInvite) {
+    reviewOwner = review.sender?.id || review?.userId;
   } else {
-    reviewOwner = review.userId;
+    reviewOwner = review?.userId;
   };
 
   useEffect(() => {
-    if (review.type === "invite") {
+    if (review && isInvite && dateTime) {
       const interval = setInterval(() => {
-        setTimeLeft(getTimeLeft(review.dateTime));
+        setTimeLeft(getTimeLeft(dateTime));
       }, 1000);
 
       return () => clearInterval(interval);
     }
-  }, [review.dateTime]);
+  }, [dateTime]);
 
   useEffect(() => {
     const showSubscription = Keyboard.addListener('keyboardWillShow', (event) => {
@@ -569,15 +580,15 @@ function CommentModal({
                     containerStyle={{ backgroundColor: '#ccc' }} // Set background color for the generic avatar
                   />
                   <Text style={styles.reviewerName}>
-                    {review?.type === "invite" ? (
+                    {isInvite ? (
                       <Text style={styles.fullName}>
-                        {review.sender?.firstName} {review.sender?.lastName} invited {totalInvited} friend
+                        {postOwnerName} invited {totalInvited} friend
                         {totalInvited.length === 1 ? '' : 's'} to a Vybe
                       </Text>
                     ) : (
                       <Text style={styles.fullName}>{postOwnerName}</Text>
                     )}
-                    {review?.taggedUsers?.length > 0 ? " is with " : " is"}
+                    {!isInvite && hasTaggedUsers ? " is with " : !isInvite ? " is " : null}
                     {Array.isArray(review?.taggedUsers) && review?.taggedUsers?.map((user, index) => (
                       <Text key={user?.userId || `tagged-${index}`} style={styles.taggedUser}>
                         {user?.fullName}
@@ -590,7 +601,7 @@ function CommentModal({
                       <Text>
                         {" "}
                         at
-                        {review.taggedUsers.length > 0 ? (
+                        {hasTaggedUsers ? (
                           <Text>{'\n'}</Text>
                         ) : (
                           <Text>{" "}</Text>)
@@ -608,12 +619,12 @@ function CommentModal({
 
                 </View>
                 <Text style={styles.businessName}>
-                  {review?.type === "review" || review?.type === "invite" ? review?.businessName : ""}
+                  {review?.type === "review" || isInvite ? review?.businessName : ""}
                 </Text>
 
-                {review.dateTime && review.type === "invite" && (
+                {(review?.dateTime || review?.date) && isInvite && (
                   <>
-                    <Text style={styles.datetime}>On {formatEventDate(review.dateTime)}</Text>
+                    <Text style={styles.datetime}>On {formatEventDate(dateTime)}</Text>
                     <Text style={styles.note}>{review.note}</Text>
                     <View style={styles.countdownContainer}>
                       <Text style={styles.countdownLabel}>Starts in:</Text>
@@ -663,7 +674,7 @@ function CommentModal({
                     )}
                   />
                   {/* Dots Indicator */}
-                  {review.photos.length > 1 && (
+                  {review.photos?.length > 1 && (
                     <PhotoPaginationDots photos={review.photos} scrollX={scrollX} />
                   )}
                 </View>
