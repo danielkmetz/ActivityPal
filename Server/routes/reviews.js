@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Business = require('../models/Business');
 const User = require('../models/User');
+const ActivityInvite = require('../models/ActivityInvites.js');
 const mongoose = require('mongoose');
 const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
 
@@ -380,7 +381,7 @@ router.post('/:postType/:placeId/:postId/like', async (req, res) => {
   const { userId, fullName } = req.body;
 
   try {
-    let postCollection, post, ownerId;
+    let post, postCollection, ownerId;
 
     if (postType === 'review') {
       const business = await Business.findOne({ placeId });
@@ -392,6 +393,28 @@ router.post('/:postType/:placeId/:postId/like', async (req, res) => {
 
       if (!post) return res.status(404).json({ message: 'Review not found' });
 
+      // Toggle like
+      const likeIndex = post.likes.findIndex(like => like.userId === userId);
+      const isLiking = likeIndex === -1;
+      if (isLiking) {
+        post.likes.push({ userId, fullName, date: new Date() });
+      } else {
+        post.likes.splice(likeIndex, 1);
+      }
+
+      await Business.updateOne(
+        { placeId },
+        { $set: { reviews: postCollection } }
+      );
+
+      if (!isLiking) {
+        await User.findByIdAndUpdate(ownerId, {
+          $pull: { notifications: { type: 'like', targetId: postId } },
+        });
+      }
+
+      return res.status(200).json({ message: isLiking ? 'Like added' : 'Like removed', likes: post.likes });
+
     } else if (postType === 'check-in' || postType === 'checkin') {
       const user = await User.findOne({ 'checkIns._id': postId });
       if (!user) return res.status(404).json({ message: 'Check-in not found' });
@@ -402,35 +425,57 @@ router.post('/:postType/:placeId/:postId/like', async (req, res) => {
 
       if (!post) return res.status(404).json({ message: 'Check-in not found' });
 
+      const likeIndex = post.likes.findIndex(like => like.userId === userId);
+      const isLiking = likeIndex === -1;
+
+      if (isLiking) {
+        post.likes.push({ userId, fullName, date: new Date() });
+      } else {
+        post.likes.splice(likeIndex, 1);
+      }
+
+      await User.updateOne(
+        { _id: ownerId },
+        { $set: { checkIns: postCollection } }
+      );
+
+      if (!isLiking) {
+        await User.findByIdAndUpdate(ownerId, {
+          $pull: { notifications: { type: 'like', targetId: postId } },
+        });
+      }
+
+      return res.status(200).json({ message: isLiking ? 'Like added' : 'Like removed', likes: post.likes });
+
+    } else if (postType === 'invite') {
+      const invite = await ActivityInvite.findById(postId);
+      if (!invite) return res.status(404).json({ message: 'Invite not found' });
+
+      const likeIndex = invite.likes.findIndex(like => like.userId === userId);
+      const isLiking = likeIndex === -1;
+
+      if (isLiking) {
+        invite.likes.push({ userId, fullName, date: new Date() });
+      } else {
+        invite.likes.splice(likeIndex, 1);
+      }
+
+      await invite.save();
+
+      if (!isLiking) {
+        await User.findByIdAndUpdate(invite.senderId, {
+          $pull: { notifications: { type: 'like', targetId: postId } },
+        });
+      }
+
+      return res.status(200).json({ message: isLiking ? 'Like added' : 'Like removed', likes: invite.likes });
+
     } else {
       return res.status(400).json({ message: 'Invalid post type' });
     }
 
-    // Handle like/unlike logic
-    const likeIndex = post.likes.findIndex(like => like.userId === userId);
-    const isLiking = likeIndex === -1;
-
-    if (isLiking) {
-      post.likes.push({ userId, fullName, date: new Date() });
-    } else {
-      post.likes.splice(likeIndex, 1);
-    }
-
-    await (postType === 'review' ? Business : User).updateOne(
-      { [postType === 'review' ? 'placeId' : '_id']: postType === 'review' ? placeId : ownerId },
-      { $set: { [postType === 'review' ? 'reviews' : 'checkIns']: postCollection } }
-    );
-
-    // Handle notification removal if unliking
-    if (!isLiking) {
-      await User.findByIdAndUpdate(ownerId, {
-        $pull: { notifications: { type: 'like', targetId: postId } },
-      });
-    }
-
-    return res.status(200).json({ message: isLiking ? 'Like added' : 'Like removed', likes: post.likes });
-    
   } catch (error) {
+    console.error('❌ Like toggle error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -450,12 +495,11 @@ router.post('/:postType/:placeId/:reviewId/comment', async (req, res) => {
       const review = business.reviews.id(reviewId);
       if (!review) return res.status(404).json({ message: 'Review not found' });
 
-      // ✅ Create a new comment object and use Mongoose's `.create()`
       const newComment = review.comments.create({ userId, commentText, fullName });
       review.comments.push(newComment);
       await business.save();
 
-      savedComment = newComment; // ✅ Ensure we return the newly created comment with _id
+      savedComment = newComment;
     }
 
     else if (postType === 'check-in') {
@@ -465,19 +509,29 @@ router.post('/:postType/:placeId/:reviewId/comment', async (req, res) => {
       const checkInPost = user.checkIns.id(reviewId);
       if (!checkInPost) return res.status(404).json({ message: 'Check-in post not found' });
 
-      // ✅ Create a new comment object and use Mongoose's `.create()`
       const newComment = checkInPost.comments.create({ userId, commentText, fullName });
       checkInPost.comments.push(newComment);
       await user.save();
 
-      savedComment = newComment; // ✅ Ensure we return the newly created comment with _id
+      savedComment = newComment;
+    }
+
+    else if (postType === 'invite') {
+      const invite = await ActivityInvite.findById(reviewId);
+      if (!invite) return res.status(404).json({ message: 'Invite not found' });
+
+      const newComment = invite.comments.create({ userId, commentText, fullName });
+      invite.comments.push(newComment);
+      await invite.save();
+
+      savedComment = newComment;
     }
 
     if (!savedComment) return res.status(500).json({ message: 'Error saving comment' });
 
     return res.status(201).json({
       message: `Comment added to ${postType} successfully`,
-      comment: savedComment, // ✅ Now includes _id
+      comment: savedComment,
     });
 
   } catch (error) {
@@ -495,10 +549,10 @@ router.post('/:postType/:placeId/:postId/:commentId/reply', async (req, res) => 
     let target = null;
     let parentCommentOwner = null;
     let docToSave = null;
-    let business = null; // ✅ Declare outside the block
-    let user = null; // ✅ Declare outside the block
+    let business = null;
+    let user = null;
+    let invite = null;
 
-    // Recursive function to find a comment or reply by ID
     const findCommentOrReply = (comments = [], targetId) => {
       for (const comment of comments) {
         if (comment._id.toString() === targetId) return comment;
@@ -511,7 +565,7 @@ router.post('/:postType/:placeId/:postId/:commentId/reply', async (req, res) => 
     };
 
     if (postType === 'review') {
-      business = await Business.findOne({ placeId }); // ✅ Assign to the declared variable
+      business = await Business.findOne({ placeId });
       if (!business) return res.status(404).json({ message: 'Business not found' });
 
       const review = business.reviews.id(postId);
@@ -523,8 +577,9 @@ router.post('/:postType/:placeId/:postId/:commentId/reply', async (req, res) => 
       parentCommentOwner = target.userId;
       docToSave = business;
     }
+
     else if (postType === 'check-in') {
-      user = await User.findOne({ 'checkIns._id': postId }); // ✅ Assign to the declared variable
+      user = await User.findOne({ 'checkIns._id': postId });
       if (!user) return res.status(404).json({ message: 'Check-in post not found' });
 
       const checkInPost = user.checkIns.id(postId);
@@ -536,6 +591,18 @@ router.post('/:postType/:placeId/:postId/:commentId/reply', async (req, res) => 
       parentCommentOwner = target.userId;
       docToSave = user;
     }
+
+    else if (postType === 'invite') {
+      invite = await ActivityInvite.findById(postId);
+      if (!invite) return res.status(404).json({ message: 'Invite not found' });
+
+      target = findCommentOrReply(invite.comments, commentId);
+      if (!target) return res.status(404).json({ message: 'Comment or reply not found' });
+
+      parentCommentOwner = target.userId;
+      docToSave = invite;
+    }
+
     else {
       return res.status(400).json({ message: 'Invalid post type' });
     }
@@ -544,7 +611,6 @@ router.post('/:postType/:placeId/:postId/:commentId/reply', async (req, res) => 
       return res.status(404).json({ message: 'Target comment/reply not found' });
     }
 
-    // Create a new reply object
     const newReply = {
       _id: new mongoose.Types.ObjectId(),
       userId,
@@ -556,11 +622,12 @@ router.post('/:postType/:placeId/:postId/:commentId/reply', async (req, res) => 
 
     target.replies.push(newReply);
 
-    // ✅ Use business or user correctly since they are now in scope
-    if (postType === 'review' && business) {
+    if (postType === 'review') {
       business.markModified('reviews');
-    } else if (postType === 'check-in' && user) {
+    } else if (postType === 'check-in') {
       user.markModified('checkIns');
+    } else if (postType === 'invite') {
+      invite.markModified('comments');
     }
 
     await docToSave.save();
@@ -590,9 +657,9 @@ router.delete('/:postType/:placeId/:postId/:commentId', async (req, res) => {
     const removeCommentOrReply = (comments, targetId) => {
       for (let i = 0; i < comments.length; i++) {
         if (comments[i]._id.toString() === targetId) {
-          comments.splice(i, 1); // Remove the comment/reply
+          comments.splice(i, 1);
 
-          // Remove the comment/reply notification from the specified relatedId user's notifications
+          // Remove the related notification
           User.findByIdAndUpdate(relatedId, {
             $pull: {
               notifications: {
@@ -602,10 +669,13 @@ router.delete('/:postType/:placeId/:postId/:commentId', async (req, res) => {
                 ]
               }
             }
-          }, { new: true }).catch(error => console.error("Error removing notification:", error));
+          }, { new: true }).catch(error =>
+            console.error('Error removing notification:', error)
+          );
 
           return true;
         }
+
         if (comments[i].replies?.length > 0) {
           const foundInReplies = removeCommentOrReply(comments[i].replies, targetId);
           if (foundInReplies) return true;
@@ -624,26 +694,34 @@ router.delete('/:postType/:placeId/:postId/:commentId', async (req, res) => {
       targetComments = review.comments;
       docToSave = business;
     }
+
     else if (postType === 'check-in') {
       const user = await User.findOne({ 'checkIns._id': postId });
       if (!user) return res.status(404).json({ message: 'Check-in post not found' });
 
       const checkInPost = user.checkIns.id(postId);
-      if (!checkInPost) return res.status(404).json({ message: 'Check-in post not found' });
+      if (!checkInPost) return res.status(404).json({ message: 'Check-in not found' });
 
       targetComments = checkInPost.comments;
       docToSave = user;
     }
+
+    else if (postType === 'invite') {
+      const invite = await ActivityInvite.findById(postId);
+      if (!invite) return res.status(404).json({ message: 'Invite not found' });
+
+      targetComments = invite.comments;
+      docToSave = invite;
+    }
+
     else {
       return res.status(400).json({ message: 'Invalid post type' });
     }
 
-    // Ensure we have valid comments to process
     if (!targetComments) {
-      return res.status(404).json({ message: 'No comments found in the post' });
+      return res.status(404).json({ message: 'No comments found for this post' });
     }
 
-    // Attempt to remove the comment or reply
     const deleted = removeCommentOrReply(targetComments, commentId);
     if (!deleted) return res.status(404).json({ message: 'Comment or reply not found' });
 
@@ -670,12 +748,11 @@ router.put('/:postType/:placeId/:postId/:commentId', async (req, res) => {
     let targetComments = null;
     let docToSave = null;
 
-    // Recursive function to find and update a comment or reply
     const updateCommentOrReply = (comments) => {
       for (let comment of comments) {
         if (comment._id.toString() === commentId) {
           if (comment.userId.toString() !== userId) {
-            return { error: 'Unauthorized' }; // Prevent unauthorized edits
+            return { error: 'Unauthorized' };
           }
           comment.commentText = newText;
           return { updated: comment };
@@ -698,6 +775,7 @@ router.put('/:postType/:placeId/:postId/:commentId', async (req, res) => {
       targetComments = review.comments;
       docToSave = business;
     }
+
     else if (postType === 'check-in') {
       const user = await User.findOne({ 'checkIns._id': postId });
       if (!user) return res.status(404).json({ message: 'Check-in post not found' });
@@ -708,6 +786,15 @@ router.put('/:postType/:placeId/:postId/:commentId', async (req, res) => {
       targetComments = checkInPost.comments;
       docToSave = user;
     }
+
+    else if (postType === 'invite') {
+      const invite = await ActivityInvite.findById(postId);
+      if (!invite) return res.status(404).json({ message: 'Invite not found' });
+
+      targetComments = invite.comments;
+      docToSave = invite;
+    }
+
     else {
       return res.status(400).json({ message: 'Invalid post type' });
     }
@@ -728,6 +815,8 @@ router.put('/:postType/:placeId/:postId/:commentId', async (req, res) => {
       docToSave.markModified('reviews');
     } else if (postType === 'check-in') {
       docToSave.markModified('checkIns');
+    } else if (postType === 'invite') {
+      docToSave.markModified('comments'); // Explicitly mark invite's comments as modified
     }
 
     await docToSave.save();

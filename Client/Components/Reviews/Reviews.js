@@ -18,8 +18,11 @@ import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg
 import { createNotification } from "../../Slices/NotificationsSlice";
 import PhotoItem from "./PhotoItem";
 import PhotoPaginationDots from "./PhotoPaginationDots";
+import InviteCard from "./InviteCard";
 
-export default function Reviews({ reviews }) {
+const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
+
+export default function Reviews({ reviews, ListHeaderComponent, scrollY, onScroll }) {
   const dispatch = useDispatch();
   const user = useSelector(selectUser);
   const [selectedReview, setSelectedReview] = useState(null); // For the modal
@@ -27,6 +30,7 @@ export default function Reviews({ reviews }) {
   const lastTapRef = useRef({});
   const [likedAnimations, setLikedAnimations] = useState({});
   const scrollX = useRef(new Animated.Value(0)).current;
+  console.log(scrollY)
 
   const userId = user?.id
   const fullName = `${user?.firstName} ${user?.lastName}`;
@@ -42,7 +46,7 @@ export default function Reviews({ reviews }) {
   const handleLike = async (postType, postId) => {
     // Determine where to find the post (reviews for businesses, check-ins for users)
     const postToUpdate = reviews.find((review) => review._id === postId);
-
+    
     if (!postToUpdate) {
       console.error(`${postType} with ID ${postId} not found.`);
       return;
@@ -57,14 +61,22 @@ export default function Reviews({ reviews }) {
       // Check if the current user's ID exists in the likes array before sending a notification
       const userLiked = payload?.likes?.some((like) => like.userId === userId);
 
+      // Dynamically get ownerId based on postType
+      let ownerId;
+      if (postType === 'invite') {
+        ownerId = postToUpdate.sender?.id || postToUpdate.senderId;
+      } else {
+        ownerId = postToUpdate.userId;
+      }
+
       // Create a notification for the post owner
-      if (userLiked && postToUpdate.userId !== userId) { // Avoid self-notifications
+      if (userLiked && ownerId !== userId) { // Avoid self-notifications
         await dispatch(createNotification({
-          userId: postToUpdate.userId,
+          userId: ownerId,
           type: 'like',
           message: `${fullName} liked your ${postType}.`,
           relatedId: userId,
-          typeRef: postType === 'review' ? 'Review' : 'CheckIn',
+          typeRef: postType === 'review' ? 'Review' : postType === 'check-in' ? 'CheckIn' : 'ActivityInvite',
           targetId: postId,
           postType,
         }));
@@ -131,11 +143,26 @@ export default function Reviews({ reviews }) {
 
   return (
     <>
-      <FlatList
+      <AnimatedFlatList
         data={reviews}
-        keyExtractor={(item) => item._id}
+        extraData={reviews}
+        keyExtractor={(item, index) => (item._id || item.id || index).toString()}
         showsVerticalScrollIndicator={false}
-        renderItem={({ item }) => (
+        ListHeaderComponent={ListHeaderComponent}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          {
+            useNativeDriver: true,
+            listener: onScroll, // <-- your custom velocity logic from MainApp
+          }
+        )}
+        scrollEventThrottle={16}
+        renderItem={({ item }) => {
+          if (item.type === 'invite') {
+            return <InviteCard invite={item} handleLike={handleLike} handleOpenComments={handleOpenComments}/>;
+          }
+          
+          return (
           <View style={styles.reviewCard}>
             <View style={styles.section}>
               <View style={styles.userPicAndName}>
@@ -154,13 +181,13 @@ export default function Reviews({ reviews }) {
                 ) : (
                   <Text>
                     <Text style={styles.userEmailText}>{item.fullName}</Text>
-                    {item.taggedUsers && item.taggedUsers.length > 0 ? (
+                    {item.taggedUsers && item.taggedUsers?.length > 0 ? (
                       <>
                         {" "}is with{" "}
                         {item.taggedUsers.map((user, index) => (
                           <Text key={user._id || `tagged-user-${index}`} style={styles.userEmailText}>
                             {user.fullName}
-                            {index < item.taggedUsers.length - 1 ? ", " : ""}
+                            {index < item.taggedUsers?.length - 1 ? ", " : ""}
                           </Text>
                         ))}
                         {item.type === "check-in" && (
@@ -171,7 +198,7 @@ export default function Reviews({ reviews }) {
                             </Text>
                           </>
                         )}
-                        {item.type === "check-in" && item.photos.length > 0 && (
+                        {item.type === "check-in" && item.photos?.length > 0 && (
                           <Image
                             source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
                             style={styles.smallPinIcon}
@@ -181,11 +208,11 @@ export default function Reviews({ reviews }) {
                     ) : null}
                   </Text>
                 )}
-                {item.type === "check-in" && item.taggedUsers.length === 0 && (
+                {item.type === "check-in" && item.taggedUsers?.length === 0 && (
                   <>
                     <Text> is at </Text>
                     <Text style={styles.business} numberOfLines={0}>{item.businessName}</Text>
-                    {item.photos.length > 0 && (
+                    {item.photos?.length > 0 && (
                       <Image
                         source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
                         style={styles.smallPinIcon}
@@ -196,7 +223,7 @@ export default function Reviews({ reviews }) {
               </View>
               {item.type === 'check-in' && <Text style={styles.message}>{item.message || null}</Text>}
               {item.type == "review" && <Text style={styles.business}>{item.businessName}</Text>}
-              {item.type === "check-in" && item.photos.length === 0 && (
+              {item.type === "check-in" && item.photos?.length === 0 && (
                 <Image
                   source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
                   style={styles.pinIcon}
@@ -230,7 +257,7 @@ export default function Reviews({ reviews }) {
                   pagingEnabled
                   showsHorizontalScrollIndicator={false}
                   keyExtractor={(photo, index) => index.toString()}
-                  scrollEnabled={item.photos.length > 1}
+                  scrollEnabled={item.photos?.length > 1}
                   onScroll={Animated.event(
                     [{ nativeEvent: { contentOffset: { x: scrollX } } }],
                     { useNativeDriver: false } // Native driver is false since we animate layout properties
@@ -273,7 +300,8 @@ export default function Reviews({ reviews }) {
               </TouchableOpacity>
             </View>
           </View>
-        )}
+          )
+        }}
       />
       {selectedReview && (
         <CommentModal
@@ -282,6 +310,11 @@ export default function Reviews({ reviews }) {
           onClose={handleCloseComments}
           setSelectedReview={setSelectedReview}
           reviews={reviews}
+          likedAnimations={likedAnimations}
+          handleLikeWithAnimation={handleLikeWithAnimation}
+          toggleTaggedUsers={toggleTaggedUsers}
+          lastTapRef={lastTapRef}
+          photoTapped={photoTapped}
         />
       )}
     </>
@@ -297,7 +330,7 @@ const styles = StyleSheet.create({
     marginTop: 130,
   },
   section: {
-    padding: 15,
+    padding: 10,
   },
   title: {
     fontSize: 24,
