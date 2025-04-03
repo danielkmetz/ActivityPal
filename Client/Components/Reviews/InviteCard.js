@@ -4,13 +4,47 @@ import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import InviteeModal from '../ActivityInvites/InviteeModal';
 import { formatEventDate, getTimeLeft } from '../../functions';
+import { requestInvite } from '../../Slices/InvitesSlice';
+import { createNotification } from '../../Slices/NotificationsSlice';
+import { selectUser } from '../../Slices/UserSlice';
+import { useSelector, useDispatch } from 'react-redux';
 
 const InviteCard = ({ invite, handleLike, handleOpenComments }) => {
+    const dispatch = useDispatch();
     const [timeLeft, setTimeLeft] = useState(getTimeLeft(invite.dateTime));
     const [modalVisible, setModalVisible] = useState(false);
-    const businessName = invite.businessName || invite.business.businessName
+    const user = useSelector(selectUser);
+    const businessName = invite.businessName || invite.business?.businessName || 'Unnamed Location';
     const totalInvited = invite.recipients?.length || 0;
     const totalGoing = invite.recipients?.filter(r => r.status === 'accepted').length || 0;
+    const userId = user?.id;
+    const senderId = invite?.sender?.id;
+
+    const handleRequest = async () => {
+        try {
+            await dispatch(requestInvite({
+                userId: user.id,
+                inviteId: invite._id,
+            })).unwrap();
+    
+            // Send notification directly to the sender
+            await dispatch(createNotification({
+                recipientId: invite.sender.userId || invite.sender._id,
+                userId: senderId,
+                relatedId: userId,
+                type: 'requestInvite',
+                message: `${user.firstName} wants to join your Vybe at ${businessName}`,
+                postType: 'activityInvite',
+                typeRef: 'ActivityInvite',
+                targetId: invite._id,
+            }));
+    
+            alert('Your request has been sent!');
+        } catch (err) {
+            console.error('❌ Failed to request invite:', err);
+            alert('Something went wrong. Please try again.');
+        }
+    };
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -41,7 +75,6 @@ const InviteCard = ({ invite, handleLike, handleOpenComments }) => {
                 <Text style={styles.datetime}>On {formatEventDate(invite.dateTime)}</Text>
             ) : null}
 
-
             {invite.note ? (
                 <Text style={styles.note}>{invite.note}</Text>
             ) : null}
@@ -68,7 +101,18 @@ const InviteCard = ({ invite, handleLike, handleOpenComments }) => {
                     <Text style={styles.commentCount}>{invite?.comments?.length || 0}</Text>
                 </TouchableOpacity>
                 </View>
-                <View>
+                <View style={styles.requestsAttendance}>
+                {!invite.recipients?.some(r => r.userId === user.id) ? (
+                    invite.requests?.some(r => r.userId === user.id) ? (
+                        <View style={styles.requestedContainer}>
+                            <Text style={styles.requestedText}>✅ Requested</Text>
+                        </View>
+                    ) : (
+                        <TouchableOpacity onPress={handleRequest} style={styles.attendanceContainer}>
+                            <Text style={styles.attendanceText}>✋ Ask to Join</Text>
+                        </TouchableOpacity>
+                    )
+                ) : null}
                 <TouchableOpacity style={styles.attendanceContainer} onPress={() => setModalVisible(true)}>
                     <Text style={styles.attendanceText}>{totalGoing} going</Text>
                 </TouchableOpacity>
@@ -201,7 +245,6 @@ const styles = StyleSheet.create({
         backgroundColor: '#007bff',
         borderRadius: 10,
     },
-
     closeButtonText: {
         color: '#fff',
         fontSize: 16,
@@ -236,7 +279,33 @@ const styles = StyleSheet.create({
     likeComment: {
         flexDirection: 'row',
         marginTop: 10,
-    }
+    },
+    requestsAttendance: {
+        flexDirection: 'row',
+    },
+    requestedContainer: {
+        marginTop: 10,
+        alignItems: 'center',
+        backgroundColor: '#ddd',
+        padding: 8,
+        borderRadius: 6,
+    },
+    requestedText: {
+        fontSize: 14,
+        color: '#888',
+    },
+    attendanceContainer: {
+        marginTop: 10,
+        alignItems: 'center',
+        backgroundColor: '#f0f0f0',
+        padding: 8,
+        borderRadius: 6,
+        marginRight: 5,
+    },
+    attendanceText: {
+        fontSize: 14,
+        color: '#007bff', // blue color for call-to-action
+    },    
 });
 
 export default InviteCard;

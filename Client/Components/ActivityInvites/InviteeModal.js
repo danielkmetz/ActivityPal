@@ -11,6 +11,7 @@ import {
     Image,
 } from 'react-native';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
+import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg'
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
@@ -101,11 +102,14 @@ const InviteeModal = ({ visible, onClose, recipients = [] }) => {
                                     going.map((user, idx) => (
                                         <View style={styles.usersList}>
                                             <Image 
-                                                source={{ uri: user.user.profilePicUrl} || {uri: user.profilePicUrl}} 
+                                                source={
+                                                    { uri: user?.user?.profilePicUrl || user?.profilePicUrl } ||
+                                                    profilePicPlaceholder
+                                                }  
                                                 style={styles.profilePic}
                                             />
                                             <Text key={idx} style={styles.userText}>
-                                                {user.user?.firstName || user.firstName} {user.user?.lastName || user.lastName}
+                                                {user.user?.firstName || user?.firstName} {user.user?.lastName || user.lastName}
                                             </Text>
                                         </View>
                                     ))
@@ -116,7 +120,10 @@ const InviteeModal = ({ visible, onClose, recipients = [] }) => {
                                 invited.map((user, idx) => (
                                     <View style={styles.usersList}>
                                         <Image 
-                                            source={{ uri: user.user.profilePicUrl} || {uri: user.profilePicUrl}}  
+                                            source={
+                                                { uri: user?.user?.profilePicUrl || user?.profilePicUrl } ||
+                                                profilePicPlaceholder
+                                            }  
                                             style={styles.profilePic}
                                         />
                                         <Text key={idx} style={styles.userText}>

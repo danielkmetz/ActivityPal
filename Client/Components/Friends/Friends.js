@@ -24,6 +24,7 @@ import { selectInvites, fetchInvites, deleteInvite } from '../../Slices/InvitesS
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import InviteModal from '../ActivityInvites/InviteModal';
 import InviteDetailsModal from '../ActivityInvites/InviteDetailsModal';
+import { setUserAndFriendsReviews, selectUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
 
 export default function Friends() {
     const navigation = useNavigation();
@@ -38,6 +39,7 @@ export default function Friends() {
     const status = useSelector(selectLoading);
     const error = useSelector(selectError);
     const notifications = useSelector(selectNotifications);
+    const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const [activeTab, setActiveTab] = useState('friends'); // Toggle between "friends", "requests", and "search"
     const [searchQuery, setSearchQuery] = useState('');
     const [showInviteModal, setShowInviteModal] = useState(false);
@@ -91,30 +93,53 @@ export default function Friends() {
         }
     };
 
-    const handleDelete = async (invite) => {
-        try {
-            console.log(invite);
-          const recipientIds = invite.recipients.map(r => r.userId);
-    
-          await dispatch(
-            deleteInvite({
-              senderId: user.id,
-              inviteId: invite._id,
-              recipientIds,
-            })
-          ).unwrap();
+    const handleDelete = (invite) => {
+        Alert.alert(
+            'Confirm Deletion',
+            'Are you sure you want to delete your event?',
+            [
+                {
+                    text: 'Cancel',
+                    style: 'cancel',
+                },
+                {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            console.log(invite);
+                            const recipientIds = invite.recipients.map(r => r.userId);
 
-          setIsEditing(false);
-          setInviteToEdit(null);
-          setShowDetailsModal(false);
-    
-          Alert.alert('Invite Deleted', 'The invite was successfully removed.');
-        } catch (err) {
-          console.error('❌ Failed to delete invite:', err);
-          Alert.alert('Error', 'Could not delete the invite. Please try again.');
-        }
-    }
-    ;
+                            await dispatch(
+                                deleteInvite({
+                                    senderId: user.id,
+                                    inviteId: invite._id,
+                                    recipientIds,
+                                })
+                            ).unwrap();
+
+                            // ✅ Remove invite from local state
+                            dispatch(setUserAndFriendsReviews(
+                                userAndFriendsReviews.filter(item => item._id !== invite._id)
+                            ));
+
+                            // ✅ Close out UI
+                            setIsEditing(false);
+                            setInviteToEdit(null);
+                            setShowDetailsModal(false);
+
+                            Alert.alert('Invite Deleted', 'The invite was successfully removed.');
+                        } catch (err) {
+                            console.error('❌ Failed to delete invite:', err);
+                            Alert.alert('Error', 'Could not delete the invite. Please try again.');
+                        }
+                    },
+                },
+            ],
+            { cancelable: true }
+        );
+    };
+
     const navigateToOtherUserProfile = (user) => {
         navigation.navigate('OtherUserProfile', { user }); // Pass user data to the new screen
     };
@@ -197,16 +222,16 @@ export default function Friends() {
 
     const renderEventInvites = () => {
         const sentInvites = invites.filter(invite => invite.senderId === user.id);
-    
+
         const receivedInvites = invites.filter(invite =>
             invite.senderId !== user.id &&
             invite.recipients?.some(r => r.userId?.toString() === user.id && r.status === 'pending')
         );
-    
+
         const acceptedInvites = invites.filter(invite =>
             invite.recipients?.some(r => r.userId?.toString() === user.id && r.status === 'accepted')
         );
-    
+
         const renderInviteRow = (invite) => (
             <View key={invite._id} style={styles.inviteItem}>
                 <View style={{ flex: 1 }}>
@@ -228,29 +253,29 @@ export default function Friends() {
                 </TouchableOpacity>
             </View>
         );
-    
+
         return (
             <View style={styles.sectionContainer}>
                 <Text style={styles.sectionTitle}>Vybe Requests:</Text>
-    
+
                 <Text style={styles.subheading}>Received</Text>
                 {receivedInvites.length > 0
                     ? receivedInvites.map(renderInviteRow)
                     : <Text style={styles.emptyText}>No received invites</Text>
                 }
-    
+
                 <Text style={styles.subheading}>Accepted</Text>
                 {acceptedInvites.length > 0
                     ? acceptedInvites.map(renderInviteRow)
                     : <Text style={styles.emptyText}>No accepted invites</Text>
                 }
-    
+
                 <Text style={styles.subheading}>Sent</Text>
                 {sentInvites.length > 0
                     ? sentInvites.map(renderInviteRow)
                     : <Text style={styles.emptyText}>No sent invites</Text>
                 }
-    
+
                 <InviteDetailsModal
                     visible={showDetailsModal}
                     onClose={() => {
@@ -271,7 +296,7 @@ export default function Friends() {
             </View>
         );
     };
-    
+
     const renderSearch = () => {
         const handleSearchChange = (query) => {
             setSearchQuery(query);
@@ -548,5 +573,5 @@ const styles = StyleSheet.create({
     detailsButtonText: {
         color: '#fff',
         fontWeight: '600',
-    },        
+    },
 });

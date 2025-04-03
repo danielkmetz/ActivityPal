@@ -1,9 +1,9 @@
 import 'react-native-get-random-values';
 import React, { useEffect, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, View, Animated } from 'react-native';
+import { StyleSheet, View, Animated, Platform } from 'react-native';
 import AppNavigator from './Components/Navigator/Navigator';
-import { NavigationContainer, useNavigation, useNavigationState } from '@react-navigation/native';
+import { NavigationContainer, useNavigationState } from '@react-navigation/native';
 import { Provider } from 'react-redux';
 import Header from './Components/Header/Header';
 import store from './store';
@@ -28,6 +28,7 @@ const fetchFonts = async () => {
 const HEADER_HEIGHT = 130;
 const MIN_VELOCITY_TO_TRIGGER = .8;
 const MIN_SCROLL_DELTA = 20; //
+const TAB_BAR_HEIGHT = Platform.OS === "ios" ? 90 : 70;
 
 function MainApp() {
   const dispatch = useDispatch();
@@ -40,6 +41,12 @@ function MainApp() {
   const lastScrollY = useRef(0);
   const lastScrollTime = useRef(Date.now());
   const isHeaderVisible = useRef(true);
+
+  const tabBarTranslateY = headerTranslateY.interpolate({
+    inputRange: [-HEADER_HEIGHT, 0],
+    outputRange: [TAB_BAR_HEIGHT, 0], // tab bar moves down as header moves up
+    extrapolate: 'clamp',
+  });
   
   // Scroll listener function
   const handleScroll = (event) => {
@@ -54,6 +61,7 @@ function MainApp() {
     lastScrollTime.current = currentTime;
   
     const isNearTop = currentY <= 0;
+    const isReallyAtTop = currentY <= 35;
   
     // ⛔ Prevent bounce-triggered hide at top
     if (velocity > MIN_VELOCITY_TO_TRIGGER && isHeaderVisible.current && !isNearTop) {
@@ -71,6 +79,13 @@ function MainApp() {
       Math.abs(deltaY) > MIN_SCROLL_DELTA &&
       !isHeaderVisible.current
     ) {
+      Animated.timing(headerTranslateY, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }).start();
+      isHeaderVisible.current = true;
+    } else if (isReallyAtTop && !isHeaderVisible.current) {
       Animated.timing(headerTranslateY, {
         toValue: 0,
         duration: 250,
@@ -121,7 +136,12 @@ function MainApp() {
           <Header currentRoute={currentRoute}/>
         </Animated.View>
       )}
-      <AppNavigator scrollY={scrollY} onScroll={handleScroll}/>
+      <AppNavigator 
+        scrollY={scrollY} 
+        onScroll={handleScroll} 
+        tabBarTranslateY={tabBarTranslateY} 
+        headerTranslateY={headerTranslateY}
+      />
       <StatusBar style="auto" />
     </View>
   );

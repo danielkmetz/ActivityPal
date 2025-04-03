@@ -190,6 +190,7 @@ const ActivityPage = () => {
     const handleLoadMore = () => {
         dispatch(incrementPage());
     };    
+    
     const allTypes = useMemo(() => {
         const combined = [...highlighted, ...regular];
         const all = new Set();
@@ -685,7 +686,7 @@ const styles = StyleSheet.create({
     },
     bottomNav: {
         position: 'absolute',
-        bottom: 0,
+        bottom: 55,
         left: 0,
         right: 0,
         height: 60,

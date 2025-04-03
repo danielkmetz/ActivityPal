@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import { View, Image, Text, Animated, TouchableWithoutFeedback, Dimensions, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
@@ -13,7 +13,7 @@ const PhotoItem = ({
     handleLikeWithAnimation,
     lastTapRef,
 }) => {
-    const animation = likedAnimations[reviewItem._id] || new Animated.Value(0);
+    const animation = likedAnimations?.[reviewItem._id] || new Animated.Value(0);
 
     const handleTap = () => {
         const now = Date.now();
