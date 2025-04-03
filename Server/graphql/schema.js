@@ -3,6 +3,7 @@ const { gql } = require('graphql-tag');
 const mongoose = require('mongoose');
 const User = require('../models/User'); // Import User Model
 const Business = require('../models/Business'); // Import Review Model
+const ActivityInvite = require('../models/ActivityInvites.js');
 const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
 const depthLimit = require('graphql-depth-limit');
 const { GraphQLScalarType, Kind } = require('graphql');
@@ -49,6 +50,14 @@ const typeDefs = gql`
     type: String! # ✅ Used to distinguish reviews from check-ins
   }
 
+  type User {
+    id: ID!
+    firstName: String
+    lastName: String
+    fullName: String
+    profilePicUrl: String
+  }
+
   # ✅ Review Type
   type Review {
     _id: ID!
@@ -58,7 +67,7 @@ const typeDefs = gql`
     reviewText: String!
     date: Date!
     likes: [Like]
-    comments: [Comment!]
+    comments: [Comment]
     userId: ID!
     fullName: String!
     profilePic: ProfilePic
@@ -80,10 +89,40 @@ const typeDefs = gql`
     photos: [Photo!]
     profilePic: ProfilePic
     profilePicUrl: String
-    comments: [Comment!]
+    comments: [Comment]
     likes: [Like]
     taggedUsers: [TaggedUser]
     type: String! # ✅ Used to distinguish between reviews and check-ins in frontend
+  }
+
+  type ActivityInvite {
+    _id: ID!
+    sender: InviteUser!
+    recipients: [InviteRecipient!]!
+    placeId: String!
+    businessName: String!
+    businessLogoUrl: String
+    note: String
+    dateTime: String!
+    message: String
+    isPublic: Boolean!
+    status: String!
+    createdAt: String!
+    likes: [Like]
+    comments: [Comment]
+    type: String!
+  }
+
+  type InviteUser {
+    id: ID!
+    firstName: String
+    lastName: String
+    profilePicUrl: String
+  }
+    
+  type InviteRecipient {
+    user: InviteUser!
+    status: String!
   }
 
   # ✅ Photo Type
@@ -139,6 +178,13 @@ const typeDefs = gql`
     date: Date!
   }
 
+  type UserAndFriendsInvites {
+    user: User!
+    userInvites: [ActivityInvite!]!
+    friendPublicInvites: [ActivityInvite!]!
+  }
+
+  union UserActivity = Review | CheckIn | ActivityInvite
   union UserPost = Review | CheckIn
 
   # ✅ Queries
@@ -147,6 +193,7 @@ const typeDefs = gql`
     getUserPosts(userId: String!): [UserPost!]
     getBusinessReviews(placeId: String!): [Review!]
     getUserAndFriendsCheckIns(userId: String!): [CheckIn!]
+    getUserAndFriendsInvites(userId: ID!): UserAndFriendsInvites
     getUserActivity(userId: String!): [UserActivity!] # ✅ Fetches both reviews & check-ins
   }
 `;
@@ -165,136 +212,135 @@ const populateRepliesRecursively = async (comments, depth = 0, maxDepth = 5) => 
 const resolvers = {
   Query: {
     getUserAndFriendsReviews: async (_, { userId }) => {
-      console.log("📥 Received GraphQL Request for getUserAndFriendsReviews with userId:", userId);
-    
       try {
         if (!mongoose.Types.ObjectId.isValid(userId)) {
-          console.error("❌ Invalid userId format:", userId);
           throw new Error("Invalid userId format");
         }
     
         const userObjectId = new mongoose.Types.ObjectId(userId);
-        console.log("🔍 Fetching user from database...");
     
-        // Find user and get friends list
-        const user = await User.findById(userObjectId).populate({ path: 'friends', select: '_id profilePic' });
-        if (!user) {
-          console.error("❌ User not found:", userId);
-          throw new Error('User not found');
-        }
+        // Fetch user and friends
+        const user = await User.findById(userObjectId).populate({ path: 'friends', select: '_id profilePic' }).lean();
+        if (!user) throw new Error('User not found');
     
-        // Extract friend IDs
-        const friendIds = user.friends.map((friend) => friend._id);
-        console.log("👥 Friend IDs:", friendIds);
+        const friendIds = user.friends.map(f => f._id);
+        const allUserIds = [userObjectId, ...friendIds];
     
-        // Find businesses where the user or their friends have written reviews
-        console.log("🔍 Fetching businesses with reviews...");
+        // Find businesses that contain reviews by these users
         const businesses = await Business.find({
-          "reviews.userId": { $in: [userObjectId, ...friendIds] },
-        }).lean();
+          "reviews.userId": { $in: allUserIds }
+        })
+          .select('placeId businessName reviews') // Avoid extra fields
+          .lean();
     
-        if (!businesses.length) {
-          console.warn(`⚠️ No businesses found with reviews for userId ${userId} or their friends`);
-        } else {
-          console.log(`🏢 Found ${businesses.length} businesses with reviews`);
-        }
+        if (!businesses.length) return [];
     
-        // Fetch users' profilePic objects
-        console.log("🔍 Fetching profile pictures for users...");
-        const userIds = [userObjectId, ...friendIds];
-        const users = await User.find({ _id: { $in: userIds } }).select('_id profilePic');
+        // Flatten all review-level user IDs + tagged photo user IDs
+        const allReviewUserIds = new Set();
+        const allTaggedUserIds = new Set();
+        const allPhotoKeys = [];
     
-        const userPicMap = {};
-        for (const user of users) {
-          const photoKey = user.profilePic?.photoKey || null;
-          userPicMap[user._id.toString()] = {
-            profilePic: user.profilePic || null,
-            profilePicUrl: photoKey ? await generateDownloadPresignedUrl(photoKey) : null
-          };
-        }
-    
-        let reviews = [];
         for (const business of businesses) {
-          console.log(`📖 Processing reviews for business: ${business.businessName}`);
+          for (const review of business.reviews) {
+            if (allUserIds.some(id => id.toString() === review.userId.toString())) {
+              allReviewUserIds.add(review.userId.toString());
     
-          const businessReviews = await Promise.all(
-            business.reviews
-              .filter((review) => userIds.some((id) => id.toString() === review.userId.toString()))
-              .map(async (review) => {
+              if (Array.isArray(review.taggedUsers)) {
+                review.taggedUsers.forEach(uid => allTaggedUserIds.add(uid.toString()));
+              }
     
-                // ✅ Ensure `review.photos` is an array before mapping
-                const photosWithUserNames = Array.isArray(review.photos)
-                  ? await Promise.all(
-                      review.photos.map(async (photo) => {
-    
-                        // ✅ Ensure `photo.taggedUsers` is an array before mapping
-                        const taggedUserIds = Array.isArray(photo.taggedUsers)
-                          ? photo.taggedUsers.map(tag => tag.userId).filter(Boolean) // Filter out undefined values
-                          : []; // Default to empty array if undefined
-    
-                        const taggedUserDetails = taggedUserIds.length > 0
-                          ? await User.find({ _id: { $in: taggedUserIds } }, { firstName: 1, lastName: 1 })
-                          : [];
-    
-                        // ✅ Ensure `taggedUsersWithPositions` does not contain undefined users
-                        const taggedUsersWithPositions = Array.isArray(photo.taggedUsers)
-                          ? photo.taggedUsers.map(tag => {
-                              const user = taggedUserDetails.find(u => u._id.toString() === tag.userId?.toString());
-                              return {
-                                userId: tag.userId,
-                                fullName: user ? `${user.firstName} ${user.lastName}` : "Unknown User",
-                                x: tag.x || 0, // Default x if missing
-                                y: tag.y || 0  // Default y if missing
-                              };
-                            })
-                          : [];
-    
-                        return {
-                          ...photo,
-                          url: await generateDownloadPresignedUrl(photo.photoKey),
-                          taggedUsers: taggedUsersWithPositions, // ✅ Now includes x, y for rendering
-                        };
-                      })
-                    )
-                  : []; // If `review.photos` is undefined, return an empty array
-    
-                // ✅ Ensure `review.taggedUsers` is an array before processing
-                let taggedUsers = [];
-                if (Array.isArray(review.taggedUsers) && review.taggedUsers.length > 0) {
-                  const taggedUsersData = await User.find(
-                    { _id: { $in: review.taggedUsers } },
-                    { firstName: 1, lastName: 1 }
-                  );
-    
-                  taggedUsers = taggedUsersData.map(user => ({
-                    userId: user._id,
-                    fullName: `${user.firstName} ${user.lastName}`,
-                  }));
+              if (Array.isArray(review.photos)) {
+                for (const photo of review.photos) {
+                  allPhotoKeys.push(photo.photoKey);
+                  if (Array.isArray(photo.taggedUsers)) {
+                    photo.taggedUsers.forEach(tag => {
+                      if (tag?.userId) allTaggedUserIds.add(tag.userId.toString());
+                    });
+                  }
                 }
+              }
+            }
+          }
+        }
+    
+        // Fetch all users at once
+        const allRelevantUserIds = [...new Set([...allReviewUserIds, ...allTaggedUserIds])];
+        const users = await User.find({ _id: { $in: allRelevantUserIds } })
+          .select('_id firstName lastName profilePic')
+          .lean();
+    
+        const userMap = new Map(users.map(u => [u._id.toString(), u]));
+    
+        // Generate profilePic URLs in parallel
+        const picUrlMap = {};
+        await Promise.all(
+          users.map(async user => {
+            const photoKey = user?.profilePic?.photoKey;
+            const url = photoKey ? await generateDownloadPresignedUrl(photoKey) : null;
+            picUrlMap[user._id.toString()] = url;
+          })
+        );
+    
+        // Flatten and enrich reviews
+        const allEnrichedReviews = [];
+    
+        for (const business of businesses) {
+          for (const review of business.reviews) {
+            if (!allUserIds.some(id => id.toString() === review.userId.toString())) continue;
+    
+            const taggedUsers = (Array.isArray(review.taggedUsers) && review.taggedUsers.length > 0)
+              ? review.taggedUsers.map(uid => {
+                  const user = userMap.get(uid.toString());
+                  return {
+                    userId: uid,
+                    fullName: user ? `${user.firstName} ${user.lastName}` : 'Unknown User'
+                  };
+                })
+              : [];
+    
+            const enrichedPhotos = (Array.isArray(review.photos) ? await Promise.all(
+              review.photos.map(async (photo) => {
+                const photoUrl = await generateDownloadPresignedUrl(photo.photoKey);
+    
+                const tagged = Array.isArray(photo.taggedUsers)
+                  ? photo.taggedUsers.map(tag => {
+                      const user = userMap.get(tag.userId?.toString());
+                      return {
+                        userId: tag.userId,
+                        fullName: user ? `${user.firstName} ${user.lastName}` : 'Unknown User',
+                        x: tag.x || 0,
+                        y: tag.y || 0
+                      };
+                    })
+                  : [];
+    
                 return {
-                  ...review,
-                  businessName: business.businessName,
-                  placeId: business.placeId,
-                  date: new Date(review.date).toISOString(),
-                  profilePic: userPicMap[review.userId]?.profilePic || null,
-                  profilePicUrl: userPicMap[review.userId]?.profilePicUrl || null,
-                  photos: photosWithUserNames, // ✅ Now includes full names of tagged users in photos
-                  taggedUsers, // ✅ Now includes full names of tagged users in review
+                  ...photo,
+                  url: photoUrl,
+                  taggedUsers: tagged
                 };
               })
-          );
-          reviews.push(...businessReviews);
-        }
-        // **Sort by date (newest to oldest)**
-        reviews.sort((a, b) => new Date(b.date) - new Date(a.date));
+            ) : []);
     
-        console.log("✅ Successfully fetched and processed reviews!");
-        return reviews;
+            allEnrichedReviews.push({
+              ...review,
+              businessName: business.businessName,
+              placeId: business.placeId,
+              date: new Date(review.date).toISOString(),
+              profilePic: userMap.get(review.userId.toString())?.profilePic || null,
+              profilePicUrl: picUrlMap[review.userId.toString()] || null,
+              taggedUsers,
+              photos: enrichedPhotos,
+            });
+          }
+        }
+    
+        return allEnrichedReviews.sort((a, b) => new Date(b.date) - new Date(a.date));
       } catch (error) {
-        console.error('❌ Error fetching user and friends reviews:', error);
+        console.error('❌ Error in getUserAndFriendsReviews:', error);
         throw new Error('Failed to fetch reviews');
       }
-    },    
+    },        
     getUserPosts: async (_, { userId }) => {
       try {
         const userObjectId = new mongoose.Types.ObjectId(userId);
@@ -478,8 +524,6 @@ const resolvers = {
       }
     },    
     getBusinessReviews: async (_, { placeId }) => {
-      console.log("📥 Fetching reviews for placeId:", placeId);
-    
       try {
         if (!placeId) {
           throw new Error("Invalid placeId");
@@ -493,13 +537,10 @@ const resolvers = {
           return [];
         }
     
-        console.log(`🏢 Found business: ${business.businessName} with reviews`);
-    
         // Extract userIds from reviews
         const userIds = business.reviews.map((review) => review.userId);
     
         // Fetch user profile pictures
-        console.log("🔍 Fetching profile pictures for users...");
         const users = await User.find({ _id: { $in: userIds } }).select('_id profilePic');
     
         // Map user profile pictures
@@ -582,7 +623,6 @@ const resolvers = {
         // **Sort by date (newest first)**
         reviews.sort((a, b) => new Date(b.date) - new Date(a.date));
     
-        console.log(`✅ Successfully processed ${reviews.length} reviews for placeId ${placeId}`);
         return reviews;
       } catch (error) {
         console.error('❌ Error fetching business reviews:', error);
@@ -706,7 +746,113 @@ const resolvers = {
         console.error("❌ Error fetching check-ins:", error);
         throw new Error("Failed to fetch check-ins");
       }
-    },    
+    },
+    getUserAndFriendsInvites: async (_, { userId }) => {
+      try {
+        const user = await User.findById(userId).populate('friends').lean();
+        if (!user) throw new Error("User not found");
+    
+        const friendIds = user.friends.map(f => f._id.toString());
+    
+        const userInvitesRaw = await ActivityInvite.find({
+          $or: [
+            { senderId: userId },
+            { 'recipients.userId': userId }
+          ]
+        }).lean();
+    
+        const friendPublicInvitesRaw = await ActivityInvite.find({
+          senderId: { $in: friendIds },
+          isPublic: true,
+        }).lean();
+    
+        const allInvites = [...userInvitesRaw, ...friendPublicInvitesRaw];
+    
+        const senderIds = [...new Set(allInvites.map(inv => inv.senderId.toString()))];
+        const recipientUserIds = allInvites.flatMap(inv => inv.recipients.map(r => r.userId.toString()));
+        const placeIds = allInvites.map(inv => inv.placeId).filter(Boolean);
+    
+        const [allUsers, allBusinesses] = await Promise.all([
+          User.find({ _id: { $in: [...senderIds, ...recipientUserIds] } }).lean(),
+          Business.find({ placeId: { $in: placeIds } }).lean()
+        ]);
+    
+        const userMap = new Map(allUsers.map(u => [u._id.toString(), u]));
+        const businessMap = new Map(allBusinesses.map(b => [b.placeId, b]));
+    
+        const enrichInvite = async (invite) => {
+          const sender = userMap.get(invite.senderId.toString());
+          const senderProfilePicUrl = sender?.profilePic?.photoKey
+            ? await generateDownloadPresignedUrl(sender.profilePic.photoKey)
+            : null;
+    
+          const enrichedRecipients = await Promise.all(
+            invite.recipients.map(async (r) => {
+              const recipientUser = userMap.get(r.userId.toString());
+              const profilePicUrl = recipientUser?.profilePic?.photoKey
+                ? await generateDownloadPresignedUrl(recipientUser.profilePic.photoKey)
+                : null;
+    
+              return {
+                user: {
+                  id: recipientUser?._id || r.userId,
+                  firstName: recipientUser?.firstName || '',
+                  lastName: recipientUser?.lastName || '',
+                  profilePicUrl,
+                },
+                status: r.status,
+              };
+            })
+          );
+    
+          const business = businessMap.get(invite.placeId);
+          const businessLogoUrl = business?.logoKey
+            ? await generateDownloadPresignedUrl(business.logoKey)
+            : null;
+    
+          return {
+            _id: invite._id,
+            sender: {
+              id: sender?._id,
+              firstName: sender?.firstName || '',
+              lastName: sender?.lastName || '',
+              profilePicUrl: senderProfilePicUrl,
+            },
+            recipients: enrichedRecipients,
+            placeId: invite.placeId,
+            businessName: business?.businessName || '',
+            businessLogoUrl,
+            note: invite.note,
+            dateTime: invite.dateTime.toISOString(),
+            message: invite.message,
+            isPublic: invite.isPublic,
+            status: invite.status,
+            likes: invite.likes || [],
+            comments: invite.comments || [],
+            createdAt: invite.createdAt.toISOString(),
+          };
+        };
+    
+        const resolvedInvites = await Promise.all(
+          [...new Set(allInvites.map(inv => inv._id.toString()))]
+            .map(id => allInvites.find(inv => inv._id.toString() === id))
+            .map(enrichInvite)
+        );
+    
+        const userInviteIds = new Set(userInvitesRaw.map(inv => inv._id.toString()));
+        const userInvites = resolvedInvites.filter(inv => userInviteIds.has(inv._id.toString()));
+        const friendPublicInvites = resolvedInvites.filter(inv => !userInviteIds.has(inv._id.toString()));
+    
+        return {
+          user,
+          userInvites,
+          friendPublicInvites,
+        };
+      } catch (err) {
+        console.error("❌ Error in getUserAndFriendsInvites resolver:", err);
+        throw new Error("Failed to fetch user and friends' invites");
+      }
+    },                
     getUserActivity: async (_, { userId }, { dataSources }) => {
       try {
         if (!mongoose.Types.ObjectId.isValid(userId)) {
@@ -715,27 +861,51 @@ const resolvers = {
 
         const reviews = await resolvers.Query.getUserAndFriendsReviews(_, { userId }, { dataSources }) || [];
         const checkIns = await resolvers.Query.getUserAndFriendsCheckIns(_, { userId }, { dataSources }) || [];
+        const inviteData = await resolvers.Query.getUserAndFriendsInvites(_, { userId }, { dataSources });
+        const invites = [
+          ...(inviteData?.userInvites || []),
+          ...(inviteData?.friendPublicInvites || [])
+        ];
 
-        // Ensure every review has a type
+        // Ensure every post has a type
         const reviewsWithType = reviews.map(review => ({
           ...review,
           type: "review"
         }));
-
-        // Ensure every check-in has a type
         const checkInsWithType = checkIns.map(checkIn => ({
           ...checkIn,
           type: "check-in"
         }));
+        const invitesWithType = invites.map(invite => ({
+          ...invite,
+          type: "invite",
+          timestamp: invite.createdAt // for consistent sorting
+        }));
 
         // Combine and sort by date
-        return [...reviewsWithType, ...checkInsWithType].sort(
-          (a, b) => new Date(b.date || b.timestamp) - new Date(a.date || a.timestamp)
-        );
+        return [...reviewsWithType, ...checkInsWithType, ...invitesWithType].sort(
+          (a, b) =>
+            new Date(b.date || b.timestamp || b.createdAt) -
+            new Date(a.date || a.timestamp || a.createdAt)
+        );        
       } catch (error) {
         throw new Error("Failed to fetch user activity");
       }
     },
+  },
+  UserActivity: {
+    __resolveType(obj) {
+      if (obj.reviewText !== undefined && obj.rating !== undefined) {
+        return 'Review';
+      }
+      if (obj.message !== undefined && obj.date !== undefined && !obj.reviewText) {
+        return 'CheckIn';
+      }
+      if (obj.sender !== undefined && obj.recipients !== undefined) {
+        return 'ActivityInvite';
+      }
+      return null;
+    }
   },
   Date: DateScalar,
 };

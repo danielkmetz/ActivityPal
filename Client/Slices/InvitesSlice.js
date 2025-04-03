@@ -102,7 +102,7 @@ const invitesSlice = createSlice({
         state.error = action.error.message;
       })
       .addCase(sendInvite.fulfilled, (state, action) => {
-        const newInvite = action.payload.senderInvite;
+        const newInvite = action.payload.invite;
         if (newInvite) {
           state.invites.push(newInvite);
         }

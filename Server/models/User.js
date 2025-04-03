@@ -1,33 +1,5 @@
 const mongoose = require('mongoose');
-
-const ActivityInviteSchema = new mongoose.Schema({
-  senderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  recipients: [
-    {
-      userId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        required: true,
-      },
-      status: {
-        type: String,
-        enum: ['pending', 'accepted', 'declined'],
-        default: 'pending',
-      },
-    },
-  ],
-  placeId: { type: String, required: true },
-  note: { type: String, default: null},
-  dateTime: { type: Date, required: true },
-  message: { type: String, default: '' },
-  isPublic: { type: Boolean, default: false },
-  status: {
-    type: String,
-    enum: ['pending', 'accepted', 'declined', 'sent'],
-    default: 'pending',
-  },
-  createdAt: { type: Date, default: Date.now },
-});
+const ActivityInviteSchema = require('../models/ActivityInvites'); 
 
 const PhotoSchema = new mongoose.Schema({
   photoKey: { type: String, required: true }, // Unique identifier for the photo (e.g., S3 key)
@@ -178,7 +150,12 @@ const UserSchema = new mongoose.Schema({
       favoritedAt: { type: Date, default: Date.now }, // Timestamp of when it was favorited
     },
   ],
-  activityInvites: [ActivityInviteSchema],
+  activityInvites: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ActivityInvite',
+    }
+  ],
   createdAt: {
     type: Date,
     default: Date.now,

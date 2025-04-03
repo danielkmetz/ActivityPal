@@ -1,15 +1,15 @@
 import React, { useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  FlatList
+    View,
+    Text,
+    StyleSheet,
+    TouchableOpacity,
+    FlatList
 } from "react-native";
-import WriteReviewModal from "../Reviews/WriteReviewModal"; 
-import { 
+import WriteReviewModal from "../Reviews/WriteReviewModal";
+import {
     selectUserAndFriendsReviews,
-    fetchReviewsByUserAndFriends 
+    fetchReviewsByUserAndFriends
 } from "../../Slices/ReviewsSlice";
 import { fetchFriendRequestsDetails, fetchFriendsDetails, selectFriends, selectFriendRequests } from "../../Slices/UserSlice";
 import { useSelector, useDispatch } from "react-redux";
@@ -17,7 +17,7 @@ import { selectUser } from "../../Slices/UserSlice";
 import { fetchFavorites } from "../../Slices/FavoritesSlice";
 import Reviews from "../Reviews/Reviews";
 
-const Home = () => {
+const Home = ({scrollY, onScroll}) => {
     const dispatch = useDispatch();
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const friends = useSelector(selectFriends);
@@ -26,9 +26,9 @@ const Home = () => {
     const [business, setBusiness] = useState(null);
     const [businessName, setBusinessName] = useState(null);
     const [modalVisible, setModalVisible] = useState(false);
-    
+
     const userId = user?.id;
-    
+
     useEffect(() => {
         if (user) {
             dispatch(fetchReviewsByUserAndFriends(userId));
@@ -41,46 +41,45 @@ const Home = () => {
             dispatch(fetchFriendsDetails(friends)); // Populate friends with user details
         }
     }, [dispatch, friends]);
-    
+
     useEffect(() => {
         if (friendRequests) {
             dispatch(fetchFriendRequestsDetails(friendRequests?.received));
         }
-    }, [dispatch, friendRequests])    
-    
+    }, [dispatch, friendRequests])
+
     const openModal = () => {
-        setModalVisible(true);
+        setModalVisible(true)
     };
 
     const closeModal = () => {
         setModalVisible(false);
     };
-
+    
     return (
         <View style={styles.container}>
-            <FlatList
-                style={styles.list}
-                data={userAndFriendsReviews}
-                keyExtractor={(item, index) => index.toString()}
+            <Reviews
+                scrollY={scrollY}
+                onScroll={onScroll} 
+                reviews={userAndFriendsReviews} 
                 ListHeaderComponent={
                     <View style={styles.input}>
-                    <TouchableOpacity style={styles.statusInputContainer} onPress={openModal}>
+                      <TouchableOpacity style={styles.statusInputContainer} onPress={openModal}>
                         <Text style={styles.inputPlaceholder}>Write a review or check in!</Text>
-                    </TouchableOpacity>
+                      </TouchableOpacity>
                     </View>
-                }
-                renderItem={({ item }) => <Reviews reviews={[item]} />}
+                }    
             />
 
             {/* Write Review Modal */}
-            <WriteReviewModal 
-                visible={modalVisible} 
-                setReviewModalVisible={setModalVisible} 
+            <WriteReviewModal
+                visible={modalVisible}
+                setReviewModalVisible={setModalVisible}
                 onClose={closeModal}
                 business={business}
                 setBusiness={setBusiness}
                 businessName={businessName}
-                setBusinessName={setBusinessName} 
+                setBusinessName={setBusinessName}
             />
         </View>
     );

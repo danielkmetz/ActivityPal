@@ -23,8 +23,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { sendInvite, editInvite } from '../../Slices/InvitesSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
-
-//Will need to add logic to handle uninvited people
+import { setUserAndFriendsReviews, selectUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
 
 const google_key = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 
@@ -37,9 +36,12 @@ const InviteModal = ({
     setShowInviteModal,
     isEditing,
     initialInvite,
+    setIsEditing,
+    setInviteToEdit,
 }) => {
     const dispatch = useDispatch();
     const user = useSelector(selectUser);
+    const userAndFriendReviews = useSelector(selectUserAndFriendsReviews);
     const [showFriendsModal, setShowFriendsModal] = useState(false);
     const [selectedPlace, setSelectedPlace] = useState(null);
     const [dateTime, setDateTime] = useState(null);
@@ -107,6 +109,101 @@ const InviteModal = ({
         }
     };
 
+    const handleConfirmInvite = async () => {
+        if (!selectedPlace || !dateTime || selectedFriends.length === 0) {
+            alert('Please complete all invite details.');
+            return;
+        }
+    
+        const invitePayload = {
+            senderId: user.id,
+            recipientIds: selectedFriends,
+            placeId: selectedPlace.placeId,
+            dateTime,
+            message: '',
+            note,
+            isPublic,
+        };
+    
+        try {
+            const normalizeCreatedAt = (item) => {
+                if (item.createdAt) return item;
+                const dateSource = item.dateTime || item.date;
+                return {
+                    ...item,
+                    createdAt: dateSource || new Date().toISOString(),
+                };
+            };
+    
+            function updateFeedWithItem(feed, updatedItem) {
+                const normalizedFeed = feed
+                    .filter(item => item._id !== updatedItem._id)
+                    .concat(updatedItem)
+                    .map(normalizeCreatedAt)
+                    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                return normalizedFeed;
+            }
+    
+            let finalFeed = [...(userAndFriendReviews || [])];
+    
+            if (isEditing && initialInvite) {
+                const updates = {
+                    placeId: selectedPlace.placeId,
+                    dateTime,
+                    note,
+                    isPublic,
+                };
+    
+                const { payload: updatedInvite } = await dispatch(editInvite({
+                    recipientId: user.id,
+                    inviteId: initialInvite._id,
+                    updates,
+                    recipientIds: selectedFriends,
+                }));
+    
+                const enrichedInvite = {
+                    ...updatedInvite,
+                    type: 'invite',
+                    createdAt: updatedInvite.dateTime,
+                };
+    
+                finalFeed = updateFeedWithItem(userAndFriendReviews, enrichedInvite);
+                
+                alert('Invite updated!');
+            } else {
+                const { payload: newInvite } = await dispatch(sendInvite(invitePayload));
+                
+                const enrichedInvite = {
+                    ...newInvite.invite,
+                    type: 'invite',
+                    createdAt: newInvite.invite.dateTime,
+                };
+    
+                finalFeed = [...finalFeed, enrichedInvite]
+                    .map(normalizeCreatedAt)
+                    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    
+                alert('Invite sent!');
+            }
+    
+            dispatch(setUserAndFriendsReviews(finalFeed));
+    
+            // Reset form
+            setSelectedFriends([]);
+            setNote(null);
+            setSelectedPlace(null);
+            setDateTime(null);
+            setShowInviteModal(false);
+            setInviteToEdit(null);
+            setIsEditing(false);
+            setSelectedFriends(null);
+            onClose();
+        } catch (err) {
+            console.error('❌ Failed to send invite:', err);
+            alert('Something went wrong. Please try again.');
+        }
+    };
+    
     if (!visible) return null;
 
     return (
@@ -219,8 +316,8 @@ const InviteModal = ({
                                         onPress={() => setShowFriendsModal(true)}
                                     >
                                         <Text style={styles.selectFriendsText}>
-                                            {selectedFriends.length > 0
-                                                ? `👥 ${selectedFriends.length} Friend${selectedFriends.length > 1 ? 's' : ''} Selected`
+                                            {selectedFriends?.length > 0
+                                                ? `👥 ${selectedFriends?.length} Friend${selectedFriends?.length > 1 ? 's' : ''} Selected`
                                                 : '➕ Select Friends'}
                                         </Text>
                                     </TouchableOpacity>
@@ -259,60 +356,10 @@ const InviteModal = ({
 
                                     <TouchableOpacity
                                         style={styles.confirmButton}
-                                        onPress={async () => {
-                                            if (!selectedPlace || !dateTime || selectedFriends.length === 0) {
-                                                alert('Please complete all invite details.');
-                                                return;
-                                            }
-
-                                            const invitePayload = {
-                                                senderId: user.id,
-                                                recipientIds: selectedFriends,
-                                                placeId: selectedPlace.placeId,
-                                                dateTime,
-                                                message: '',
-                                                note,
-                                                isPublic,
-                                            };
-
-                                            try {
-                                                if (isEditing && initialInvite) {
-                                                    const updates = {
-                                                        placeId: selectedPlace.placeId,
-                                                        dateTime,
-                                                        note,
-                                                        isPublic,
-                                                    };
-
-                                                    await dispatch(editInvite({
-                                                        recipientId: user.id,
-                                                        inviteId: initialInvite._id,
-                                                        updates,
-                                                        recipientIds: selectedFriends,
-                                                    }));
-                                                    alert('Invite updated!');
-                                                } else {
-                                                    await dispatch(sendInvite(invitePayload));
-                                                    alert('Invite sent!');
-                                                }
-
-                                                // Reset state
-                                                setSelectedFriends([]);
-                                                setNote(null);
-                                                setSelectedPlace(null);
-                                                setDateTime(null);
-                                                setShowInviteModal(false);
-                                                onClose();
-
-                                            } catch (err) {
-                                                console.error('Failed to send invite:', err);
-                                                alert('Something went wrong. Please try again.');
-                                            }
-                                        }}
+                                        onPress={handleConfirmInvite}
                                     >
                                         <Text style={styles.confirmText}>{isEditing ? 'Save Edit' : 'Send Invite'}</Text>
                                     </TouchableOpacity>
-
                                     <TagFriendsModal
                                         visible={showFriendsModal}
                                         onClose={() => setShowFriendsModal(false)}

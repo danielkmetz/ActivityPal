@@ -1,7 +1,7 @@
 import 'react-native-get-random-values';
-import React, { useEffect, } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, View, SafeAreaView } from 'react-native';
+import { StyleSheet, View, Animated } from 'react-native';
 import AppNavigator from './Components/Navigator/Navigator';
 import { NavigationContainer, useNavigation, useNavigationState } from '@react-navigation/native';
 import { Provider } from 'react-redux';
@@ -25,21 +25,71 @@ const fetchFonts = async () => {
   });
 };
 
+const HEADER_HEIGHT = 130;
+const MIN_VELOCITY_TO_TRIGGER = .8;
+const MIN_SCROLL_DELTA = 20; //
+
 function MainApp() {
   const dispatch = useDispatch();
   const activities = useSelector(selectGooglePlaces);
   const coordinates = useSelector(selectCoordinates);
+  
+  // Track scrolling and header visibility
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const headerTranslateY = useRef(new Animated.Value(0)).current;
+  const lastScrollY = useRef(0);
+  const lastScrollTime = useRef(Date.now());
+  const isHeaderVisible = useRef(true);
+  
+  // Scroll listener function
+  const handleScroll = (event) => {
+    const currentY = event.nativeEvent.contentOffset.y;
+    const currentTime = Date.now();
+    const deltaY = currentY - lastScrollY.current;
+    const deltaTime = currentTime - lastScrollTime.current;
+  
+    const velocity = deltaY / (deltaTime || 1);
+  
+    lastScrollY.current = currentY;
+    lastScrollTime.current = currentTime;
+  
+    const isNearTop = currentY <= 0;
+  
+    // ⛔ Prevent bounce-triggered hide at top
+    if (velocity > MIN_VELOCITY_TO_TRIGGER && isHeaderVisible.current && !isNearTop) {
+      Animated.timing(headerTranslateY, {
+        toValue: -HEADER_HEIGHT,
+        duration: 250,
+        useNativeDriver: true,
+      }).start();
+      isHeaderVisible.current = false;
+    }
+  
+    // ✅ Allow header to reappear on intentional fast scroll up
+    else if (
+      velocity < -MIN_VELOCITY_TO_TRIGGER &&
+      Math.abs(deltaY) > MIN_SCROLL_DELTA &&
+      !isHeaderVisible.current
+    ) {
+      Animated.timing(headerTranslateY, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }).start();
+      isHeaderVisible.current = true;
+    }
+  };
   
   useEffect(() => {
     dispatch(getCurrentCoordinates());
     dispatch(loadToken());
   }, [dispatch]);
 
-  useEffect(() => {
-    if (coordinates) {
-      dispatch(getCityStateCountry(coordinates));
-    }
-  }, [coordinates, dispatch]);
+  // useEffect(() => {
+  //   if (coordinates) {
+  //     dispatch(getCityStateCountry(coordinates));
+  //   }
+  // }, [coordinates, dispatch]);
 
   // Get current route name using navigation state
   const currentRoute = useNavigationState((state) => {
@@ -67,11 +117,11 @@ function MainApp() {
         currentRoute !== "BusinessProfile"&& 
         !(currentRoute === "Activities" && activities.length > 0) &&
       (
-        <View style={styles.header}>
+        <Animated.View style={[styles.header, { transform: [{ translateY: headerTranslateY }] }]}>
           <Header currentRoute={currentRoute}/>
-        </View>
+        </Animated.View>
       )}
-      <AppNavigator />
+      <AppNavigator scrollY={scrollY} onScroll={handleScroll}/>
       <StatusBar style="auto" />
     </View>
   );

@@ -25,12 +25,27 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import Reply from './Reply';
 import ModalBox from 'react-native-modal';
+import { formatEventDate, getTimeLeft } from '../../functions';
+import PhotoItem from './PhotoItem';
+import PhotoPaginationDots from './PhotoPaginationDots';
 
 const screenWidth = Dimensions.get("window").width;
 
 dayjs.extend(relativeTime);
 
-function CommentModal({ visible, review, onClose, setSelectedReview, reviews, targetId }) {
+function CommentModal({
+  visible,
+  review,
+  onClose,
+  setSelectedReview,
+  reviews,
+  targetId,
+  handleLikeWithAnimation,
+  toggleTaggedUsers,
+  likedAnimations,
+  lastTapRef,
+  photoTapped,
+}) {
   const dispatch = useDispatch();
   const [commentText, setCommentText] = useState('');
   const [replyingTo, setReplyingTo] = useState(null);
@@ -44,6 +59,7 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
   const [nestedExpandedReplies, setNestedExpandedReplies] = useState({});
   const [keybaordHeight, setKeyboardHeight] = useState(null)
   const [isInputCovered, setIsInputCovered] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(getTimeLeft(review.dateTime));
   const slideAnim = useRef(new Animated.Value(300)).current; // Start off-screen to the right
   const shiftAnim = useRef(new Animated.Value(0)).current;
   const flatListRef = useRef(null); // Ref for the FlatList
@@ -54,8 +70,28 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
   const commentRefs = useRef({});
   const [inputHeight, setInputHeight] = useState(40); // Default height 40px
   const [contentHeight, setContentHeight] = useState(40);
-  const [photoTapped, setPhotoTapped] = useState(null);
   const scrollX = useRef(new Animated.Value(0)).current;
+  const postOwnerPic = review?.type === "invite" ? review?.sender?.profilePicUrl : review?.profilePicUrl;
+  const postOwnerName = review?.type === "invite" ? `${review.sender.firstName} ${review.sender.lastName}` : `${review.fullName}`
+  const totalInvited = review.recipients?.length || 0;
+  const totalGoing = review.recipients?.filter(r => r.status === 'accepted').length || 0;
+
+  let reviewOwner;
+  if (review.type === "invite") {
+    reviewOwner = review.sender.id;
+  } else {
+    reviewOwner = review.userId;
+  };
+
+  useEffect(() => {
+    if (review.type === "invite") {
+      const interval = setInterval(() => {
+        setTimeLeft(getTimeLeft(review.dateTime));
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [review.dateTime]);
 
   useEffect(() => {
     const showSubscription = Keyboard.addListener('keyboardWillShow', (event) => {
@@ -157,11 +193,11 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
   const handleAddComment = async () => {
     if (!commentText) {
       return;
-    }
+    };
 
     if (!review) {
       return;
-    }
+    };
 
     const postType = review?.type || "review"; // Default to 'review' if type is missing
 
@@ -170,7 +206,7 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
 
       if (!newComment) {
         return;
-      }
+      };
 
       setReplyingTo(null);
       setCommentText('');
@@ -178,7 +214,7 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
       if (review.userId !== userId && newComment.commentId) {
         await dispatch(
           createNotification({
-            userId: review.userId,
+            userId: reviewOwner,
             type: "comment",
             message: `${fullName} commented on your ${postType}.`,
             relatedId: userId,
@@ -335,7 +371,7 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
             placeId: review.placeId,
             postId: review._id,
             commentId: selectedComment._id,
-            relatedId: review.userId, // ✅ Use review owner's userId
+            relatedId: reviewOwner, // ✅ Use review owner's userId
           })
         );
       }
@@ -507,10 +543,6 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
     }
   }, [visible, targetId, review?.comments]);
 
-  const toggleTaggedUsers = (photoKey) => {
-    setPhotoTapped(photoTapped === photoKey ? null : photoKey);
-  };
-
   return (
     <Modal transparent visible={visible} animationType="none" avoidKeyboard={true}>
       <Animated.View style={[styles.modalContainer, { transform: [{ translateX: slideAnim }, { translateY: shiftAnim }] }]}>
@@ -532,13 +564,20 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
                   <Avatar
                     size={48}
                     rounded
-                    source={review?.profilePicUrl ? { uri: review?.profilePicUrl } : profilePicPlaceholder} // Show image if avatarUrl exists
+                    source={postOwnerPic ? { uri: postOwnerPic } : profilePicPlaceholder} // Show image if avatarUrl exists
                     icon={!review?.avatarUrl ? { name: 'person', type: 'material', color: '#fff' } : null} // Show icon if no avatarUrl
                     containerStyle={{ backgroundColor: '#ccc' }} // Set background color for the generic avatar
                   />
                   <Text style={styles.reviewerName}>
-                    <Text style={styles.fullName}>{review?.fullName}</Text>
-                    {review?.taggedUsers?.length > 0 && " is with "}
+                    {review?.type === "invite" ? (
+                      <Text style={styles.fullName}>
+                        {review.sender?.firstName} {review.sender?.lastName} invited {totalInvited} friend
+                        {totalInvited.length === 1 ? '' : 's'} to a Vybe
+                      </Text>
+                    ) : (
+                      <Text style={styles.fullName}>{postOwnerName}</Text>
+                    )}
+                    {review?.taggedUsers?.length > 0 ? " is with " : " is"}
                     {Array.isArray(review?.taggedUsers) && review?.taggedUsers?.map((user, index) => (
                       <Text key={user?.userId || `tagged-${index}`} style={styles.taggedUser}>
                         {user?.fullName}
@@ -551,7 +590,11 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
                       <Text>
                         {" "}
                         at
-                        {"\n"} {/* ✅ Forces new line */}
+                        {review.taggedUsers.length > 0 ? (
+                          <Text>{'\n'}</Text>
+                        ) : (
+                          <Text>{" "}</Text>)
+                        }
                         <Text style={styles.businessName}>{review.businessName}</Text>
                         {review.photos.length > 0 && (
                           <Image
@@ -565,8 +608,19 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
 
                 </View>
                 <Text style={styles.businessName}>
-                  {review?.type === "review" ? review?.businessName : ""}
+                  {review?.type === "review" || review?.type === "invite" ? review?.businessName : ""}
                 </Text>
+
+                {review.dateTime && review.type === "invite" && (
+                  <>
+                    <Text style={styles.datetime}>On {formatEventDate(review.dateTime)}</Text>
+                    <Text style={styles.note}>{review.note}</Text>
+                    <View style={styles.countdownContainer}>
+                      <Text style={styles.countdownLabel}>Starts in:</Text>
+                      <Text style={styles.countdownText}>{timeLeft}</Text>
+                    </View>
+                  </>
+                )}
 
                 {/* Dynamically render stars */}
                 <View style={styles.rating}>
@@ -597,79 +651,20 @@ function CommentModal({ visible, review, onClose, setSelectedReview, reviews, ta
                     scrollEventThrottle={16}
 
                     renderItem={({ item: photo }) => (
-                      <View>
-                        <Image source={{ uri: photo?.url }} style={styles.photo} />
-
-                        {/* Invisible Tap Layer (Prevents Blinking) */}
-                        <TouchableWithoutFeedback onPress={() => toggleTaggedUsers(photo.photoKey)}>
-                          <View style={styles.tapArea} />
-                        </TouchableWithoutFeedback>
-
-                        {/* Render Tagged Users ONLY if the photo is tapped */}
-                        {photoTapped === photo.photoKey &&
-                          photo.taggedUsers?.map((taggedUser, index) => (
-                            <View
-                              key={index}
-                              style={[
-                                styles.taggedLabel,
-                                { top: taggedUser.y, left: taggedUser.x },
-                              ]}
-                            >
-                              <Text style={styles.tagText}>{taggedUser.fullName}</Text>
-                            </View>
-                          ))}
-                      </View>
+                      <PhotoItem
+                        photo={photo}
+                        reviewItem={review} // this is the full review item (probably a post or comment)
+                        likedAnimations={likedAnimations}
+                        photoTapped={photoTapped}
+                        toggleTaggedUsers={toggleTaggedUsers}
+                        handleLikeWithAnimation={handleLikeWithAnimation}
+                        lastTapRef={lastTapRef}
+                      />
                     )}
                   />
                   {/* Dots Indicator */}
-                  {review.photos.length > 1 ? (
-                    <View style={styles.paginationContainer}>
-                      {review.photos.map((_, index) => {
-                        let dotSize;
-
-                        if (review.photos.length === 2) {
-                          // Exactly 2 photos → Only 2 dot sizes
-                          dotSize = scrollX.interpolate({
-                            inputRange: [(index - 1) * screenWidth, index * screenWidth, (index + 1) * screenWidth],
-                            outputRange: [8, 10, 8], // Simple 2-size swap
-                            extrapolate: "clamp",
-                          });
-                        } else if (review.photos.length === 3) {
-                          // Exactly 3 photos → Only 2 dot sizes
-                          dotSize = scrollX.interpolate({
-                            inputRange: [(index - 1) * screenWidth, index * screenWidth, (index + 1) * screenWidth],
-                            outputRange: [7, 10, 7], // No smooth shrinking
-                            extrapolate: "clamp",
-                          });
-                        } else {
-                          // 4+ photos → Smooth scaling effect
-                          dotSize = scrollX.interpolate({
-                            inputRange: [
-                              (index - 3) * screenWidth, (index - 2) * screenWidth, (index - 1) * screenWidth,
-                              index * screenWidth, // Active dot
-                              (index + 1) * screenWidth, (index + 2) * screenWidth, (index + 3) * screenWidth,
-                            ],
-                            outputRange: [5, 6.5, 8, 10, 8, 6.5, 5], // Smooth scaling
-                            extrapolate: "clamp",
-                          });
-                        }
-                        return (
-                          <Animated.View
-                            key={index}
-                            style={[
-                              styles.dot,
-                              {
-                                width: dotSize,
-                                height: dotSize,
-                                borderRadius: dotSize, // Keep circular
-                              },
-                            ]}
-                          />
-                        );
-                      })}
-                    </View>
-                  ) : (
-                    <View style={styles.paginationContainer} />
+                  {review.photos.length > 1 && (
+                    <PhotoPaginationDots photos={review.photos} scrollX={scrollX} />
                   )}
                 </View>
               )}
@@ -964,7 +959,7 @@ const styles = StyleSheet.create({
     //maxHeight: 150,
   },
   commentButton: {
-    backgroundColor: '#4caf50',
+    backgroundColor: '#009999',
     paddingVertical: 8,
     paddingHorizontal: 15,
     borderRadius: 5,
@@ -985,7 +980,7 @@ const styles = StyleSheet.create({
     marginBottom: 30,
   },
   closeButtonText: {
-    color: '#4caf50',
+    color: '#009999',
     fontWeight: 'bold',
     fontSize: 16,
   },
@@ -1104,7 +1099,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 3,
     marginBottom: 10,
   },
-  
+
   tapArea: {
     position: "absolute",
     width: "100%",
@@ -1128,5 +1123,29 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     marginTop: 10,
   },
-
+  datetime: {
+    fontSize: 13,
+    color: '#666',
+  },
+  note: {
+    fontStyle: 'italic',
+    color: '#555',
+    marginTop: 10,
+  },
+  countdownContainer: {
+    marginTop: 15,
+    padding: 10,
+    backgroundColor: '#e6f0ff',
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  countdownLabel: {
+    fontSize: 13,
+    color: '#666',
+  },
+  countdownText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#007bff',
+  },
 });

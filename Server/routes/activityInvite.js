@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
 const Business = require('../models/Business');
+const ActivityInvite = require('../models/ActivityInvites.js')
 const dayjs = require('dayjs');
 const mongoose = require('mongoose');
 const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
@@ -17,16 +18,19 @@ router.get('/user/:userId/invites', async (req, res) => {
             return res.status(404).json({ error: 'User not found' });
         }
 
+        // 1️⃣ Fetch full invite documents from ActivityInvite collection
+        const invites = await ActivityInvite.find({ _id: { $in: user.activityInvites } }).lean();
+
         const enrichedInvites = await Promise.all(
-            user.activityInvites.map(async (invite) => {
-                // 1. Enrich business
+            invites.map(async (invite) => {
+                // 2️⃣ Fetch and enrich business
                 const business = await Business.findOne({ placeId: invite.placeId }).lean();
-                let presignedUrl = null;
+                let presignedBusinessUrl = null;
                 if (business?.logoKey) {
-                    presignedUrl = await generateDownloadPresignedUrl(business.logoKey);
+                    presignedBusinessUrl = await generateDownloadPresignedUrl(business.logoKey);
                 }
 
-                // 2. Enrich recipients
+                // 3️⃣ Enrich recipients
                 const recipientIds = invite.recipients.map(r => r.userId);
                 const recipientUsers = await User.find({ _id: { $in: recipientIds } })
                     .select('_id firstName lastName profilePic')
@@ -35,9 +39,9 @@ router.get('/user/:userId/invites', async (req, res) => {
                 const enrichedRecipients = await Promise.all(
                     invite.recipients.map(async (r) => {
                         const user = recipientUsers.find(u => u._id.toString() === r.userId.toString());
-                        let presignedProfileUrl = null;
+                        let profileUrl = null;
                         if (user?.profilePic?.photoKey) {
-                            presignedProfileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                            profileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
                         }
 
                         return {
@@ -45,17 +49,37 @@ router.get('/user/:userId/invites', async (req, res) => {
                             status: r.status,
                             firstName: user?.firstName || '',
                             lastName: user?.lastName || '',
-                            presignedProfileUrl,
+                            presignedProfileUrl: profileUrl,
                         };
                     })
                 );
 
+                // 4️⃣ Enrich sender
+                const sender = await User.findById(invite.senderId)
+                    .select('_id firstName lastName profilePic')
+                    .lean();
+
+                let senderProfileUrl = null;
+                if (sender?.profilePic?.photoKey) {
+                    senderProfileUrl = await generateDownloadPresignedUrl(sender.profilePic.photoKey);
+                }
+
+                const enrichedSender = {
+                    userId: sender?._id?.toString(),
+                    firstName: sender?.firstName || '',
+                    lastName: sender?.lastName || '',
+                    presignedProfileUrl: senderProfileUrl,
+                };
+
+                // 5️⃣ Return fully enriched invite
                 return {
-                    ...invite.toObject(),
+                    ...invite,
+                    id: invite._id?.toString(),
                     recipients: enrichedRecipients,
+                    sender: enrichedSender,
                     business: {
                         ...business,
-                        presignedPhotoUrl: presignedUrl,
+                        presignedPhotoUrl: presignedBusinessUrl,
                     },
                 };
             })
@@ -82,75 +106,97 @@ router.post('/send', async (req, res) => {
             return res.status(404).json({ error: 'Business not found for this placeId' });
         }
 
-        const sharedInviteId = new mongoose.Types.ObjectId();
         const formattedDateTime = dayjs(dateTime).format('MMMM D [at] h:mm A');
 
-        // 🟢 Base invite data
-        const baseInvite = {
-            _id: sharedInviteId,
+        // 1️⃣ Create the shared invite in ActivityInvite collection
+        const invite = await ActivityInvite.create({
             senderId,
+            recipients: recipientIds.map(id => ({ userId: id, status: 'pending' })),
             placeId,
-            note,
             dateTime,
             message,
             isPublic,
+            note,
+        });
+
+        // 2️⃣ Prepare notification for each recipient
+        const notification = {
+            type: 'activityInvite',
+            message: `${sender.firstName} invited you to ${business.businessName} on ${formattedDateTime}`,
+            relatedId: sender._id,
+            targetId: invite._id,
+            typeRef: 'User',
+            postType: 'activityInvite',
             createdAt: new Date(),
         };
 
-        // ✉️ Push invite to each recipient with their individual status
-        const recipientUpdatePromises = recipientIds.map((recipientId) => {
-            const recipientInvite = {
-                ...baseInvite,
-                status: 'pending',
-                recipients: recipientIds.map(id => ({
-                    userId: id,
-                    status: id === recipientId ? 'pending' : 'pending',
-                })),
-            };
-
-            const notification = {
-                type: 'activityInvite',
-                message: `${sender.firstName} invited you to ${business.businessName} on ${formattedDateTime}`,
-                relatedId: sender._id,
-                typeRef: 'User',
-                postType: 'activityInvite',
-                createdAt: new Date(),
-            };
-
+        // 3️⃣ Update all recipients with invite ID + notification
+        const recipientUpdates = recipientIds.map(recipientId => {
             return User.findByIdAndUpdate(recipientId, {
                 $push: {
-                    activityInvites: recipientInvite,
+                    activityInvites: invite._id,
                     notifications: notification,
                 },
             });
         });
 
-        // 🧑‍💼 Sender's version
-        const senderInvite = {
-            ...baseInvite,
-            status: 'sent',
-            recipients: recipientIds.map(id => ({ userId: id, status: 'pending' })),
-        };
-
+        // 4️⃣ Update sender with invite ID only
         const senderUpdate = User.findByIdAndUpdate(senderId, {
             $push: {
-                activityInvites: senderInvite,
+                activityInvites: invite._id,
             },
         });
 
-        await Promise.all([...recipientUpdatePromises, senderUpdate]);
+        await Promise.all([...recipientUpdates, senderUpdate]);
 
-        // 🖼️ Presigned image
+        // 5️⃣ Generate presigned image
         let presignedPhotoUrl = null;
         if (business.logoKey) {
             presignedPhotoUrl = await generateDownloadPresignedUrl(business.logoKey);
+        };
+
+        // 5️⃣ Enrich sender
+        const presignedSenderProfileUrl = sender?.profilePic?.photoKey
+        ? await generateDownloadPresignedUrl(sender.profilePic.photoKey)
+        : null;
+
+        const enrichedSender = {
+        userId: sender._id.toString(),
+        firstName: sender.firstName,
+        lastName: sender.lastName,
+        presignedProfileUrl: presignedSenderProfileUrl,
+        };
+
+        // 6️⃣ Enrich recipients
+        const recipientUsers = await User.find({ _id: { $in: recipientIds } })
+        .select('_id firstName lastName profilePic')
+        .lean();
+
+        const enrichedRecipients = await Promise.all(
+        invite.recipients.map(async (r) => {
+        const user = recipientUsers.find(u => u._id.toString() === r.userId.toString());
+        let presignedProfileUrl = null;
+        if (user?.profilePic?.photoKey) {
+            presignedProfileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
         }
+
+        return {
+            userId: r.userId?.toString() || user?._id?.toString(),
+            status: r.status,
+            firstName: user?.firstName || '',
+            lastName: user?.lastName || '',
+            presignedProfileUrl,
+        };
+        })
+        );
 
         res.status(200).json({
             success: true,
             message: 'Invite sent!',
-            senderInvite: {
-                ...senderInvite,
+            invite: {
+                ...invite.toObject(),
+                sender: enrichedSender,
+                recipients: enrichedRecipients,
                 business: {
                     ...business,
                     presignedPhotoUrl,
@@ -171,18 +217,30 @@ router.post('/accept', async (req, res) => {
         const recipient = await User.findById(recipientId);
         if (!recipient) return res.status(404).json({ error: 'Recipient not found' });
 
-        const invite = recipient.activityInvites.id(inviteId);
+        const invite = await ActivityInvite.findById(inviteId);
         if (!invite) return res.status(404).json({ error: 'Invite not found' });
 
-        // Update status to accepted
-        invite.status = 'accepted';
+        // 🧠 Update global invite status based on all recipient responses
+        const allAccepted = invite.recipients.every(r => r.status === 'accepted');
+        const anyDeclined = invite.recipients.some(r => r.status === 'declined');
+        const anyPending = invite.recipients.some(r => r.status === 'pending');
 
-        // Update the recipient's status inside the invite
+        if (allAccepted) {
+            invite.status = 'accepted';
+        } else if (anyDeclined && !anyPending) {
+            invite.status = 'declined';
+        } else {
+            invite.status = 'pending';
+        }
+
+        // Update the specific recipient's status inside the invite
         const recipientEntry = invite.recipients.find(r => r.userId.toString() === recipientId);
         if (recipientEntry) recipientEntry.status = 'accepted';
 
-        // Remove the original invite notification
-        recipient.notifications = recipient.notifications.filter((notif) => {
+        await invite.save();
+
+        // Remove original invite notification from recipient
+        recipient.notifications = recipient.notifications.filter(notif => {
             return !(
                 notif.type === 'activityInvite' &&
                 notif.relatedId.toString() === invite.senderId.toString()
@@ -191,13 +249,13 @@ router.post('/accept', async (req, res) => {
 
         await recipient.save();
 
-        // Lookup business info
-        const business = await Business.findOne({ placeId: invite.placeId });
+        // Format for notification
+        const business = await Business.findOne({ placeId: invite.placeId }).lean();
         const dayjs = require('dayjs');
         const formattedDate = dayjs(invite.dateTime).format('MMMM D [at] h:mm A');
         const recipientName = recipient.firstName;
 
-        // Notification to sender
+        // Notifications
         const senderNotification = {
             type: 'activityInviteAccepted',
             message: `${recipientName} accepted your activity invite to ${business.businessName} on ${formattedDate}`,
@@ -207,42 +265,28 @@ router.post('/accept', async (req, res) => {
             createdAt: new Date(),
         };
 
-        // Confirmation to recipient
         const recipientConfirmation = {
-            type: 'confirmation',
+            type: 'activityInviteAccepted',
             message: `You accepted the invite to ${business.businessName} on ${formattedDate}`,
             relatedId: invite._id,
-            typeRef: 'Invite',
+            typeRef: 'ActivityInvite',
             postType: 'activityInviteConfirmed',
             createdAt: new Date(),
         };
 
-        // Push notifications
-        await User.findByIdAndUpdate(invite.senderId, {
-            $push: { notifications: senderNotification },
-        });
-
-        await User.findByIdAndUpdate(recipientId, {
-            $push: { notifications: recipientConfirmation },
-        });
-
-        // Refresh updated recipient for enriched response
-        const updatedRecipient = await User.findById(recipientId)
-            .select('activityInvites')
-            .lean();
-
-        const updatedInvite = updatedRecipient.activityInvites.find(
-            i => i._id.toString() === inviteId.toString()
-        );
+        await Promise.all([
+            User.findByIdAndUpdate(invite.senderId, { $push: { notifications: senderNotification } }),
+            User.findByIdAndUpdate(recipientId, { $push: { notifications: recipientConfirmation } }),
+        ]);
 
         // Enrich recipients
-        const recipientIds = updatedInvite.recipients.map(r => r.userId);
+        const recipientIds = invite.recipients.map(r => r.userId);
         const recipientUsers = await User.find({ _id: { $in: recipientIds } })
             .select('_id firstName lastName profilePic')
             .lean();
 
         const enrichedRecipients = await Promise.all(
-            updatedInvite.recipients.map(async (r) => {
+            invite.recipients.map(async (r) => {
                 const user = recipientUsers.find(u => u._id.toString() === r.userId.toString());
                 let presignedProfileUrl = null;
                 if (user?.profilePic?.photoKey) {
@@ -250,7 +294,8 @@ router.post('/accept', async (req, res) => {
                 }
 
                 return {
-                    ...r,
+                    userId: r.userId?.toString() || user?._id?.toString(),
+                    status: r.status,
                     firstName: user?.firstName || '',
                     lastName: user?.lastName || '',
                     presignedProfileUrl,
@@ -258,7 +303,24 @@ router.post('/accept', async (req, res) => {
             })
         );
 
-        // Get presigned logo URL
+        // Enrich sender
+        const sender = await User.findById(invite.senderId)
+            .select('_id firstName lastName profilePic')
+            .lean();
+
+        let presignedSenderProfileUrl = null;
+        if (sender?.profilePic?.photoKey) {
+            presignedSenderProfileUrl = await generateDownloadPresignedUrl(sender.profilePic.photoKey);
+        }
+
+        const enrichedSender = {
+            userId: sender?._id?.toString(),
+            firstName: sender?.firstName || '',
+            lastName: sender?.lastName || '',
+            presignedProfileUrl: presignedSenderProfileUrl,
+        };
+
+        // Business logo URL
         let presignedPhotoUrl = null;
         if (business?.logoKey) {
             presignedPhotoUrl = await generateDownloadPresignedUrl(business.logoKey);
@@ -268,8 +330,9 @@ router.post('/accept', async (req, res) => {
             success: true,
             message: 'Invite accepted!',
             invite: {
-                ...updatedInvite,
+                ...invite.toObject(),
                 recipients: enrichedRecipients,
+                sender: enrichedSender,
                 business: {
                     ...business,
                     presignedPhotoUrl,
@@ -278,12 +341,11 @@ router.post('/accept', async (req, res) => {
         });
 
     } catch (err) {
-        console.error('Error in /accept:', err);
+        console.error('❌ Error in /accept:', err);
         res.status(500).json({ error: 'Failed to accept invite', details: err.message });
     }
 });
 
-// Reject an activity invite
 router.post('/reject', async (req, res) => {
     const { recipientId, inviteId } = req.body;
 
@@ -291,34 +353,43 @@ router.post('/reject', async (req, res) => {
         const recipient = await User.findById(recipientId);
         if (!recipient) return res.status(404).json({ error: 'Recipient not found' });
 
-        const invite = recipient.activityInvites.id(inviteId);
+        const invite = await ActivityInvite.findById(inviteId);
         if (!invite) return res.status(404).json({ error: 'Invite not found' });
 
-        // Update status to declined
-        invite.status = 'declined';
+        // 🧠 Update global invite status based on all recipient responses
+        const allAccepted = invite.recipients.every(r => r.status === 'accepted');
+        const anyDeclined = invite.recipients.some(r => r.status === 'declined');
+        const anyPending = invite.recipients.some(r => r.status === 'pending');
 
-        // Update the status inside the recipients array
+        if (allAccepted) {
+            invite.status = 'accepted';
+        } else if (anyDeclined && !anyPending) {
+            invite.status = 'declined';
+        } else {
+            invite.status = 'pending';
+        }
+
+        // Update status inside the recipients array
         const recipientEntry = invite.recipients.find(r => r.userId.toString() === recipientId);
         if (recipientEntry) recipientEntry.status = 'declined';
 
-        // Remove the original activityInvite notification
-        recipient.notifications = recipient.notifications.filter((notif) => {
-            return !(
-                notif.type === 'activityInvite' &&
-                notif.relatedId.toString() === invite.senderId.toString()
-            );
-        });
+        await invite.save();
+
+        // Remove original activityInvite notification
+        recipient.notifications = recipient.notifications.filter(notif =>
+            !(notif.type === 'activityInvite' && notif.relatedId.toString() === invite.senderId.toString())
+        );
 
         await recipient.save();
 
-        // Lookup business name and format date
-        const business = await Business.findOne({ placeId: invite.placeId });
+        // Lookup business and format
+        const business = await Business.findOne({ placeId: invite.placeId }).lean();
         const dayjs = require('dayjs');
         const formattedDate = dayjs(invite.dateTime).format('MMMM D [at] h:mm A');
         const recipientName = recipient.firstName;
 
-        // Sender gets notified
-        const notificationToSender = {
+        // Notifications
+        const senderNotification = {
             type: 'activityInviteDeclined',
             message: `${recipientName} declined your activity invite to ${business.businessName} on ${formattedDate}`,
             relatedId: recipient._id,
@@ -327,36 +398,28 @@ router.post('/reject', async (req, res) => {
             createdAt: new Date(),
         };
 
-        // Recipient gets confirmation
         const recipientConfirmation = {
-            type: 'confirmation',
+            type: 'activityInviteDeclined',
             message: `You declined the invite to ${business.businessName} on ${formattedDate}`,
             relatedId: invite._id,
-            typeRef: 'Invite',
+            typeRef: 'ActivityInvite',
             postType: 'activityInviteDeclinedConfirmation',
             createdAt: new Date(),
         };
 
-        await User.findByIdAndUpdate(invite.senderId, {
-            $push: { notifications: notificationToSender },
-        });
+        await Promise.all([
+            User.findByIdAndUpdate(invite.senderId, { $push: { notifications: senderNotification } }),
+            User.findByIdAndUpdate(recipientId, { $push: { notifications: recipientConfirmation } }),
+        ]);
 
-        await User.findByIdAndUpdate(recipientId, {
-            $push: { notifications: recipientConfirmation },
-        });
-
-        // Enrich the updated invite
-        const updatedRecipient = await User.findById(recipientId).select('activityInvites').lean();
-        const updatedInvite = updatedRecipient.activityInvites.find(i => i._id.toString() === inviteId);
-
-        // Enrich recipients with profile info
-        const recipientIds = updatedInvite.recipients.map(r => r.userId);
+        // Enrich recipients
+        const recipientIds = invite.recipients.map(r => r.userId);
         const recipientUsers = await User.find({ _id: { $in: recipientIds } })
             .select('_id firstName lastName profilePic')
             .lean();
 
         const enrichedRecipients = await Promise.all(
-            updatedInvite.recipients.map(async (r) => {
+            invite.recipients.map(async (r) => {
                 const user = recipientUsers.find(u => u._id.toString() === r.userId.toString());
                 let presignedProfileUrl = null;
                 if (user?.profilePic?.photoKey) {
@@ -364,7 +427,8 @@ router.post('/reject', async (req, res) => {
                 }
 
                 return {
-                    ...r,
+                    userId: r.userId?.toString() || user?._id?.toString(),
+                    status: r.status,
                     firstName: user?.firstName || '',
                     lastName: user?.lastName || '',
                     presignedProfileUrl,
@@ -372,7 +436,24 @@ router.post('/reject', async (req, res) => {
             })
         );
 
-        // Generate business photo URL
+        // Enrich sender
+        const sender = await User.findById(invite.senderId)
+            .select('_id firstName lastName profilePic')
+            .lean();
+
+        let presignedSenderProfileUrl = null;
+        if (sender?.profilePic?.photoKey) {
+            presignedSenderProfileUrl = await generateDownloadPresignedUrl(sender.profilePic.photoKey);
+        }
+
+        const enrichedSender = {
+            userId: sender?._id?.toString(),
+            firstName: sender?.firstName || '',
+            lastName: sender?.lastName || '',
+            presignedProfileUrl: presignedSenderProfileUrl,
+        };
+
+        // Business photo
         let presignedPhotoUrl = null;
         if (business?.logoKey) {
             presignedPhotoUrl = await generateDownloadPresignedUrl(business.logoKey);
@@ -382,8 +463,9 @@ router.post('/reject', async (req, res) => {
             success: true,
             message: 'Invite declined, sender notified.',
             invite: {
-                ...updatedInvite,
+                ...invite.toObject(),
                 recipients: enrichedRecipients,
+                sender: enrichedSender,
                 business: {
                     ...business,
                     presignedPhotoUrl,
@@ -392,7 +474,7 @@ router.post('/reject', async (req, res) => {
         });
 
     } catch (err) {
-        console.error('Error in /reject:', err);
+        console.error('❌ Error in /reject:', err);
         res.status(500).json({ error: 'Failed to decline invite', details: err.message });
     }
 });
@@ -401,78 +483,66 @@ router.put('/edit', async (req, res) => {
     const { recipientId, inviteId, updates, recipientIds } = req.body;
 
     try {
-        const sender = await User.findById(recipientId);
-        const senderInvite = sender.activityInvites.id(inviteId);
+        const invite = await ActivityInvite.findById(inviteId);
+        if (!invite) return res.status(404).json({ error: 'Invite not found' });
 
-        if (!senderInvite || senderInvite.status !== 'sent') {
+        if (invite.senderId.toString() !== recipientId) {
             return res.status(400).json({ error: 'Only the sender can edit this invite' });
         }
 
-        const originalRecipientIds = senderInvite.recipients.map(r => r.userId.toString());
+        const sender = await User.findById(recipientId);
+        if (!sender) return res.status(404).json({ error: 'Sender not found' });
 
-        Object.assign(senderInvite, updates);
-        senderInvite.recipients = recipientIds.map(id => ({ userId: id, status: 'pending' }));
-        await sender.save();
+        const originalRecipientIds = invite.recipients.map(r => r.userId.toString());
 
-        const newPlaceId = updates.placeId || senderInvite.placeId;
-        const business = await Business.findOne({ placeId: newPlaceId }).lean();
+        // ✅ Update the invite document
+        Object.assign(invite, updates);
+        invite.recipients = recipientIds.map(id => ({ userId: id, status: 'pending' }));
+        invite.status = 'sent'; // reset status
+        await invite.save();
+
+        const business = await Business.findOne({ placeId: invite.placeId }).lean();
 
         let presignedPhotoUrl = null;
         if (business?.logoKey) {
             presignedPhotoUrl = await generateDownloadPresignedUrl(business.logoKey);
         }
 
+        // Format notification message
         const dayjs = require('dayjs');
         const utc = require('dayjs/plugin/utc');
         const timezone = require('dayjs/plugin/timezone');
         dayjs.extend(utc);
         dayjs.extend(timezone);
 
-        const formattedDateTime = dayjs(updates.dateTime || senderInvite.dateTime)
-            .tz('America/Chicago')
-            .format('MMMM D [at] h:mm A');
-
+        const formattedDateTime = dayjs(invite.dateTime).tz('America/Chicago').format('MMMM D [at] h:mm A');
         const updatedMessage = `${sender.firstName} invited you to ${business.businessName} on ${formattedDateTime}`;
 
+        // ✅ Add/update invite reference and notification for each recipient
         await Promise.all(recipientIds.map(async (userId) => {
             const user = await User.findById(userId);
             if (!user) return;
 
-            const existingInvite = user.activityInvites.find(inv => inv._id.toString() === inviteId);
+            const hasInvite = user.activityInvites.some(id => id.toString() === inviteId);
 
-            if (existingInvite) {
-                if (existingInvite.status === 'pending') {
-                    Object.assign(existingInvite, updates);
+            if (!hasInvite) {
+                user.activityInvites.push(invite._id);
+            }
 
-                    const notification = user.notifications.find(
-                        n => n.type === 'activityInvite' &&
-                            n.relatedId.toString() === recipientId &&
-                            n.postType === 'activityInvite'
-                    );
+            const existingNotif = user.notifications.find(n =>
+                n.type === 'activityInvite' &&
+                n.relatedId.toString() === sender._id.toString() &&
+                n.postType === 'activityInvite'
+            );
 
-                    if (notification) {
-                        notification.message = updatedMessage;
-                        notification.createdAt = new Date();
-                    }
-                }
+            if (existingNotif) {
+                existingNotif.message = updatedMessage;
+                existingNotif.createdAt = new Date();
             } else {
-                user.activityInvites.push({
-                    _id: inviteId,
-                    senderId: recipientId,
-                    recipients: recipientIds.map(id => ({ userId: id, status: 'pending' })),
-                    placeId: newPlaceId,
-                    note: updates.note || '',
-                    dateTime: updates.dateTime,
-                    message: updates.message || '',
-                    isPublic: updates.isPublic || false,
-                    status: 'pending',
-                    createdAt: new Date(),
-                });
-
                 user.notifications.push({
                     type: 'activityInvite',
                     message: updatedMessage,
-                    relatedId: recipientId,
+                    relatedId: sender._id,
                     typeRef: 'User',
                     postType: 'activityInvite',
                     createdAt: new Date(),
@@ -482,27 +552,64 @@ router.put('/edit', async (req, res) => {
             await user.save();
         }));
 
-        const removedUserIds = originalRecipientIds.filter(originalId => !recipientIds.includes(originalId));
-
+        // ✅ Remove invite reference + notification from removed users
+        const removedUserIds = originalRecipientIds.filter(id => !recipientIds.includes(id));
         await Promise.all(removedUserIds.map(async (removedId) => {
             const removedUser = await User.findById(removedId);
             if (!removedUser) return;
 
-            removedUser.activityInvites = removedUser.activityInvites.filter(inv => inv._id.toString() !== inviteId);
-            removedUser.notifications = removedUser.notifications.filter(
-                n => !(n.type === 'activityInvite' &&
-                    n.relatedId.toString() === recipientId &&
+            removedUser.activityInvites = removedUser.activityInvites.filter(i => i.toString() !== inviteId);
+            removedUser.notifications = removedUser.notifications.filter(n =>
+                !(n.type === 'activityInvite' &&
+                    n.relatedId.toString() === sender._id.toString() &&
                     n.postType === 'activityInvite')
             );
 
             await removedUser.save();
         }));
 
+        // Enrich sender info for response
+        const presignedSenderProfileUrl = sender?.profilePic?.photoKey
+            ? await generateDownloadPresignedUrl(sender.profilePic.photoKey)
+            : null;
+
+        const enrichedSender = {
+            userId: sender._id.toString(),
+            firstName: sender.firstName,
+            lastName: sender.lastName,
+            profilePicUrl: presignedSenderProfileUrl,
+        };
+
+        // Enrich recipients
+        const recipientUsers = await User.find({ _id: { $in: recipientIds } })
+            .select('_id firstName lastName profilePic')
+            .lean();
+
+        const enrichedRecipients = await Promise.all(
+            invite.recipients.map(async (r) => {
+                const user = recipientUsers.find(u => u._id.toString() === r.userId.toString());
+                let presignedProfileUrl = null;
+                if (user?.profilePic?.photoKey) {
+                    presignedProfileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                }
+
+                return {
+                    userId: r.userId.toString(),
+                    status: r.status,
+                    firstName: user?.firstName || '',
+                    lastName: user?.lastName || '',
+                    profilePicUrl: presignedProfileUrl,
+                };
+            })
+        );
+
         res.status(200).json({
             success: true,
             message: 'Invite and notifications updated for all recipients!',
             updatedInvite: {
-                ...senderInvite.toObject(),
+                ...invite.toObject(),
+                recipients: enrichedRecipients,
+                sender: enrichedSender,
                 business: {
                     ...business,
                     presignedPhotoUrl,
@@ -511,6 +618,7 @@ router.put('/edit', async (req, res) => {
         });
 
     } catch (err) {
+        console.error('❌ Error editing invite:', err);
         res.status(500).json({ error: 'Failed to edit invite', details: err.message });
     }
 });
@@ -519,23 +627,26 @@ router.delete('/delete', async (req, res) => {
     const { senderId, inviteId, recipientIds } = req.body;
 
     try {
-        // Convert senderId to ObjectId if needed
         const senderObjectId = new mongoose.Types.ObjectId(senderId);
+        const inviteObjectId = new mongoose.Types.ObjectId(inviteId);
 
-        // 1. Remove invite from sender
-        await User.findByIdAndUpdate(senderId, {
-            $pull: { activityInvites: { _id: inviteId } }
+        // 1️⃣ Delete the invite document
+        await ActivityInvite.findByIdAndDelete(inviteObjectId);
+
+        // 2️⃣ Remove invite from sender
+        await User.findByIdAndUpdate(senderObjectId, {
+            $pull: { activityInvites: inviteObjectId },
         });
 
-        // 2. Remove invite + matching notifications from each recipient
+        // 3️⃣ Remove invite + invite notifications from recipients
         const recipientUpdatePromises = recipientIds.map(recipientId =>
             User.findByIdAndUpdate(recipientId, {
                 $pull: {
-                    activityInvites: { _id: inviteId },
+                    activityInvites: inviteObjectId,
                     notifications: {
                         type: 'activityInvite',
-                        relatedId: senderObjectId, // 💥 this ensures proper matching
-                        postType: 'activityInvite'  // ✅ Optional if you want to narrow further
+                        relatedId: senderObjectId,
+                        postType: 'activityInvite',
                     },
                 },
             })
@@ -543,10 +654,28 @@ router.delete('/delete', async (req, res) => {
 
         await Promise.all(recipientUpdatePromises);
 
-        res.status(200).json({ success: true, message: 'Invite and related notifications deleted from all accounts.' });
+        // 4️⃣ Remove "accepted" or "declined" notifications from sender
+        await User.findByIdAndUpdate(senderObjectId, {
+            $pull: {
+                notifications: {
+                    type: { $in: ['activityInviteAccepted', 'activityInviteDeclined'] },
+                    postType: { $in: ['activityInviteAccepted', 'activityInviteDeclined'] },
+                    relatedId: { $in: recipientIds.map(id => new mongoose.Types.ObjectId(id)) },
+                },
+            },
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Invite and related notifications deleted from all accounts.',
+        });
+
     } catch (err) {
         console.error('❌ Error deleting invite:', err);
-        res.status(500).json({ error: 'Failed to delete invite', details: err.message });
+        res.status(500).json({
+            error: 'Failed to delete invite',
+            details: err.message,
+        });
     }
 });
 

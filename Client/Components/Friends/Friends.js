@@ -103,6 +103,10 @@ export default function Friends() {
               recipientIds,
             })
           ).unwrap();
+
+          setIsEditing(false);
+          setInviteToEdit(null);
+          setShowDetailsModal(false);
     
           Alert.alert('Invite Deleted', 'The invite was successfully removed.');
         } catch (err) {
@@ -193,12 +197,15 @@ export default function Friends() {
 
     const renderEventInvites = () => {
         const sentInvites = invites.filter(invite => invite.senderId === user.id);
+    
         const receivedInvites = invites.filter(invite =>
-            invite.senderId !== user.id && invite.status !== 'accepted'
+            invite.senderId !== user.id &&
+            invite.recipients?.some(r => r.userId?.toString() === user.id && r.status === 'pending')
         );
+    
         const acceptedInvites = invites.filter(invite =>
             invite.recipients?.some(r => r.userId?.toString() === user.id && r.status === 'accepted')
-        );    
+        );
     
         const renderInviteRow = (invite) => (
             <View key={invite._id} style={styles.inviteItem}>
@@ -231,7 +238,7 @@ export default function Friends() {
                     ? receivedInvites.map(renderInviteRow)
                     : <Text style={styles.emptyText}>No received invites</Text>
                 }
-
+    
                 <Text style={styles.subheading}>Accepted</Text>
                 {acceptedInvites.length > 0
                     ? acceptedInvites.map(renderInviteRow)
@@ -252,14 +259,14 @@ export default function Friends() {
                     }}
                     invite={selectedInvite}
                     userId={user?.id}
-                    friends={friendsDetails}
                     onEdit={(invite) => {
                         setInviteToEdit(invite);
                         setShowDetailsModal(false);
-                        setShowInviteModal(true); // short delay to allow closing animation
+                        setShowInviteModal(true);
                         setIsEditing(true);
                     }}
                     onDelete={handleDelete}
+                    setShowDetailsModal={setShowDetailsModal}
                 />
             </View>
         );
@@ -358,7 +365,9 @@ export default function Friends() {
                 friends={friendsDetails}
                 setShowInviteModal={setShowInviteModal}
                 initialInvite={inviteToEdit}
+                setInviteToEdit={setInviteToEdit}
                 isEditing={isEditing}
+                setIsEditing={setIsEditing}
             />
         </>
     );

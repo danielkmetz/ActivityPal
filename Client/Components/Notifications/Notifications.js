@@ -16,6 +16,7 @@ import moment from 'moment';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import CommentModal from '../Reviews/CommentModal';
 import { selectUserAndFriendsReviews, fetchPostById, selectSelectedReview, setSelectedReview } from '../../Slices/ReviewsSlice';
+import { acceptInvite, rejectInvite } from '../../Slices/InvitesSlice';
 
 export default function Notifications() {
     const dispatch = useDispatch();
@@ -105,6 +106,38 @@ export default function Notifications() {
         dispatch(setSelectedReview(null));
     };
 
+    const handleAcceptInvite = async (inviteId) => {
+        try {
+            await dispatch(acceptInvite({ recipientId: user.id, inviteId }));
+    
+            const updated = notifications.map(n =>
+                n.targetId === inviteId && n.type === 'activityInvite'
+                    ? { ...n, type: 'activityInviteAccepted', message: 'You accepted the invite!' }
+                    : n
+            );
+    
+            await dispatch(setNotifications(updated));
+        } catch (error) {
+            console.error('Error accepting activity invite:', error);
+        }
+    };
+    
+    const handleRejectInvite = async (inviteId) => {
+        try {
+            await dispatch(rejectInvite({ recipientId: user.id, inviteId }));
+    
+            const updated = notifications.map(n =>
+                n.targetId === inviteId && n.type === 'activityInvite'
+                    ? { ...n, type: 'activityInviteDeclined', message: 'You declined the invite.' }
+                    : n
+            );
+    
+            await dispatch(setNotifications(updated));
+        } catch (error) {
+            console.error('Error rejecting activity invite:', error);
+        }
+    };    
+
     return (
         <View style={styles.container}>
             <FlatList
@@ -153,6 +186,17 @@ export default function Notifications() {
                                             <Text style={styles.buttonText}>Accept</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity style={styles.declineButton} onPress={() => handleDeclineRequest(item.relatedId)}>
+                                            <Text style={styles.buttonText}>Decline</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
+
+                                {item.type === 'activityInvite' && (
+                                    <View style={styles.buttonGroup}>
+                                        <TouchableOpacity style={styles.acceptButton} onPress={() => handleAcceptInvite(item.targetId)}>
+                                            <Text style={styles.buttonText}>Accept</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity style={styles.declineButton} onPress={() => handleRejectInvite(item.targetId)}>
                                             <Text style={styles.buttonText}>Decline</Text>
                                         </TouchableOpacity>
                                     </View>
