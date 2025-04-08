@@ -49,6 +49,7 @@ export default function UserProfile() {
   return (
     <>
       <FlatList
+        showsVerticalScrollIndicator={false}
         ListHeaderComponent={
           <>
             {banner ? (
@@ -105,6 +106,7 @@ export default function UserProfile() {
             {activeSection === "reviews" && <Reviews reviews={profileReviews} />}
             {activeSection === "photos" && <Photos photos={photos} />}
             {activeSection === "favorites" && <Favorites favorites={favorites} />}
+            <View style={styles.bottom}/>
           </>
         }
         data={data} 
@@ -212,4 +214,7 @@ const styles = StyleSheet.create({
     height: 200,
     backgroundColor: "teal",
   },
+  bottom: {
+    marginBottom: 100,
+  }
 });

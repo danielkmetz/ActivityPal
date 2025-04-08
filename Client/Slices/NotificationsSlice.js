@@ -28,6 +28,7 @@ export const createNotification = createAsyncThunk(
         targetId = null, 
         commentId = null, 
         replyId = null,
+        targetRef,
         postType,  
     }, { rejectWithValue }) => {
         try {
@@ -41,6 +42,7 @@ export const createNotification = createAsyncThunk(
                 replyId,
                 commentText,
                 postType,
+                targetRef,
             });
             return response.data.notification;
         } catch (error) {

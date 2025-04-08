@@ -49,7 +49,7 @@ router.get('/user/:userId/invites', async (req, res) => {
                             status: r.status,
                             firstName: user?.firstName || '',
                             lastName: user?.lastName || '',
-                            presignedProfileUrl: profileUrl,
+                            profilePicUrl: profileUrl,
                         };
                     })
                 );
@@ -65,10 +65,10 @@ router.get('/user/:userId/invites', async (req, res) => {
                 }
 
                 const enrichedSender = {
-                    userId: sender?._id?.toString(),
+                    id: sender?._id?.toString(),
                     firstName: sender?.firstName || '',
                     lastName: sender?.lastName || '',
-                    presignedProfileUrl: senderProfileUrl,
+                    profilePicUrl: senderProfileUrl,
                 };
 
                 // 5️⃣ Return fully enriched invite
@@ -114,7 +114,7 @@ router.post('/send', async (req, res) => {
                 events: [],
                 reviews: [],
             });
-        
+
             await newBusiness.save(); // ✅ persist it to MongoDB
             business = newBusiness.toObject(); // to match `.lean()` format from the previous path
         }
@@ -170,37 +170,37 @@ router.post('/send', async (req, res) => {
 
         // 5️⃣ Enrich sender
         const presignedSenderProfileUrl = sender?.profilePic?.photoKey
-        ? await generateDownloadPresignedUrl(sender.profilePic.photoKey)
-        : null;
+            ? await generateDownloadPresignedUrl(sender.profilePic.photoKey)
+            : null;
 
         const enrichedSender = {
-        userId: sender._id.toString(),
-        firstName: sender.firstName,
-        lastName: sender.lastName,
-        presignedProfileUrl: presignedSenderProfileUrl,
+            id: sender._id.toString(),
+            firstName: sender.firstName,
+            lastName: sender.lastName,
+            profilePicUrl: presignedSenderProfileUrl,
         };
 
         // 6️⃣ Enrich recipients
         const recipientUsers = await User.find({ _id: { $in: recipientIds } })
-        .select('_id firstName lastName profilePic')
-        .lean();
+            .select('_id firstName lastName profilePic')
+            .lean();
 
         const enrichedRecipients = await Promise.all(
-        invite.recipients.map(async (r) => {
-        const user = recipientUsers.find(u => u._id.toString() === r.userId.toString());
-        let presignedProfileUrl = null;
-        if (user?.profilePic?.photoKey) {
-            presignedProfileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
-        }
+            invite.recipients.map(async (r) => {
+                const user = recipientUsers.find(u => u._id.toString() === r.userId.toString());
+                let presignedProfileUrl = null;
+                if (user?.profilePic?.photoKey) {
+                    presignedProfileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                }
 
-        return {
-            userId: r.userId?.toString() || user?._id?.toString(),
-            status: r.status,
-            firstName: user?.firstName || '',
-            lastName: user?.lastName || '',
-            presignedProfileUrl,
-        };
-        })
+                return {
+                    userId: r.userId?.toString() || user?._id?.toString(),
+                    status: r.status,
+                    firstName: user?.firstName || '',
+                    lastName: user?.lastName || '',
+                    profilePicUrl: presignedProfileUrl,
+                };
+            })
         );
 
         res.status(200).json({
@@ -273,8 +273,9 @@ router.post('/accept', async (req, res) => {
             type: 'activityInviteAccepted',
             message: `${recipientName} accepted your activity invite to ${business.businessName} on ${formattedDate}`,
             relatedId: recipient._id,
-            typeRef: 'User',
+            typeRef: 'ActivityInvite',
             postType: 'activityInviteAccepted',
+            targetId: invite._id,
             createdAt: new Date(),
         };
 
@@ -283,6 +284,7 @@ router.post('/accept', async (req, res) => {
             message: `You accepted the invite to ${business.businessName} on ${formattedDate}`,
             relatedId: invite._id,
             typeRef: 'ActivityInvite',
+            targetId: invite._id,
             postType: 'activityInviteConfirmed',
             createdAt: new Date(),
         };
@@ -311,7 +313,7 @@ router.post('/accept', async (req, res) => {
                     status: r.status,
                     firstName: user?.firstName || '',
                     lastName: user?.lastName || '',
-                    presignedProfileUrl,
+                    profilePicUrl: presignedProfileUrl,
                 };
             })
         );
@@ -327,10 +329,10 @@ router.post('/accept', async (req, res) => {
         }
 
         const enrichedSender = {
-            userId: sender?._id?.toString(),
+            id: sender?._id?.toString(),
             firstName: sender?.firstName || '',
             lastName: sender?.lastName || '',
-            presignedProfileUrl: presignedSenderProfileUrl,
+            profilePicUrl: presignedSenderProfileUrl,
         };
 
         // Business logo URL
@@ -527,7 +529,7 @@ router.put('/edit', async (req, res) => {
                 events: [],
                 reviews: [],
             });
-        
+
             await newBusiness.save(); // ✅ persist it to MongoDB
             business = newBusiness.toObject(); // to match `.lean()` format from the previous path
         }
@@ -603,7 +605,7 @@ router.put('/edit', async (req, res) => {
             : null;
 
         const enrichedSender = {
-            userId: sender._id.toString(),
+            id: sender._id.toString(),
             firstName: sender.firstName,
             lastName: sender.lastName,
             profilePicUrl: presignedSenderProfileUrl,
@@ -623,7 +625,7 @@ router.put('/edit', async (req, res) => {
                 }
 
                 return {
-                    userId: r.userId.toString(),
+                    id: r.userId.toString(),
                     status: r.status,
                     firstName: user?.firstName || '',
                     lastName: user?.lastName || '',
@@ -658,45 +660,34 @@ router.delete('/delete', async (req, res) => {
     try {
         const senderObjectId = new mongoose.Types.ObjectId(senderId);
         const inviteObjectId = new mongoose.Types.ObjectId(inviteId);
+        const recipientObjectIds = recipientIds.map(id => new mongoose.Types.ObjectId(id));
 
-        // 1️⃣ Delete the invite document
+        console.log('🧨 Deleting Invite:', inviteId);
         await ActivityInvite.findByIdAndDelete(inviteObjectId);
 
-        // 2️⃣ Remove invite from sender
-        await User.findByIdAndUpdate(senderObjectId, {
-            $pull: { activityInvites: inviteObjectId },
-        });
-
-        // 3️⃣ Remove invite + invite notifications from recipients
-        const recipientUpdatePromises = recipientIds.map(recipientId =>
-            User.findByIdAndUpdate(recipientId, {
-                $pull: {
-                    activityInvites: inviteObjectId,
-                    notifications: {
-                        type: 'activityInvite',
-                        relatedId: senderObjectId,
-                        postType: 'activityInvite',
-                    },
-                },
-            })
-        );
-
-        await Promise.all(recipientUpdatePromises);
-
-        // 4️⃣ Remove "accepted" or "declined" notifications from sender
+        console.log('🧹 Removing invite from sender:', senderId);
         await User.findByIdAndUpdate(senderObjectId, {
             $pull: {
-                notifications: {
-                    type: { $in: ['activityInviteAccepted', 'activityInviteDeclined'] },
-                    postType: { $in: ['activityInviteAccepted', 'activityInviteDeclined'] },
-                    relatedId: { $in: recipientIds.map(id => new mongoose.Types.ObjectId(id)) },
-                },
+                activityInvites: inviteObjectId,
+                notifications: { targetId: inviteObjectId },
             },
         });
 
+        console.log('🔁 Cleaning up recipients...');
+        const recipientUpdatePromises = recipientObjectIds.map(async (recipientId) => {
+            await User.findByIdAndUpdate(recipientId, {
+                $pull: {
+                    activityInvites: inviteObjectId,
+                    notifications: { targetId: inviteObjectId },
+                },
+            });
+        });
+
+        await Promise.all(recipientUpdatePromises);
+
         res.status(200).json({
             success: true,
-            message: 'Invite and related notifications deleted from all accounts.',
+            message: 'Invite and all related notifications removed from sender and recipients.',
         });
 
     } catch (err) {
@@ -710,25 +701,168 @@ router.delete('/delete', async (req, res) => {
 
 router.post('/request', async (req, res) => {
     const { userId, inviteId } = req.body;
-  
+
     try {
-      const invite = await ActivityInvite.findById(inviteId);
-      if (!invite) return res.status(404).json({ error: 'Invite not found' });
-  
-      const alreadyRequested = invite.requests?.some(r => r.userId.toString() === userId);
-      const alreadyInvited = invite.recipients?.some(r => r.userId.toString() === userId);
-  
-      if (alreadyRequested || alreadyInvited) {
-        return res.status(400).json({ error: 'You have already requested or been invited' });
-      }
-  
-      invite.requests.push({ userId });
-      await invite.save();
-  
-      res.status(200).json({ success: true, message: 'Request sent!' });
+        const invite = await ActivityInvite.findById(inviteId);
+        if (!invite) return res.status(404).json({ error: 'Invite not found' });
+
+        const alreadyRequested = invite.requests?.some(r => r.userId.toString() === userId);
+        const alreadyInvited = invite.recipients?.some(r => r.userId.toString() === userId);
+
+        if (alreadyRequested || alreadyInvited) {
+            return res.status(400).json({ error: 'You have already requested or been invited' });
+        }
+
+        invite.requests.push({ userId });
+        await invite.save();
+
+        res.status(200).json({ success: true, message: 'Request sent!', invite });
     } catch (err) {
-      console.error('❌ Failed to request invite:', err);
-      res.status(500).json({ error: 'Failed to request invite' });
+        console.error('❌ Failed to request invite:', err);
+        res.status(500).json({ error: 'Failed to request invite' });
+    }
+});
+
+router.post('/accept-user-request', async (req, res) => {
+    const { inviteId, userId } = req.body;
+
+    try {
+        const invite = await ActivityInvite.findById(inviteId);
+        if (!invite) return res.status(404).json({ error: 'Invite not found' });
+
+        const requestIndex = invite.requests.findIndex(r => r.userId.toString() === userId);
+        if (requestIndex === -1) {
+            return res.status(400).json({ error: 'Request not found' });
+        }
+
+        // ✅ Move from requests to recipients
+        const [acceptedRequest] = invite.requests.splice(requestIndex, 1);
+        invite.recipients.push({ userId, status: 'accepted' });
+        await invite.save();
+
+        // ✅ Add the inviteId to the recipient's activityInvites array
+        await User.updateOne(
+            { _id: userId },
+            { $addToSet: { activityInvites: invite._id } } // avoids duplicates
+        );
+
+        // ✅ Remove requestInvite notification from sender
+        await User.updateOne(
+            { _id: invite.senderId },
+            {
+                $pull: {
+                    notifications: {
+                        type: 'requestInvite',
+                        relatedId: userId,
+                        targetId: inviteId,
+                        targetRef: 'ActivityInvite',
+                        typeRef: 'User',
+                    },
+                },
+            }
+        );
+
+        // ✅ Fetch sender and enrich
+        const sender = await User.findById(invite.senderId).lean();
+        const senderPic = sender?.profilePic?.photoKey
+            ? await generateDownloadPresignedUrl(sender.profilePic.photoKey)
+            : null;
+
+        const enrichedSender = {
+            id: sender._id.toString(),
+            firstName: sender.firstName,
+            lastName: sender.lastName,
+            profilePicUrl: senderPic,
+        };
+
+        // ✅ Enrich recipients
+        const recipientUsers = await User.find({ _id: { $in: invite.recipients.map(r => r.userId) } })
+            .select('_id firstName lastName profilePic')
+            .lean();
+
+        const enrichedRecipients = await Promise.all(
+            invite.recipients.map(async (r) => {
+                const user = recipientUsers.find(u => u._id.toString() === r.userId.toString());
+                const profilePicUrl = user?.profilePic?.photoKey
+                    ? await generateDownloadPresignedUrl(user.profilePic.photoKey)
+                    : null;
+
+                return {
+                    status: r.status,
+                    user: {
+                        id: r.userId.toString(),
+                        firstName: user?.firstName || '',
+                        lastName: user?.lastName || '',
+                        profilePicUrl,
+                    }
+                };
+            })
+        );
+
+        // ✅ Enrich business
+        const business = await Business.findOne({ placeId: invite.placeId }).lean();
+        const businessLogo = business?.logoKey
+            ? await generateDownloadPresignedUrl(business.logoKey)
+            : null;
+
+        const enrichedBusiness = {
+            ...business,
+            presignedPhotoUrl: businessLogo,
+        };
+
+        // ✅ Send enriched invite
+        res.status(200).json({
+            success: true,
+            message: 'Request accepted',
+            invite: {
+                ...invite.toObject(),
+                type: 'invite',
+                sender: enrichedSender,
+                recipients: enrichedRecipients,
+                business: enrichedBusiness,
+            },
+        });
+
+    } catch (err) {
+        console.error('❌ Failed to accept request:', err);
+        res.status(500).json({ error: 'Failed to accept request' });
+    }
+});
+
+router.post('/reject-user-request', async (req, res) => {
+    const { inviteId, userId } = req.body;
+
+    try {
+        const invite = await ActivityInvite.findById(inviteId);
+        if (!invite) return res.status(404).json({ error: 'Invite not found' });
+
+        const initialLength = invite.requests.length;
+        invite.requests = invite.requests.filter(r => r.userId.toString() !== userId);
+
+        if (invite.requests.length === initialLength) {
+            return res.status(400).json({ error: 'Request not found' });
+        }
+
+        await invite.save();
+
+        // 🧹 Remove the original notification sent to the owner
+        await User.updateOne(
+            { _id: invite.senderId },
+            {
+                $pull: {
+                    notifications: {
+                        type: 'requestInvite',
+                        relatedId: userId,
+                        targetId: inviteId
+                    }
+                }
+            }
+        );
+
+        res.status(200).json({ success: true, message: 'Request rejected', invite });
+    } catch (err) {
+        console.error('❌ Failed to reject request:', err);
+        res.status(500).json({ error: 'Failed to reject request' });
     }
 });
 

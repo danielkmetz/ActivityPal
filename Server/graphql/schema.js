@@ -111,6 +111,13 @@ const typeDefs = gql`
     likes: [Like]
     comments: [Comment]
     type: String!
+    requests: [Request]
+  }
+
+  type Request {
+    _id: ID!
+    userId: ID!
+    status: String!
   }
 
   type InviteUser {
@@ -825,6 +832,7 @@ const resolvers = {
             note: invite.note,
             dateTime: invite.dateTime.toISOString(),
             message: invite.message,
+            requests: invite.requests || [],
             isPublic: invite.isPublic,
             status: invite.status,
             likes: invite.likes || [],

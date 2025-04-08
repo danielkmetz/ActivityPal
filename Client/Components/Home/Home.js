@@ -17,7 +17,7 @@ import { selectUser } from "../../Slices/UserSlice";
 import { fetchFavorites } from "../../Slices/FavoritesSlice";
 import Reviews from "../Reviews/Reviews";
 
-const Home = ({scrollY, onScroll}) => {
+const Home = ({scrollY, onScroll, isAtEnd}) => {
     const dispatch = useDispatch();
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const friends = useSelector(selectFriends);
@@ -26,6 +26,10 @@ const Home = ({scrollY, onScroll}) => {
     const [business, setBusiness] = useState(null);
     const [businessName, setBusinessName] = useState(null);
     const [modalVisible, setModalVisible] = useState(false);
+
+    const handleEndReached = () => {
+        setIsAtEnd(true);
+    };
 
     const userId = user?.id;
 
@@ -70,6 +74,8 @@ const Home = ({scrollY, onScroll}) => {
                     </View>
                 }    
             />
+
+            {isAtEnd && <View style={styles.bottom} />}
 
             {/* Write Review Modal */}
             <WriteReviewModal
@@ -122,4 +128,7 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: 'gray',
     },
+    bottom: {
+        marginBottom: 30,
+    }
 });

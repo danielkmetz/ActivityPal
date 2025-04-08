@@ -21,7 +21,7 @@ import { useSelector } from "react-redux";
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
-function TabNavigator({scrollY, onScroll, tabBarTranslateY}) {
+function TabNavigator({scrollY, onScroll, tabBarTranslateY, isAtEnd}) {
     const user = useSelector(selectUser);
     const isBusiness = useSelector(selectIsBusiness);
 
@@ -106,7 +106,7 @@ function TabNavigator({scrollY, onScroll, tabBarTranslateY}) {
                 // User-specific Screens
                 <>
                     <Tab.Screen name="Home">
-                        {() => <Home scrollY={scrollY} onScroll={onScroll}/>}
+                        {() => <Home scrollY={scrollY} onScroll={onScroll} isAtEnd={isAtEnd}/>}
                     </Tab.Screen>
                     <Tab.Screen name="Activities" component={ActivityPage} />
                     <Tab.Screen name="Notifications" component={Notifications} />
@@ -126,7 +126,7 @@ function TabNavigator({scrollY, onScroll, tabBarTranslateY}) {
     );
 }
 
-function AppNavigator({scrollY, onScroll, headerTranslateY, tabBarTranslateY}) {
+function AppNavigator({scrollY, onScroll, headerTranslateY, tabBarTranslateY, isAtEnd}) {
     return (
         <Stack.Navigator>
             <Stack.Screen name="TabNavigator" options={{headerShown: false}}>
@@ -136,6 +136,7 @@ function AppNavigator({scrollY, onScroll, headerTranslateY, tabBarTranslateY}) {
                         onScroll={onScroll}
                         headerTranslateY={headerTranslateY}
                         tabBarTranslateY={tabBarTranslateY}
+                        isAtEnd={isAtEnd}
                     />
                 }
             </Stack.Screen>

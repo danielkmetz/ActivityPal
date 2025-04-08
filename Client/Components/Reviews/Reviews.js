@@ -148,13 +148,17 @@ export default function Reviews({ reviews, ListHeaderComponent, scrollY, onScrol
         keyExtractor={(item, index) => (item._id || item.id || index).toString()}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={ListHeaderComponent}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          {
-            useNativeDriver: true,
-            listener: onScroll, // <-- your custom velocity logic from MainApp
-          }
-        )}
+        onScroll={
+          scrollY
+            ? Animated.event(
+                [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+                {
+                  useNativeDriver: true,
+                  listener: onScroll,
+                }
+              )
+            : onScroll || undefined
+        }
         scrollEventThrottle={16}
         renderItem={({ item }) => {
           if (item.type === 'invite') {
@@ -500,5 +504,4 @@ const styles = StyleSheet.create({
   inactiveDot: {
     backgroundColor: 'gray', // Default color for inactive dots
   },
-
 });

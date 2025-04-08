@@ -27,6 +27,8 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, onEdit, onDelete
         (r) => r.userId?.toString() === userId && r.status === 'pending'
     );
 
+    console.log(invite)
+
     const categorizedRecipients = {
         confirmed: [],
         invited: [],
@@ -89,8 +91,8 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, onEdit, onDelete
             {list.map((recipient, index) => (
                 <View key={recipient.userId || index} style={styles.pill}>
                     <Image
-                        source={recipient.presignedProfileUrl
-                            ? { uri: recipient.presignedProfileUrl }
+                        source={recipient.profilePicUrl
+                            ? { uri: recipient.profilePicUrl }
                             : profilePicPlaceholder}
                         style={styles.profilePic}
                     />
