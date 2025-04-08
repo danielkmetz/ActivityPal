@@ -877,6 +877,12 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
             createdAt
             type
 
+            requests {
+              _id
+              userId
+              status
+            }
+
             # NEW: Likes
             likes {
               userId

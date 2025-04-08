@@ -55,7 +55,7 @@ const InviteModal = ({
     const googleRef = useRef(null);
 
     useEffect(() => {
-        if (isEditing && initialInvite) {
+        if (isEditing && initialInvite && visible) {
             const { business } = initialInvite;
 
             if (business) {
@@ -73,7 +73,7 @@ const InviteModal = ({
             setDateTime(new Date(initialInvite.dateTime));
             setSelectedFriends(initialInvite.recipients?.map(r => r.userId) || []);
         }
-    }, [isEditing, initialInvite]);
+    }, [isEditing, initialInvite, visible]);
 
     useEffect(() => {
         if (!visible) {
@@ -110,7 +110,6 @@ const InviteModal = ({
     };
 
     const handleConfirmInvite = async () => {
-        console.log(selectedPlace)
         if (!selectedPlace || !dateTime || selectedFriends.length === 0) {
             alert('Please complete all invite details.');
             return;

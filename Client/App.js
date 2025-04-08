@@ -1,5 +1,5 @@
 import 'react-native-get-random-values';
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, View, Animated, Platform } from 'react-native';
 import AppNavigator from './Components/Navigator/Navigator';
@@ -34,6 +34,7 @@ function MainApp() {
   const dispatch = useDispatch();
   const activities = useSelector(selectGooglePlaces);
   const coordinates = useSelector(selectCoordinates);
+  const [isAtEnd, setIsAtEnd] = useState(false);
   
   // Track scrolling and header visibility
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -51,9 +52,11 @@ function MainApp() {
   // Scroll listener function
   const handleScroll = (event) => {
     const currentY = event.nativeEvent.contentOffset.y;
+    const contentHeight = event.nativeEvent.contentSize.height;
     const currentTime = Date.now();
     const deltaY = currentY - lastScrollY.current;
     const deltaTime = currentTime - lastScrollTime.current;
+    const layoutHeight = event.nativeEvent.layoutMeasurement.height;
   
     const velocity = deltaY / (deltaTime || 1);
   
@@ -93,6 +96,9 @@ function MainApp() {
       }).start();
       isHeaderVisible.current = true;
     }
+
+    const isAtBottom = currentY + layoutHeight >= contentHeight - 100; // threshold of 100px
+    setIsAtEnd(isAtBottom);
   };
   
   useEffect(() => {
@@ -141,6 +147,7 @@ function MainApp() {
         onScroll={handleScroll} 
         tabBarTranslateY={tabBarTranslateY} 
         headerTranslateY={headerTranslateY}
+        isAtEnd={isAtEnd}
       />
       <StatusBar style="auto" />
     </View>

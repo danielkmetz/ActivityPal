@@ -89,7 +89,8 @@ const NotificationSchema = new mongoose.Schema({
   message: { type: String, required: true },
   relatedId: { type: mongoose.Schema.Types.ObjectId, refPath: 'typeRef' }, // The user who triggered the notification
   typeRef: { type: String, enum: ['User', 'Review', 'Event', 'CheckIn', 'ActivityInvite'] }, // Reference model for `relatedId`
-  targetId: { type: mongoose.Schema.Types.ObjectId, ref: 'Review' }, // The review being liked/commented on
+  targetId: { type: mongoose.Schema.Types.ObjectId, refPath: 'targetRef' },
+  targetRef: { type: String, enum: ['Review', 'ActivityInvite', null] },
   commentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Comment', default: null }, // The comment that was liked/replied to
   replyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Comment', default: null }, // The specific reply (if applicable)
   commentText: { type: String, default: null },

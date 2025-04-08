@@ -83,13 +83,43 @@ export const requestInvite = createAsyncThunk(
   'invites/requestInvite',
   async ({ userId, inviteId }, thunkAPI) => {
     try {
-      const res = await axios.post(`/api/activity-invites/request`, {
+      const res = await axios.post(`${API_BASE}/request`, {
         userId,
         inviteId,
       });
-      return res.data;
+      return res.data.invite;
     } catch (err) {
       return thunkAPI.rejectWithValue(err.response?.data || 'Request failed');
+    }
+  }
+);
+
+export const acceptInviteRequest = createAsyncThunk(
+  'invites/acceptInviteRequest',
+  async ({ inviteId, userId }, thunkAPI) => {
+    try {
+      const response = await axios.post(`${API_BASE}/accept-user-request`, {
+        inviteId,
+        userId,
+      });
+      return response.data;
+    } catch (error) {
+      return thunkAPI.rejectWithValue(error.response?.data || 'Failed to accept request');
+    }
+  }
+);
+
+export const rejectInviteRequest = createAsyncThunk(
+  'invites/rejectInviteRequest',
+  async ({ inviteId, userId }, thunkAPI) => {
+    try {
+      const response = await axios.post(`${API_BASE}/reject-user-request`, {
+        inviteId,
+        userId,
+      });
+      return response.data.invite;
+    } catch (error) {
+      return thunkAPI.rejectWithValue(error.response?.data || 'Failed to reject request');
     }
   }
 );
@@ -146,6 +176,34 @@ const invitesSlice = createSlice({
           state.invites[index] = updatedInvite; // 🔄 replace the existing invite
         }
       })
+      .addCase(requestInvite.fulfilled, (state, action) => {
+        const updatedInvite = action.payload;
+      
+        state.invites = state.invites.map(invite =>
+          invite._id === updatedInvite._id ? updatedInvite : invite
+        );
+      })      
+      .addCase(requestInvite.rejected, (state, action) => {
+        state.error = action.payload;
+      })
+      .addCase(acceptInviteRequest.fulfilled, (state, action) => {
+        const updatedInvite = action.payload.invite;
+        const index = state.invites.findIndex(invite => invite._id === updatedInvite._id);
+        if (index !== -1) {
+          state.invites[index] = updatedInvite;
+        } else {
+          state.invites.push(updatedInvite);
+        }
+      })   
+      .addCase(rejectInviteRequest.fulfilled, (state, action) => {
+        const updatedInvite = action.payload;
+        const index = state.invites.findIndex(invite => invite._id === updatedInvite._id);
+        if (index !== -1) {
+          state.invites[index] = updatedInvite;
+        } else {
+          state.invites.push(updatedInvite);
+        }
+      })      
   },
 });
 
