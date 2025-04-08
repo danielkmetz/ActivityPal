@@ -16,8 +16,8 @@ import { acceptFriendRequest, declineFriendRequest, selectFriendRequestDetails }
 import moment from 'moment';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import CommentModal from '../Reviews/CommentModal';
-import { selectUserAndFriendsReviews, fetchPostById, selectSelectedReview, setSelectedReview, toggleLike } from '../../Slices/ReviewsSlice';
-import { acceptInvite, rejectInvite } from '../../Slices/InvitesSlice';
+import { selectUserAndFriendsReviews, fetchPostById, selectSelectedReview, setSelectedReview, toggleLike, setUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
+import { acceptInvite, rejectInvite, acceptInviteRequest, rejectInviteRequest } from '../../Slices/InvitesSlice';
 
 export default function Notifications() {
     const dispatch = useDispatch();
@@ -26,6 +26,7 @@ export default function Notifications() {
     const friendRequestDetails = useSelector(selectFriendRequestDetails);
     const reviews = useSelector(selectUserAndFriendsReviews);
     const selectedReview = useSelector(selectSelectedReview);
+    const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const [photoTapped, setPhotoTapped] = useState(null);
     const lastTapRef = useRef({});
     const [likedAnimations, setLikedAnimations] = useState({});
@@ -247,6 +248,89 @@ export default function Notifications() {
         lastTapRef.current[postId] = now;
     };
 
+    const handleAcceptJoinRequest = async (relatedId, targetId) => {
+        try {
+            console.log('👋 Accepting request for userId:', relatedId, 'on inviteId:', targetId);
+    
+            const { payload: result } = await dispatch(
+                acceptInviteRequest({ userId: relatedId, inviteId: targetId })
+            );
+    
+            console.log('📦 Backend response:', result);
+    
+            if (!result.success || !result.invite) {
+                console.warn('⚠️ No valid invite returned from backend');
+                throw new Error('Backend did not return a valid invite');
+            }
+    
+            const updatedInvite = result.invite;
+    
+            console.log('✅ Enriched invite returned:', updatedInvite);
+    
+            // ✅ Send confirmation notification
+            const notifPayload = {
+                userId: relatedId,
+                type: 'activityInviteAccepted',
+                message: `${user.firstName} ${user.lastName} accepted your request to join the event.`,
+                relatedId: user.id,
+                typeRef: 'ActivityInvite',
+                targetId,
+                targetRef: 'ActivityInvite',
+                postType: 'invite',
+            };
+    
+            console.log('📨 Sending acceptance notification:', notifPayload);
+            await dispatch(createNotification(notifPayload));
+    
+            // ✅ Replace the invite in the list
+            const updatedList = userAndFriendsReviews.map(invite =>
+                invite._id === targetId ? updatedInvite : invite
+            );
+
+            const updatedInvites = updatedList.filter(item => item.type === 'invite');
+            console.log('🆕 Updated invites only:', updatedInvites);
+    
+            dispatch(setUserAndFriendsReviews(updatedList));
+    
+            // ✅ Remove the requestInvite notification
+            const filtered = notifications.filter(n =>
+                !(n.type === 'requestInvite' && n.relatedId === relatedId && n.targetId === targetId)
+            );
+    
+            dispatch(setNotifications(filtered));
+    
+        } catch (error) {
+            console.error('❌ Error accepting join request:', error);
+        }
+    };    
+
+    const handleRejectJoinRequest = async (relatedId, targetId) => {
+        try {
+            const { payload: updatedInvite } = await dispatch(
+                rejectInviteRequest({ userId: relatedId, inviteId: targetId })
+            );
+
+            // ✅ Notify the user who was rejected
+            await dispatch(
+                createNotification({
+                    userId: relatedId,
+                    type: 'activityInviteDeclined',
+                    message: `${user.firstName} ${user.lastName} declined your request to join the event.`,
+                    relatedId: user.id,
+                    typeRef: 'User',
+                    targetId,
+                    postType: 'invite',
+                })
+            );
+
+            const filtered = notifications.filter(n =>
+                !(n.type === 'requestInvite' && n.relatedId === relatedId && n.targetId === targetId)
+            );
+            await dispatch(setNotifications(filtered));
+        } catch (error) {
+            console.error('❌ Error rejecting join request:', error);
+        }
+    };
 
     return (
         <View style={styles.container}>
@@ -308,6 +392,16 @@ export default function Notifications() {
                                         </TouchableOpacity>
                                         <TouchableOpacity style={styles.declineButton} onPress={() => handleRejectInvite(item.targetId)}>
                                             <Text style={styles.buttonText}>Decline</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
+                                {item.type === 'requestInvite' && (
+                                    <View style={styles.buttonGroup}>
+                                        <TouchableOpacity style={styles.acceptButton} onPress={() => handleAcceptJoinRequest(item.relatedId, item.targetId)}>
+                                            <Text style={styles.buttonText}>Accept</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity style={styles.declineButton} onPress={() => handleRejectJoinRequest(item.relatedId, item.targetId)}>
+                                            <Text style={styles.buttonText}>Reject</Text>
                                         </TouchableOpacity>
                                     </View>
                                 )}
@@ -401,7 +495,7 @@ const styles = StyleSheet.create({
         marginTop: 8,
     },
     acceptButton: {
-        backgroundColor: "#007bff",
+        backgroundColor: "#33cccc",
         paddingVertical: 5,
         paddingHorizontal: 10,
         borderRadius: 5,
@@ -420,5 +514,5 @@ const styles = StyleSheet.create({
     },
     commentText: {
         marginVertical: 10,
-    }
+    },
 });

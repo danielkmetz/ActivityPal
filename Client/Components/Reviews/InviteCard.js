@@ -19,33 +19,52 @@ const InviteCard = ({ invite, handleLike, handleOpenComments }) => {
     const totalGoing = invite.recipients?.filter(r => r.status === 'accepted').length || 0;
     const userId = user?.id;
     const senderId = invite?.sender?.id;
+    const recipientId = invite?.sender?.id || invite?.sender?.userId;
+    const [requested, setRequested] = useState(false);
+    const hasRequested = requested || invite.requests?.some(r => r.userId === user.id);
+    const isRecipient = userId !== senderId && !invite.recipients?.some(r => r.userId?.toString() === user.id?.toString());
+    const isSender = userId === senderId
 
+    //console.log(invite)
     const handleRequest = async () => {
         try {
+            console.log('📨 Submitting invite request...');
+            console.log('➡️ Payload being sent to requestInvite:', {
+                userId: user.id,
+                inviteId: invite._id,
+            });
+    
             await dispatch(requestInvite({
                 userId: user.id,
                 inviteId: invite._id,
             })).unwrap();
     
-            // Send notification directly to the sender
-            await dispatch(createNotification({
-                recipientId: invite.sender.userId || invite.sender._id,
-                userId: senderId,
-                relatedId: userId,
+            const notificationPayload = {
+                recipientId,          // sender of the original invite
+                userId: senderId,     // this field should actually be the ID of the user triggering the notification
+                relatedId: user.id,   // who triggered it (you)
                 type: 'requestInvite',
                 message: `${user.firstName} wants to join your Vybe at ${businessName}`,
                 postType: 'activityInvite',
-                typeRef: 'ActivityInvite',
+                typeRef: 'User',             // ✅ this should be 'User' since relatedId = user.id
                 targetId: invite._id,
-            }));
+                targetRef: 'ActivityInvite',
+            };
     
+            console.log('📨 Sending notification with payload:', notificationPayload);
+    
+            await dispatch(createNotification(notificationPayload)).unwrap();
+    
+            setRequested(true);
             alert('Your request has been sent!');
         } catch (err) {
-            console.error('❌ Failed to request invite:', err);
-            alert('Something went wrong. Please try again.');
+            console.error('❌ Failed to request invite or send notification:', err);
+    
+            // Optional: more verbose error display
+            alert(`Something went wrong. ${err?.message || ''}`);
         }
     };
-
+    
     useEffect(() => {
         const interval = setInterval(() => {
             setTimeLeft(getTimeLeft(invite.dateTime));
@@ -54,76 +73,82 @@ const InviteCard = ({ invite, handleLike, handleOpenComments }) => {
         return () => clearInterval(interval);
     }, [invite.dateTime]);
 
+    useEffect(() => {
+        if (invite.requests?.some(r => r.userId === user.id)) {
+          setRequested(true);
+        }
+    }, [invite, user.id]);
+
     return (
         <>
-        <View style={styles.card}>
-            <View style={styles.header}>
-                <Image
-                    source={invite.sender?.profilePicUrl ? { uri: invite.sender.profilePicUrl } : profilePicPlaceholder}
-                    style={styles.profilePic}
-                />
-                <View style={styles.headerText}>
-                    <Text style={styles.senderName}>
-                        {invite.sender?.firstName} {invite.sender?.lastName} invited {totalInvited} friend
-                        {totalInvited.length === 1 ? '' : 's'} to a Vybe
-                    </Text>
+            <View style={styles.card}>
+                <View style={styles.header}>
+                    <Image
+                        source={invite.sender?.profilePicUrl ? { uri: invite.sender.profilePicUrl } : profilePicPlaceholder}
+                        style={styles.profilePic}
+                    />
+                    <View style={styles.headerText}>
+                        <Text style={styles.senderName}>
+                            {invite.sender?.firstName} {invite.sender?.lastName} invited {totalInvited} friend
+                            {totalInvited.length === 1 ? '' : 's'} to a Vybe
+                        </Text>
+                    </View>
                 </View>
-            </View>
 
-            <Text style={styles.businessName}>{businessName}</Text>
-            {invite.dateTime ? (
-                <Text style={styles.datetime}>On {formatEventDate(invite.dateTime)}</Text>
-            ) : null}
-
-            {invite.note ? (
-                <Text style={styles.note}>{invite.note}</Text>
-            ) : null}
-
-            <View style={styles.countdownContainer}>
-                <Text style={styles.countdownLabel}>Starts in:</Text>
-                <Text style={styles.countdownText}>{timeLeft}</Text>
-            </View>
-
-            <View style={styles.actionsContainer}>
-                <View style={styles.likeComment}>
-                <TouchableOpacity
-                    onPress={() => handleLike('invite', invite._id)}
-                    style={styles.likeButton}
-                >
-                    <MaterialCommunityIcons name="thumb-up-outline" size={20} color="#808080" />
-                    <Text style={styles.likeCount}>{invite.likes?.length || 0}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    onPress={() => handleOpenComments(invite)}
-                    style={styles.commentButton}
-                >
-                    <MaterialCommunityIcons name="comment-outline" size={20} color="#808080" />
-                    <Text style={styles.commentCount}>{invite?.comments?.length || 0}</Text>
-                </TouchableOpacity>
-                </View>
-                <View style={styles.requestsAttendance}>
-                {!invite.recipients?.some(r => r.userId === user.id) ? (
-                    invite.requests?.some(r => r.userId === user.id) ? (
-                        <View style={styles.requestedContainer}>
-                            <Text style={styles.requestedText}>✅ Requested</Text>
-                        </View>
-                    ) : (
-                        <TouchableOpacity onPress={handleRequest} style={styles.attendanceContainer}>
-                            <Text style={styles.attendanceText}>✋ Ask to Join</Text>
-                        </TouchableOpacity>
-                    )
+                <Text style={styles.businessName}>{businessName}</Text>
+                {invite.dateTime ? (
+                    <Text style={styles.datetime}>On {formatEventDate(invite.dateTime)}</Text>
                 ) : null}
-                <TouchableOpacity style={styles.attendanceContainer} onPress={() => setModalVisible(true)}>
-                    <Text style={styles.attendanceText}>{totalGoing} going</Text>
-                </TouchableOpacity>
+
+                {invite.note ? (
+                    <Text style={styles.note}>{invite.note}</Text>
+                ) : null}
+
+                <View style={styles.countdownContainer}>
+                    <Text style={styles.countdownLabel}>Starts in:</Text>
+                    <Text style={styles.countdownText}>{timeLeft}</Text>
+                </View>
+
+                <View style={styles.actionsContainer}>
+                    <View style={styles.likeComment}>
+                        <TouchableOpacity
+                            onPress={() => handleLike('invite', invite._id)}
+                            style={styles.likeButton}
+                        >
+                            <MaterialCommunityIcons name="thumb-up-outline" size={20} color="#808080" />
+                            <Text style={styles.likeCount}>{invite.likes?.length || 0}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            onPress={() => handleOpenComments(invite)}
+                            style={styles.commentButton}
+                        >
+                            <MaterialCommunityIcons name="comment-outline" size={20} color="#808080" />
+                            <Text style={styles.commentCount}>{invite?.comments?.length || 0}</Text>
+                        </TouchableOpacity>
+                    </View>
+                    <View style={styles.requestsAttendance}>
+                        {!isRecipient || !isSender && (
+                            hasRequested ? (
+                                <View style={styles.requestedContainer}>
+                                    <Text style={styles.requestedText}>✅ Requested</Text>
+                                </View>
+                            ) : (
+                                <TouchableOpacity onPress={handleRequest} style={styles.attendanceContainer}>
+                                    <Text style={styles.attendanceText}>✋ Ask to Join</Text>
+                                </TouchableOpacity>
+                            )
+                        )}
+                        <TouchableOpacity style={styles.attendanceContainer} onPress={() => setModalVisible(true)}>
+                            <Text style={styles.attendanceText}>{totalGoing} going</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
             </View>
-        </View>
-        <InviteeModal
-            visible={modalVisible}
-            onClose={() => setModalVisible(false)}
-            recipients={invite.recipients}
-        />
+            <InviteeModal
+                visible={modalVisible}
+                onClose={() => setModalVisible(false)}
+                recipients={invite.recipients}
+            />
         </>
     );
 };
@@ -194,7 +219,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between'
     },
-
     attendanceContainer: {
         marginTop: 10,
         alignItems: 'center',
@@ -202,12 +226,10 @@ const styles = StyleSheet.create({
         padding: 8,
         borderRadius: 6,
     },
-
     attendanceText: {
         fontSize: 14,
         color: '#007bff',
     },
-
     modalOverlay: {
         position: 'absolute',
         bottom: 0,
@@ -217,7 +239,6 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(0,0,0,0.4)',
         justifyContent: 'flex-end',
     },
-
     modalContainer: {
         backgroundColor: '#fff',
         padding: 20,
@@ -225,19 +246,16 @@ const styles = StyleSheet.create({
         borderTopRightRadius: 20,
         maxHeight: '50%',
     },
-
     modalTitle: {
         fontSize: 18,
         fontWeight: 'bold',
         marginBottom: 10,
     },
-
     modalUser: {
         fontSize: 16,
         marginVertical: 4,
         color: '#333',
     },
-
     closeButton: {
         marginTop: 15,
         padding: 10,
@@ -289,6 +307,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#ddd',
         padding: 8,
         borderRadius: 6,
+        marginRight: 5,
     },
     requestedText: {
         fontSize: 14,
@@ -305,7 +324,7 @@ const styles = StyleSheet.create({
     attendanceText: {
         fontSize: 14,
         color: '#007bff', // blue color for call-to-action
-    },    
+    },
 });
 
 export default InviteCard;

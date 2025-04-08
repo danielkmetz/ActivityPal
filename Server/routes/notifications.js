@@ -37,33 +37,43 @@ router.put('/:userId/notifications/:notificationId/read', async (req, res) => {
 router.post('/:userId/notifications', async (req, res) => {
     try {
         const { userId } = req.params;
-        const { type, message, relatedId, typeRef, targetId, commentText, commentId, replyId, postType } = req.body;
+        const {
+            type,
+            message,
+            relatedId,
+            typeRef,
+            targetId,
+            commentText,
+            commentId,
+            replyId,
+            postType,
+            targetRef
+        } = req.body;
 
         const user = await User.findById(userId);
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        // 🔍 Check if an unread notification with the same type, relatedId, and targetId exists
-        const existingNotification = user.notifications.find(n => 
-            n.type === type &&  
+        const existingNotification = user.notifications.find(n =>
+            n.type === type &&
             n.relatedId.toString() === relatedId.toString() &&
-            (n.targetId?.toString() === targetId?.toString() || (n.targetId === undefined && targetId === undefined)) &&
-            (n.commentId?.toString() === commentId?.toString() || (n.commentId === undefined && commentId === undefined)) &&
-            (n.replyId?.toString() === replyId?.toString() || (n.replyId === undefined && replyId === undefined))
+            (n.targetId?.toString() === targetId?.toString() || (!n.targetId && !targetId)) &&
+            (n.commentId?.toString() === commentId?.toString() || (!n.commentId && !commentId)) &&
+            (n.replyId?.toString() === replyId?.toString() || (!n.replyId && !replyId))
         );
 
         if (existingNotification) {
             return res.status(409).json({ error: 'Duplicate, notification already exists' });
         }
 
-        // ✅ Create the notification
         const newNotification = {
             type,
             message,
-            relatedId,   
+            relatedId,
             typeRef,
-            targetId,    
+            targetId,
+            targetRef,
             commentId: commentId || null,
             replyId: replyId || null,
             commentText: commentText || null,
@@ -72,7 +82,6 @@ router.post('/:userId/notifications', async (req, res) => {
             createdAt: new Date()
         };
 
-        // ✅ Save notification to the user's notification array
         user.notifications.push(newNotification);
         await user.save();
 

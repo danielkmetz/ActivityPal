@@ -19,10 +19,12 @@ const InviteeModal = ({ visible, onClose, recipients = [] }) => {
     const [selectedTab, setSelectedTab] = useState('going'); // 'going' or 'invited'
 
     const going = recipients.filter(r => r.status === 'accepted');
-    const invited = recipients;
+    const invited = recipients.filter(r => r.status !== 'accepted');
 
     const translateY = useRef(new Animated.Value(0)).current;
     const gestureThreshold = 100;
+
+    //console.log(recipients)
 
     useEffect(() => {
         if (!visible) {
@@ -92,7 +94,7 @@ const InviteeModal = ({ visible, onClose, recipients = [] }) => {
                                     ]}
                                 >
                                     <Text style={selectedTab === 'invited' ? styles.activeText : styles.inactiveText}>
-                                        Invited ({invited.length})
+                                        Pending ({invited.length})
                                     </Text>
                                 </TouchableOpacity>
                             </View>
