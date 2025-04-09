@@ -22,12 +22,11 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, onEdit, onDelete
     const userAndFriendReviews = useSelector(selectUserAndFriendsReviews);
     if (!invite) return null;
     const isSender = invite.senderId?.toString() === userId?.toString();
+    const requests = invite?.requests;
 
     const isRecipient = invite.recipients?.some(
         (r) => r.userId?.toString() === userId && r.status === 'pending'
     );
-
-    console.log(invite)
 
     const categorizedRecipients = {
         confirmed: [],
@@ -171,6 +170,12 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, onEdit, onDelete
                                 <>
                                     <Text style={styles.label}>Declined:</Text>
                                     {renderFriendPills(categorizedRecipients.declined)}
+                                </>
+                            )}
+                            {requests?.length > 0 && (
+                                <>
+                                    <Text style={styles.label}>Requests:</Text>
+                                    {renderFriendPills(requests)}
                                 </>
                             )}
 

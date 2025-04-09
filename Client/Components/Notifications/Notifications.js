@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { selectUser } from '../../Slices/UserSlice';
-import { selectNotifications, fetchNotifications, markNotificationRead, setNotifications, createNotification } from '../../Slices/NotificationsSlice';
+import { selectNotifications, fetchNotifications, markNotificationRead, setNotifications, createNotification, deleteNotification } from '../../Slices/NotificationsSlice';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { acceptFriendRequest, declineFriendRequest, selectFriendRequestDetails } from '../../Slices/UserSlice';
 import moment from 'moment';
@@ -18,6 +18,7 @@ import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg
 import CommentModal from '../Reviews/CommentModal';
 import { selectUserAndFriendsReviews, fetchPostById, selectSelectedReview, setSelectedReview, toggleLike, setUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
 import { acceptInvite, rejectInvite, acceptInviteRequest, rejectInviteRequest } from '../../Slices/InvitesSlice';
+import SwipeableRow from './SwipeableRow';
 
 export default function Notifications() {
     const dispatch = useDispatch();
@@ -250,13 +251,9 @@ export default function Notifications() {
 
     const handleAcceptJoinRequest = async (relatedId, targetId) => {
         try {
-            console.log('👋 Accepting request for userId:', relatedId, 'on inviteId:', targetId);
-    
             const { payload: result } = await dispatch(
                 acceptInviteRequest({ userId: relatedId, inviteId: targetId })
             );
-    
-            console.log('📦 Backend response:', result);
     
             if (!result.success || !result.invite) {
                 console.warn('⚠️ No valid invite returned from backend');
@@ -264,8 +261,6 @@ export default function Notifications() {
             }
     
             const updatedInvite = result.invite;
-    
-            console.log('✅ Enriched invite returned:', updatedInvite);
     
             // ✅ Send confirmation notification
             const notifPayload = {
@@ -332,6 +327,10 @@ export default function Notifications() {
         }
     };
 
+    const handleDeleteNotification = (notificationId) => {
+        dispatch(deleteNotification({ userId: user.id, notificationId }));
+    };
+    
     return (
         <View style={styles.container}>
             <FlatList
@@ -340,6 +339,7 @@ export default function Notifications() {
                 renderItem={({ item }) => {
                     const sender = friendRequestDetails.find(user => user._id === item.relatedId);
                     return (
+                        <SwipeableRow onSwipe={handleDeleteNotification} notificationId={item._id}>
                         <TouchableOpacity
                             style={[styles.notificationCard, !item.read && styles.unreadNotification]}
                             onPress={() => handleNotificationPress(item)}
@@ -408,6 +408,7 @@ export default function Notifications() {
                             </View>
                             {!item.read && <View style={styles.unreadDot} />}
                         </TouchableOpacity>
+                        </SwipeableRow>
                     );
                 }}
             />
