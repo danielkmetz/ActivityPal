@@ -118,6 +118,9 @@ const typeDefs = gql`
     _id: ID!
     userId: ID!
     status: String!
+    firstName: String
+    lastName: String
+    profilePicUrl: String
   }
 
   type InviteUser {
@@ -779,11 +782,17 @@ const resolvers = {
         const recipientUserIds = allInvites.flatMap(inv => inv.recipients.map(r => r.userId.toString()));
         const placeIds = allInvites.map(inv => inv.placeId).filter(Boolean);
     
+        // 🆕 Collect all relevant userIds: senders, recipients, and requesters
+        const requestUserIds = allInvites.flatMap(inv => inv.requests?.map(r => r.userId.toString()) || []);
+        const allUserIds = [...new Set([...senderIds, ...recipientUserIds, ...requestUserIds])];
+
+        // Fetch all users at once
         const [allUsers, allBusinesses] = await Promise.all([
-          User.find({ _id: { $in: [...senderIds, ...recipientUserIds] } }).lean(),
+          User.find({ _id: { $in: allUserIds } }).lean(),
           Business.find({ placeId: { $in: placeIds } }).lean()
         ]);
-    
+
+        // Build lookup map for user enrichment
         const userMap = new Map(allUsers.map(u => [u._id.toString(), u]));
         const businessMap = new Map(allBusinesses.map(b => [b.placeId, b]));
     
@@ -811,6 +820,24 @@ const resolvers = {
               };
             })
           );
+
+          const enrichedRequests = await Promise.all(
+            (invite.requests || []).map(async (r) => {
+              const requestUser = userMap.get(r.userId.toString());
+              const profilePicUrl = requestUser?.profilePic?.photoKey
+                ? await generateDownloadPresignedUrl(requestUser.profilePic.photoKey)
+                : null;
+          
+              return {
+                _id: r._id?.toString(),
+                userId: r.userId.toString(),
+                status: r.status,
+                firstName: requestUser?.firstName || '',
+                lastName: requestUser?.lastName || '',
+                profilePicUrl,
+              };
+            })
+          );
     
           const business = businessMap.get(invite.placeId);
           const businessLogoUrl = business?.logoKey
@@ -832,7 +859,7 @@ const resolvers = {
             note: invite.note,
             dateTime: invite.dateTime.toISOString(),
             message: invite.message,
-            requests: invite.requests || [],
+            requests: enrichedRequests,
             isPublic: invite.isPublic,
             status: invite.status,
             likes: invite.likes || [],

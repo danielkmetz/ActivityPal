@@ -8,12 +8,14 @@ import { requestInvite } from '../../Slices/InvitesSlice';
 import { createNotification } from '../../Slices/NotificationsSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { useSelector, useDispatch } from 'react-redux';
+import { setUserAndFriendsReviews, selectUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
 
 const InviteCard = ({ invite, handleLike, handleOpenComments }) => {
     const dispatch = useDispatch();
     const [timeLeft, setTimeLeft] = useState(getTimeLeft(invite.dateTime));
     const [modalVisible, setModalVisible] = useState(false);
     const user = useSelector(selectUser);
+    const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const businessName = invite.businessName || invite.business?.businessName || 'Unnamed Location';
     const totalInvited = invite.recipients?.length || 0;
     const totalGoing = invite.recipients?.filter(r => r.status === 'accepted').length || 0;
@@ -33,38 +35,53 @@ const InviteCard = ({ invite, handleLike, handleOpenComments }) => {
                 userId: user.id,
                 inviteId: invite._id,
             });
-    
-            await dispatch(requestInvite({
+
+            const { payload: result } = await dispatch(requestInvite({
                 userId: user.id,
                 inviteId: invite._id,
-            })).unwrap();
-    
+            }));
+
+            if (!result.success || !result.invite) {
+                console.warn('⚠️ No valid invite returned from backend');
+                throw new Error('Backend did not return a valid invite');
+            }
+
+            const updatedInvite = result.invite;
+
             const notificationPayload = {
-                recipientId,          // sender of the original invite
-                userId: senderId,     // this field should actually be the ID of the user triggering the notification
-                relatedId: user.id,   // who triggered it (you)
+                recipientId,
+                userId: senderId,
+                relatedId: user.id,
                 type: 'requestInvite',
                 message: `${user.firstName} wants to join your Vybe at ${businessName}`,
                 postType: 'activityInvite',
-                typeRef: 'User',             // ✅ this should be 'User' since relatedId = user.id
+                typeRef: 'User',
                 targetId: invite._id,
                 targetRef: 'ActivityInvite',
             };
-    
+
             console.log('📨 Sending notification with payload:', notificationPayload);
-    
             await dispatch(createNotification(notificationPayload)).unwrap();
-    
+
+            // ✅ Replace the invite in the feed
+            const updatedList = userAndFriendsReviews.map(item =>
+                item._id === updatedInvite._id ? updatedInvite : item
+            );
+
+            const updatedInvites = updatedList.filter(item => item.type === 'invite');
+            console.log('🆕 Updated invites only:', updatedInvites);
+
+            dispatch(setUserAndFriendsReviews(updatedList));
+
             setRequested(true);
+
             alert('Your request has been sent!');
         } catch (err) {
             console.error('❌ Failed to request invite or send notification:', err);
-    
-            // Optional: more verbose error display
             alert(`Something went wrong. ${err?.message || ''}`);
         }
     };
-    
+
     useEffect(() => {
         const interval = setInterval(() => {
             setTimeLeft(getTimeLeft(invite.dateTime));
@@ -75,7 +92,7 @@ const InviteCard = ({ invite, handleLike, handleOpenComments }) => {
 
     useEffect(() => {
         if (invite.requests?.some(r => r.userId === user.id)) {
-          setRequested(true);
+            setRequested(true);
         }
     }, [invite, user.id]);
 
@@ -148,6 +165,9 @@ const InviteCard = ({ invite, handleLike, handleOpenComments }) => {
                 visible={modalVisible}
                 onClose={() => setModalVisible(false)}
                 recipients={invite.recipients}
+                requests={invite.requests}
+                isSender={isSender}
+                invite={invite}
             />
         </>
     );

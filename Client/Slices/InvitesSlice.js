@@ -87,7 +87,7 @@ export const requestInvite = createAsyncThunk(
         userId,
         inviteId,
       });
-      return res.data.invite;
+      return res.data;
     } catch (err) {
       return thunkAPI.rejectWithValue(err.response?.data || 'Request failed');
     }
@@ -117,7 +117,7 @@ export const rejectInviteRequest = createAsyncThunk(
         inviteId,
         userId,
       });
-      return response.data.invite;
+      return response.data;
     } catch (error) {
       return thunkAPI.rejectWithValue(error.response?.data || 'Failed to reject request');
     }
@@ -177,7 +177,7 @@ const invitesSlice = createSlice({
         }
       })
       .addCase(requestInvite.fulfilled, (state, action) => {
-        const updatedInvite = action.payload;
+        const updatedInvite = action.payload.invite;
       
         state.invites = state.invites.map(invite =>
           invite._id === updatedInvite._id ? updatedInvite : invite
@@ -196,7 +196,7 @@ const invitesSlice = createSlice({
         }
       })   
       .addCase(rejectInviteRequest.fulfilled, (state, action) => {
-        const updatedInvite = action.payload;
+        const updatedInvite = action.payload.invite;
         const index = state.invites.findIndex(invite => invite._id === updatedInvite._id);
         if (index !== -1) {
           state.invites[index] = updatedInvite;

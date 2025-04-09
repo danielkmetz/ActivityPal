@@ -54,6 +54,31 @@ router.get('/user/:userId/invites', async (req, res) => {
                     })
                 );
 
+                // 3️⃣ Enrich requests
+                const requestUserIds = (invite.requests || []).map(r => r.userId);
+                const requestUsers = await User.find({ _id: { $in: requestUserIds } })
+                .select('_id firstName lastName profilePic')
+                .lean();
+
+                const enrichedRequests = await Promise.all(
+                (invite.requests || []).map(async (r) => {
+                    const user = requestUsers.find(u => u._id.toString() === r.userId.toString());
+                    let profileUrl = null;
+                    if (user?.profilePic?.photoKey) {
+                    profileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                    }
+
+                    return {
+                    _id: r._id?.toString(),
+                    userId: r.userId?.toString() || user?._id?.toString(),
+                    status: r.status,
+                    firstName: user?.firstName || '',
+                    lastName: user?.lastName || '',
+                    profilePicUrl: profileUrl,
+                    };
+                })
+                );
+
                 // 4️⃣ Enrich sender
                 const sender = await User.findById(invite.senderId)
                     .select('_id firstName lastName profilePic')
@@ -76,6 +101,7 @@ router.get('/user/:userId/invites', async (req, res) => {
                     ...invite,
                     id: invite._id?.toString(),
                     recipients: enrichedRecipients,
+                    requests: enrichedRequests,
                     sender: enrichedSender,
                     business: {
                         ...business,
@@ -318,6 +344,31 @@ router.post('/accept', async (req, res) => {
             })
         );
 
+        // ✅ Enrich requests
+        const requestUserIds = (invite.requests || []).map(r => r.userId);
+        const requestUsers = await User.find({ _id: { $in: requestUserIds } })
+            .select('_id firstName lastName profilePic')
+            .lean();
+
+        const enrichedRequests = await Promise.all(
+            (invite.requests || []).map(async (r) => {
+                const user = requestUsers.find(u => u._id.toString() === r.userId.toString());
+                let presignedProfileUrl = null;
+                if (user?.profilePic?.photoKey) {
+                    presignedProfileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                }
+
+                return {
+                    _id: r._id?.toString(),
+                    userId: r.userId?.toString() || user?._id?.toString(),
+                    status: r.status,
+                    firstName: user?.firstName || '',
+                    lastName: user?.lastName || '',
+                    profilePicUrl: presignedProfileUrl,
+                };
+            })
+        );
+
         // Enrich sender
         const sender = await User.findById(invite.senderId)
             .select('_id firstName lastName profilePic')
@@ -347,6 +398,7 @@ router.post('/accept', async (req, res) => {
             invite: {
                 ...invite.toObject(),
                 recipients: enrichedRecipients,
+                requests: enrichedRequests,
                 sender: enrichedSender,
                 business: {
                     ...business,
@@ -701,25 +753,133 @@ router.delete('/delete', async (req, res) => {
 
 router.post('/request', async (req, res) => {
     const { userId, inviteId } = req.body;
+    console.log('📥 Incoming /request payload:', { userId, inviteId });
 
     try {
         const invite = await ActivityInvite.findById(inviteId);
-        if (!invite) return res.status(404).json({ error: 'Invite not found' });
+        if (!invite) {
+            console.warn('❌ Invite not found for ID:', inviteId);
+            return res.status(404).json({ error: 'Invite not found' });
+        }
 
         const alreadyRequested = invite.requests?.some(r => r.userId.toString() === userId);
         const alreadyInvited = invite.recipients?.some(r => r.userId.toString() === userId);
 
         if (alreadyRequested || alreadyInvited) {
+            console.warn('⚠️ User already requested or invited:', userId);
             return res.status(400).json({ error: 'You have already requested or been invited' });
         }
 
+        // Add request
         invite.requests.push({ userId });
         await invite.save();
+        console.log('✅ Added request to invite. New requests array:', invite.requests);
 
-        res.status(200).json({ success: true, message: 'Request sent!', invite });
+        // Enrich recipients
+        const recipientIds = invite.recipients.map(r => r.userId);
+        console.log('🔍 Recipient IDs to enrich:', recipientIds);
+
+        const recipientUsers = await User.find({ _id: { $in: recipientIds } })
+            .select('_id firstName lastName profilePic')
+            .lean();
+
+        const enrichedRecipients = await Promise.all(
+            invite.recipients.map(async (r) => {
+                const user = recipientUsers.find(u => u._id.toString() === r.userId.toString());
+                let presignedProfileUrl = null;
+                if (user?.profilePic?.photoKey) {
+                    presignedProfileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                }
+
+                return {
+                    userId: r.userId?.toString() || user?._id?.toString(),
+                    status: r.status,
+                    firstName: user?.firstName || '',
+                    lastName: user?.lastName || '',
+                    profilePicUrl: presignedProfileUrl,
+                };
+            })
+        );
+
+        // Enrich requests
+        const requestIds = invite.requests.map(r => r.userId);
+        console.log('🔍 Request IDs to enrich:', requestIds);
+
+        const requestUsers = await User.find({ _id: { $in: requestIds } })
+            .select('_id firstName lastName profilePic')
+            .lean();
+
+        const enrichedRequests = await Promise.all(
+            invite.requests.map(async (r) => {
+                const user = requestUsers.find(u => u._id.toString() === r.userId.toString());
+                let presignedProfileUrl = null;
+                if (user?.profilePic?.photoKey) {
+                    presignedProfileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                }
+
+                return {
+                    userId: r.userId?.toString() || user?._id?.toString(),
+                    firstName: user?.firstName || '',
+                    lastName: user?.lastName || '',
+                    profilePicUrl: presignedProfileUrl,
+                };
+            })
+        );
+
+        // Enrich sender
+        const sender = await User.findById(invite.senderId)
+            .select('_id firstName lastName profilePic')
+            .lean();
+        if (!sender) {
+            console.warn('⚠️ Sender not found for senderId:', invite.senderId);
+        }
+
+        let presignedSenderProfileUrl = null;
+        if (sender?.profilePic?.photoKey) {
+            presignedSenderProfileUrl = await generateDownloadPresignedUrl(sender.profilePic.photoKey);
+        }
+
+        const enrichedSender = {
+            id: sender?._id?.toString(),
+            firstName: sender?.firstName || '',
+            lastName: sender?.lastName || '',
+            profilePicUrl: presignedSenderProfileUrl,
+        };
+
+        // Enrich business
+        const business = await Business.findOne({ placeId: invite.placeId }).lean();
+        if (!business) {
+            console.warn('⚠️ No business found for placeId:', invite.placeId);
+        }
+
+        let presignedPhotoUrl = null;
+        if (business?.logoKey) {
+            presignedPhotoUrl = await generateDownloadPresignedUrl(business.logoKey);
+        }
+
+        const enrichedInvite = {
+            ...invite.toObject(),
+            type: 'invite',
+            recipients: enrichedRecipients,
+            requests: enrichedRequests,
+            sender: enrichedSender,
+            business: {
+                ...business,
+                presignedPhotoUrl,
+            },
+        };
+
+        console.log('✅ Final enriched invite:', enrichedInvite);
+
+        res.status(200).json({
+            success: true,
+            message: 'Request sent!',
+            invite: enrichedInvite,
+        });
+
     } catch (err) {
         console.error('❌ Failed to request invite:', err);
-        res.status(500).json({ error: 'Failed to request invite' });
+        res.status(500).json({ error: 'Failed to request invite', details: err.message });
     }
 });
 
@@ -799,6 +959,29 @@ router.post('/accept-user-request', async (req, res) => {
             })
         );
 
+        const requestUserIds = invite.requests.map(r => r.userId);
+        const requestUsers = await User.find({ _id: { $in: requestUserIds } })
+            .select('_id firstName lastName profilePic')
+            .lean();
+
+        const enrichedRequests = await Promise.all(
+            invite.requests.map(async (r) => {
+                const user = requestUsers.find(u => u._id.toString() === r.userId.toString());
+                const profilePicUrl = user?.profilePic?.photoKey
+                    ? await generateDownloadPresignedUrl(user.profilePic.photoKey)
+                    : null;
+
+                return {
+                    _id: r._id?.toString(),
+                    userId: r.userId.toString(),
+                    status: r.status,
+                    firstName: user?.firstName || '',
+                    lastName: user?.lastName || '',
+                    profilePicUrl,
+                };
+            })
+        );
+
         // ✅ Enrich business
         const business = await Business.findOne({ placeId: invite.placeId }).lean();
         const businessLogo = business?.logoKey
@@ -819,6 +1002,7 @@ router.post('/accept-user-request', async (req, res) => {
                 type: 'invite',
                 sender: enrichedSender,
                 recipients: enrichedRecipients,
+                requests: enrichedRequests,
                 business: enrichedBusiness,
             },
         });
@@ -845,7 +1029,7 @@ router.post('/reject-user-request', async (req, res) => {
 
         await invite.save();
 
-        // 🧹 Remove the original notification sent to the owner
+        // 🧹 Remove the original notification sent to the sender
         await User.updateOne(
             { _id: invite.senderId },
             {
@@ -853,16 +1037,105 @@ router.post('/reject-user-request', async (req, res) => {
                     notifications: {
                         type: 'requestInvite',
                         relatedId: userId,
-                        targetId: inviteId
-                    }
-                }
+                        targetId: inviteId,
+                    },
+                },
             }
         );
 
-        res.status(200).json({ success: true, message: 'Request rejected', invite });
+        // ✅ Enrich recipients
+        const recipientIds = invite.recipients.map(r => r.userId);
+        const recipientUsers = await User.find({ _id: { $in: recipientIds } })
+            .select('_id firstName lastName profilePic')
+            .lean();
+
+        const enrichedRecipients = await Promise.all(
+            invite.recipients.map(async (r) => {
+                const user = recipientUsers.find(u => u._id.toString() === r.userId.toString());
+                let profilePicUrl = null;
+                if (user?.profilePic?.photoKey) {
+                    profilePicUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                }
+
+                return {
+                    userId: r.userId?.toString() || user?._id?.toString(),
+                    status: r.status,
+                    firstName: user?.firstName || '',
+                    lastName: user?.lastName || '',
+                    profilePicUrl,
+                };
+            })
+        );
+
+        // ✅ Enrich requests
+        const requestIds = invite.requests.map(r => r.userId);
+        const requestUsers = await User.find({ _id: { $in: requestIds } })
+            .select('_id firstName lastName profilePic')
+            .lean();
+
+        const enrichedRequests = await Promise.all(
+            invite.requests.map(async (r) => {
+                const user = requestUsers.find(u => u._id.toString() === r.userId.toString());
+                let profilePicUrl = null;
+                if (user?.profilePic?.photoKey) {
+                    profilePicUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                }
+
+                return {
+                    _id: r._id?.toString(),
+                    userId: r.userId?.toString() || user?._id?.toString(),
+                    status: r.status,
+                    firstName: user?.firstName || '',
+                    lastName: user?.lastName || '',
+                    profilePicUrl,
+                };
+            })
+        );
+
+        // ✅ Enrich sender
+        const sender = await User.findById(invite.senderId)
+            .select('_id firstName lastName profilePic')
+            .lean();
+
+        let presignedSenderProfileUrl = null;
+        if (sender?.profilePic?.photoKey) {
+            presignedSenderProfileUrl = await generateDownloadPresignedUrl(sender.profilePic.photoKey);
+        }
+
+        const enrichedSender = {
+            id: sender?._id?.toString(),
+            firstName: sender?.firstName || '',
+            lastName: sender?.lastName || '',
+            profilePicUrl: presignedSenderProfileUrl,
+        };
+
+        // ✅ Enrich business
+        const business = await Business.findOne({ placeId: invite.placeId }).lean();
+        let presignedPhotoUrl = null;
+        if (business?.logoKey) {
+            presignedPhotoUrl = await generateDownloadPresignedUrl(business.logoKey);
+        }
+
+        // ✅ Send enriched invite
+        res.status(200).json({
+            success: true,
+            message: 'Request rejected',
+            invite: {
+                ...invite.toObject(),
+                type: 'invite',
+                recipients: enrichedRecipients,
+                requests: enrichedRequests,
+                sender: enrichedSender,
+                business: {
+                    ...business,
+                    presignedPhotoUrl,
+                },
+            },
+        });
+
     } catch (err) {
         console.error('❌ Failed to reject request:', err);
-        res.status(500).json({ error: 'Failed to reject request' });
+        res.status(500).json({ error: 'Failed to reject request', details: err.message });
     }
 });
 

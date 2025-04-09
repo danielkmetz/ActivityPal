@@ -51,6 +51,18 @@ export const createNotification = createAsyncThunk(
     }
 );
 
+export const deleteNotification = createAsyncThunk(
+    'notifications/deleteNotification',
+    async ({ userId, notificationId }, { rejectWithValue }) => {
+        try {
+            const res = await axios.delete(`${BASE_URL}/notifications/${userId}/notifications/${notificationId}`);
+            return { userId, notificationId };
+        } catch (err) {
+            return rejectWithValue(err.response?.data || 'Delete failed');
+        }
+    }
+);
+
 const notificationsSlice = createSlice({
     name: 'notifications',
     initialState: {
@@ -92,6 +104,13 @@ const notificationsSlice = createSlice({
             })
             .addCase(createNotification.fulfilled, (state) => {
                 state.status = 'idle'
+            })
+            .addCase(deleteNotification.fulfilled, (state, action) => {
+                const { notificationId } = action.payload;
+                state.list = state.list.filter(n => n._id !== notificationId); // ✅ correct key
+            })            
+            .addCase(deleteNotification.rejected, (state, action) => {
+                state.error = action.payload;
             })
     },
 });
