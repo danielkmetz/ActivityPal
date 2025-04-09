@@ -108,5 +108,4 @@ router.delete('/:userId/notifications/:notificationId', async (req, res) => {
     }
 });
 
-
 module.exports = router;
