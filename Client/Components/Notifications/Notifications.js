@@ -437,6 +437,7 @@ const styles = StyleSheet.create({
         backgroundColor: "#F0F2F5",
         paddingVertical: 10,
         marginTop: 120,
+        paddingBottom: 100,
     },
     notificationCard: {
         flexDirection: 'row',
