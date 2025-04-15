@@ -1,24 +1,19 @@
 import React, { useState, useRef } from "react";
 import {
-  View,
-  Text,
   StyleSheet,
   FlatList,
-  TouchableOpacity,
-  Image,
   Animated,
 } from "react-native";
-import { Avatar } from '@rneui/themed';
-import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { toggleLike } from "../../Slices/ReviewsSlice";
+import { toggleLike, deleteReview, editReview } from "../../Slices/ReviewsSlice";
+import { editCheckIn } from "../../Slices/CheckInsSlice";
+import { editInvite } from "../../Slices/InvitesSlice";
 import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
 import CommentModal from "./CommentModal";
-import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import { createNotification } from "../../Slices/NotificationsSlice";
-import PhotoItem from "./PhotoItem";
-import PhotoPaginationDots from "./PhotoPaginationDots";
 import InviteCard from "./InviteCard";
+import ReviewItem from "./ReviewItem";
+import CheckInItem from "./CheckInItem";
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
@@ -30,7 +25,7 @@ export default function Reviews({ reviews, ListHeaderComponent, scrollY, onScrol
   const lastTapRef = useRef({});
   const [likedAnimations, setLikedAnimations] = useState({});
   const scrollX = useRef(new Animated.Value(0)).current;
-  
+
   const userId = user?.id
   const fullName = `${user?.firstName} ${user?.lastName}`;
 
@@ -45,7 +40,7 @@ export default function Reviews({ reviews, ListHeaderComponent, scrollY, onScrol
   const handleLike = async (postType, postId) => {
     // Determine where to find the post (reviews for businesses, check-ins for users)
     const postToUpdate = reviews.find((review) => review._id === postId);
-    
+
     if (!postToUpdate) {
       console.error(`${postType} with ID ${postId} not found.`);
       return;
@@ -140,6 +135,62 @@ export default function Reviews({ reviews, ListHeaderComponent, scrollY, onScrol
     setPhotoTapped(photoTapped === photoKey ? null : photoKey);
   };
 
+  const handleDeletePost = async (post) => {
+    try {
+      if (post.type === 'review') {
+        const placeId = post.placeId;
+        const reviewId = post._id;
+        await dispatch(deleteReview({ placeId, reviewId }));
+      } else if (post.type === 'check-in') {
+        const checkInId = post._id;
+        await dispatch(deleteCheckIn(checkInId));
+      } else if (post.type === 'invite') {
+        const senderId = post.senderId || post.sender?.id;
+        const inviteId = post._id;
+        const recipientIds = post.recipients?.map((r) => r.id || r._id) || [];
+        await dispatch(deleteInvite({ senderId, inviteId, recipientIds }));
+      } else {
+        console.warn('Unsupported post type:', post.type);
+      }
+    } catch (error) {
+      console.error('Error deleting post:', error);
+    }
+  };
+
+  const handleEditPost = async (post, updates) => {
+    try {
+      if (post.type === 'review') {
+        const payload = {
+          placeId: post.placeId,
+          reviewId: post._id,
+          rating: updates.rating,
+          reviewText: updates.reviewText,
+          taggedUsers: updates.taggedUsers || [],
+          photos: updates.photos || [],
+        };
+        await dispatch(editReview(payload));
+      } else if (post.type === 'check-in') {
+        const payload = {
+          id: post._id,
+          updatedData: updates,
+        };
+        await dispatch(editCheckIn(payload));
+      } else if (post.type === 'invite') {
+        const payload = {
+          inviteId: post._id,
+          recipientId: post.senderId || post.sender?.id,
+          recipientIds: updates.recipientIds || post.recipients?.map(r => r._id || r.id) || [],
+          updates,
+        };
+        await dispatch(editInvite(payload));
+      } else {
+        console.warn("Unsupported post type for editing:", post.type);
+      }
+    } catch (error) {
+      console.error("Error editing post:", error);
+    }
+  };
+
   return (
     <>
       <AnimatedFlatList
@@ -151,159 +202,60 @@ export default function Reviews({ reviews, ListHeaderComponent, scrollY, onScrol
         onScroll={
           scrollY
             ? Animated.event(
-                [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-                {
-                  useNativeDriver: true,
-                  listener: onScroll,
-                }
-              )
+              [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+              {
+                useNativeDriver: true,
+                listener: onScroll,
+              }
+            )
             : onScroll || undefined
         }
         scrollEventThrottle={16}
         renderItem={({ item }) => {
           if (item.type === 'invite') {
-            return <InviteCard invite={item} handleLike={handleLike} handleOpenComments={handleOpenComments}/>;
+            return (
+              <InviteCard 
+                invite={item} 
+                handleLike={handleLike} 
+                handleOpenComments={handleOpenComments} 
+                handleDelete={handleDeletePost}
+                handleEdit={handleEditPost}
+              />
+            )
           }
-          
+
+          if (item.type === "check-in") {
+            return (
+              <CheckInItem
+                item={item}
+                scrollX={scrollX}
+                likedAnimations={likedAnimations}
+                photoTapped={photoTapped}
+                toggleTaggedUsers={toggleTaggedUsers}
+                handleLikeWithAnimation={handleLikeWithAnimation}
+                handleLike={handleLike}
+                handleOpenComments={handleOpenComments}
+                lastTapRef={lastTapRef}
+                handleDelete={handleDeletePost}
+                handleEdit={handleEditPost}
+              />
+            );
+          }
           return (
-          <View style={styles.reviewCard}>
-            <View style={styles.section}>
-              <View style={styles.userPicAndName}>
-                <View style={styles.profilePic}>
-                  <Avatar
-                    size={45}
-                    rounded
-                    source={item?.profilePicUrl ? { uri: item?.profilePicUrl } : profilePicPlaceholder} // Show image if avatarUrl exists
-                    icon={!item?.avatarUrl ? { name: 'person', type: 'material', color: '#fff' } : null} // Show icon if no avatarUrl
-                    containerStyle={{ backgroundColor: '#ccc' }} // Set background color for the generic avatar
-                  />
-                </View>
-
-                {item?.taggedUsers?.length === 0 ? (
-                  <Text style={styles.userEmailText}>{item.fullName}</Text>
-                ) : (
-                  <Text>
-                    <Text style={styles.userEmailText}>{item.fullName}</Text>
-                    {item.taggedUsers && item.taggedUsers?.length > 0 ? (
-                      <>
-                        {" "}is with{" "}
-                        {item.taggedUsers.map((user, index) => (
-                          <Text key={user._id || `tagged-user-${index}`} style={styles.userEmailText}>
-                            {user.fullName}
-                            {index < item.taggedUsers?.length - 1 ? ", " : ""}
-                          </Text>
-                        ))}
-                        {item.type === "check-in" && (
-                          <>
-                            {" "}at{"\n"}
-                            <Text style={styles.businessCheckIn} numberOfLines={null}>
-                              {item.businessName}
-                            </Text>
-                          </>
-                        )}
-                        {item.type === "check-in" && item.photos?.length > 0 && (
-                          <Image
-                            source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
-                            style={styles.smallPinIcon}
-                          />
-                        )}
-                      </>
-                    ) : null}
-                  </Text>
-                )}
-                {item.type === "check-in" && item.taggedUsers?.length === 0 && (
-                  <>
-                    <Text> is at </Text>
-                    <Text style={styles.business} numberOfLines={0}>{item.businessName}</Text>
-                    {item.photos?.length > 0 && (
-                      <Image
-                        source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
-                        style={styles.smallPinIcon}
-                      />
-                    )}
-                  </>
-                )}
-              </View>
-              {item.type === 'check-in' && <Text style={styles.message}>{item.message || null}</Text>}
-              {item.type == "review" && <Text style={styles.business}>{item.businessName}</Text>}
-              {item.type === "check-in" && item.photos?.length === 0 && (
-                <Image
-                  source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
-                  style={styles.pinIcon}
-                />
-              )}
-
-              {/* Dynamically render stars */}
-              {item.type === "review" && (
-                <>
-                  <View style={styles.rating}>
-                    {Array.from({ length: item.rating }).map((_, index) => (
-                      <MaterialCommunityIcons
-                        key={index}
-                        name="star"
-                        size={20}
-                        color="gold"
-                      />
-                    ))}
-                  </View>
-                  <Text style={styles.review}>{item.reviewText}</Text>
-                </>
-              )}
-            </View>
-
-            {/* ✅ Render Photos (If Available) */}
-            {item.photos?.length > 0 && (
-              <View>
-                <FlatList
-                  data={item.photos}
-                  horizontal
-                  pagingEnabled
-                  showsHorizontalScrollIndicator={false}
-                  keyExtractor={(photo, index) => index.toString()}
-                  scrollEnabled={item.photos?.length > 1}
-                  onScroll={Animated.event(
-                    [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-                    { useNativeDriver: false } // Native driver is false since we animate layout properties
-                  )}
-                  scrollEventThrottle={16}
-                  renderItem={({ item: photo }) => (
-                    <PhotoItem
-                      photo={photo}
-                      reviewItem={item} // this is the full review item (probably a post or comment)
-                      likedAnimations={likedAnimations}
-                      photoTapped={photoTapped}
-                      toggleTaggedUsers={toggleTaggedUsers}
-                      handleLikeWithAnimation={handleLikeWithAnimation}
-                      lastTapRef={lastTapRef}
-                    />
-                  )}
-                />
-
-                <PhotoPaginationDots photos={item.photos} scrollX={scrollX}/>
-              </View>
-            )}
-
-            <Text style={styles.date}>
-              Posted: {item.date ? new Date(item.date).toISOString().split("T")[0] : "Now"}
-            </Text>
-            <View style={styles.actionsContainer}>
-              <TouchableOpacity
-                onPress={() => handleLike(item.type, item._id)}
-                style={styles.likeButton}
-              >
-                <MaterialCommunityIcons name="thumb-up-outline" size={20} color="#808080" />
-                <Text style={styles.likeCount}>{item?.likes?.length || 0}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => handleOpenComments(item)}
-                style={styles.commentButton}
-              >
-                <MaterialCommunityIcons name="comment-outline" size={20} color="#808080" />
-                <Text style={styles.commentCount}>{item?.comments?.length || 0}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-          )
+            <ReviewItem
+              item={item}
+              scrollX={scrollX}
+              likedAnimations={likedAnimations}
+              photoTapped={photoTapped}
+              toggleTaggedUsers={toggleTaggedUsers}
+              handleLikeWithAnimation={handleLikeWithAnimation}
+              handleLike={handleLike}
+              handleOpenComments={handleOpenComments}
+              lastTapRef={lastTapRef}
+              handleDelete={handleDeletePost}
+              handleEdit={handleEditPost}
+            />
+          );
         }}
       />
       {selectedReview && (

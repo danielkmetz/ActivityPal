@@ -1107,7 +1107,26 @@ export const fetchReviewsByPlaceId = createAsyncThunk(
       return rejectWithValue(error.message || "Failed to fetch reviews via GraphQL");
     }
   }
-)
+);
+
+export const editReview = createAsyncThunk(
+  'reviews/editReview',
+  async ({ placeId, reviewId, rating, reviewText, taggedUsers, photos }, thunkAPI) => {
+    try {
+      const response = await axios.put(`/api/reviews/${placeId}/${reviewId}`, {
+        rating,
+        reviewText,
+        taggedUsers,
+        photos,
+      });
+
+      return response.data.review; // You can return the whole response if needed
+    } catch (error) {
+      console.error('Error editing review:', error);
+      return thunkAPI.rejectWithValue(error.response?.data?.message || 'Failed to edit review');
+    }
+  }
+);
 
 // Reviews slice
 const reviewsSlice = createSlice({
@@ -1444,6 +1463,31 @@ const reviewsSlice = createSlice({
       })
       .addCase(editCommentOrReply.rejected, (state, action) => {
         state.error = action.payload;
+      })
+      .addCase(editReview.pending, (state) => {
+        state.loading = "loading";
+        state.error = null;
+      })
+      .addCase(editReview.fulfilled, (state, action) => {
+        const updatedReview = action.payload;
+        state.loading = "succeeded";
+  
+        // Helper to update review in any given array
+        const updateReviewArray = (array) => {
+          const index = array.findIndex(r => r._id === updatedReview._id);
+          if (index !== -1) {
+            array[index] = updatedReview;
+          }
+        };
+  
+        updateReviewArray(state.userAndFriendsReviews);
+        updateReviewArray(state.profileReviews);
+        updateReviewArray(state.otherUserReviews);
+        updateReviewArray(state.businessReviews);
+      })
+      .addCase(editReview.rejected, (state, action) => {
+        state.loading = "failed";
+        state.error = action.payload || "Error editing review";
       })
   },
 });

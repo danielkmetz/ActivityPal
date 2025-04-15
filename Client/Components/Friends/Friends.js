@@ -107,7 +107,6 @@ export default function Friends() {
                     style: 'destructive',
                     onPress: async () => {
                         try {
-                            console.log(invite);
                             const recipientIds = invite.recipients.map(r => r.userId);
 
                             await dispatch(
