@@ -8,12 +8,9 @@ import {
   StyleSheet,
   Image,
   Pressable,
-  Dimensions,
 } from "react-native";
 import { useSelector } from "react-redux";
 import { selectFriendsDetails } from "../../Slices/UserSlice";
-
-const { width } = Dimensions.get("window"); // Get screen width
 
 const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isEventInvite }) => {
   const [selectedFriends, setSelectedFriends] = useState([]);

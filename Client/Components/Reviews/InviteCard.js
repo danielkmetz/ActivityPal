@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Alert } from 'react-native';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import InviteeModal from '../ActivityInvites/InviteeModal';
@@ -9,11 +9,19 @@ import { createNotification } from '../../Slices/NotificationsSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { useSelector, useDispatch } from 'react-redux';
 import { setUserAndFriendsReviews, selectUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
+import InviteModal from '../ActivityInvites/InviteModal';
+import { deleteInvite } from '../../Slices/InvitesSlice';
+import PostActions from './PostActions';
+import PostOptionsMenu from './PostOptionsMenu';
 
 const InviteCard = ({ invite, handleLike, handleOpenComments }) => {
     const dispatch = useDispatch();
     const [timeLeft, setTimeLeft] = useState(getTimeLeft(invite.dateTime));
     const [modalVisible, setModalVisible] = useState(false);
+    const [editInviteModal, setEditInviteModal] = useState(false);
+    const [inviteToEdit, setInviteToEdit] = useState(null);
+    const [isEditing, setIsEditing] = useState(false);
+    const [dropdownVisible, setDropdownVisible] = useState(false);
     const user = useSelector(selectUser);
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const businessName = invite.businessName || invite.business?.businessName || 'Unnamed Location';
@@ -25,7 +33,58 @@ const InviteCard = ({ invite, handleLike, handleOpenComments }) => {
     const [requested, setRequested] = useState(false);
     const hasRequested = requested || invite.requests?.some(r => r.userId === user.id);
     const isRecipient = userId !== senderId && !invite.recipients?.some(r => r.userId?.toString() === user.id?.toString());
-    const isSender = userId === senderId
+    const isSender = userId === senderId;
+
+    const handleEdit = () => {
+        setInviteToEdit(invite);
+        setEditInviteModal(true);
+        setIsEditing(true);
+    }
+
+    const handleDelete = (invite) => {
+        Alert.alert(
+            'Confirm Deletion',
+            'Are you sure you want to delete your event?',
+            [
+                {
+                    text: 'Cancel',
+                    style: 'cancel',
+                },
+                {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            const recipientIds = invite.recipients.map(r => r.userId);
+
+                            await dispatch(
+                                deleteInvite({
+                                    senderId: user.id,
+                                    inviteId: invite._id,
+                                    recipientIds,
+                                })
+                            ).unwrap();
+
+                            // ✅ Remove invite from local state
+                            dispatch(setUserAndFriendsReviews(
+                                userAndFriendsReviews.filter(item => item._id !== invite._id)
+                            ));
+
+                            // ✅ Close out UI
+                            setIsEditing(false);
+                            setInviteToEdit(null);
+
+                            Alert.alert('Invite Deleted', 'The invite was successfully removed.');
+                        } catch (err) {
+                            console.error('❌ Failed to delete invite:', err);
+                            Alert.alert('Error', 'Could not delete the invite. Please try again.');
+                        }
+                    },
+                },
+            ],
+            { cancelable: true }
+        );
+    };
 
     //console.log(invite)
     const handleRequest = async () => {
@@ -99,6 +158,14 @@ const InviteCard = ({ invite, handleLike, handleOpenComments }) => {
     return (
         <>
             <View style={styles.card}>
+                <PostOptionsMenu
+                    isSender={isSender}
+                    dropdownVisible={dropdownVisible}
+                    setDropdownVisible={setDropdownVisible}
+                    handleEdit={handleEdit}
+                    handleDelete={handleDelete}
+                    postData={invite}
+                />
                 <View style={styles.header}>
                     <Image
                         source={invite.sender?.profilePicUrl ? { uri: invite.sender.profilePicUrl } : profilePicPlaceholder}
@@ -127,22 +194,11 @@ const InviteCard = ({ invite, handleLike, handleOpenComments }) => {
                 </View>
 
                 <View style={styles.actionsContainer}>
-                    <View style={styles.likeComment}>
-                        <TouchableOpacity
-                            onPress={() => handleLike('invite', invite._id)}
-                            style={styles.likeButton}
-                        >
-                            <MaterialCommunityIcons name="thumb-up-outline" size={20} color="#808080" />
-                            <Text style={styles.likeCount}>{invite.likes?.length || 0}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            onPress={() => handleOpenComments(invite)}
-                            style={styles.commentButton}
-                        >
-                            <MaterialCommunityIcons name="comment-outline" size={20} color="#808080" />
-                            <Text style={styles.commentCount}>{invite?.comments?.length || 0}</Text>
-                        </TouchableOpacity>
-                    </View>
+                    <PostActions
+                        item={invite}
+                        handleLike={handleLike}
+                        handleOpenComments={handleOpenComments}
+                    />
                     <View style={styles.requestsAttendance}>
                         {!isRecipient || !isSender && (
                             hasRequested ? (
@@ -168,6 +224,16 @@ const InviteCard = ({ invite, handleLike, handleOpenComments }) => {
                 requests={invite.requests}
                 isSender={isSender}
                 invite={invite}
+            />
+
+            <InviteModal
+                visible={editInviteModal}
+                onClose={() => setEditInviteModal(false)}
+                setShowInviteModal={setEditInviteModal}
+                initialInvite={inviteToEdit}
+                setInviteToEdit={setInviteToEdit}
+                isEditing={isEditing}
+                setIsEditing={setIsEditing}
             />
         </>
     );
@@ -345,6 +411,43 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#007bff', // blue color for call-to-action
     },
+    menuWrapper: {
+        position: 'absolute',
+        top: -10,
+        right: -5,
+        zIndex: 11,
+    },
+    menuIcon: {
+        padding: 4,
+    },
+    dropdownMenu: {
+        position: 'absolute',
+        top: 25,
+        right: 0,
+        backgroundColor: 'white',
+        borderRadius: 6,
+        elevation: 5,
+        paddingVertical: 4,
+        shadowColor: '#000',
+        shadowOpacity: 0.25,
+        shadowOffset: { width: 0, height: 2 },
+        shadowRadius: 4,
+        zIndex: 20,
+        minWidth: 100,
+    },
+    dropdownRow: {
+        flexDirection: 'row'
+    },
+    dropdownItem: {
+        marginTop: 10,
+    },
+    divider: {
+        height: 1,
+        backgroundColor: '#ddd',
+        marginVertical: 4,
+    },
+
+
 });
 
 export default InviteCard;

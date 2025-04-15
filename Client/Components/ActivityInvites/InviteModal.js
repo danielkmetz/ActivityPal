@@ -24,6 +24,7 @@ import { sendInvite, editInvite } from '../../Slices/InvitesSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { setUserAndFriendsReviews, selectUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
+import { selectFriendsDetails } from '../../Slices/UserSlice';
 
 const google_key = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 
@@ -42,6 +43,7 @@ const InviteModal = ({
     const dispatch = useDispatch();
     const user = useSelector(selectUser);
     const userAndFriendReviews = useSelector(selectUserAndFriendsReviews);
+    const friendsDetails = useSelector(selectFriendsDetails);
     const [showFriendsModal, setShowFriendsModal] = useState(false);
     const [selectedPlace, setSelectedPlace] = useState(null);
     const [dateTime, setDateTime] = useState(null);
@@ -56,22 +58,23 @@ const InviteModal = ({
 
     useEffect(() => {
         if (isEditing && initialInvite && visible) {
-            const { business } = initialInvite;
+            const placeId = initialInvite.placeId || initialInvite.business?.placeId;
+            const name = initialInvite.businessName || initialInvite.business?.businessName;
 
-            if (business) {
-                const formattedPlace = {
-                    placeId: business.placeId,
-                    name: business.businessName,
-                };
-                setSelectedPlace(formattedPlace);
-
-                // 👇 This sets the visible text input
-                googleRef.current?.setAddressText(business.businessName);
+            if (placeId && name) {
+                setSelectedPlace({ placeId, name });
+                googleRef.current?.setAddressText(name);
             }
 
             setNote(initialInvite.note || '');
             setDateTime(new Date(initialInvite.dateTime));
-            setSelectedFriends(initialInvite.recipients?.map(r => r.userId) || []);
+
+            const normalizedIds =
+                initialInvite.recipients?.map(r =>
+                    getUserId(r.user || r)
+                ) || [];
+
+            setSelectedFriends(normalizedIds);
         }
     }, [isEditing, initialInvite, visible]);
 
@@ -114,7 +117,7 @@ const InviteModal = ({
             alert('Please complete all invite details.');
             return;
         }
-    
+
         const invitePayload = {
             senderId: user.id,
             recipientIds: selectedFriends,
@@ -125,7 +128,7 @@ const InviteModal = ({
             note,
             isPublic,
         };
-    
+
         try {
             const normalizeCreatedAt = (item) => {
                 if (item.createdAt) return item;
@@ -135,7 +138,7 @@ const InviteModal = ({
                     createdAt: dateSource || new Date().toISOString(),
                 };
             };
-    
+
             function updateFeedWithItem(feed, updatedItem) {
                 const normalizedFeed = feed
                     .filter(item => item._id !== updatedItem._id)
@@ -144,9 +147,9 @@ const InviteModal = ({
                     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
                 return normalizedFeed;
             }
-    
+
             let finalFeed = [...(userAndFriendReviews || [])];
-    
+
             if (isEditing && initialInvite) {
                 const updates = {
                     placeId: selectedPlace.placeId,
@@ -163,34 +166,34 @@ const InviteModal = ({
                     recipientIds: selectedFriends,
                     businessName: selectedPlace.name,
                 }));
-    
+
                 const enrichedInvite = {
                     ...updatedInvite,
                     type: 'invite',
                     createdAt: updatedInvite.dateTime,
                 };
-    
+
                 finalFeed = updateFeedWithItem(userAndFriendReviews, enrichedInvite);
-                
+
                 alert('Invite updated!');
             } else {
                 const { payload: newInvite } = await dispatch(sendInvite(invitePayload));
-                
+
                 const enrichedInvite = {
                     ...newInvite.invite,
                     type: 'invite',
                     createdAt: newInvite.invite.dateTime,
                 };
-    
+
                 finalFeed = [...finalFeed, enrichedInvite]
                     .map(normalizeCreatedAt)
                     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    
+
                 alert('Invite sent!');
             }
-    
+
             dispatch(setUserAndFriendsReviews(finalFeed));
-    
+
             // Reset form
             setSelectedFriends([]);
             setNote('');
@@ -206,8 +209,28 @@ const InviteModal = ({
             alert('Something went wrong. Please try again.');
         }
     };
-    
+
     if (!visible) return null;
+
+    const getUserId = (user) => {
+        return user?._id || user?.id || user?.userId || user?.user?._id || user?.user?.id;
+    };
+
+    const displayFriends = [
+        ...friendsDetails,
+        ...(initialInvite?.recipients?.map(r => r.user || r) || [])
+    ]
+        .filter((user, index, self) => {
+            const id = getUserId(user);
+
+            return (
+                id &&
+                selectedFriends.includes(id) &&
+                index === self.findIndex(u => getUserId(u) === id)
+            );
+        });
+
+    //console.log(initialInvite)
 
     return (
         <Modal
@@ -330,31 +353,27 @@ const InviteModal = ({
                                         showsHorizontalScrollIndicator={false}
                                         contentContainerStyle={styles.selectedFriendsPreview}
                                     >
-                                        {friends
-                                            .filter((friend) => selectedFriends.includes(friend._id))
-                                            .map((friend) => (
+                                        {displayFriends.map((friend) => {
+                                            const id = getUserId(friend);
+
+                                            return (
                                                 <TouchableOpacity
-                                                    key={friend._id}
+                                                    key={id}
                                                     style={styles.friendPreview}
-                                                    onPress={() =>
-                                                        setSelectedFriends((prev) =>
-                                                            prev.filter((id) => id !== friend._id)
-                                                        )
-                                                    }
+                                                    onPress={() => setSelectedFriends(prev => prev.filter(fid => fid !== id))}
                                                 >
                                                     <Image
                                                         source={
-                                                            friend.presignedProfileUrl
-                                                                ? { uri: friend.presignedProfileUrl }
+                                                            friend.profilePicUrl || friend.presignedProfileUrl
+                                                                ? { uri: friend.profilePicUrl || friend.presignedProfileUrl }
                                                                 : require('../../assets/pics/profile-pic-placeholder.jpg')
                                                         }
                                                         style={styles.profilePic}
                                                     />
-                                                    <Text style={styles.friendName}>
-                                                        {friend.firstName}
-                                                    </Text>
+                                                    <Text style={styles.friendName}>{friend.firstName}</Text>
                                                 </TouchableOpacity>
-                                            ))}
+                                            );
+                                        })}
                                     </ScrollView>
 
                                     <TouchableOpacity
