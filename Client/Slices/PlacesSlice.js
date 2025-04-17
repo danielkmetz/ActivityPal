@@ -7,11 +7,27 @@ const apiKey = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
 
 const activityTypeKeywords = {
-    Dining: ['restaurant', 'bar'],
-    Entertainment: ['top golf', 'arcade', 'entertainment',],
-    Outdoor: ['park', 'hiking', 'nature'],
-    Indoor: ['bowling', 'movie theater', 'museum', 'top golf', 'arcade'],
-    // Add other categories as needed
+    Dining: [
+        'restaurant', 'cafe', 'bistro', 'brunch', 'tapas', 'steakhouse', 'seafood', 'barbecue',
+        'pizza', 'sushi', 'brewery', 'wine bar', 'rooftop bar', 'food truck'
+    ],
+    Entertainment: [
+        'comedy club', 'live music', 'karaoke', 'theater', 'concert', 'escape room', 'arcade',
+        'billiards', 'nightclub', 'laser tag', 'virtual reality', 'trampoline park'
+    ],
+    Outdoor: [
+        'hiking', 'park', 'trail', 'beach', 'lake', 'fishing', 'golf course', 'kayaking',
+        'farmers market', 'zoo', 'botanical garden', 'campground', 'climbing gym outdoor'
+    ],
+    Indoor: [
+        'bowling', 'indoor trampoline', 'museum', 'aquarium', 'art gallery', 'indoor golf',
+        'arcade', 'escape room', 'indoor skydiving', 'indoor climbing', 'indoor mini golf',
+        'indoor go kart'
+    ],
+    Family: [
+        'children’s museum', 'playground', 'petting zoo', 'kid friendly cafe', 'indoor playground',
+        'family bowling', 'puppet theater', 'story time', 'mini golf', 'ice cream shop'
+    ],
 };
 
 const quickFilters = {
@@ -30,10 +46,14 @@ const quickFilters = {
 
 export const fetchNearbyPlaces = createAsyncThunk(
     'places/fetchNearbyPlaces',
-    async ({ lat, lng, radius, budget, activityType }) => {
+    async ({ lat, lng, radius, budget, activityType, isCustom = false }) => {
         try {
             const isBudgetFriendly = activityType === 'budgetFriendly';
-            const keywords = isBudgetFriendly ? [''] : (quickFilters[activityType] || []);
+            const keywords = isBudgetFriendly
+                ? ['']
+                : isCustom
+                    ? (activityTypeKeywords[activityType] || [])
+                    : (quickFilters[activityType] || []);
 
             // Define a function to filter and format place results
             const filterAndFormatPlaces = (places) => {
@@ -58,7 +78,7 @@ export const fetchNearbyPlaces = createAsyncThunk(
                             place.types.includes("food") ||
                             place.types.includes("bakery") ||
                             place.types.includes("bar")
-                        )) && 
+                        )) &&
                         place.opening_hours?.open_now &&
                         (
                             (isBudgetFriendly && (place.price_level === 0 || place.price_level === 1)) ||
@@ -187,7 +207,7 @@ export const fetchEvents = createAsyncThunk(
             const events = response.data._embedded?.events || [];
 
             // Filter valid events
-            const filteredEvents = events.filter(event => 
+            const filteredEvents = events.filter(event =>
                 event.name && event.dates?.start?.dateTime && typeof event.url === 'string'
             );
 
@@ -264,46 +284,46 @@ export const placesSlice = createSlice({
     },
     extraReducers: (builder) => {
         builder
-        .addCase(fetchNearbyPlaces.pending, (state) => {
-            state.status = 'loading';
-        })
-        .addCase(fetchNearbyPlaces.fulfilled, (state, action) => {
-            state.status = 'succeeded';
-            state.places = action.payload;
-        })
-        .addCase(fetchNearbyPlaces.rejected, (state, action) => {
-            state.status = 'failed';
-            state.error = action.error.message;
-        })
-        .addCase(fetchEvents.pending, (state) => {
-            state.status = 'loading';
-        })
-        .addCase(fetchEvents.fulfilled, (state, action) => {
-            state.status = 'succeeded';
-            state.events = action.payload;
-        })
-        .addCase(fetchEvents.rejected, (state, action) => {
-            state.status = 'failed';
-            state.error = action.error.message;
-        })
-        .addCase(fetchBusinessData.pending, (state) => {
-            state.status = 'loading';
-        })
-        .addCase(fetchBusinessData.fulfilled, (state, action) => {
-            state.status = 'succeeded';
-            state.businessData = action.payload; // Store businesses in state
-        })
-        .addCase(fetchBusinessData.rejected, (state, action) => {
-            state.status = 'failed';
-            state.error = action.error.message;
-        })
-        
+            .addCase(fetchNearbyPlaces.pending, (state) => {
+                state.status = 'loading';
+            })
+            .addCase(fetchNearbyPlaces.fulfilled, (state, action) => {
+                state.status = 'succeeded';
+                state.places = action.payload;
+            })
+            .addCase(fetchNearbyPlaces.rejected, (state, action) => {
+                state.status = 'failed';
+                state.error = action.error.message;
+            })
+            .addCase(fetchEvents.pending, (state) => {
+                state.status = 'loading';
+            })
+            .addCase(fetchEvents.fulfilled, (state, action) => {
+                state.status = 'succeeded';
+                state.events = action.payload;
+            })
+            .addCase(fetchEvents.rejected, (state, action) => {
+                state.status = 'failed';
+                state.error = action.error.message;
+            })
+            .addCase(fetchBusinessData.pending, (state) => {
+                state.status = 'loading';
+            })
+            .addCase(fetchBusinessData.fulfilled, (state, action) => {
+                state.status = 'succeeded';
+                state.businessData = action.payload; // Store businesses in state
+            })
+            .addCase(fetchBusinessData.rejected, (state, action) => {
+                state.status = 'failed';
+                state.error = action.error.message;
+            })
+
     }
 });
 
 export default placesSlice.reducer;
 
-export const {resetPlaces, resetEvents, resetBusinessData} = placesSlice.actions;
+export const { resetPlaces, resetEvents, resetBusinessData } = placesSlice.actions;
 
 export const selectPlaces = (state) => state.places.places;
 export const selectEvents = (state) => state.places.events;

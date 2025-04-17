@@ -1,4 +1,28 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from "expo-image-picker";
+
+export const launchImagePickerAndFormat = async () => {
+  try {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaType,
+      allowsMultipleSelection: true,
+      quality: 1,
+    });
+
+    if (result.canceled) return [];
+
+    return result.assets.map((asset) => ({
+      uri: asset.uri,
+      name: asset.uri.split("/").pop(),
+      type: asset.type || "image/jpeg",
+      description: "",
+      taggedUsers: [],
+    }));
+  } catch (error) {
+    console.error("Error launching image picker:", error);
+    return [];
+  }
+};
 
 export const milesToMeters = (miles) => {
     return miles * 1609.34;

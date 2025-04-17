@@ -6,7 +6,7 @@ const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
 // Thunk to fetch AI-curated places
 export const fetchGooglePlaces = createAsyncThunk(
   'GooglePlaces/fetchGooglePlaces',
-  async ({ lat, lng, activityType, radius, budget }, { rejectWithValue }) => {
+  async ({ lat, lng, activityType, radius, budget, isCustom }, { rejectWithValue }) => {
     try {
       const response = await axios.post(`${BASE_URL}/google/places`, {
         lat,
@@ -14,6 +14,7 @@ export const fetchGooglePlaces = createAsyncThunk(
         activityType,
         radius,
         budget,
+        isCustom,
       });
       return response.data.curatedPlaces;
     } catch (err) {

@@ -10,26 +10,21 @@ import {
   Animated,
   Easing,
   Keyboard,
-  Image,
-  Dimensions,
-  TouchableWithoutFeedback,
 } from 'react-native';
-import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg'
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { selectUser } from '../../Slices/UserSlice';
 import { addComment, addReply, deleteCommentOrReply, editCommentOrReply } from '../../Slices/ReviewsSlice';
 import { useSelector, useDispatch } from 'react-redux';
 import { createNotification } from '../../Slices/NotificationsSlice';
-import { Avatar } from '@rneui/themed';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import Reply from './Reply';
-import ModalBox from 'react-native-modal';
 import { formatEventDate, getTimeLeft } from '../../functions';
-import PhotoItem from './PhotoItem';
-import PhotoPaginationDots from './PhotoPaginationDots';
-
-const screenWidth = Dimensions.get("window").width;
+import CommentModalHeader from './CommentModalHeader';
+import CommentOptionsModal from './CommentOptionsModal';
+import CommentBubble from './CommentBubble';
+import CommentActions from './CommentActions';
+import CommentInputFooter from './CommentINputFooter';
 
 dayjs.extend(relativeTime);
 
@@ -73,9 +68,9 @@ function CommentModal({
   const [contentHeight, setContentHeight] = useState(40);
   const scrollX = useRef(new Animated.Value(0)).current;
   const postOwnerPic = review?.type === "invite" ? review?.sender?.profilePicUrl
-        ? review?.sender?.profilePicUrl
-        : review?.profilePicUrl
-      : review?.profilePicUrl;
+    ? review?.sender?.profilePicUrl
+    : review?.profilePicUrl
+    : review?.profilePicUrl;
   const postOwnerName =
     review?.type === "invite"
       ? review?.sender?.firstName && review?.sender?.lastName
@@ -83,7 +78,6 @@ function CommentModal({
         : review?.fullName
       : review?.fullName;
   const totalInvited = review?.recipients?.length || 0;
-  const totalGoing = review?.recipients?.filter(r => r.status === 'accepted').length || 0;
   const hasTaggedUsers = Array.isArray(review?.taggedUsers) && review.taggedUsers.length > 0;
   const isInvite = review?.type === "invite";
 
@@ -569,170 +563,50 @@ function CommentModal({
             index,
           })}
           ListHeaderComponent={(
-            <View style={styles.header}>
-              <View style={styles.headerText}>
-                <View style={styles.userInfo}>
-                  <Avatar
-                    size={48}
-                    rounded
-                    source={postOwnerPic ? { uri: postOwnerPic } : profilePicPlaceholder} // Show image if avatarUrl exists
-                    icon={!review?.avatarUrl ? { name: 'person', type: 'material', color: '#fff' } : null} // Show icon if no avatarUrl
-                    containerStyle={{ backgroundColor: '#ccc' }} // Set background color for the generic avatar
-                  />
-                  <Text style={styles.reviewerName}>
-                    {isInvite ? (
-                      <Text style={styles.fullName}>
-                        {postOwnerName} invited {totalInvited} friend
-                        {totalInvited.length === 1 ? '' : 's'} to a Vybe
-                      </Text>
-                    ) : (
-                      <Text style={styles.fullName}>{postOwnerName}</Text>
-                    )}
-                    {!isInvite && hasTaggedUsers ? " is with " : !isInvite ? " is " : null}
-                    {Array.isArray(review?.taggedUsers) && review?.taggedUsers?.map((user, index) => (
-                      <Text key={user?.userId || `tagged-${index}`} style={styles.taggedUser}>
-                        {user?.fullName}
-                        {index !== review?.taggedUsers.length - 1 ? ", " : ""}
-                      </Text>
-                    ))}
-
-                    {/* ✅ Force business name to appear on the next line using \n */}
-                    {review?.type === "check-in" && (
-                      <Text>
-                        {" "}
-                        at
-                        {hasTaggedUsers ? (
-                          <Text>{'\n'}</Text>
-                        ) : (
-                          <Text>{" "}</Text>)
-                        }
-                        <Text style={styles.businessName}>{review.businessName}</Text>
-                        {review.photos.length > 0 && (
-                          <Image
-                            source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
-                            style={styles.smallPinIcon}
-                          />
-                        )}
-                      </Text>
-                    )}
-                  </Text>
-
-                </View>
-                <Text style={styles.businessName}>
-                  {review?.type === "review" || isInvite ? review?.businessName : ""}
-                </Text>
-
-                {(review?.dateTime || review?.date) && isInvite && (
-                  <>
-                    <Text style={styles.datetime}>On {formatEventDate(dateTime)}</Text>
-                    <Text style={styles.note}>{review.note}</Text>
-                    <View style={styles.countdownContainer}>
-                      <Text style={styles.countdownLabel}>Starts in:</Text>
-                      <Text style={styles.countdownText}>{timeLeft}</Text>
-                    </View>
-                  </>
-                )}
-
-                {/* Dynamically render stars */}
-                <View style={styles.rating}>
-                  {Array.from({ length: review?.rating }).map((_, index) => (
-                    <MaterialCommunityIcons
-                      key={index}
-                      name="star"
-                      size={20}
-                      color="gold"
-                    />
-                  ))}
-                </View>
-                <Text style={styles.reviewText}>{review?.type === "review" ? review?.reviewText : review?.message}</Text>
-              </View>
-              {/* ✅ Render Photos (If Available) */}
-              {review?.photos?.length > 0 && (
-                <View>
-                  <FlatList
-                    data={review?.photos}
-                    horizontal
-                    pagingEnabled
-                    showsHorizontalScrollIndicator={false}
-                    keyExtractor={(item) => item._id}
-                    onScroll={Animated.event(
-                      [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-                      { useNativeDriver: false } // Native driver is false since we animate layout properties
-                    )}
-                    scrollEventThrottle={16}
-
-                    renderItem={({ item: photo }) => (
-                      <PhotoItem
-                        photo={photo}
-                        reviewItem={review} // this is the full review item (probably a post or comment)
-                        likedAnimations={likedAnimations}
-                        photoTapped={photoTapped}
-                        toggleTaggedUsers={toggleTaggedUsers}
-                        handleLikeWithAnimation={handleLikeWithAnimation}
-                        lastTapRef={lastTapRef}
-                      />
-                    )}
-                  />
-                  {/* Dots Indicator */}
-                  {review.photos?.length > 1 && (
-                    <PhotoPaginationDots photos={review.photos} scrollX={scrollX} />
-                  )}
-                </View>
-              )}
-              {review?.type === "check-in" && review.photos.length === 0 && (
-                <Image
-                  source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
-                  style={styles.pinIcon}
-                />
-              )}
-
-              <Text style={styles.reviewDate}>{getTimeSincePosted(review?.date)} ago</Text>
-            </View>
-
+            <CommentModalHeader
+              review={review}
+              isInvite={isInvite}
+              hasTaggedUsers={hasTaggedUsers}
+              postOwnerPic={postOwnerPic}
+              postOwnerName={postOwnerName}
+              totalInvited={totalInvited}
+              timeLeft={timeLeft}
+              dateTime={dateTime}
+              formatEventDate={formatEventDate}
+              scrollX={scrollX}
+              likedAnimations={likedAnimations}
+              photoTapped={photoTapped}
+              toggleTaggedUsers={toggleTaggedUsers}
+              handleLikeWithAnimation={handleLikeWithAnimation}
+              lastTapRef={lastTapRef}
+              getTimeSincePosted={getTimeSincePosted}
+            />
           )}
           renderItem={({ item }) => (
             <TouchableOpacity
               onLongPress={() => handleLongPress(item)}
             >
               <View style={styles.commentCard}>
-                <View style={styles.commentBubble}>
-                  <Text style={styles.commentAuthor}>{item.fullName}:</Text>
-
-                  {/* Show TextInput if editing, otherwise show text */}
-                  {isEditing && selectedComment?._id === item._id ? (
-                    <TextInput
-                      style={styles.editInput}
-                      value={editedText}
-                      onChangeText={setEditedText}
-                      autoFocus={true}
-                      multiline
-                    />
-                  ) : (
-                    <Text style={styles.commentText}>{item.commentText}</Text>
-                  )}
-                </View>
-
+              <CommentBubble
+                fullName={item.fullName}
+                commentText={item.commentText}
+                isEditing={isEditing}
+                editedText={editedText}
+                setEditedText={setEditedText}
+                isSelected={selectedComment?._id === item._id}
+              />
                 <View style={styles.replyContainer}>
                   <Text style={styles.commentDate}>{getTimeSincePosted(item.date)}</Text>
 
                   {/* Show Save and Cancel buttons when editing */}
-                  {isEditing && selectedComment?._id === item._id ? (
-                    <>
-                      <TouchableOpacity onPress={handleSaveEdit} style={styles.saveButton}>
-                        <Text style={styles.saveButtonText}>Save</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => setIsEditing(false)} style={styles.cancelButton}>
-                        <Text style={styles.cancelButtonText}>Cancel</Text>
-                      </TouchableOpacity>
-                    </>
-                  ) : (
-                    <TouchableOpacity onPress={() => handleReplyButtonClick(item._id)} style={styles.replyButton}>
-                      <MaterialCommunityIcons name="comment-outline" size={20} color="#808080" />
-                      <Text style={styles.replyButtonText}>
-                        {replyingTo === item._id ? 'Cancel' : 'Reply'}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
+                  <CommentActions
+                    isEditing={isEditing}
+                    isSelected={selectedComment?._id === item._id}
+                    onSaveEdit={handleSaveEdit}
+                    onCancelEdit={() => setIsEditing(false)}
+                    onReply={() => handleReplyButtonClick(item._id)}
+                    isReplying={replyingTo === item._id}
+                  />
 
                   {/* Nested Replies Toggle */}
                   {item.replies && item.replies.length > 0 && (
@@ -796,51 +670,23 @@ function CommentModal({
             </TouchableOpacity>
           )}
         />
-        {(replyingTo === null && !nestedReplyInput && !isEditing) && (
-          <>
-            <View style={styles.commentInputContainer}>
-              <TextInput
-                style={[styles.commentInput, { height: inputHeight }]}
-                placeholder={'Write a comment...'}
-                value={commentText}
-                onChangeText={setCommentText}
-                multiline={true} // ✅ Enables multiple lines
-                textAlignVertical="top" // ✅ Aligns text to top
-                onContentSizeChange={(event) => {
-                  setContentHeight(event.nativeEvent.contentSize.height);
-                }}
-              />
-              <TouchableOpacity
-                style={styles.commentButton}
-                onPress={handleAddComment}
-              >
-                <Text style={styles.commentButtonText}>{'Post'}</Text>
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Text style={styles.closeButtonText}>Close</Text>
-            </TouchableOpacity>
-          </>
+        {replyingTo === null && !nestedReplyInput && !isEditing && (
+          <CommentInputFooter
+            commentText={commentText}
+            setCommentText={setCommentText}
+            handleAddComment={handleAddComment}
+            onClose={onClose}
+            inputHeight={inputHeight}
+            contentHeight={contentHeight}
+            setContentHeight={setContentHeight}
+          />
         )}
-        <ModalBox
+        <CommentOptionsModal
           isVisible={isModalVisible}
-          onBackdropPress={() => setModalVisible(false)}
-          style={styles.bottomModal}
-        >
-          <View style={styles.modalContent}>
-            <TouchableOpacity onPress={handleEditComment} style={styles.modalButton}>
-              <MaterialCommunityIcons name="pencil-outline" size={20} color="black" />
-              <Text style={styles.modalButtonText}>Edit</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={handleDeleteCommentOrReply} style={styles.modalButton}>
-              <MaterialCommunityIcons name="delete-outline" size={20} color="red" />
-              <Text style={styles.modalButtonTextRed}>Delete</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.modalCancelButton}>
-              <Text style={styles.modalCancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </ModalBox>
+          onClose={() => setModalVisible(false)}
+          onEdit={handleEditComment}
+          onDelete={handleDeleteCommentOrReply}
+        />
       </Animated.View>
     </Modal>
   );
@@ -856,7 +702,6 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     backgroundColor: '#fff',
-    //padding: 15,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     width: '100%',
@@ -867,107 +712,8 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     elevation: 5,
   },
-  bottomModal: {
-    justifyContent: 'flex-end',
-    margin: 0,
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    padding: 15,
-    borderTopLeftRadius: 15,
-    borderTopRightRadius: 15,
-    alignItems: 'center',
-  },
-  modalButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 15,
-    width: '100%',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  modalButtonText: {
-    fontSize: 16,
-    marginLeft: 10,
-  },
-  modalButtonTextRed: {
-    fontSize: 16,
-    marginLeft: 10,
-    color: 'red',
-  },
-  modalCancelButton: {
-    padding: 15,
-    width: '100%',
-    alignItems: 'center',
-  },
-  modalCancelButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#007bff',
-  },
   commentCard: {
     marginBottom: 5,
-  },
-  header: {
-    marginTop: 45,
-    backgroundColor: '#fff',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
-    justifyContent: 'center',
-  },
-  headerText: {
-    padding: 15,
-  },
-  reviewerName: {
-    flexWrap: 'wrap',
-    flexShrink: 1,
-    fontSize: 16,
-    marginBottom: 10,
-    marginLeft: 10,
-  },
-  businessName: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: '#555',
-  },
-  reviewText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  reviewDate: {
-    marginLeft: 10,
-  },
-  commentBubble: {
-    backgroundColor: '#f0f2f5',
-    padding: 10,
-    borderRadius: 15,
-    marginVertical: 5,
-  },
-  commentAuthor: {
-    fontSize: 13,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  commentText: {
-    fontSize: 14,
-    color: '#555',
-  },
-  commentInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 10,
-    padding: 15,
-  },
-  commentInput: {
-    flex: 1,
-    height: 40,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 5,
-    paddingHorizontal: 10,
-    minHeight: 40, // ✅ Minimum height
-    //maxHeight: 150,
   },
   commentButton: {
     backgroundColor: '#009999',
@@ -995,11 +741,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
-  userInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 5,
-  },
   replyButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1020,10 +761,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     marginRight: 10,
   },
-  rating: {
-    fontSize: 14,
-    flexDirection: 'row',
-  },
   replyButtonText: {
     fontSize: 14,
     color: '#4caf50',
@@ -1041,122 +778,5 @@ const styles = StyleSheet.create({
   replyCountText: {
     fontSize: 14,
     color: '#888',
-  },
-  editInput: {
-    backgroundColor: '#f9f9f9',
-    borderColor: '#ddd',
-    borderWidth: 1,
-    borderRadius: 5,
-    padding: 8,
-    fontSize: 14,
-    minHeight: 40,
-  },
-  saveButton: {
-    backgroundColor: '#4caf50',
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 5,
-    marginLeft: 10,
-  },
-  saveButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  cancelButton: {
-    backgroundColor: '#ccc',
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 5,
-    marginLeft: 10,
-  },
-  cancelButtonText: {
-    color: '#333',
-    fontWeight: 'bold',
-  },
-  photo: {
-    width: screenWidth, // Full width of review minus padding
-    height: 400, // Larger photo height
-    //borderRadius: 8,
-  },
-  paginationContainer: {
-    //position: 'absolute',
-    //bottom: -15,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignSelf: 'center',
-  },
-  fullName: {
-    fontWeight: 'bold'
-  },
-  taggedUser: {
-    fontWeight: 'bold'
-  },
-  pinIcon: {
-    width: 50,
-    height: 50,
-    alignSelf: 'center',
-    marginBottom: 10,
-  },
-  paginationContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 5,
-  },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#ccc',
-    marginHorizontal: 3,
-    marginBottom: 10,
-  },
-
-  tapArea: {
-    position: "absolute",
-    width: "100%",
-    height: "100%",
-  },
-  taggedLabel: {
-    position: "absolute",
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-  },
-  tagText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "bold",
-  },
-  smallPinIcon: {
-    width: 20,
-    height: 20,
-    marginLeft: 10,
-    marginTop: 10,
-  },
-  datetime: {
-    fontSize: 13,
-    color: '#666',
-  },
-  note: {
-    fontStyle: 'italic',
-    color: '#555',
-    marginTop: 10,
-  },
-  countdownContainer: {
-    marginTop: 15,
-    padding: 10,
-    backgroundColor: '#e6f0ff',
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  countdownLabel: {
-    fontSize: 13,
-    color: '#666',
-  },
-  countdownText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#007bff',
   },
 });
