@@ -279,96 +279,106 @@ router.put("/:placeId/:reviewId", async (req, res) => {
   const { rating, reviewText, photos, taggedUsers } = req.body;
 
   try {
-    // Find business
     const business = await Business.findOne({ placeId });
     if (!business) return res.status(404).json({ message: "Business not found" });
 
-    // Find the review within the business
     const reviewIndex = business.reviews.findIndex(r => r._id.toString() === reviewId);
     if (reviewIndex === -1) return res.status(404).json({ message: "Review not found" });
 
     const review = business.reviews[reviewIndex];
 
-    // Update basic fields
+    // Update fields
     if (rating !== undefined) review.rating = rating;
     if (reviewText !== undefined) review.reviewText = reviewText;
 
-    // Fetch user details for tagged users in the review
-    const taggedUserDetails = await User.find(
-      { _id: { $in: taggedUsers } },
-      { firstName: 1, lastName: 1 }
-    );
-    const taggedUserIds = taggedUserDetails.map(user => user._id);
-    review.taggedUsers = taggedUserIds;
+    // Update tagged users
+    const taggedUserDocs = await User.find({ _id: { $in: taggedUsers } }, 'firstName lastName');
+    review.taggedUsers = taggedUserDocs.map(u => u._id);
 
-    // Handle photo updates if provided
-    if (photos && Array.isArray(photos)) {
+    // Update photos
+    if (Array.isArray(photos)) {
       review.photos = await Promise.all(
         photos.map(async (photo) => {
-          const downloadUrl = await generateDownloadPresignedUrl(photo.photoKey);
-
-          const formattedTaggedUsers = photo.taggedUsers.map(tag => ({
-            userId: tag.userId,
-            x: tag.x,
-            y: tag.y
-          }));
+          const formattedTagged = Array.isArray(photo.taggedUsers)
+            ? photo.taggedUsers.map(tag => ({
+                userId: tag.userId,
+                x: tag.x,
+                y: tag.y,
+              }))
+            : [];
 
           return {
             photoKey: photo.photoKey,
             uploadedBy: review.userId,
             description: photo.description || null,
-            taggedUsers: formattedTaggedUsers,
+            taggedUsers: formattedTagged,
             uploadDate: new Date(),
-            url: downloadUrl,
           };
         })
       );
     }
 
-    // Save updated business with modified review
     await business.save();
 
-    // Prepare populated review response
-    const populatedTaggedUsers = taggedUserDetails.map(user => ({
-      userId: user._id,
+    // Prepare response
+    const profileUser = await User.findById(review.userId).populate('profilePic');
+    const profilePicUrl = profileUser?.profilePic?.photoKey
+      ? await generateDownloadPresignedUrl(profileUser.profilePic.photoKey)
+      : null;
+
+    const populatedTaggedUsers = taggedUserDocs.map(user => ({
+      _id: user._id,
       fullName: `${user.firstName} ${user.lastName}`,
     }));
 
     const populatedPhotos = await Promise.all(
       review.photos.map(async (photo) => {
-        const photoTaggedUserDetails = await User.find(
-          { _id: { $in: photo.taggedUsers.map(tag => tag.userId) } },
-          { firstName: 1, lastName: 1 }
+        const taggedUserDetails = await User.find(
+          { _id: { $in: photo.taggedUsers.map(t => t.userId) } },
+          'firstName lastName'
         );
+
+        const userMap = new Map(taggedUserDetails.map(u => [u._id.toString(), u]));
+
+        const formattedTags = photo.taggedUsers.map(tag => {
+          const user = userMap.get(tag.userId.toString());
+          return {
+            _id: tag.userId,
+            fullName: user ? `${user.firstName} ${user.lastName}` : 'Unknown User',
+            x: tag.x,
+            y: tag.y,
+          };
+        });
 
         return {
           ...photo.toObject(),
-          taggedUsers: photoTaggedUserDetails.map(user => ({
-            userId: user._id,
-            fullName: `${user.firstName} ${user.lastName}`,
-            x: photo.taggedUsers.find(tag => tag.userId.toString() === user._id.toString())?.x,
-            y: photo.taggedUsers.find(tag => tag.userId.toString() === user._id.toString())?.y,
-          })),
+          url: await generateDownloadPresignedUrl(photo.photoKey),
+          taggedUsers: formattedTags,
         };
       })
     );
 
-    const updatedReview = {
-      _id: review._id,
-      placeId,
-      userId: review.userId,
-      fullName: review.fullName,
-      rating: review.rating,
-      reviewText: review.reviewText,
-      taggedUsers: populatedTaggedUsers,
-      date: review.date,
-      photos: populatedPhotos,
-      type: "review",
-    };
-
-    res.status(200).json({ message: "Review updated successfully", review: updatedReview });
+    res.status(200).json({
+      message: "Review updated successfully",
+      review: {
+        _id: review._id,
+        placeId,
+        businessName: business.businessName,
+        userId: review.userId,
+        fullName: review.fullName,
+        profilePic: profileUser?.profilePic || null,
+        profilePicUrl,
+        rating: review.rating,
+        reviewText: review.reviewText,
+        taggedUsers: populatedTaggedUsers,
+        date: review.date,
+        photos: populatedPhotos,
+        type: "review",
+        likes: review.likes || [],
+      },
+    });
   } catch (error) {
-    console.error("Error updating review:", error);
+    console.error("🚨 Error updating review:", error);
     res.status(500).json({ message: "Server error" });
   }
 });

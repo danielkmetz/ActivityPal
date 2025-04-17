@@ -23,9 +23,16 @@ export default function EditPhotosModal({ visible, photos, onSave, onClose, phot
 
   const handlePhotoSave = (updatedPhoto) => {
     setPhotoList((prev) =>
-      prev.map((photo) => (photo.uri === updatedPhoto.uri ? updatedPhoto : photo))
+      prev.map((photo) => {
+        const isSamePhoto =
+          (photo._id && updatedPhoto._id && photo._id === updatedPhoto._id) ||
+          (photo.photoKey && updatedPhoto.photoKey && photo.photoKey === updatedPhoto.photoKey) ||
+          (photo.uri && updatedPhoto.uri && photo.uri === updatedPhoto.uri);
+  
+        return isSamePhoto ? updatedPhoto : photo;
+      })
     );
-  };
+  };  
 
   const handleSavePhotos = () => {
     onSave(photoList); // Pass updated photos to parent
@@ -40,7 +47,7 @@ export default function EditPhotosModal({ visible, photos, onSave, onClose, phot
           <View style={styles.photoGrid}>
             {photoList?.map((photo, index) => (
               <TouchableOpacity key={index} onPress={() => handlePhotoClick(photo)}>
-                <Image source={{ uri: photo.uri }} style={styles.photoThumbnail} />
+                <Image source={{ uri: photo.uri || photo.url }} style={styles.photoThumbnail} />
               </TouchableOpacity>
             ))}
           </View>

@@ -125,26 +125,105 @@ router.post("/post", async (req, res) => {
   }
 });
 
-// ✅ Edit an existing check-in (Find user & update check-in)
 router.put("/:userId/:checkInId", async (req, res) => {
+  const { userId, checkInId } = req.params;
+  const { placeId, checkInText, taggedUsers, photos } = req.body;
+
   try {
-    const { userId, checkInId } = req.params;
-    const updates = req.body;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
 
-    const updatedUser = await User.findOneAndUpdate(
-      { _id: userId, "checkIns._id": checkInId },
-      { $set: { "checkIns.$": { ...updates, _id: checkInId } } }, // Update specific check-in
-      { new: true, runValidators: true }
-    );
+    const checkInIndex = user.checkIns.findIndex(c => c._id.toString() === checkInId);
+    if (checkInIndex === -1) return res.status(404).json({ message: "Check-in not found" });
 
-    if (!updatedUser) {
-      return res.status(404).json({ success: false, message: "Check-in not found" });
+    const checkIn = user.checkIns[checkInIndex];
+
+    if (checkInText !== undefined) checkIn.checkInText = checkInText;
+    if (placeId !== undefined) checkIn.placeId = placeId;
+
+    const taggedUserDocs = await User.find({ _id: { $in: taggedUsers || [] } }, 'firstName lastName');
+    checkIn.taggedUsers = taggedUserDocs.map(u => u._id);
+
+    if (Array.isArray(photos)) {
+      checkIn.photos = await Promise.all(
+        photos.map(async (photo) => {
+          const formattedTagged = Array.isArray(photo.taggedUsers)
+            ? photo.taggedUsers.map(tag => ({
+                userId: tag.userId,
+                x: tag.x,
+                y: tag.y,
+              }))
+            : [];
+
+          return {
+            photoKey: photo.photoKey,
+            uploadedBy: user._id,
+            description: photo.description || null,
+            taggedUsers: formattedTagged,
+            uploadDate: new Date(),
+          };
+        })
+      );
     }
 
-    res.status(200).json({ success: true, data: updatedUser.checkIns });
+    await user.save();
+
+    const profilePicUrl = user.profilePic?.photoKey
+      ? await generateDownloadPresignedUrl(user.profilePic.photoKey)
+      : null;
+
+    const populatedTaggedUsers = taggedUserDocs.map(user => ({
+      _id: user._id,
+      fullName: `${user.firstName} ${user.lastName}`,
+    }));
+
+    const populatedPhotos = await Promise.all(
+      checkIn.photos.map(async (photo) => {
+        const taggedUserDetails = await User.find(
+          { _id: { $in: photo.taggedUsers.map(t => t.userId) } },
+          'firstName lastName'
+        );
+
+        const userMap = new Map(taggedUserDetails.map(u => [u._id.toString(), u]));
+
+        const formattedTags = photo.taggedUsers.map(tag => {
+          const user = userMap.get(tag.userId.toString());
+          return {
+            _id: tag.userId,
+            fullName: user ? `${user.firstName} ${user.lastName}` : 'Unknown User',
+            x: tag.x,
+            y: tag.y,
+          };
+        });
+
+        return {
+          ...photo.toObject(),
+          url: await generateDownloadPresignedUrl(photo.photoKey),
+          taggedUsers: formattedTags,
+        };
+      })
+    );
+
+    res.status(200).json({
+      message: "Check-in updated successfully",
+      checkIn: {
+        _id: checkIn._id,
+        placeId: checkIn.placeId,
+        userId: user._id,
+        fullName: `${user.firstName} ${user.lastName}`,
+        profilePic: user.profilePic || null,
+        profilePicUrl,
+        checkInText: checkIn.checkInText,
+        taggedUsers: populatedTaggedUsers,
+        date: checkIn.date,
+        photos: populatedPhotos,
+        type: "check-in",
+        likes: checkIn.likes || [],
+      },
+    });
   } catch (error) {
-    console.error("❌ Error updating check-in:", error);
-    res.status(500).json({ success: false, message: error.message });
+    console.error("🚨 Error updating check-in:", error);
+    res.status(500).json({ message: "Server error" });
   }
 });
 

@@ -230,8 +230,6 @@ const InviteModal = ({
             );
         });
 
-    //console.log(initialInvite)
-
     return (
         <Modal
             visible={visible}

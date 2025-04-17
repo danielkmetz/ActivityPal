@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Image, Text, Animated, TouchableWithoutFeedback, Dimensions, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
@@ -37,7 +37,7 @@ const PhotoItem = ({
         <View style={styles.photoContainer}>
             <TouchableWithoutFeedback onPress={handleTap}>
                 <View>
-                    <Image source={{ uri: photo.url }} style={styles.photo} />
+                    <Image source={{ uri: photo.url || photo.uri }} style={styles.photo} />
 
                     <Animated.View style={[styles.likeOverlay, { opacity: animation }]}>
                         <MaterialCommunityIcons name="thumb-up" size={80} color="#80E6D2" />

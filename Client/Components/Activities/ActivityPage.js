@@ -3,19 +3,17 @@ import {
     View,
     FlatList,
     StyleSheet,
-    TouchableOpacity,
     Text,
-    Image,
     ActivityIndicator,
     SafeAreaView,
     TouchableWithoutFeedback,
     Keyboard,
+    Animated,
 } from 'react-native';
 import PreferencesModal from '../Preferences/Preferences';
 import { selectEvents, selectBusinessData, fetchBusinessData, } from '../../Slices/PlacesSlice';
 import { fetchGooglePlaces, selectGooglePlaces, selectGoogleStatus, clearGooglePlaces } from '../../Slices/GooglePlacesSlice';
 import Activities from './Activities';
-import { GooglePlacesAutocomplete } from "react-native-google-places-autocomplete";
 import Events from './Events';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectEventType } from '../../Slices/PreferencesSlice';
@@ -35,10 +33,15 @@ import microphone from '../../assets/pics/microphone.png';
 import map from '../../assets/pics/map.png';
 import { useNavigation } from '@react-navigation/native';
 import Map from '../Map/Map';
+import FilterDrawer from './FilterDrawer';
+import BottomNavigation from './BottomNavigation';
+import SearchBar from './SearchBar';
+import QuickFilters from './QuickFilters';
 
 const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_KEY;
+const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
-const ActivityPage = () => {
+const ActivityPage = ({ scrollY, onScroll, tabBarTranslateY, headerTranslateY, customNavTranslateY }) => {
     const dispatch = useDispatch();
     const navigation = useNavigation();
     const status = useSelector(selectGoogleStatus);
@@ -53,6 +56,7 @@ const ActivityPage = () => {
     const [filterDrawerVisible, setFilterDrawerVisible] = useState(false);
     const [isMapView, setIsMapView] = useState(false);
     const { currentPage, perPage, categoryFilter } = useSelector(selectPagination);
+    const [atTop, setAtTop] = useState(true);
 
     const lat = coordinates?.lat;
     const lng = coordinates?.lng;
@@ -62,18 +66,28 @@ const ActivityPage = () => {
     const manualBudget = "$$$$";
     const listRef = useRef(null);
 
-    const handleActivityFetch = (type) => {
+    useEffect(() => {
+        const listenerId = scrollY.addListener(({ value }) => {
+          setAtTop(value <= 5);
+        });
+        return () => scrollY.removeListener(listenerId);
+    }, [scrollY]);
+      
+    const handleActivityFetch = (type, isCustom = false, customParams = {}) => {
         if (!lat || !lng) {
             console.warn("Lat/Lng not available yet");
             return;
         }
 
+        setFilterDrawerVisible(false);
+
         dispatch(fetchGooglePlaces({
             lat,
             lng,
             activityType: type,
-            radius: manualDistance,
-            budget: manualBudget,
+            radius: isCustom ? customParams.radius : manualDistance,
+            budget: isCustom ? customParams.budget : manualBudget,
+            isCustom,
         }));
     };
 
@@ -102,8 +116,8 @@ const ActivityPage = () => {
     const paginateRegular = (fullRegular = [], pageNum, perPage) => {
         const endIndex = pageNum * perPage;
         return fullRegular.slice(0, endIndex);
-    };    
-    
+    };
+
     const clearSuggestions = () => {
         if (activities.length > 0) {
             dispatch(clearGooglePlaces());
@@ -132,27 +146,27 @@ const ActivityPage = () => {
             dispatch(fetchBusinessData(placeIds));
         }
     }, [activities]);
-    
+
     // Merge business events into activities only when businessData is available
     const mergedSorted = useMemo(() => {
         const today = new Date();
         const todayStr = today.toISOString().split("T")[0];
         const weekday = today.toLocaleDateString("en-US", { weekday: "long" });
-    
+
         const merged = activities.map(activity => {
             const business = businessData.find(biz => biz.placeId === activity.place_id);
-    
+
             if (business) {
                 const validEvents = (business.events || []).filter(event => {
                     const isOneTimeToday = event.date === todayStr;
                     const isRecurringToday = event.recurringDays?.includes(weekday);
                     return isOneTimeToday || isRecurringToday;
                 });
-    
+
                 const validPromotions = (business.promotions || []).filter(promo =>
                     promo.recurringDays?.includes(weekday)
                 );
-    
+
                 return {
                     ...activity,
                     events: validEvents,
@@ -160,13 +174,13 @@ const ActivityPage = () => {
                     business,
                 };
             }
-    
+
             return { ...activity, events: [], promotions: [] };
         });
-    
+
         const highlighted = merged.filter(item => item.events?.length > 0 || item.promotions?.length > 0);
         const regular = merged.filter(item => item.events?.length === 0 && item.promotions?.length === 0);
-    
+
         return { highlighted, regular };
     }, [activities, businessData]);
 
@@ -189,8 +203,8 @@ const ActivityPage = () => {
 
     const handleLoadMore = () => {
         dispatch(incrementPage());
-    };    
-    
+    };
+
     const allTypes = useMemo(() => {
         const combined = [...highlighted, ...regular];
         const all = new Set();
@@ -210,20 +224,19 @@ const ActivityPage = () => {
     const filteredDisplayList = useMemo(() => {
         const paginatedRegular = paginateRegular(regular, currentPage, perPage);
         const combinedList = [...highlighted, ...paginatedRegular];
-    
+
         const filtered = categoryFilter
             ? combinedList.filter(item => item.types?.includes(categoryFilter))
             : combinedList;
-    
+
         return filtered;
     }, [highlighted, regular, currentPage, perPage, categoryFilter]);
-       
+
+    const TopWrapper = atTop ? SafeAreaView : View; 
+
     return (
-        <SafeAreaView
-            style={[
-                styles.safeArea,
-                activities.length === 0 && { marginTop: -50, backgroundColor: 'transparent' }
-            ]}
+         <View
+            style={styles.safeArea}
         >
             <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
                 <View style={{ flex: 1 }}>
@@ -239,7 +252,7 @@ const ActivityPage = () => {
                                     <>
                                         <View style={{ flex: 1 }}>
                                             {!isMapView ? (
-                                                <FlatList
+                                                <AnimatedFlatList
                                                     data={filteredDisplayList}
                                                     keyExtractor={(item) => item.place_id ?? item.id ?? item.reference}
                                                     renderItem={({ item }) =>
@@ -256,6 +269,19 @@ const ActivityPage = () => {
                                                     showsVerticalScrollIndicator={false}
                                                     onEndReached={handleLoadMore}
                                                     onEndReachedThreshold={0.5}
+                                                    onScroll={
+                                                        scrollY
+                                                            ? Animated.event(
+                                                                [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+                                                                {
+                                                                    useNativeDriver: true,
+                                                                    listener: onScroll,
+                                                                }
+                                                            )
+                                                            : onScroll || undefined
+                                                    }
+                                                    scrollEventThrottle={16}
+                                                    ListHeaderComponent={<View style={styles.scrollSpacer} />}
                                                     ListFooterComponent={
                                                         filteredDisplayList.length < highlighted.length + regular.length ? (
                                                             <ActivityIndicator size="small" color="#2196F3" style={{ marginVertical: 10 }} />
@@ -264,164 +290,64 @@ const ActivityPage = () => {
                                                     ListEmptyComponent={<Text style={{ textAlign: 'center', marginTop: 20 }}>No results</Text>}
                                                 />
                                             ) : (
-                                                <Map 
+                                                <Map
                                                     activities={filteredDisplayList}
                                                     onEndReached={handleLoadMore}
-                                                    loadingMore={filteredDisplayList.length < highlighted.length + regular.length} 
+                                                    loadingMore={filteredDisplayList.length < highlighted.length + regular.length}
                                                 />
                                             )}
                                         </View>
-
                                     </>
                                 ) : (
                                     <>
-                                        {/* Search Bar */}
-                                        <View style={styles.searchContainer}>
-                                            <GooglePlacesAutocomplete
-                                                placeholder="Search places..."
-                                                query={{
-                                                    key: GOOGLE_API_KEY,
-                                                    language: "en",
-                                                    types: "establishment",
-                                                    location: lat && lng ? `${lat},${lng}` : null,
-                                                    rankby: "distance",
-                                                }}
-                                                fetchDetails={true} // Fetch full details for each place
-                                                onFail={(error) => console.log("Google Places Error:", error)}
-                                                styles={{
-                                                    textInput: styles.searchInput,
-                                                    listView: styles.listView,
-                                                }}
-                                                renderRow={(data) => {
-                                                    const placeId = data?.place_id;
-                                                    const terms = data?.terms;
-
-                                                    const city = terms?.[2]?.value || "Unknown City";
-                                                    const state = terms?.[3]?.value || "Unknown State";
-
-                                                    // Fetch image if not already stored
-                                                    if (placeId && !placeImages[placeId]) {
-                                                        fetchPlaceImage(placeId);
-                                                    }
-
-                                                    const imageUrl = placeImages[placeId];
-
-                                                    return (
-                                                        <TouchableOpacity onPress={() => handlePress(data)}>
-                                                            <View style={styles.row}>
-                                                                {imageUrl && (
-                                                                    <Image source={{ uri: imageUrl }} style={styles.placeImage} />
-                                                                )}
-                                                                <View>
-                                                                    <Text style={styles.placeText}>{data.structured_formatting.main_text}</Text>
-                                                                    <Text style={styles.cityStateText}>{city}, {state}</Text>
-                                                                </View>
-                                                            </View>
-                                                        </TouchableOpacity>
-                                                    );
-                                                }}
-                                            />
-
-                                        </View>
-
-                                        <Text style={styles.filterTitle}>Quick Filters</Text>
-
-                                        {/* Quick Filter Icons */}
-                                        <View style={styles.filterContainer}>
-                                            {[
-                                                { label: "Date Night", icon: heart, type: "dateNight" },
-                                                { label: "Drinks & Dining", icon: tableware, type: "drinksAndDining" },
-                                                { label: "Events", icon: tickets, type: "events" },
-                                                { label: "Outdoor", icon: hiking, type: "outdoor" },
-                                                { label: "Movie Night", icon: popcorn, type: "movieNight" },
-                                                { label: "Gaming", icon: arcade, type: "gaming" },
-                                                { label: "Art & Culture", icon: art, type: "artAndCulture" },
-                                                { label: "Family Fun", icon: family, type: "familyFun" },
-                                                { label: "Pet Friendly", icon: dog, type: "petFriendly" },
-                                                { label: "Live Music", icon: microphone, type: "liveMusic" },
-                                                { label: "What's Close", icon: map, type: "whatsClose" },
-                                            ].map(({ label, icon, type }) => (
-                                                <TouchableOpacity
-                                                    key={type}
-                                                    style={[styles.filterItem, keyboardOpen && styles.disabledFilter]} // Style update
-                                                    onPress={() => !keyboardOpen && handleActivityFetch(type)}
-                                                    disabled={keyboardOpen} // Disable touchable while keyboard is open
-                                                >
-                                                    <Text style={styles.filterText}>{label}</Text>
-                                                    <Image source={icon} style={styles.filterIcon} />
-                                                </TouchableOpacity>
-                                            ))}
-                                        </View>
+                                        <SearchBar
+                                            lat={lat}
+                                            lng={lng}
+                                            onSelectPlace={handlePress}
+                                            fetchPlaceImage={fetchPlaceImage}
+                                            placeImages={placeImages}
+                                            GOOGLE_API_KEY={GOOGLE_API_KEY}
+                                        />
+                                        <QuickFilters
+                                            keyboardOpen={keyboardOpen}
+                                            onFilterPress={handleActivityFetch}
+                                            icons={{ heart, tableware, tickets, hiking, popcorn, arcade, art, family, dog, microphone, map }}
+                                        />
                                     </>
                                 )}
                             </>
                         )}
-                        <View style={styles.bottomNav}>
-                            <TouchableOpacity style={styles.navButton} onPress={handleOpenPreferences}>
-                                <Text style={styles.navButtonText}>Preferences</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity style={styles.navButton} onPress={() => setFilterDrawerVisible(true)}>
-                                <Text style={styles.navButtonText}>
-                                    {categoryFilter ? `Filter: ${categoryFilter.replace(/_/g, ' ')}` : 'Filter'}
-                                </Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity style={styles.navButton} onPress={() => setIsMapView(prev => !prev)}>
-                                <Text style={styles.navButtonText}>
-                                    {isMapView ? 'List View' : 'Map View'}
-                                </Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity style={styles.navButton} onPress={clearSuggestions}>
-                                <Text style={styles.navButtonText}>
-                                    Clear
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
                     </View>
+                    {customNavTranslateY && (
+                    <Animated.View style={[styles.bottomNavWrapper, { transform: [{ translateY: customNavTranslateY }] }]}>
+                        <BottomNavigation
+                        onOpenPreferences={handleOpenPreferences}
+                        onOpenFilter={() => setFilterDrawerVisible(true)}
+                        categoryFilter={categoryFilter}
+                        isMapView={isMapView}
+                        onToggleMapView={() => setIsMapView(prev => !prev)}
+                        onClear={clearSuggestions}
+                        />
+                    </Animated.View>
+                    )}
                     <PreferencesModal
                         visible={prefModalVisible}
                         onClose={() => setPrefModalVisible(false)}
+                        onSubmitCustomSearch={(type, params) => handleActivityFetch(type, true, params)} // 🔥 Pass this handler
                     />
 
                     {/* 🔽 Filter Drawer - ADD IT HERE */}
-                    {filterDrawerVisible && (
-                        <View style={styles.drawerOverlay}>
-                            <View style={styles.drawerContainer}>
-                                <Text style={styles.drawerTitle}>Filter Categories</Text>
-                                <FlatList
-                                    data={allTypes}
-                                    keyExtractor={(item) => item}
-                                    renderItem={({ item }) => (
-                                        <TouchableOpacity
-                                            style={[
-                                                styles.drawerItem,
-                                                item === categoryFilter && styles.drawerItemActive,
-                                            ]}
-                                            onPress={() => {
-                                                setCategoryFilter(item === categoryFilter ? null : item);
-                                                setFilterDrawerVisible(false);
-                                            }}
-                                        >
-                                            <Text style={styles.drawerItemText}>
-                                                {item.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    )}
-                                />
-                                <TouchableOpacity
-                                    style={styles.drawerCloseButton}
-                                    onPress={() => setFilterDrawerVisible(false)}
-                                >
-                                    <Text style={styles.drawerCloseText}>Close</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
+                    {filterDrawerVisible && activities.length > 0 && (
+                        <FilterDrawer
+                            allTypes={allTypes}
+                            categoryFilter={categoryFilter}
+                            onSelect={(type) => dispatch(setCategoryFilter(type))}
+                            onClose={() => setFilterDrawerVisible(false)}
+                        />
                     )}
                 </View>
             </TouchableWithoutFeedback>
-        </SafeAreaView>
+        </View>
     );
 };
 
@@ -432,6 +358,11 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: '#008080', // Match this to your header color
     },
+    scrollSpacer: {
+        height: 250, // same as your original SafeAreaView or header height
+        backgroundColor: '#008080', // same color as your SafeAreaView background
+        marginTop: -200,
+    },    
     container: {
         flex: 1,
         backgroundColor: '#f5f5f5',
@@ -441,7 +372,6 @@ const styles = StyleSheet.create({
     containerPopulated: {
         flex: 1,
         backgroundColor: '#f5f5f5',
-        paddingBottom: 50,
     },
     searchContainer: {
         flexDirection: 'row',
@@ -477,146 +407,6 @@ const styles = StyleSheet.create({
     list: {
         paddingBottom: 20,
     },
-    floatingButton: {
-        position: 'absolute',
-        bottom: 30,
-        right: 20,
-        backgroundColor: '#2196F3',
-        paddingVertical: 12,
-        paddingHorizontal: 20,
-        borderRadius: 25,
-        elevation: 5,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.3,
-        shadowRadius: 2,
-    },
-    floatingButtonText: {
-        color: 'white',
-        fontSize: 16,
-        fontWeight: 'bold',
-    },
-    imageContainer: {
-        width: '100%',
-        height: 200,
-        marginBottom: 20,
-        borderRadius: 10,
-        overflow: 'hidden',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    image: {
-        width: '100%',
-        height: '100%',
-    },
-    imageText: {
-        position: 'absolute',
-        color: 'white',
-        fontSize: 18,
-        fontWeight: 'bold',
-        textAlign: 'center',
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        padding: 5,
-    },
-    filterContainer: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'space-around',
-        alignItems: 'center',
-        marginBottom: 30,
-        marginTop: 30,
-        paddingHorizontal: 10,
-    },
-    filterItem: {
-        alignItems: 'center',
-        width: '30%',
-        marginBottom: 15,
-    },
-    filterIcon: {
-        width: 50,
-        height: 50,
-        marginBottom: 5,
-    },
-    filterText: {
-        fontSize: 12,
-        fontWeight: 'bold',
-        color: 'black',
-        marginBottom: 7,
-        textAlign: 'center',
-    },
-    filterTitle: {
-        fontSize: 20,
-        marginLeft: 30,
-        fontFamily: 'Poppins Bold',
-        marginTop: 30,
-    },
-    disabledFilter: {
-        opacity: 0.5, // Visually indicate it's disabled
-    },
-    searchInput: {
-        height: 40,
-        borderWidth: 1,
-        borderColor: "#ccc",
-        borderRadius: 15,
-        paddingHorizontal: 10,
-        backgroundColor: "white",
-    },
-    headerButtons: {
-        position: 'absolute',
-        top: 10, // adjust based on your app header height
-        left: 0,
-        right: 0,
-        zIndex: 10,
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        paddingHorizontal: 20,
-    },
-    listView: {
-        position: "absolute",
-        top: 50,
-        backgroundColor: "#fff",
-        zIndex: 1000,
-        width: "100%",
-        borderRadius: 10,
-        elevation: 4,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.3,
-        shadowRadius: 4,
-    },
-    row: {
-        flexDirection: "row",
-        alignItems: "center",
-        padding: 10,
-        backgroundColor: "#fff",
-        borderBottomWidth: 1,
-        borderBottomColor: "#eee",
-    },
-    placeImage: {
-        width: 40,
-        height: 40,
-        borderRadius: 5,
-        marginRight: 10,
-    },
-    placeText: {
-        fontSize: 16,
-        color: "#333",
-    },
-    filterBar: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        paddingHorizontal: 10,
-        marginBottom: 10,
-        justifyContent: 'center',
-    },
-    filterChip: {
-        paddingVertical: 6,
-        paddingHorizontal: 12,
-        borderRadius: 20,
-        backgroundColor: '#ddd',
-        marginHorizontal: 5,
-        marginBottom: 10,
-    },
     activeChip: {
         backgroundColor: '#2196F3',
     },
@@ -636,81 +426,10 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         fontWeight: 'bold',
     },
-
-    drawerOverlay: {
+    bottomNavWrapper: {
         position: 'absolute',
-        bottom: 0,
         left: 0,
         right: 0,
-        top: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.4)',
-        justifyContent: 'flex-end',
-    },
-
-    drawerContainer: {
-        backgroundColor: 'white',
-        padding: 20,
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
-        maxHeight: '60%',
-    },
-
-    drawerTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginBottom: 10,
-    },
-
-    drawerItem: {
-        paddingVertical: 12,
-    },
-
-    drawerItemActive: {
-        backgroundColor: '#e0f0ff',
-        borderRadius: 10,
-    },
-
-    drawerItemText: {
-        fontSize: 16,
-    },
-
-    drawerCloseButton: {
-        marginTop: 20,
-        alignSelf: 'center',
-        padding: 10,
-    },
-
-    drawerCloseText: {
-        color: '#2196F3',
-        fontWeight: 'bold',
-    },
-    bottomNav: {
-        position: 'absolute',
-        bottom: 55,
-        left: 0,
-        right: 0,
-        height: 60,
-        flexDirection: 'row',
-        backgroundColor: '#008080',
-        borderTopWidth: 1,
-        borderTopColor: '#ddd',
-        elevation: 6,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 3,
-        alignItems: 'center',       // Ensures buttons are centered vertically
-        paddingHorizontal: 10       // Adds edge spacing
-    },  
-    navButton: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    navButtonText: {
-        color: 'white',
-        fontWeight: 'bold',
-        fontSize: 14,
-        textAlign: 'center',
+        bottom: 55, // or adjust to match space above native tab bar
     },
 });

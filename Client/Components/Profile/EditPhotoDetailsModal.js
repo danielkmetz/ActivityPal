@@ -34,6 +34,8 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
     onClose();
   };
 
+  console.log(taggedUsers)
+
   // Handle tap on the image to open friend tagging modal
   const handleImagePress = (event) => {
     const { locationX, locationY } = event.nativeEvent;
@@ -68,7 +70,7 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
             // Add new tagged user
             updatedTaggedUsers.push({
               username: `${friend.firstName} ${friend.lastName}`,
-              _id: friend._id,
+              userId: friend._id,
               x: selectedPosition.x,
               y: selectedPosition.y,
               profilePic: friend.presignedProfileUrl,
@@ -102,10 +104,10 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
             <Text style={styles.title}>Edit Photo</Text>
 
             {/* Photo Preview with Clickable Tags */}
-            {photo?.uri && (
+            {(photo?.uri || photo?.url) && (
               <View style={styles.photoContainer}>
                 <ImageBackground
-                  source={{ uri: photo.uri }}
+                  source={{ uri: photo.uri || photo.url }}
                   style={styles.photoPreview}
                   onTouchEnd={!isPromotion && handleImagePress}
                 >
@@ -116,7 +118,7 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
                       style={[styles.tagMarker, { left: user.x, top: user.y }]}
                     >
                       <Image source={{ uri: user.profilePic }} style={styles.tagProfilePic} />
-                      <Text style={styles.tagText}>{user.username}</Text>
+                      <Text style={styles.tagText}>{user.username || user.fullName || 'Unknown'}</Text>
                     </View>
                   ))}
                 </ImageBackground>
@@ -142,7 +144,7 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
                     style={styles.tagItem}
                     onPress={() => handleRemoveTag(user)} // Remove tag when clicked
                   >
-                    <Text style={styles.tagText}>{user.username}</Text>
+                    <Text style={styles.tagText}>{user.username || user.fullName || 'Unknown'}</Text>
                     <Text style={styles.removeTag}> ❌ </Text>
                   </TouchableOpacity>
                 ))}
