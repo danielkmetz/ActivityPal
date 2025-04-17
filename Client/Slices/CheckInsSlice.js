@@ -39,9 +39,9 @@ export const createCheckIn = createAsyncThunk(
 // Edit an existing check-in
 export const editCheckIn = createAsyncThunk(
   'checkIns/editCheckIn',
-  async ({ id, updatedData }, { rejectWithValue }) => {
+  async ({ userId, checkInId, updatedData }, { rejectWithValue }) => {
     try {
-      const response = await axios.put(`${API_URL}/${id}`, updatedData);
+      const response = await axios.put(`${API_URL}/${userId}/${checkInId}`, updatedData);
       return response.data;
     } catch (error) {
       return rejectWithValue(error.response.data);
@@ -51,13 +51,13 @@ export const editCheckIn = createAsyncThunk(
 
 // Delete a check-in
 export const deleteCheckIn = createAsyncThunk(
-  'checkIns/deleteCheckIn',
-  async (id, { rejectWithValue }) => {
+  "checkIns/deleteCheckIn",
+  async ({ userId, checkInId }, { rejectWithValue }) => {
     try {
-      await axios.delete(`${API_URL}/${id}`);
-      return id;
+      const response = await axios.delete(`${API_URL}/${userId}/${checkInId}`);
+      return { userId, checkInId };
     } catch (error) {
-      return rejectWithValue(error.response.data);
+      return rejectWithValue(error.response?.data?.message || error.message);
     }
   }
 );

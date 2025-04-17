@@ -12,7 +12,7 @@ export const deleteReview = createAsyncThunk(
       const response = await axios.delete(
         `${BASE_URL}/reviews/${placeId}/${reviewId}`
       );
-      return response.data.reviews; // Return the updated reviews list
+      return response.data; // Return the updated reviews list
     } catch (error) {
       const errorMessage =
         error.response?.data?.message || error.message || "Failed to delete review";
@@ -40,7 +40,6 @@ export const createReview = createAsyncThunk(
           location,
         }
       );
-      console.log(response.data.review)
       return response.data.review; // Return the newly created review
     } catch (error) {
       const errorMessage =
@@ -133,6 +132,7 @@ export const addReply = createAsyncThunk(
 export const fetchReviewsByUserId = createAsyncThunk(
   'reviews/fetchReviewsByUserId',
   async (userId, { rejectWithValue }) => {
+    console.log('user reviews being fetched')
     try {
       const query = `
         query GetUserPosts($userId: String!) {
@@ -427,11 +427,12 @@ export const fetchReviewsByUserId = createAsyncThunk(
         query,
         variables: { userId },
       });
+      console.log(response.data)
 
       if (response.data.errors) {
         throw new Error(response.data.errors[0].message);
       }
-
+      
       return response.data.data.getUserPosts || [];
     } catch (error) {
       if (error.response) {
@@ -1113,7 +1114,7 @@ export const editReview = createAsyncThunk(
   'reviews/editReview',
   async ({ placeId, reviewId, rating, reviewText, taggedUsers, photos }, thunkAPI) => {
     try {
-      const response = await axios.put(`/api/reviews/${placeId}/${reviewId}`, {
+      const response = await axios.put(`${BASE_URL}/reviews/${placeId}/${reviewId}`, {
         rating,
         reviewText,
         taggedUsers,
@@ -1162,7 +1163,10 @@ const reviewsSlice = createSlice({
     },
     setUserAndFriendsReviews: (state, action) => {
       state.userAndFriendsReviews = [...action.payload]; // ✅ new array reference
-    },    
+    }, 
+    setProfileReviews: (state, action) => {
+      state.profileReviews = [...action.payload];
+    },   
     setSelectedReview: (state, action) => {
       state.selectedReview = action.payload;
     },
@@ -1230,8 +1234,27 @@ const reviewsSlice = createSlice({
         state.error = null;
       })
       .addCase(deleteReview.fulfilled, (state, action) => {
+        const deletedReviewId = action.meta.arg.reviewId;
+      
         state.loading = "idle";
-        state.reviews = action.payload; // Update reviews after deletion
+      
+        // If you're storing a centralized list of reviews
+        state.reviews = (state.reviews || []).filter(r => r._id !== deletedReviewId);
+      
+        // Remove from user & friends feed
+        state.userAndFriendsReviews = (state.userAndFriendsReviews || []).filter(
+          (r) => r._id !== deletedReviewId
+        );
+      
+        // Remove from current user's profile feed
+        state.profileReviews = (state.profileReviews || []).filter(
+          (r) => r._id !== deletedReviewId
+        );
+      
+        // Remove from other user's profile feed
+        state.otherUserReviews = (state.otherUserReviews || []).filter(
+          (r) => r._id !== deletedReviewId
+        );
       })
       .addCase(deleteReview.rejected, (state, action) => {
         state.loading = "idle";
@@ -1494,7 +1517,7 @@ const reviewsSlice = createSlice({
 
 export default reviewsSlice.reducer;
 
-export const { setUserAndFriendsReviews, setSelectedReview, addCheckInUserAndFriendsReviews, addCheckInProfileReviews, resetProfileReviews, setLocalReviews, resetOtherUserReviews, resetBusinessReviews, clearSelectedReview } = reviewsSlice.actions;
+export const { setUserAndFriendsReviews, setSelectedReview, setProfileReviews, addCheckInUserAndFriendsReviews, addCheckInProfileReviews, resetProfileReviews, setLocalReviews, resetOtherUserReviews, resetBusinessReviews, clearSelectedReview } = reviewsSlice.actions;
 
 export const selectProfileReviews = (state) => state.reviews.profileReviews;
 export const selectBusinessReviews = (state) => state.reviews.businessReviews;

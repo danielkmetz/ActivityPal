@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import {
     View,
     Text,
@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { selectUser } from '../../Slices/UserSlice';
-import { selectNotifications, fetchNotifications, markNotificationRead, setNotifications, createNotification, deleteNotification } from '../../Slices/NotificationsSlice';
+import { selectNotifications, markNotificationRead, setNotifications, createNotification, deleteNotification } from '../../Slices/NotificationsSlice';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { acceptFriendRequest, declineFriendRequest, selectFriendRequestDetails } from '../../Slices/UserSlice';
 import moment from 'moment';
@@ -18,6 +18,7 @@ import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg
 import CommentModal from '../Reviews/CommentModal';
 import { selectUserAndFriendsReviews, fetchPostById, selectSelectedReview, setSelectedReview, toggleLike, setUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
 import { acceptInvite, rejectInvite, acceptInviteRequest, rejectInviteRequest } from '../../Slices/InvitesSlice';
+import { decrementLastSeenUnreadCount } from '../../utils/notificationsHasSeen';
 import SwipeableRow from './SwipeableRow';
 
 export default function Notifications() {
@@ -35,12 +36,9 @@ export default function Notifications() {
     const userId = user?.id;
     const fullName = `${user.firstName} ${user.lastName}`;
 
-    useEffect(() => {
-        dispatch(fetchNotifications(user.id));
-    }, [dispatch]);
-
-    const handleNotificationPress = (notification) => {
+    const handleNotificationPress = async (notification) => {
         dispatch(markNotificationRead({ userId: user.id, notificationId: notification._id }));
+        await decrementLastSeenUnreadCount();
 
         if (
             notification.type === "comment" ||

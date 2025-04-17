@@ -34,8 +34,6 @@ const InviteeModal = ({ visible, onClose, requests, recipients = [], isSender, i
     const translateY = useRef(new Animated.Value(0)).current;
     const gestureThreshold = 100;
 
-    //console.log(invite)
-
     useEffect(() => {
         if (!visible) {
             translateY.setValue(0);

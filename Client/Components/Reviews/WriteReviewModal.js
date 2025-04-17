@@ -379,6 +379,7 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
         visible={tagFriendsModalVisible}
         onSave={setTaggedUsers} // Update selected tagged users
         onClose={() => setTagFriendsModalVisible(false)}
+        initialSelectedFriends={taggedUsers}
       />
       {/* Edit photos modal */}
       <EditPhotosModal

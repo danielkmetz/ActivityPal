@@ -86,7 +86,6 @@ const InviteCard = ({ invite, handleLike, handleOpenComments }) => {
         );
     };
 
-    //console.log(invite)
     const handleRequest = async () => {
         try {
             console.log('📨 Submitting invite request...');

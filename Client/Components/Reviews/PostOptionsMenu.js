@@ -16,7 +16,7 @@ export default function PostOptionsMenu({
         <View style={styles.menuWrapper}>
             {dropdownVisible && (
                 <Pressable
-                    style={StyleSheet.absoluteFill}
+                    style={styles.overlay}
                     onPress={() => setDropdownVisible(false)}
                 />
             )}
@@ -32,7 +32,7 @@ export default function PostOptionsMenu({
                     <TouchableOpacity
                         onPress={() => {
                             setDropdownVisible(false);
-                            handleEdit();
+                            handleEdit(postData);
                         }}
                     >
                         <Text style={styles.dropdownItem}>✏️ Edit</Text>
@@ -85,4 +85,10 @@ const styles = StyleSheet.create({
         backgroundColor: "#ccc",
         marginVertical: 6,
     },
+    overlay: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'transparent',
+        zIndex: 1,
+      },
+      
 });

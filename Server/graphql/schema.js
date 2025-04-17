@@ -157,10 +157,10 @@ const typeDefs = gql`
   }
 
   type TaggedUser {
-    _id: ID
+    _id: ID!
     fullName: String
-    x: Float!
-    y: Float!
+    x: Float
+    y: Float
   }
 
   # ✅ Likes
@@ -230,115 +230,142 @@ const resolvers = {
         const userObjectId = new mongoose.Types.ObjectId(userId);
     
         // Fetch user and friends
-        const user = await User.findById(userObjectId).populate({ path: 'friends', select: '_id profilePic' }).lean();
+        const user = await User.findById(userObjectId).populate({ path: 'friends', select: '_id profilePic firstName lastName' }).lean();
         if (!user) throw new Error('User not found');
     
         const friendIds = user.friends.map(f => f._id);
         const allUserIds = [userObjectId, ...friendIds];
+        const allUserIdStrings = allUserIds.map(id => id.toString());
     
         // Find businesses that contain reviews by these users
         const businesses = await Business.find({
           "reviews.userId": { $in: allUserIds }
         })
-          .select('placeId businessName reviews') // Avoid extra fields
+          .select('placeId businessName reviews')
           .lean();
     
         if (!businesses.length) return [];
     
-        // Flatten all review-level user IDs + tagged photo user IDs
-        const allReviewUserIds = new Set();
-        const allTaggedUserIds = new Set();
+        // Collect unique user IDs (reviewers, tagged users in reviews/photos)
+        const allRelevantUserIds = new Set();
         const allPhotoKeys = [];
     
         for (const business of businesses) {
           for (const review of business.reviews) {
-            if (allUserIds.some(id => id.toString() === review.userId.toString())) {
-              allReviewUserIds.add(review.userId.toString());
+            if (!allUserIdStrings.includes(review.userId.toString())) continue;
     
-              if (Array.isArray(review.taggedUsers)) {
-                review.taggedUsers.forEach(uid => allTaggedUserIds.add(uid.toString()));
-              }
+            allRelevantUserIds.add(review.userId.toString());
     
-              if (Array.isArray(review.photos)) {
-                for (const photo of review.photos) {
-                  allPhotoKeys.push(photo.photoKey);
-                  if (Array.isArray(photo.taggedUsers)) {
-                    photo.taggedUsers.forEach(tag => {
-                      if (tag?.userId) allTaggedUserIds.add(tag.userId.toString());
-                    });
-                  }
+            if (Array.isArray(review.taggedUsers)) {
+              review.taggedUsers.forEach(uid => {
+                if (uid) allRelevantUserIds.add(uid.toString());
+              });
+            }
+    
+            if (Array.isArray(review.photos)) {
+              for (const photo of review.photos) {
+                if (photo?.photoKey) allPhotoKeys.push(photo.photoKey);
+                if (Array.isArray(photo.taggedUsers)) {
+                  photo.taggedUsers.forEach(tag => {
+                    if (tag?.userId) allRelevantUserIds.add(tag.userId.toString());
+                  });
                 }
               }
             }
           }
         }
     
-        // Fetch all users at once
-        const allRelevantUserIds = [...new Set([...allReviewUserIds, ...allTaggedUserIds])];
-        const users = await User.find({ _id: { $in: allRelevantUserIds } })
+        // Fetch all relevant users and their profile pics
+        const users = await User.find({ _id: { $in: [...allRelevantUserIds] } })
           .select('_id firstName lastName profilePic')
           .lean();
     
-        const userMap = new Map(users.map(u => [u._id.toString(), u]));
+        // Generate presigned profile pic URLs
+        const userMap = new Map();
+        const urlCache = new Map();
     
-        // Generate profilePic URLs in parallel
-        const picUrlMap = {};
         await Promise.all(
-          users.map(async user => {
+          users.map(async (user) => {
             const photoKey = user?.profilePic?.photoKey;
-            const url = photoKey ? await generateDownloadPresignedUrl(photoKey) : null;
-            picUrlMap[user._id.toString()] = url;
+            const profilePicUrl = photoKey
+              ? await generateDownloadPresignedUrl(photoKey)
+              : null;
+    
+            userMap.set(user._id.toString(), {
+              ...user,
+              profilePicUrl,
+            });
           })
         );
     
-        // Flatten and enrich reviews
+        // Memoized photo URL generator
+        const getCachedPhotoUrl = async (photoKey) => {
+          if (!urlCache.has(photoKey)) {
+            const url = await generateDownloadPresignedUrl(photoKey);
+            urlCache.set(photoKey, url);
+          }
+          return urlCache.get(photoKey);
+        };
+    
+        // Enrich and flatten reviews
         const allEnrichedReviews = [];
     
         for (const business of businesses) {
           for (const review of business.reviews) {
-            if (!allUserIds.some(id => id.toString() === review.userId.toString())) continue;
+            if (!allUserIdStrings.includes(review.userId.toString())) continue;
     
+            // Enrich top-level tagged users
             const taggedUsers = (Array.isArray(review.taggedUsers) && review.taggedUsers.length > 0)
-              ? review.taggedUsers.map(uid => {
-                  const user = userMap.get(uid.toString());
-                  return {
-                    userId: uid,
-                    fullName: user ? `${user.firstName} ${user.lastName}` : 'Unknown User'
-                  };
-                })
+              ? review.taggedUsers
+                  .filter(uid => !!uid)
+                  .map(uid => {
+                    const user = userMap.get(uid.toString());
+                    return {
+                      _id: uid.toString(),
+                      fullName: user ? `${user.firstName} ${user.lastName}` : 'Unknown User',
+                    };
+                  })
               : [];
     
-            const enrichedPhotos = (Array.isArray(review.photos) ? await Promise.all(
-              review.photos.map(async (photo) => {
-                const photoUrl = await generateDownloadPresignedUrl(photo.photoKey);
+            // Enrich each photo and its tagged users
+            const enrichedPhotos = Array.isArray(review.photos)
+              ? await Promise.all(
+                  review.photos.map(async (photo) => {
+                    const url = await getCachedPhotoUrl(photo.photoKey);
     
-                const tagged = Array.isArray(photo.taggedUsers)
-                  ? photo.taggedUsers.map(tag => {
-                      const user = userMap.get(tag.userId?.toString());
-                      return {
-                        userId: tag.userId,
-                        fullName: user ? `${user.firstName} ${user.lastName}` : 'Unknown User',
-                        x: tag.x || 0,
-                        y: tag.y || 0
-                      };
-                    })
-                  : [];
+                    const tagged = Array.isArray(photo.taggedUsers)
+                      ? photo.taggedUsers
+                          .filter(tag => !!tag?.userId)
+                          .map(tag => {
+                            const userId = tag.userId.toString();
+                            const user = userMap.get(userId);
+                            return {
+                              _id: userId,
+                              fullName: user ? `${user.firstName} ${user.lastName}` : 'Unknown User',
+                              x: tag.x ?? 0,
+                              y: tag.y ?? 0,
+                            };
+                          })
+                      : [];
     
-                return {
-                  ...photo,
-                  url: photoUrl,
-                  taggedUsers: tagged
-                };
-              })
-            ) : []);
+                    return {
+                      ...photo,
+                      url,
+                      taggedUsers: tagged,
+                    };
+                  })
+                )
+              : [];
+    
+            const reviewUser = userMap.get(review.userId.toString());
     
             allEnrichedReviews.push({
               ...review,
               businessName: business.businessName,
               placeId: business.placeId,
               date: new Date(review.date).toISOString(),
-              profilePic: userMap.get(review.userId.toString())?.profilePic || null,
-              profilePicUrl: picUrlMap[review.userId.toString()] || null,
+              profilePic: reviewUser?.profilePic || null,
+              profilePicUrl: reviewUser?.profilePicUrl || null,
               taggedUsers,
               photos: enrichedPhotos,
             });
@@ -350,7 +377,7 @@ const resolvers = {
         console.error('❌ Error in getUserAndFriendsReviews:', error);
         throw new Error('Failed to fetch reviews');
       }
-    },        
+    },            
     getUserPosts: async (_, { userId }) => {
       try {
         const userObjectId = new mongoose.Types.ObjectId(userId);
@@ -389,7 +416,7 @@ const resolvers = {
                           ? photo.taggedUsers.map(tag => {
                               const user = taggedUserDetails.find(u => u._id.toString() === tag.userId?.toString());
                               return {
-                                userId: tag.userId,
+                                _id: tag.userId,
                                 fullName: user ? `${user.firstName} ${user.lastName}` : "Unknown User",
                                 x: tag.x || 0,
                                 y: tag.y || 0
@@ -415,7 +442,7 @@ const resolvers = {
                   );
     
                   taggedUsers = taggedUsersData.map(user => ({
-                    userId: user._id,
+                    _id: user._id,
                     fullName: `${user.firstName} ${user.lastName}`,
                   }));
                 }
@@ -462,7 +489,7 @@ const resolvers = {
                         ? photo.taggedUsers.map(tag => {
                             const user = taggedUserDetails.find(u => u._id.toString() === tag.userId?.toString());
                             return {
-                              userId: tag.userId,
+                              _id: tag.userId,
                               fullName: user ? `${user.firstName} ${user.lastName}` : "Unknown User",
                               x: tag.x || 0,
                               y: tag.y || 0
@@ -498,7 +525,7 @@ const resolvers = {
                 );
     
                 taggedUsers = taggedUsersData.map(user => ({
-                  userId: user._id,
+                  _id: user._id,
                   fullName: `${user.firstName} ${user.lastName}`,
                 }));
               }
@@ -585,7 +612,7 @@ const resolvers = {
                       ? photo.taggedUsers.map(tag => {
                           const user = taggedUserDetails.find(u => u._id.toString() === tag.userId?.toString());
                           return {
-                            userId: tag.userId,
+                            _id: tag.userId,
                             fullName: user ? `${user.firstName} ${user.lastName}` : "Unknown User",
                             x: tag.x || 0,
                             y: tag.y || 0
@@ -611,7 +638,7 @@ const resolvers = {
               );
     
               taggedUsers = taggedUsersData.map(user => ({
-                userId: user._id,
+                _id: user._id,
                 fullName: `${user.firstName} ${user.lastName}`,
               }));
             }
@@ -677,7 +704,7 @@ const resolvers = {
     
                   formattedTaggedUsers = await Promise.all(
                     taggedUsersData.map(async (taggedUser) => ({
-                      userId: taggedUser._id,
+                      _id: taggedUser._id,
                       fullName: `${taggedUser.firstName} ${taggedUser.lastName}`,
                       profilePicUrl: taggedUser.profilePic?.photoKey
                         ? await generateDownloadPresignedUrl(taggedUser.profilePic.photoKey)
@@ -703,7 +730,7 @@ const resolvers = {
                           ? photo.taggedUsers.map(tag => {
                               const user = taggedUserDetails.find(u => u._id.toString() === tag.userId?.toString());
                               return {
-                                userId: tag.userId,
+                                _id: tag.userId,
                                 fullName: user ? `${user.firstName} ${user.lastName}` : "Unknown User",
                                 x: tag.x || 0,
                                 y: tag.y || 0

@@ -1,5 +1,6 @@
 import 'react-native-get-random-values';
-import React, { useEffect, useRef, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, View, Animated, Platform } from 'react-native';
 import AppNavigator from './Components/Navigator/Navigator';
@@ -17,6 +18,8 @@ import {
 import { loadToken } from './Slices/UserSlice';
 import { PaperProvider } from 'react-native-paper';
 import { selectGooglePlaces } from './Slices/GooglePlacesSlice';
+import { fetchNotifications, selectUnreadCount } from './Slices/NotificationsSlice';
+import { selectUser } from './Slices/UserSlice';
 
 const fetchFonts = async () => {
   return await Font.loadAsync({
@@ -34,29 +37,46 @@ function MainApp() {
   const dispatch = useDispatch();
   const activities = useSelector(selectGooglePlaces);
   const coordinates = useSelector(selectCoordinates);
+  const user = useSelector(selectUser);
+  const unreadCount = useSelector(selectUnreadCount);
   const [isAtEnd, setIsAtEnd] = useState(false);
+  const [notificationsSeen, setNotificationsSeen] = useState(null);
+  const [loadingSeenState, setLoadingSeenState] = useState(true);
+  const [notificationsInitialized, setNotificationsInitialized] = useState(false);
+  const [shouldFetch, setShouldFetch] = useState(true);
+  const [newUnreadCount, setNewUnreadCount] = useState(0);
+  const previousUnreadCount = useRef(null);
   
   // Track scrolling and header visibility
   const scrollY = useRef(new Animated.Value(0)).current;
   const headerTranslateY = useRef(new Animated.Value(0)).current;
+  //const customNavTranslateY = useRef(new Animated.Value(0)).current;
   const lastScrollY = useRef(0);
   const lastScrollTime = useRef(Date.now());
   const isHeaderVisible = useRef(true);
 
   const tabBarTranslateY = headerTranslateY.interpolate({
     inputRange: [-HEADER_HEIGHT, 0],
-    outputRange: [TAB_BAR_HEIGHT, 0], // tab bar moves down as header moves up
+    outputRange: [TAB_BAR_HEIGHT, 0],
     extrapolate: 'clamp',
   });
+  
+  const customNavTranslateY = headerTranslateY.interpolate({
+    inputRange: [-HEADER_HEIGHT, 0],
+    outputRange: [150, 0],
+    extrapolate: 'clamp',
+  });
+  
+  console.log(customNavTranslateY);
   
   // Scroll listener function
   const handleScroll = (event) => {
     const currentY = event.nativeEvent.contentOffset.y;
     const contentHeight = event.nativeEvent.contentSize.height;
+    const layoutHeight = event.nativeEvent.layoutMeasurement.height;
     const currentTime = Date.now();
     const deltaY = currentY - lastScrollY.current;
     const deltaTime = currentTime - lastScrollTime.current;
-    const layoutHeight = event.nativeEvent.layoutMeasurement.height;
   
     const velocity = deltaY / (deltaTime || 1);
   
@@ -66,8 +86,12 @@ function MainApp() {
     const isNearTop = currentY <= 0;
     const isReallyAtTop = currentY <= 35;
   
-    // ⛔ Prevent bounce-triggered hide at top
-    if (velocity > MIN_VELOCITY_TO_TRIGGER && isHeaderVisible.current && !isNearTop) {
+    // ✅ Scroll DOWN → HIDE
+    if (
+      velocity > MIN_VELOCITY_TO_TRIGGER &&
+      !isNearTop &&
+      isHeaderVisible.current
+    ) {
       Animated.timing(headerTranslateY, {
         toValue: -HEADER_HEIGHT,
         duration: 250,
@@ -76,7 +100,7 @@ function MainApp() {
       isHeaderVisible.current = false;
     }
   
-    // ✅ Allow header to reappear on intentional fast scroll up
+    // ✅ Scroll UP → SHOW
     else if (
       velocity < -MIN_VELOCITY_TO_TRIGGER &&
       Math.abs(deltaY) > MIN_SCROLL_DELTA &&
@@ -88,7 +112,10 @@ function MainApp() {
         useNativeDriver: true,
       }).start();
       isHeaderVisible.current = true;
-    } else if (isReallyAtTop && !isHeaderVisible.current) {
+    }
+  
+    // ✅ Snap-to-top → SHOW
+    else if (isReallyAtTop && !isHeaderVisible.current) {
       Animated.timing(headerTranslateY, {
         toValue: 0,
         duration: 250,
@@ -96,8 +123,8 @@ function MainApp() {
       }).start();
       isHeaderVisible.current = true;
     }
-
-    const isAtBottom = currentY + layoutHeight >= contentHeight - 100; // threshold of 100px
+  
+    const isAtBottom = currentY + layoutHeight >= contentHeight - 100;
     setIsAtEnd(isAtBottom);
   };
   
@@ -106,6 +133,58 @@ function MainApp() {
     dispatch(loadToken());
   }, [dispatch]);
 
+  useEffect(() => {
+    const initNotifications = async () => {
+      try {
+        // Step 1: Load AsyncStorage values FIRST
+        const seenVal = await AsyncStorage.getItem('@hasSeenNotifications');
+        const lastSeenCountVal = await AsyncStorage.getItem('@lastSeenUnreadCount');
+  
+        const seen = seenVal === 'true';
+        const lastSeenCount = parseInt(lastSeenCountVal, 10) || 0;
+  
+        setNotificationsSeen(seen);
+        previousUnreadCount.current = lastSeenCount;
+  
+        // Step 2: Fetch notifications AFTER that
+        await dispatch(fetchNotifications(user.id)); // wait for unreadCount to be updated
+  
+        // Step 3: Now safe to trigger the comparison effect
+        setNotificationsInitialized(true);
+      } catch (e) {
+        setNotificationsSeen(true);
+        previousUnreadCount.current = 0;
+        setNotificationsInitialized(true);
+      }
+  
+      setLoadingSeenState(false);
+    };
+  
+    if (user?.id) {
+      initNotifications();
+    }
+  }, [user]);  
+
+  useEffect(() => {
+    if (
+      notificationsInitialized &&
+      !loadingSeenState &&
+      shouldFetch &&
+      previousUnreadCount.current !== null
+    ) {
+      if (unreadCount > previousUnreadCount.current) {
+        const diff = unreadCount - previousUnreadCount.current;
+        setNewUnreadCount(diff);
+        setNotificationsSeen(false);
+      } else {
+        setNewUnreadCount(0); // no new notifications
+      }      
+  
+      previousUnreadCount.current = unreadCount;
+      setShouldFetch(false);
+    }
+  }, [unreadCount, notificationsInitialized, loadingSeenState, shouldFetch]);
+  
   // useEffect(() => {
   //   if (coordinates) {
   //     dispatch(getCityStateCountry(coordinates));
@@ -147,7 +226,11 @@ function MainApp() {
         onScroll={handleScroll} 
         tabBarTranslateY={tabBarTranslateY} 
         headerTranslateY={headerTranslateY}
+        customNavTranslateY={customNavTranslateY}
         isAtEnd={isAtEnd}
+        notificationsSeen={notificationsSeen}
+        setNotificationsSeen={setNotificationsSeen}
+        newUnreadCount={newUnreadCount}
       />
       <StatusBar style="auto" />
     </View>

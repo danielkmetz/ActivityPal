@@ -98,14 +98,14 @@ export default Activities;
 const styles = StyleSheet.create({
     container: {
         backgroundColor: 'white',
-        marginVertical: 8,
+        //marginVertical: 8,
         borderRadius: 8,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.3,
         shadowRadius: 3,
         elevation: 5,
-        paddingBottom: 10,
+        //paddingBottom: 10,
     },
     photo: {
         width: '100%',

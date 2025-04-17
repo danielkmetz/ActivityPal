@@ -1,12 +1,11 @@
 import React, { useState, useRef } from "react";
 import {
-  StyleSheet,
+  Alert,
   FlatList,
   Animated,
 } from "react-native";
-import { toggleLike, deleteReview, editReview } from "../../Slices/ReviewsSlice";
-import { editCheckIn } from "../../Slices/CheckInsSlice";
-import { editInvite } from "../../Slices/InvitesSlice";
+import { deleteCheckIn } from "../../Slices/CheckInsSlice";
+import { toggleLike, deleteReview, selectUserAndFriendsReviews, setUserAndFriendsReviews, setProfileReviews, selectProfileReviews } from "../../Slices/ReviewsSlice";
 import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
 import CommentModal from "./CommentModal";
@@ -14,6 +13,7 @@ import { createNotification } from "../../Slices/NotificationsSlice";
 import InviteCard from "./InviteCard";
 import ReviewItem from "./ReviewItem";
 import CheckInItem from "./CheckInItem";
+import EditPostModal from "./EditPostModal";
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
@@ -24,6 +24,10 @@ export default function Reviews({ reviews, ListHeaderComponent, scrollY, onScrol
   const [photoTapped, setPhotoTapped] = useState(null);
   const lastTapRef = useRef({});
   const [likedAnimations, setLikedAnimations] = useState({});
+  const [editingReview, setEditingReview] = useState(null); // holds the review being edited
+  const [showEditModal, setShowEditModal] = useState(false);
+  const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
+  const profileReviews = useSelector(selectProfileReviews);
   const scrollX = useRef(new Animated.Value(0)).current;
 
   const userId = user?.id
@@ -135,54 +139,57 @@ export default function Reviews({ reviews, ListHeaderComponent, scrollY, onScrol
     setPhotoTapped(photoTapped === photoKey ? null : photoKey);
   };
 
-  const handleDeletePost = async (post) => {
-    try {
-      if (post.type === 'review') {
-        const placeId = post.placeId;
-        const reviewId = post._id;
-        await dispatch(deleteReview({ placeId, reviewId }));
-      } else if (post.type === 'check-in') {
-        const checkInId = post._id;
-        await dispatch(deleteCheckIn(checkInId));
-      } else if (post.type === 'invite') {
-        const senderId = post.senderId || post.sender?.id;
-        const inviteId = post._id;
-        const recipientIds = post.recipients?.map((r) => r.id || r._id) || [];
-        await dispatch(deleteInvite({ senderId, inviteId, recipientIds }));
-      } else {
-        console.warn('Unsupported post type:', post.type);
-      }
-    } catch (error) {
-      console.error('Error deleting post:', error);
-    }
-  };
+  const handleDeletePost = (post) => {
+    Alert.alert(
+      "Delete Post",
+      `Are you sure you want to delete this ${post.type === "review" ? "review" : "check-in"}?`,
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              if (post.type === 'review') {
+                await dispatch(deleteReview({ placeId: post.placeId, reviewId: post._id }));
+              } else if (post.type === 'check-in') {
+                await dispatch(deleteCheckIn({ userId, checkInId: post._id }));
+  
+                dispatch(setUserAndFriendsReviews(
+                  (userAndFriendsReviews || []).filter(p => p._id !== post._id)
+                ));
+  
+                dispatch(setProfileReviews(
+                  (profileReviews || []).filter(p => p._id !== post._id)
+                ));
+              } else {
+                console.warn('Unsupported post type:', post.type);
+              }
+            } catch (error) {
+              console.error('Error deleting post:', error);
+              Alert.alert("Error", "Something went wrong while deleting the post.");
+            }
+          },
+        },
+      ]
+    );
+  };  
 
   const handleEditPost = async (post, updates) => {
+    if (post.type === 'review') {
+      setEditingReview(post);
+      setShowEditModal(true);
+      return; // We skip dispatching here — it's done after modal submission
+    }
+
     try {
-      if (post.type === 'review') {
-        const payload = {
-          placeId: post.placeId,
-          reviewId: post._id,
-          rating: updates.rating,
-          reviewText: updates.reviewText,
-          taggedUsers: updates.taggedUsers || [],
-          photos: updates.photos || [],
-        };
-        await dispatch(editReview(payload));
-      } else if (post.type === 'check-in') {
-        const payload = {
-          id: post._id,
-          updatedData: updates,
-        };
-        await dispatch(editCheckIn(payload));
-      } else if (post.type === 'invite') {
-        const payload = {
-          inviteId: post._id,
-          recipientId: post.senderId || post.sender?.id,
-          recipientIds: updates.recipientIds || post.recipients?.map(r => r._id || r.id) || [],
-          updates,
-        };
-        await dispatch(editInvite(payload));
+      if (post.type === 'check-in') {
+        setEditingReview(post);
+        setShowEditModal(true);
+        return;
       } else {
         console.warn("Unsupported post type for editing:", post.type);
       }
@@ -214,10 +221,10 @@ export default function Reviews({ reviews, ListHeaderComponent, scrollY, onScrol
         renderItem={({ item }) => {
           if (item.type === 'invite') {
             return (
-              <InviteCard 
-                invite={item} 
-                handleLike={handleLike} 
-                handleOpenComments={handleOpenComments} 
+              <InviteCard
+                invite={item}
+                handleLike={handleLike}
+                handleOpenComments={handleOpenComments}
                 handleDelete={handleDeletePost}
                 handleEdit={handleEditPost}
               />
@@ -272,188 +279,19 @@ export default function Reviews({ reviews, ListHeaderComponent, scrollY, onScrol
           photoTapped={photoTapped}
         />
       )}
+      {showEditModal && editingReview && (
+        <EditPostModal
+          visible={showEditModal}
+          post={editingReview}
+          onClose={() => {
+            setShowEditModal(false);
+            setEditingReview(null);
+          }}
+          onSuccess={() => {
+            // Optionally refresh posts or show a toast
+          }}
+        />
+      )}
     </>
-
   )
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 5,
-    backgroundColor: "#f5f5f5",
-    marginTop: 130,
-  },
-  section: {
-    padding: 10,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "bold",
-    marginBottom: 20,
-  },
-  reviewCard: {
-    backgroundColor: "#fff",
-    borderRadius: 5,
-    marginBottom: 10,
-    elevation: 2,
-  },
-  profilePic: {
-    marginRight: 10,
-  },
-  business: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: '#555',
-  },
-  date: {
-    fontSize: 12,
-    color: "#555",
-    marginLeft: 10,
-    marginTop: 10,
-  },
-  rating: {
-    fontSize: 14,
-    flexDirection: 'row',
-  },
-  review: {
-    fontSize: 16,
-    marginTop: 5,
-  },
-  buttonText: {
-    color: 'white',
-    flexDirection: 'row',
-  },
-  fab: {
-    position: "absolute",
-    bottom: 20,
-    right: 20,
-    width: 90,
-    height: 90,
-    borderRadius: 10,
-    backgroundColor: "#2196F3",
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 5,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    padding: 2,
-  },
-  userEmailText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginLeft: 10,
-  },
-  likeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  likeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  likeButtonText: {
-    fontSize: 14,
-    color: '#555',
-    marginLeft: 5,
-  },
-  likeCount: {
-    fontSize: 14,
-    color: '#555',
-    marginLeft: 5,
-  },
-  commentCard: {
-    backgroundColor: '#f0f0f0',
-    padding: 10,
-    borderRadius: 5,
-    marginTop: 5,
-  },
-  commentAuthor: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  commentText: {
-    fontSize: 12,
-    color: '#555',
-  },
-  commentInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  commentInput: {
-    flex: 1,
-    height: 40,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 5,
-    paddingHorizontal: 10,
-  },
-  commentButton: {
-    borderRadius: 5,
-    marginLeft: 10,
-    flexDirection: 'row',
-  },
-  commentButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  actionsContainer: {
-    flexDirection: 'row',
-    padding: 15,
-  },
-  commentCount: {
-    marginLeft: 5,
-  },
-  userPicAndName: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 15,
-    padding: 6,
-  },
-  userPic: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    marginRight: 10,
-  },
-  pinIcon: {
-    width: 50,
-    height: 50,
-    marginTop: 15,
-    alignSelf: 'center'
-  },
-  smallPinIcon: {
-    width: 20,
-    height: 20,
-    marginLeft: 5,
-  },
-  message: {
-    marginBottom: 15,
-    fontSize: 16,
-  },
-  businessCheckIn: {
-    width: '100%',
-    fontWeight: "bold",
-    color: '#555',
-  },
-  tapArea: {
-    position: "absolute",
-    width: "100%",
-    height: "100%",
-  },
-  activeDot: {
-    width: 10, // Slightly larger width
-    height: 10, // Slightly larger height
-    borderRadius: 5, // Ensure it's still circular
-    backgroundColor: 'blue', // Highlighted color for active dot
-  },
-  inactiveDot: {
-    backgroundColor: 'gray', // Default color for inactive dots
-  },
-});

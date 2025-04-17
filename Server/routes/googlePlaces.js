@@ -5,7 +5,7 @@ const router = express.Router();
 const googleApiKey = process.env.GOOGLE_KEY;
 
 const quickFilters = {
-  dateNight: ['top golf', 'escape room'],
+  dateNight: ['top golf', 'escape room', 'restaurant', 'bar', 'bowling_alley', 'movie_theater'],
   drinksAndDining: ['restaurant', 'bar', 'cafe', 'brewery', 'winery', 'cocktail bar'],
   outdoor: ['park', 'hiking', 'beach', 'lake', 'campground', 'botanical garden'],
   movieNight: ['movie theater', 'drive-in theater', 'IMAX'],
@@ -17,23 +17,19 @@ const quickFilters = {
   whatsClose: ['establishment', 'entertainment'],
 };
 
-const placesTypes = {
-  dateNight: ['restaurant', 'bar', 'bowling_alley', 'movie_theater'],
-  drinksAndDining: ['restaurant', 'bar', 'cafe'],
-  outdoor: ['park', 'campground', 'rv_park', 'tourist_attraction'],
-  movieNight: ['movie_theater'],
-  gaming: ['amusement_center', 'bowling_alley'],
-  artAndCulture: ['museum', 'art_gallery'],
-  familyFun: ['amusement_park', 'zoo', 'aquarium'],
-  petFriendly: ['park', 'campground', 'rv_park'],
-  liveMusic: ['night_club', 'bar', 'casino'],
-  whatsClose: ['restaurant', 'cafe', 'bar', 'tourist_attraction', 'entertainment'],
+const activityTypeKeywords = {
+  Dining: ['restaurant', 'bar', 'food truck'],
+  Entertainment: ['comedy club', 'live music', 'karaoke', 'theater', 'concert', 'escape room', 'arcade', 'billiards', 'trampoline park'],
+  Outdoor: ['hiking', 'park', 'beach', 'lake', 'fishing', 'zoo', 'campground'],
+  Indoor: ['bowling', 'indoor trampoline', 'museum', 'aquarium', 'art gallery', 'top golf', 'arcade', 'escape room','mini golf'],
+  Family: ['children’s museum', 'playground', 'petting zoo', 'bowling', 'mini golf'],
 };
 
 router.post("/places", async (req, res) => {
-  const { lat, lng, activityType, radius, budget } = req.body;
-  const keywords = quickFilters[activityType] || [];
-  const types = placesTypes[activityType] || [];
+  const { lat, lng, activityType, radius, budget, isCustom } = req.body;
+  const keywords = isCustom
+    ? activityTypeKeywords[activityType] || []
+    : quickFilters[activityType] || [];
 
   const allResults = new Map();
   const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -61,12 +57,6 @@ router.post("/places", async (req, res) => {
   };
 
   try {
-    console.log(`🔍 Fetching by types: ${types}`);
-    await Promise.all(types.map(type =>
-      fetchPlaces(`&type=${encodeURIComponent(type)}`)
-    ));
-
-    console.log(`🔍 Fetching by keywords: ${keywords}`);
     await Promise.all(keywords.map(keyword =>
       fetchPlaces(`&type=establishment&keyword=${encodeURIComponent(keyword)}`)
     ));
