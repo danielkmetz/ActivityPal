@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, Animated, } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableWithoutFeedback, Animated, TouchableOpacity } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
 const Activities = ({ activity }) => {
@@ -25,7 +25,8 @@ const Activities = ({ activity }) => {
     if (!activity.distance) return null;
 
     return (
-        <TouchableOpacity onPress={handlePress} style={styles.container}>
+        <TouchableWithoutFeedback onPress={handlePress}>
+            <View style={styles.container}>
             {/* Display main photo if available */}
             {activity.photoUrl && (
                 <Image source={{ uri: activity.photoUrl }} style={styles.photo} />
@@ -89,7 +90,8 @@ const Activities = ({ activity }) => {
                     ))}
                 </View>
             )}
-        </TouchableOpacity>
+        </View>
+        </TouchableWithoutFeedback>
     );
 };
 
@@ -98,7 +100,7 @@ export default Activities;
 const styles = StyleSheet.create({
     container: {
         backgroundColor: 'white',
-        //marginVertical: 8,
+        marginVertical: 8,
         borderRadius: 8,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },

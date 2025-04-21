@@ -7,6 +7,7 @@ const ActivityInvite = require('../models/ActivityInvites.js');
 const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
 const depthLimit = require('graphql-depth-limit');
 const { GraphQLScalarType, Kind } = require('graphql');
+const {gatherUserReviews, gatherUserCheckIns} = require('../utils/userPosts.js');
 
 // ✅ Custom Scalar Type for Date
 const DateScalar = new GraphQLScalarType({
@@ -75,6 +76,7 @@ const typeDefs = gql`
     taggedUsers: [TaggedUser]
     photos: [Photo!]
     type: String!
+    sortDate: String
   }
 
   # ✅ Check-In Type
@@ -93,6 +95,7 @@ const typeDefs = gql`
     likes: [Like]
     taggedUsers: [TaggedUser]
     type: String! # ✅ Used to distinguish between reviews and check-ins in frontend
+    sortDate: String
   }
 
   type ActivityInvite {
@@ -112,6 +115,12 @@ const typeDefs = gql`
     comments: [Comment]
     type: String!
     requests: [Request]
+    sortDate: String
+  }
+
+  input ActivityCursor {
+    sortDate: String!
+    id: ID!
   }
 
   type Request {
@@ -200,11 +209,11 @@ const typeDefs = gql`
   # ✅ Queries
   type Query {
     getUserAndFriendsReviews(userId: String!): [Review!]
-    getUserPosts(userId: String!): [UserPost!]
+    getUserPosts(userId: ID!, limit: Int, after: ActivityCursor): [UserPost!]
     getBusinessReviews(placeId: String!): [Review!]
     getUserAndFriendsCheckIns(userId: String!): [CheckIn!]
     getUserAndFriendsInvites(userId: ID!): UserAndFriendsInvites
-    getUserActivity(userId: String!): [UserActivity!] # ✅ Fetches both reviews & check-ins
+    getUserActivity(userId: ID!, limit: Int, after: ActivityCursor): [UserActivity!]
   }
 `;
 
@@ -378,183 +387,78 @@ const resolvers = {
         throw new Error('Failed to fetch reviews');
       }
     },            
-    getUserPosts: async (_, { userId }) => {
+    getUserPosts: async (_, { userId, limit = 15, after }) => {
       try {
+        console.log("🔍 getUserPosts called");
+        console.log("📥 Args:", { userId, limit, after });
+    
         const userObjectId = new mongoose.Types.ObjectId(userId);
     
-        // Fetch user profile pic and check-ins
-        const user = await User.findById(userObjectId).select('_id profilePic checkIns firstName lastName');
-        if (!user) throw new Error('User not found');
+        // Fetch basic user data
+        const user = await User.findById(userObjectId).select(
+          '_id profilePic checkIns firstName lastName'
+        );
+        if (!user) {
+          console.warn("❌ User not found for ID:", userId);
+          throw new Error('User not found');
+        }
     
         const photoKey = user.profilePic?.photoKey || null;
-        const profilePicUrl = photoKey ? await generateDownloadPresignedUrl(photoKey) : null;
+        const profilePicUrl = photoKey
+          ? await generateDownloadPresignedUrl(photoKey)
+          : null;
     
-        // ✅ Fetch Reviews
-        const businesses = await Business.find({ "reviews.userId": userObjectId }).lean();
-        let reviews = [];
-        for (const business of businesses) {
-          const businessReviews = await Promise.all(
-            business.reviews
-              .filter((review) => review.userId.toString() === userId)
-              .map(async (review) => {
+        console.log("👤 User profile loaded. First name:", user.firstName);
     
-                // ✅ Ensure `review.photos` is an array before mapping
-                const photosWithUserNames = Array.isArray(review.photos)
-                  ? await Promise.all(
-                      review.photos.map(async (photo) => {
+        // Fetch posts
+        const reviews = await gatherUserReviews(userObjectId, user.profilePic, profilePicUrl);
+        console.log(`📝 Loaded ${reviews.length} reviews`);
     
-                        // ✅ Ensure `photo.taggedUsers` is an array before mapping
-                        const taggedUserIds = Array.isArray(photo.taggedUsers)
-                          ? photo.taggedUsers.map(tag => tag.userId).filter(Boolean) // Filter out undefined values
-                          : [];
+        const checkIns = await gatherUserCheckIns(user, profilePicUrl);
+        console.log(`📍 Loaded ${checkIns.length} check-ins`);
     
-                        const taggedUserDetails = taggedUserIds.length > 0
-                          ? await User.find({ _id: { $in: taggedUserIds } }, { firstName: 1, lastName: 1 })
-                          : [];
+        // Normalize and attach sortDate
+        const allPosts = [...reviews, ...checkIns].map(post => ({
+          ...post,
+          sortDate: post.date,
+        }));
     
-                        const taggedUsersWithPositions = Array.isArray(photo.taggedUsers)
-                          ? photo.taggedUsers.map(tag => {
-                              const user = taggedUserDetails.find(u => u._id.toString() === tag.userId?.toString());
-                              return {
-                                _id: tag.userId,
-                                fullName: user ? `${user.firstName} ${user.lastName}` : "Unknown User",
-                                x: tag.x || 0,
-                                y: tag.y || 0
-                              };
-                            })
-                          : [];
+        console.log(`📦 Total combined posts: ${allPosts.length}`);
     
-                        return {
-                          ...photo,
-                          url: await generateDownloadPresignedUrl(photo.photoKey),
-                          taggedUsers: taggedUsersWithPositions, // ✅ Now includes x, y for rendering
-                        };
-                      })
-                    )
-                  : [];
-    
-                // ✅ Process tagged users for the entire review
-                let taggedUsers = [];
-                if (Array.isArray(review.taggedUsers) && review.taggedUsers.length > 0) {
-                  const taggedUsersData = await User.find(
-                    { _id: { $in: review.taggedUsers } },
-                    { firstName: 1, lastName: 1 }
-                  );
-    
-                  taggedUsers = taggedUsersData.map(user => ({
-                    _id: user._id,
-                    fullName: `${user.firstName} ${user.lastName}`,
-                  }));
-                }
-    
-                return {
-                  __typename: "Review",
-                  ...review,
-                  businessName: business.businessName,
-                  placeId: business.placeId,
-                  date: new Date(review.date).toISOString(),
-                  profilePic: user.profilePic || null,
-                  profilePicUrl,
-                  photos: photosWithUserNames, // ✅ Now includes x, y for rendering
-                  taggedUsers, // ✅ Includes full names of tagged users
-                  type: 'review',
-                };
-              })
+        // Sort by sortDate descending, tie-break by _id
+        let sorted = allPosts.sort((a, b) => {
+          const dateDiff = new Date(b.sortDate) - new Date(a.sortDate);
+          if (dateDiff !== 0) return dateDiff;
+          return new mongoose.Types.ObjectId(b._id).toString().localeCompare(
+            new mongoose.Types.ObjectId(a._id).toString()
           );
+        });
     
-          reviews.push(...businessReviews);
+        // Apply pagination cursor filter
+        if (after?.sortDate && after?.id) {
+          const afterTime = new Date(after.sortDate).getTime();
+          const afterObjectId = new mongoose.Types.ObjectId(after.id).toString();
+    
+          console.log("🔎 Applying pagination filter after:", after);
+    
+          sorted = sorted.filter(post => {
+            const postTime = new Date(post.sortDate).getTime();
+            const postId = new mongoose.Types.ObjectId(post._id).toString();
+    
+            return (
+              postTime < afterTime ||
+              (postTime === afterTime && postId < afterObjectId)
+            );
+          });
+    
+          console.log(`📉 Posts remaining after cursor filter: ${sorted.length}`);
         }
     
-        // ✅ Fetch Check-Ins
-        let checkIns = [];
-        if (user.checkIns && user.checkIns.length > 0) {
-          checkIns = await Promise.all(
-            user.checkIns.map(async (checkIn) => {
+        const result = sorted.slice(0, limit);
+        console.log(`✅ Returning ${result.length} posts`);
     
-              // ✅ Ensure `checkIn.photos` is an array before mapping
-              const photosWithUserNames = Array.isArray(checkIn.photos)
-                ? await Promise.all(
-                    checkIn.photos.map(async (photo) => {
+        return result;
     
-                      // ✅ Ensure `photo.taggedUsers` is an array before mapping
-                      const taggedUserIds = Array.isArray(photo.taggedUsers)
-                        ? photo.taggedUsers.map(tag => tag.userId).filter(Boolean)
-                        : [];
-    
-                      const taggedUserDetails = taggedUserIds.length > 0
-                        ? await User.find({ _id: { $in: taggedUserIds } }, { firstName: 1, lastName: 1 })
-                        : [];
-    
-                      const taggedUsersWithPositions = Array.isArray(photo.taggedUsers)
-                        ? photo.taggedUsers.map(tag => {
-                            const user = taggedUserDetails.find(u => u._id.toString() === tag.userId?.toString());
-                            return {
-                              _id: tag.userId,
-                              fullName: user ? `${user.firstName} ${user.lastName}` : "Unknown User",
-                              x: tag.x || 0,
-                              y: tag.y || 0
-                            };
-                          })
-                        : [];
-    
-                        return {
-                          _id: photo._id, // ✅ Ensure photo ObjectId is explicitly returned
-                          photoKey: photo.photoKey,
-                          uploadedBy: photo.uploadedBy,
-                          uploadDate: photo.uploadDate,
-                          description: photo.description,
-                          url: await generateDownloadPresignedUrl(photo.photoKey) || "", // Ensure URL exists
-                          taggedUsers: taggedUsersWithPositions
-                        };
-                    })
-                  )
-                : [];
-    
-              let businessName = null;
-              if (checkIn.placeId) {
-                const business = await Business.findOne({ placeId: checkIn.placeId }).select('businessName');
-                businessName = business ? business.businessName : null;
-              }
-    
-              // ✅ Process tagged users for the entire check-in
-              let taggedUsers = [];
-              if (Array.isArray(checkIn.taggedUsers) && checkIn.taggedUsers.length > 0) {
-                const taggedUsersData = await User.find(
-                  { _id: { $in: checkIn.taggedUsers } },
-                  { firstName: 1, lastName: 1 }
-                );
-    
-                taggedUsers = taggedUsersData.map(user => ({
-                  _id: user._id,
-                  fullName: `${user.firstName} ${user.lastName}`,
-                }));
-              }
-    
-              return {
-                __typename: "CheckIn",
-                _id: checkIn._id,
-                userId,
-                fullName: `${user.firstName} ${user.lastName}`,
-                message: checkIn.message,
-                date: new Date(checkIn.date).toISOString(),
-                photos: photosWithUserNames, // ✅ Now includes x, y for rendering
-                likes: checkIn.likes || [],
-                comments: checkIn.comments || [],
-                taggedUsers, // ✅ Includes full names of tagged users
-                profilePic: user.profilePic || null,
-                profilePicUrl,
-                placeId: checkIn.placeId || null,
-                businessName,
-                type: 'check-in',
-              };
-            })
-          );
-        }
-    
-        // ✅ Combine and Sort by Date
-        const posts = [...reviews, ...checkIns].sort((a, b) => new Date(b.date) - new Date(a.date));
-    
-        return posts;
       } catch (error) {
         console.error('❌ Error fetching user posts:', error);
         throw new Error('Failed to fetch user posts');
@@ -915,45 +819,51 @@ const resolvers = {
         throw new Error("Failed to fetch user and friends' invites");
       }
     },                
-    getUserActivity: async (_, { userId }, { dataSources }) => {
+    getUserActivity: async (_, { userId, limit = 15, after }, { dataSources }) => {
       try {
         if (!mongoose.Types.ObjectId.isValid(userId)) {
           throw new Error("Invalid userId format");
         }
-
+    
         const reviews = await resolvers.Query.getUserAndFriendsReviews(_, { userId }, { dataSources }) || [];
         const checkIns = await resolvers.Query.getUserAndFriendsCheckIns(_, { userId }, { dataSources }) || [];
-        const inviteData = await resolvers.Query.getUserAndFriendsInvites(_, { userId }, { dataSources });
+        const inviteData = await resolvers.Query.getUserAndFriendsInvites(_, { userId }, { dataSources }) || {};
+    
         const invites = [
-          ...(inviteData?.userInvites || []),
-          ...(inviteData?.friendPublicInvites || [])
+          ...(inviteData.userInvites || []),
+          ...(inviteData.friendPublicInvites || [])
         ];
-
-        // Ensure every post has a type
-        const reviewsWithType = reviews.map(review => ({
-          ...review,
-          type: "review"
-        }));
-        const checkInsWithType = checkIns.map(checkIn => ({
-          ...checkIn,
-          type: "check-in"
-        }));
-        const invitesWithType = invites.map(invite => ({
-          ...invite,
-          type: "invite",
-          timestamp: invite.createdAt // for consistent sorting
-        }));
-
-        // Combine and sort by date
-        return [...reviewsWithType, ...checkInsWithType, ...invitesWithType].sort(
-          (a, b) =>
-            new Date(b.date || b.timestamp || b.createdAt) -
-            new Date(a.date || a.timestamp || a.createdAt)
-        );        
+    
+        const normalizeDate = (item) => {
+          const rawDate = item.date || item.createdAt || item.timestamp || item.dateTime || 0;
+          const parsedDate = new Date(rawDate);
+          return {
+            ...item,
+            sortDate: parsedDate.toISOString(),
+          };
+        };
+    
+        const posts = [
+          ...reviews.map(r => normalizeDate({ ...r, type: 'review' })),
+          ...checkIns.map(c => normalizeDate({ ...c, type: 'check-in' })),
+          ...invites.map(i => normalizeDate({ ...i, type: 'invite' })),
+        ];
+    
+        let filtered = posts.sort((a, b) => new Date(b.sortDate) - new Date(a.sortDate));
+    
+        if (after?.sortDate && after?.id) {
+          const afterTime = new Date(after.sortDate).getTime();
+          filtered = filtered.filter(p => {
+            const currentTime = new Date(p.sortDate).getTime();
+            return currentTime < afterTime || (currentTime === afterTime && p._id < after.id);
+          });
+        }
+    
+        return filtered.slice(0, limit);
       } catch (error) {
         throw new Error("Failed to fetch user activity");
       }
-    },
+    },            
   },
   UserActivity: {
     __resolveType(obj) {
@@ -969,6 +879,17 @@ const resolvers = {
       return null;
     }
   },
+  UserPost: {
+    __resolveType(obj) {
+      if (obj.type === 'review' || obj.reviewText !== undefined) {
+        return 'Review';
+      }
+      if (obj.type === 'checkin' || obj.message !== undefined) {
+        return 'CheckIn';
+      }
+      throw new Error('Unknown type in UserPost resolver');
+    },
+  },   
   Date: DateScalar,
 };
 

@@ -9,9 +9,10 @@ import Reviews from "../Reviews/Reviews";
 import Photos from "./Photos";
 import profilePlaceholder from '../../assets/pics/profile-pic-placeholder.jpg'
 import { selectProfilePic, selectBanner, fetchProfilePic, fetchUserBanner } from "../../Slices/PhotosSlice";
-import { selectProfileReviews, fetchReviewsByUserId } from "../../Slices/ReviewsSlice";
+import { selectProfileReviews, fetchReviewsByUserId, appendProfileReviews, setProfileReviews } from "../../Slices/ReviewsSlice";
 import { selectFavorites, fetchFavorites } from "../../Slices/FavoritesSlice";
 import Favorites from "./Favorites";
+import usePaginatedFetch from "../../utils/usePaginatedFetch";
 
 export default function UserProfile() {
   const dispatch = useDispatch();
@@ -29,16 +30,28 @@ export default function UserProfile() {
   const userId = user?.id;
   const numberOfFriends = user?.friends?.length;
 
+  const {
+    loadMore,
+    refresh,
+    isLoading,
+    hasMore,
+  } = usePaginatedFetch({
+    fetchThunk: fetchReviewsByUserId,
+    appendAction: appendProfileReviews,
+    resetAction: setProfileReviews,
+    userId,
+    limit: 5,
+  });
+
   useEffect(() => {
     if (userId && shouldFetch) {
       dispatch(fetchProfilePic(userId));
       dispatch(fetchUserBanner(userId));
-      dispatch(fetchReviewsByUserId(userId));
       dispatch(fetchFavorites(userId));
-
+      refresh();
       setShouldFetch(false)
     }
-  }, [userId, dispatch]);
+  }, [userId]);
 
   const photos = Array.from(
     new Set(profileReviews.flatMap((review) => review.photos?.map((photo) => photo.url) || []))
@@ -103,7 +116,7 @@ export default function UserProfile() {
                 <Text style={styles.navButtonText}>Favorited</Text>
               </TouchableOpacity>
             </View>
-            {activeSection === "reviews" && <Reviews reviews={profileReviews} />}
+            {activeSection === "reviews" && <Reviews reviews={profileReviews} onLoadMore={loadMore} isLoadingMore={isLoading} hasMore={hasMore} />}
             {activeSection === "photos" && <Photos photos={photos} />}
             {activeSection === "favorites" && <Favorites favorites={favorites} />}
             <View style={styles.bottom}/>

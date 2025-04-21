@@ -20,6 +20,7 @@ import { PaperProvider } from 'react-native-paper';
 import { selectGooglePlaces } from './Slices/GooglePlacesSlice';
 import { fetchNotifications, selectUnreadCount } from './Slices/NotificationsSlice';
 import { selectUser } from './Slices/UserSlice';
+import useScrollTracking from './utils/useScrollTracking';
 
 const fetchFonts = async () => {
   return await Font.loadAsync({
@@ -46,87 +47,8 @@ function MainApp() {
   const [shouldFetch, setShouldFetch] = useState(true);
   const [newUnreadCount, setNewUnreadCount] = useState(0);
   const previousUnreadCount = useRef(null);
-  
-  // Track scrolling and header visibility
-  const scrollY = useRef(new Animated.Value(0)).current;
-  const headerTranslateY = useRef(new Animated.Value(0)).current;
-  //const customNavTranslateY = useRef(new Animated.Value(0)).current;
-  const lastScrollY = useRef(0);
-  const lastScrollTime = useRef(Date.now());
-  const isHeaderVisible = useRef(true);
 
-  const tabBarTranslateY = headerTranslateY.interpolate({
-    inputRange: [-HEADER_HEIGHT, 0],
-    outputRange: [TAB_BAR_HEIGHT, 0],
-    extrapolate: 'clamp',
-  });
-  
-  const customNavTranslateY = headerTranslateY.interpolate({
-    inputRange: [-HEADER_HEIGHT, 0],
-    outputRange: [150, 0],
-    extrapolate: 'clamp',
-  });
-  
-  console.log(customNavTranslateY);
-  
-  // Scroll listener function
-  const handleScroll = (event) => {
-    const currentY = event.nativeEvent.contentOffset.y;
-    const contentHeight = event.nativeEvent.contentSize.height;
-    const layoutHeight = event.nativeEvent.layoutMeasurement.height;
-    const currentTime = Date.now();
-    const deltaY = currentY - lastScrollY.current;
-    const deltaTime = currentTime - lastScrollTime.current;
-  
-    const velocity = deltaY / (deltaTime || 1);
-  
-    lastScrollY.current = currentY;
-    lastScrollTime.current = currentTime;
-  
-    const isNearTop = currentY <= 0;
-    const isReallyAtTop = currentY <= 35;
-  
-    // ✅ Scroll DOWN → HIDE
-    if (
-      velocity > MIN_VELOCITY_TO_TRIGGER &&
-      !isNearTop &&
-      isHeaderVisible.current
-    ) {
-      Animated.timing(headerTranslateY, {
-        toValue: -HEADER_HEIGHT,
-        duration: 250,
-        useNativeDriver: true,
-      }).start();
-      isHeaderVisible.current = false;
-    }
-  
-    // ✅ Scroll UP → SHOW
-    else if (
-      velocity < -MIN_VELOCITY_TO_TRIGGER &&
-      Math.abs(deltaY) > MIN_SCROLL_DELTA &&
-      !isHeaderVisible.current
-    ) {
-      Animated.timing(headerTranslateY, {
-        toValue: 0,
-        duration: 250,
-        useNativeDriver: true,
-      }).start();
-      isHeaderVisible.current = true;
-    }
-  
-    // ✅ Snap-to-top → SHOW
-    else if (isReallyAtTop && !isHeaderVisible.current) {
-      Animated.timing(headerTranslateY, {
-        toValue: 0,
-        duration: 250,
-        useNativeDriver: true,
-      }).start();
-      isHeaderVisible.current = true;
-    }
-  
-    const isAtBottom = currentY + layoutHeight >= contentHeight - 100;
-    setIsAtEnd(isAtBottom);
-  };
+  const { scrollY, headerTranslateY, tabBarTranslateY, customNavTranslateY, handleScroll } = useScrollTracking();
   
   useEffect(() => {
     dispatch(getCurrentCoordinates());
@@ -223,7 +145,7 @@ function MainApp() {
       )}
       <AppNavigator 
         scrollY={scrollY} 
-        onScroll={handleScroll} 
+        onScroll={(e) => handleScroll(e, setIsAtEnd)} 
         tabBarTranslateY={tabBarTranslateY} 
         headerTranslateY={headerTranslateY}
         customNavTranslateY={customNavTranslateY}
