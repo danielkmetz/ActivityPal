@@ -11,7 +11,7 @@ import {
 const QuickFilters = ({ keyboardOpen, onFilterPress, stylesOverride = {}, icons }) => {
     const filters = [
         { label: "Date Night", icon: icons.heart, type: "dateNight" },
-        { label: "Drinks & Dining", icon: icons.tableware, type: "drinksAndDining" },
+        { label: "Drinks & Dining", icon: icons.tableware, type: "Dining" },
         { label: "Events", icon: icons.tickets, type: "events" },
         { label: "Outdoor", icon: icons.hiking, type: "outdoor" },
         { label: "Movie Night", icon: icons.popcorn, type: "movieNight" },

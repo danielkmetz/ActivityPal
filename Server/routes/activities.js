@@ -14,8 +14,7 @@ router.post('/check-businesses', verifyToken, async (req, res) => {
 
         // Find all businesses that match any of the provided placeIds
         const businesses = await Business.find({ placeId: { $in: placeIds } });
-        console.log(businesses)
-
+        
         return res.status(200).json(businesses); // Return matching businesses
     } catch (error) {
         console.error('Error fetching businesses:', error);

@@ -199,7 +199,7 @@ const styles = StyleSheet.create({
     map: {
         width: width,
         height: height,
-        paddingBottom: 200,
+        paddingBottom: 150,
     },
     image: {
         width: '100%',

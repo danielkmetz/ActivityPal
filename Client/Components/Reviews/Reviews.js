@@ -3,6 +3,8 @@ import {
   Alert,
   FlatList,
   Animated,
+  ActivityIndicator,
+  Text,
 } from "react-native";
 import { deleteCheckIn } from "../../Slices/CheckInsSlice";
 import { toggleLike, deleteReview, selectUserAndFriendsReviews, setUserAndFriendsReviews, setProfileReviews, selectProfileReviews } from "../../Slices/ReviewsSlice";
@@ -17,7 +19,7 @@ import EditPostModal from "./EditPostModal";
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
-export default function Reviews({ reviews, ListHeaderComponent, scrollY, onScroll }) {
+export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY, onScroll, onLoadMore, isLoadingMore }) {
   const dispatch = useDispatch();
   const user = useSelector(selectUser);
   const [selectedReview, setSelectedReview] = useState(null); // For the modal
@@ -103,11 +105,10 @@ export default function Reviews({ reviews, ListHeaderComponent, scrollY, onScrol
 
       if (!wasLikedBefore) {
         if (!likedAnimations[postId]) {
-          setLikedAnimations((prev) => ({
-            ...prev,
-            [postId]: new Animated.Value(0),
-          }));
-        }
+          const newAnim = new Animated.Value(0);
+          likedAnimations[postId] = newAnim;
+          setLikedAnimations({ ...likedAnimations });
+        }        
 
         const animation = likedAnimations[postId] || new Animated.Value(0);
 
@@ -157,11 +158,11 @@ export default function Reviews({ reviews, ListHeaderComponent, scrollY, onScrol
                 await dispatch(deleteReview({ placeId: post.placeId, reviewId: post._id }));
               } else if (post.type === 'check-in') {
                 await dispatch(deleteCheckIn({ userId, checkInId: post._id }));
-  
+
                 dispatch(setUserAndFriendsReviews(
                   (userAndFriendsReviews || []).filter(p => p._id !== post._id)
                 ));
-  
+
                 dispatch(setProfileReviews(
                   (profileReviews || []).filter(p => p._id !== post._id)
                 ));
@@ -176,7 +177,7 @@ export default function Reviews({ reviews, ListHeaderComponent, scrollY, onScrol
         },
       ]
     );
-  };  
+  };
 
   const handleEditPost = async (post, updates) => {
     if (post.type === 'review') {
@@ -202,10 +203,27 @@ export default function Reviews({ reviews, ListHeaderComponent, scrollY, onScrol
     <>
       <AnimatedFlatList
         data={reviews}
-        extraData={reviews}
-        keyExtractor={(item, index) => (item._id || item.id || index).toString()}
+        extraData={reviews ?? []}
+        keyExtractor={(item, index) =>
+          `${item.type}-${item._id || item.id || index}`
+        }
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={ListHeaderComponent}
+        onEndReached={() => {
+          if (hasMore && !isLoadingMore) {
+            onLoadMore?.();
+          }
+        }}
+        onEndReachedThreshold={0.5} // Triggers when user scrolls within 50% of bottom
+        ListFooterComponent={
+          isLoadingMore ? (
+            <ActivityIndicator size="small" style={{ marginVertical: 10 }} />
+          ) : !hasMore ? (
+            <Text style={{ textAlign: "center", color: "gray", marginVertical: 20 }}>
+              🎉 You’re all caught up!
+            </Text>
+          ) : null
+        }
         onScroll={
           scrollY
             ? Animated.event(

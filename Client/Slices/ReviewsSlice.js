@@ -131,31 +131,40 @@ export const addReply = createAsyncThunk(
 
 export const fetchReviewsByUserId = createAsyncThunk(
   'reviews/fetchReviewsByUserId',
-  async (userId, { rejectWithValue }) => {
-    console.log('user reviews being fetched')
+  async ({ userId, limit = 15, after }, { rejectWithValue }) => {
+    console.log('📤 Thunk: fetchReviewsByUserId called');
+    console.log('➡️ Variables:', { userId, limit, after });
     try {
       const query = `
-        query GetUserPosts($userId: String!) {
-          getUserPosts(userId: $userId) {
+        query GetUserPosts($userId: String!, $limit: Int, $after: ActivityCursor) {
+          getUserPosts(userId: $userId, limit: $limit, after: $after) {
             __typename  
 
-            ... on Review {
+             ... on Review {
+            _id
+            userId
+            fullName
+            businessName
+            placeId
+            rating
+            reviewText
+            date
+            sortDate
+            taggedUsers {
               _id
-              type
+              fullName
+            }
+            likes {
+              userId
+              fullName
+            }
+            comments {
+              _id
+              commentText
               userId
               fullName
               date
-              placeId
-              businessName
-              taggedUsers {
-                _id
-                fullName
-              }
-              likes {
-                userId
-                fullName
-              }
-              comments {
+              replies {
                 _id
                 commentText
                 userId
@@ -179,261 +188,101 @@ export const fetchReviewsByUserId = createAsyncThunk(
                       userId
                       fullName
                       date
-                      replies {
-                        _id
-                        commentText
-                        userId
-                        fullName
-                        date
-                        replies {
-                          _id
-                          commentText
-                          userId
-                          fullName
-                          date
-                          replies {
-                            _id
-                            commentText
-                            userId
-                            fullName
-                            date
-                            replies {
-                              _id
-                              commentText
-                              userId
-                              fullName
-                              date
-                              replies {
-                                _id
-                                commentText
-                                userId
-                                fullName
-                                date
-                                replies {
-                                  _id
-                                  commentText
-                                  userId
-                                  fullName
-                                  date
-                                  replies {
-                                    _id
-                                    commentText
-                                    userId
-                                    fullName
-                                    date
-                                    replies {
-                                      _id
-                                      commentText
-                                      userId
-                                      fullName
-                                      date
-                                      replies {
-                                        _id
-                                        commentText
-                                        userId
-                                        fullName
-                                        date
-                                        replies {
-                                          _id
-                                          commentText
-                                          userId
-                                          fullName
-                                          date
-                                        }
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
                     }
                   }
                 }
               }
-              profilePic {
-                _id
-                photoKey
-                uploadedBy
-                description
-                tags
-                uploadDate
-              }
-              profilePicUrl
-              photos {
-                _id
-                photoKey
-                uploadedBy
-                description
-                taggedUsers {
-                  _id
-                  fullName
-                  x
-                  y
-                }
-                uploadDate
-                url
-              }
-              rating
-              reviewText
             }
+            profilePic {
+              _id
+              photoKey
+              uploadedBy
+              description
+              tags
+              uploadDate
+            }
+            profilePicUrl
+            photos {
+              _id
+              photoKey
+              uploadedBy
+              description
+              taggedUsers {
+                _id
+                fullName
+                x
+                y
+              }
+              uploadDate
+              url
+            }
+            type
+          }
 
             ... on CheckIn {
+            _id
+            userId
+            fullName
+            placeId
+            businessName
+            date
+            sortDate
+            message
+            taggedUsers {
               _id
-              type
-              userId
               fullName
-              date
-              placeId
-              businessName
-              message
+            }
+            profilePicUrl
+            photos {
+              _id
+              photoKey
+              uploadedBy
+              description
               taggedUsers {
                 _id
                 fullName
+                x
+                y
               }
-              likes {
-                userId
-                fullName
-              }
-              comments {
-                _id
-                commentText
-                userId
-                fullName
-                date
-                replies {
-                  _id
-                  commentText
-                  userId
-                  fullName
-                  date
-                  replies {
-                    _id
-                    commentText
-                    userId
-                    fullName
-                    date
-                    replies {
-                      _id
-                      commentText
-                      userId
-                      fullName
-                      date
-                      replies {
-                        _id
-                        commentText
-                        userId
-                        fullName
-                        date
-                        replies {
-                          _id
-                          commentText
-                          userId
-                          fullName
-                          date
-                          replies {
-                            _id
-                            commentText
-                            userId
-                            fullName
-                            date
-                            replies {
-                              _id
-                              commentText
-                              userId
-                              fullName
-                              date
-                              replies {
-                                _id
-                                commentText
-                                userId
-                                fullName
-                                date
-                                replies {
-                                  _id
-                                  commentText
-                                  userId
-                                  fullName
-                                  date
-                                  replies {
-                                    _id
-                                    commentText
-                                    userId
-                                    fullName
-                                    date
-                                    replies {
-                                      _id
-                                      commentText
-                                      userId
-                                      fullName
-                                      date
-                                      replies {
-                                        _id
-                                        commentText
-                                        userId
-                                        fullName
-                                        date
-                                        replies {
-                                          _id
-                                          commentText
-                                          userId
-                                          fullName
-                                          date
-                                        }
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-              profilePic {
-                _id
-                photoKey
-                uploadedBy
-                description
-                tags
-                uploadDate
-              }
-              profilePicUrl
-              photos {
-                _id
-                photoKey
-                uploadedBy
-                description
-                taggedUsers {
-                  _id
-                  fullName
-                  x
-                  y
-                }
-                uploadDate
-                url
-              }
+              uploadDate
+              url
             }
+            type
           }
         }
-      `;
+      }
+    `;
+
+    const variables = {
+      userId,
+      limit,
+      ...(after ? { after } : {})
+    };
+
+      console.log('➡️ Variables:', JSON.stringify(variables));
 
       const response = await axios.post(GRAPHQL_ENDPOINT, {
         query,
-        variables: { userId },
+        variables,
       });
-      console.log(response.data)
+
+      console.log('📥 Raw response:', response.data);
+      console.log('📥 Raw response status:', response.status);
 
       if (response.data.errors) {
+        console.error('❌ GraphQL errors:', response.data.errors);
         throw new Error(response.data.errors[0].message);
       }
-      
-      return response.data.data.getUserPosts || [];
+
+      const posts = response.data?.data?.getUserPosts
+
+      if (!Array.isArray(posts)) {
+        console.warn('⚠️ getUserPosts did not return an array:', posts);
+        return [];
+      }
+
+      console.log(`✅ Returned ${posts.length} posts`);
+      return posts;
     } catch (error) {
       if (error.response) {
         return rejectWithValue(
@@ -767,11 +616,11 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
 
 export const fetchReviewsByUserAndFriends = createAsyncThunk(
   "reviews/fetchUserActivity",
-  async (userId, { rejectWithValue }) => {
+  async ({ userId, limit = 15, after }, { rejectWithValue }) => {
     try {
       const query = `
-        query GetUserActivity($userId: String!) {
-        getUserActivity(userId: $userId) {
+        query GetUserActivity($userId: ID!, $limit: Int, $after: ActivityCursor) {
+        getUserActivity(userId: $userId, limit: $limit, after: $after) {
           ... on Review {
             _id
             userId
@@ -781,6 +630,7 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
             rating
             reviewText
             date
+            sortDate
             taggedUsers {
               _id
               fullName
@@ -872,6 +722,7 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
             businessLogoUrl
             note
             dateTime
+            sortDate
             message
             isPublic
             status
@@ -918,6 +769,7 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
             placeId
             businessName
             date
+            sortDate
             message
             taggedUsers {
               _id
@@ -946,7 +798,7 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
 
       const response = await axios.post(GRAPHQL_ENDPOINT, {
         query,
-        variables: { userId },
+        variables: { userId, limit, after },
       });
 
       if (response.data.errors) {
@@ -1163,10 +1015,22 @@ const reviewsSlice = createSlice({
     },
     setUserAndFriendsReviews: (state, action) => {
       state.userAndFriendsReviews = [...action.payload]; // ✅ new array reference
-    }, 
+    },
+    appendUserAndFriendsReviews: (state, action) => {
+      state.userAndFriendsReviews = [
+        ...state.userAndFriendsReviews,
+        ...action.payload,
+      ]; // for pagination
+    },
+    appendProfileReviews: (state, action) => {
+      state.profileReviews = [
+        ...state.profileReviews,
+        ...action.payload,
+      ]; // for pagination
+    },
     setProfileReviews: (state, action) => {
       state.profileReviews = [...action.payload];
-    },   
+    },
     setSelectedReview: (state, action) => {
       state.selectedReview = action.payload;
     },
@@ -1197,7 +1061,6 @@ const reviewsSlice = createSlice({
       })
       .addCase(fetchReviewsByUserId.fulfilled, (state, action) => {
         state.loading = "idle";
-        state.profileReviews = action.payload;
       })
       .addCase(fetchReviewsByUserId.rejected, (state, action) => {
         state.loading = "idle";
@@ -1235,22 +1098,22 @@ const reviewsSlice = createSlice({
       })
       .addCase(deleteReview.fulfilled, (state, action) => {
         const deletedReviewId = action.meta.arg.reviewId;
-      
+
         state.loading = "idle";
-      
+
         // If you're storing a centralized list of reviews
         state.reviews = (state.reviews || []).filter(r => r._id !== deletedReviewId);
-      
+
         // Remove from user & friends feed
         state.userAndFriendsReviews = (state.userAndFriendsReviews || []).filter(
           (r) => r._id !== deletedReviewId
         );
-      
+
         // Remove from current user's profile feed
         state.profileReviews = (state.profileReviews || []).filter(
           (r) => r._id !== deletedReviewId
         );
-      
+
         // Remove from other user's profile feed
         state.otherUserReviews = (state.otherUserReviews || []).filter(
           (r) => r._id !== deletedReviewId
@@ -1371,7 +1234,7 @@ const reviewsSlice = createSlice({
       })
       .addCase(fetchReviewsByUserAndFriends.fulfilled, (state, action) => {
         state.loading = "idle";
-        state.userAndFriendsReviews = action.payload;
+        //state.userAndFriendsReviews = action.payload;
       })
       .addCase(fetchReviewsByUserAndFriends.rejected, (state, action) => {
         state.loading = "idle";
@@ -1494,7 +1357,7 @@ const reviewsSlice = createSlice({
       .addCase(editReview.fulfilled, (state, action) => {
         const updatedReview = action.payload;
         state.loading = "succeeded";
-  
+
         // Helper to update review in any given array
         const updateReviewArray = (array) => {
           const index = array.findIndex(r => r._id === updatedReview._id);
@@ -1502,7 +1365,7 @@ const reviewsSlice = createSlice({
             array[index] = updatedReview;
           }
         };
-  
+
         updateReviewArray(state.userAndFriendsReviews);
         updateReviewArray(state.profileReviews);
         updateReviewArray(state.otherUserReviews);
@@ -1517,7 +1380,7 @@ const reviewsSlice = createSlice({
 
 export default reviewsSlice.reducer;
 
-export const { setUserAndFriendsReviews, setSelectedReview, setProfileReviews, addCheckInUserAndFriendsReviews, addCheckInProfileReviews, resetProfileReviews, setLocalReviews, resetOtherUserReviews, resetBusinessReviews, clearSelectedReview } = reviewsSlice.actions;
+export const { setUserAndFriendsReviews, appendUserAndFriendsReviews, appendProfileReviews, setSelectedReview, setProfileReviews, addCheckInUserAndFriendsReviews, addCheckInProfileReviews, resetProfileReviews, setLocalReviews, resetOtherUserReviews, resetBusinessReviews, clearSelectedReview } = reviewsSlice.actions;
 
 export const selectProfileReviews = (state) => state.reviews.profileReviews;
 export const selectBusinessReviews = (state) => state.reviews.businessReviews;

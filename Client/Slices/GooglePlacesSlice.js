@@ -6,8 +6,29 @@ const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
 // Thunk to fetch AI-curated places
 export const fetchGooglePlaces = createAsyncThunk(
   'GooglePlaces/fetchGooglePlaces',
+  async ({ lat, lng, activityType, quickFilter, radius, budget }, { rejectWithValue }) => {
+    try {
+      const response = await axios.post(`${BASE_URL}/places2/places-nearby`, {
+        lat,
+        lng,
+        activityType,
+        quickFilter,
+        radius,
+        budget,
+      });
+      return response.data.curatedPlaces;
+    } catch (err) {
+      return rejectWithValue(err.response?.data || err.message);
+    }
+  }
+);
+
+// Thunk to fetch AI-curated places
+export const fetchDining = createAsyncThunk(
+  'GooglePlaces/fetchDining',
   async ({ lat, lng, activityType, radius, budget, isCustom }, { rejectWithValue }) => {
     try {
+      console.log(activityType)
       const response = await axios.post(`${BASE_URL}/google/places`, {
         lat,
         lng,
@@ -49,7 +70,19 @@ const GooglePlacesSlice = createSlice({
       .addCase(fetchGooglePlaces.rejected, (state, action) => {
         state.status = 'failed';
         state.error = action.payload || 'Failed to fetch curated places';
-      });
+      })
+      .addCase(fetchDining.rejected, (state, action) => {
+        state.status = 'failed';
+        state.error = action.payload || 'Failed to fetch curated places';
+      })
+      .addCase(fetchDining.pending, (state) => {
+        state.status = 'loading';
+        state.error = null;
+      })
+      .addCase(fetchDining.fulfilled, (state, action) => {
+        state.status = 'succeeded';
+        state.curatedPlaces = action.payload;
+      })
   },
 });
 

@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import PreferencesModal from '../Preferences/Preferences';
 import { selectEvents, selectBusinessData, fetchBusinessData, } from '../../Slices/PlacesSlice';
-import { fetchGooglePlaces, selectGooglePlaces, selectGoogleStatus, clearGooglePlaces } from '../../Slices/GooglePlacesSlice';
+import { fetchGooglePlaces, selectGooglePlaces, selectGoogleStatus, clearGooglePlaces, fetchDining } from '../../Slices/GooglePlacesSlice';
 import Activities from './Activities';
 import Events from './Events';
 import { useSelector, useDispatch } from 'react-redux';
@@ -34,14 +34,14 @@ import map from '../../assets/pics/map.png';
 import { useNavigation } from '@react-navigation/native';
 import Map from '../Map/Map';
 import FilterDrawer from './FilterDrawer';
-import BottomNavigation from './BottomNavigation';
+import BottomNavigation from './BottomNavigation'
 import SearchBar from './SearchBar';
 import QuickFilters from './QuickFilters';
 
 const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
-const ActivityPage = ({ scrollY, onScroll, tabBarTranslateY, headerTranslateY, customNavTranslateY }) => {
+const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
     const dispatch = useDispatch();
     const navigation = useNavigation();
     const status = useSelector(selectGoogleStatus);
@@ -60,18 +60,24 @@ const ActivityPage = ({ scrollY, onScroll, tabBarTranslateY, headerTranslateY, c
 
     const lat = coordinates?.lat;
     const lng = coordinates?.lng;
-    const manualDistance = milesToMeters(5);
+    const manualDistance = milesToMeters(10);
+    const manualDistanceDining = milesToMeters(5);
     const closeDistance = milesToMeters(3);
     const eventDistance = 50;
     const manualBudget = "$$$$";
     const listRef = useRef(null);
 
     useEffect(() => {
+        if (!(scrollY instanceof Animated.Value)) return;
+      
         const listenerId = scrollY.addListener(({ value }) => {
-          setAtTop(value <= 5);
+          setAtTop(value <= 5); // or whatever threshold you want
         });
-        return () => scrollY.removeListener(listenerId);
-    }, [scrollY]);
+      
+        return () => {
+          scrollY.removeListener(listenerId);
+        };
+    }, [scrollY]);      
       
     const handleActivityFetch = (type, isCustom = false, customParams = {}) => {
         if (!lat || !lng) {
@@ -81,14 +87,29 @@ const ActivityPage = ({ scrollY, onScroll, tabBarTranslateY, headerTranslateY, c
 
         setFilterDrawerVisible(false);
 
+        const isQuickFilter = [
+            'dateNight', 'drinksAndDining', 'outdoor', 'movieNight',
+            'gaming', 'artAndCulture', 'familyFun', 'petFriendly', 'liveMusic', 'whatsClose'
+        ].includes(type);
+
+        if (type !== 'Dining') {
         dispatch(fetchGooglePlaces({
             lat,
             lng,
-            activityType: type,
             radius: isCustom ? customParams.radius : manualDistance,
             budget: isCustom ? customParams.budget : manualBudget,
-            isCustom,
+            ...(isQuickFilter ? { quickFilter: type } : { activityType: type })
         }));
+        } else {
+            dispatch(fetchDining({
+                lat,
+                lng,
+                activityType: type,
+                radius: isCustom ? customParams.radius : manualDistanceDining,
+                budget: isCustom ? customParams.budget : manualBudget,
+                isCustom,
+            }));
+        }
     };
 
     const fetchPlaceImage = async (placeId) => {
@@ -231,9 +252,7 @@ const ActivityPage = ({ scrollY, onScroll, tabBarTranslateY, headerTranslateY, c
 
         return filtered;
     }, [highlighted, regular, currentPage, perPage, categoryFilter]);
-
-    const TopWrapper = atTop ? SafeAreaView : View; 
-
+    
     return (
          <View
             style={styles.safeArea}
@@ -251,7 +270,7 @@ const ActivityPage = ({ scrollY, onScroll, tabBarTranslateY, headerTranslateY, c
                                 {events.length > 0 || activities.length > 0 ? (
                                     <>
                                         <View style={{ flex: 1 }}>
-                                            {!isMapView ? (
+                                            {!isMapView && scrollY instanceof Animated.Value && typeof onScroll === 'function' ? (
                                                 <AnimatedFlatList
                                                     data={filteredDisplayList}
                                                     keyExtractor={(item) => item.place_id ?? item.id ?? item.reference}
@@ -270,15 +289,13 @@ const ActivityPage = ({ scrollY, onScroll, tabBarTranslateY, headerTranslateY, c
                                                     onEndReached={handleLoadMore}
                                                     onEndReachedThreshold={0.5}
                                                     onScroll={
-                                                        scrollY
-                                                            ? Animated.event(
-                                                                [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-                                                                {
-                                                                    useNativeDriver: true,
-                                                                    listener: onScroll,
-                                                                }
-                                                            )
-                                                            : onScroll || undefined
+                                                        Animated.event(
+                                                          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+                                                          {
+                                                            useNativeDriver: true,
+                                                            listener: onScroll
+                                                          }
+                                                        )
                                                     }
                                                     scrollEventThrottle={16}
                                                     ListHeaderComponent={<View style={styles.scrollSpacer} />}
@@ -328,7 +345,7 @@ const ActivityPage = ({ scrollY, onScroll, tabBarTranslateY, headerTranslateY, c
                         onToggleMapView={() => setIsMapView(prev => !prev)}
                         onClear={clearSuggestions}
                         />
-                    </Animated.View>
+                    </Animated.View> 
                     )}
                     <PreferencesModal
                         visible={prefModalVisible}
