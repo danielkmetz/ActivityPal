@@ -4,20 +4,22 @@ import {
     Text,
     StyleSheet,
     TouchableOpacity,
-    FlatList
 } from "react-native";
 import WriteReviewModal from "../Reviews/WriteReviewModal";
 import {
     selectUserAndFriendsReviews,
-    fetchReviewsByUserAndFriends
+    fetchReviewsByUserAndFriends,
+    setUserAndFriendsReviews,
+    appendUserAndFriendsReviews,
 } from "../../Slices/ReviewsSlice";
 import { fetchFriendRequestsDetails, fetchFriendsDetails, selectFriends, selectFriendRequests } from "../../Slices/UserSlice";
 import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
 import { fetchFavorites } from "../../Slices/FavoritesSlice";
 import Reviews from "../Reviews/Reviews";
+import usePaginatedFetch from '../../utils/usePaginatedFetch';
 
-const Home = ({scrollY, onScroll, isAtEnd}) => {
+const Home = ({ scrollY, onScroll, isAtEnd }) => {
     const dispatch = useDispatch();
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const friends = useSelector(selectFriends);
@@ -27,18 +29,26 @@ const Home = ({scrollY, onScroll, isAtEnd}) => {
     const [businessName, setBusinessName] = useState(null);
     const [modalVisible, setModalVisible] = useState(false);
 
-    const handleEndReached = () => {
-        setIsAtEnd(true);
-    };
-
     const userId = user?.id;
+    const {
+        loadMore,
+        refresh,
+        isLoading,
+        hasMore,
+      } = usePaginatedFetch({
+        fetchThunk: fetchReviewsByUserAndFriends,
+        appendAction: appendUserAndFriendsReviews,
+        resetAction: setUserAndFriendsReviews,
+        userId,
+        limit: 5,
+      });      
 
     useEffect(() => {
-        if (user) {
-            dispatch(fetchReviewsByUserAndFriends(userId));
-            dispatch(fetchFavorites(userId));
+        if (userId) {
+          refresh();
+          dispatch(fetchFavorites(userId));
         }
-    }, [dispatch, user]);
+    }, [userId]);      
 
     useEffect(() => {
         if (friends?.length > 0) {
@@ -59,20 +69,23 @@ const Home = ({scrollY, onScroll, isAtEnd}) => {
     const closeModal = () => {
         setModalVisible(false);
     };
-    
+
     return (
         <View style={styles.container}>
             <Reviews
                 scrollY={scrollY}
-                onScroll={onScroll} 
-                reviews={userAndFriendsReviews} 
+                onScroll={onScroll}
+                onLoadMore={loadMore}
+                isLoadingMore={isLoading}
+                hasMore={hasMore}
+                reviews={userAndFriendsReviews}
                 ListHeaderComponent={
                     <View style={styles.input}>
-                      <TouchableOpacity style={styles.statusInputContainer} onPress={openModal}>
-                        <Text style={styles.inputPlaceholder}>Write a review or check in!</Text>
-                      </TouchableOpacity>
+                        <TouchableOpacity style={styles.statusInputContainer} onPress={openModal}>
+                            <Text style={styles.inputPlaceholder}>Write a review or check in!</Text>
+                        </TouchableOpacity>
                     </View>
-                }    
+                }
             />
 
             {isAtEnd && <View style={styles.bottom} />}

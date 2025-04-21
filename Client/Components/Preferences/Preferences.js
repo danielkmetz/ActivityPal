@@ -17,11 +17,9 @@ import { milesToMeters } from '../../functions';
 import {
     setDistance,
     setBudget,
-    setGroupSize,
     setIsFamilyFriendly,
     selectDistance,
     selectBudget,
-    selectGroupSize,
     selectFamilyFriendly,
     selectEventType,
     setEventType,
@@ -129,19 +127,23 @@ const PreferencesModal = ({ visible, onClose, onSubmitCustomSearch }) => {
                                 />
 
                                 {/* Budget */}
-                                <Text style={styles.optionLabel}>Budget:</Text>
-                                <View style={styles.buttonGroup}>
-                                    {['$', '$$', '$$$', '$$$$'].map(b => (
-                                        <TouchableOpacity
-                                            key={b}
-                                            style={[styles.budgetButton, budget === b && styles.selectedButton]}
-                                            onPress={() => dispatch(setBudget(b))}
-                                        >
-                                            <Text style={styles.buttonText}>{b}</Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-
+                                {eventType === 'Dining' && (
+                                    <>
+                                        <Text style={styles.optionLabel}>Budget:</Text>
+                                        <View style={styles.buttonGroup}>
+                                            {['$', '$$', '$$$', '$$$$'].map(b => (
+                                                <TouchableOpacity
+                                                    key={b}
+                                                    style={[styles.budgetButton, budget === b && styles.selectedButton]}
+                                                    onPress={() => dispatch(setBudget(b))}
+                                                >
+                                                    <Text style={styles.buttonText}>{b}</Text>
+                                                </TouchableOpacity>
+                                            ))}
+                                        </View>
+                                    </>
+                                )}
+                                
                                 {/* Family Friendly */}
                                 <View style={styles.switchContainer}>
                                     <Text style={styles.optionLabel}>Family Friendly</Text>

@@ -1,50 +1,131 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import {
     View,
     Text,
     FlatList,
     TouchableOpacity,
     StyleSheet,
+    TouchableWithoutFeedback,
+    Modal,
+    Animated,
+    Dimensions,
 } from 'react-native';
+import { PanGestureHandler, State } from 'react-native-gesture-handler';
+
+const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 const FilterDrawer = ({
+    visible,
     allTypes,
     categoryFilter,
     onSelect,
     onClose,
 }) => {
+    const translateY = useRef(new Animated.Value(0)).current;
+    const drawerHeight = SCREEN_HEIGHT * 0.7;
+    const gestureThreshold = 100;
+
+    useEffect(() => {
+        if (visible) {
+            // Animate drawer in
+            Animated.timing(translateY, {
+                toValue: 0,
+                duration: 250,
+                useNativeDriver: true,
+            }).start();
+        } else {
+            translateY.setValue(drawerHeight);
+        }
+    }, [visible]);
+
+    const handleClose = () => {
+        Animated.timing(translateY, {
+            toValue: drawerHeight,
+            duration: 250,
+            useNativeDriver: true,
+        }).start(() => {
+            onClose(); // call onClose only after animation completes
+        });
+    };
+
+    const onGestureEvent = Animated.event(
+        [{ nativeEvent: { translationY: translateY } }],
+        { useNativeDriver: true }
+    );
+
+    const onHandlerStateChange = ({ nativeEvent }) => {
+        if (nativeEvent.state === State.END) {
+            if (nativeEvent.translationY > gestureThreshold) {
+                handleClose();
+            } else {
+                Animated.spring(translateY, {
+                    toValue: 0,
+                    useNativeDriver: true,
+                }).start();
+            }
+        }
+    };
+
     return (
-        <View style={styles.drawerOverlay}>
-            <View style={styles.drawerContainer}>
-                <Text style={styles.drawerTitle}>Filter Categories</Text>
-                <FlatList
-                    data={allTypes}
-                    keyExtractor={(item) => item}
-                    renderItem={({ item }) => (
-                        <TouchableOpacity
+        <Modal visible={visible} transparent animationType="none">
+            <TouchableWithoutFeedback onPress={handleClose}>
+                <View style={styles.drawerOverlay}>
+                    <PanGestureHandler
+                        onGestureEvent={onGestureEvent}
+                        onHandlerStateChange={onHandlerStateChange}
+                    >
+                        <Animated.View
                             style={[
-                                styles.drawerItem,
-                                item === categoryFilter && styles.drawerItemActive,
+                                styles.drawerContainer,
+                                {
+                                    transform: [
+                                        {
+                                            translateY: translateY.interpolate({
+                                                inputRange: [0, drawerHeight],
+                                                outputRange: [0, drawerHeight],
+                                                extrapolate: 'clamp',
+                                            }),
+                                        },
+                                    ],
+                                },
                             ]}
-                            onPress={() => {
-                                onSelect(item === categoryFilter ? null : item);
-                                onClose();
-                            }}
                         >
-                            <Text style={styles.drawerItemText}>
-                                {item.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
-                            </Text>
-                        </TouchableOpacity>
-                    )}
-                />
-                <TouchableOpacity
-                    style={styles.drawerCloseButton}
-                    onPress={onClose}
-                >
-                    <Text style={styles.drawerCloseText}>Close</Text>
-                </TouchableOpacity>
-            </View>
-        </View>
+                            <TouchableWithoutFeedback>
+                                <View>
+                                    <Text style={styles.drawerTitle}>Filter Categories</Text>
+                                    <FlatList
+                                        data={allTypes}
+                                        keyExtractor={(item) => item}
+                                        renderItem={({ item }) => (
+                                            <TouchableOpacity
+                                                style={[
+                                                    styles.drawerItem,
+                                                    item === categoryFilter && styles.drawerItemActive,
+                                                ]}
+                                                onPress={() => {
+                                                    onSelect(item === categoryFilter ? null : item);
+                                                    handleClose();
+                                                }}
+                                            >
+                                                <Text style={styles.drawerItemText}>
+                                                    {item.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        )}
+                                    />
+                                    <TouchableOpacity
+                                        style={styles.drawerCloseButton}
+                                        onPress={handleClose}
+                                    >
+                                        <Text style={styles.drawerCloseText}>Close</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </TouchableWithoutFeedback>
+                        </Animated.View>
+                    </PanGestureHandler>
+                </View>
+            </TouchableWithoutFeedback>
+        </Modal>
     );
 };
 
@@ -52,11 +133,7 @@ export default FilterDrawer;
 
 const styles = StyleSheet.create({
     drawerOverlay: {
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        top: 0,
+        flex: 1,
         backgroundColor: 'rgba(0, 0, 0, 0.4)',
         justifyContent: 'flex-end',
     },
@@ -65,7 +142,7 @@ const styles = StyleSheet.create({
         padding: 20,
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
-        maxHeight: '60%',
+        maxHeight: '70%',
     },
     drawerTitle: {
         fontSize: 18,
