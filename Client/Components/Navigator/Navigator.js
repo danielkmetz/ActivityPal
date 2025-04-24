@@ -29,6 +29,7 @@ function TabNavigator({
     tabBarTranslateY,
     headerTranslateY, 
     customNavTranslateY,
+    customHeaderTranslateY,
     isAtEnd, 
     notificationsSeen,  
     setNotificationsSeen,
@@ -135,8 +136,31 @@ function TabNavigator({
                         // Business-specific Screens
                         <>
                             <Tab.Screen name="Insights" component={Insights} />
-                            <Tab.Screen name="My Events" component={MyEventsPage} />
-                            <Tab.Screen name="Reviews" component={BusinessReviews} />
+                            <Tab.Screen name="My Events">
+                            {(props) => (
+                                <MyEventsPage
+                                    {...props}
+                                    scrollY={scrollY}
+                                    onScroll={onScroll}
+                                    tabBarTranslateY={tabBarTranslateY}
+                                    headerTranslateY={headerTranslateY}
+                                    customHeaderTranslateY={customHeaderTranslateY}
+                                />
+                            )}
+                            </Tab.Screen>
+                            <Tab.Screen name="Reviews">
+                                {() => <BusinessReviews scrollY={scrollY} onScroll={onScroll} isAtEnd={isAtEnd} />}
+                            </Tab.Screen>
+                            <Tab.Screen
+                                name="Notifications"
+                                component={Notifications}
+                                listeners={{
+                                    tabPress: async () => {
+                                      await markNotificationsSeen(unreadCount);
+                                      setNotificationsSeen(true);
+                                    }
+                                }}                                  
+                            />
                             <Tab.Screen name="Profile" component={BusinessProfile} />
                         </>
                     ) : (
@@ -183,7 +207,7 @@ function TabNavigator({
     );
 }
 
-function AppNavigator({ scrollY, onScroll, customNavTranslateY, headerTranslateY, newUnreadCount, tabBarTranslateY, isAtEnd, notificationsSeen, setNotificationsSeen }) {
+function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTranslateY, headerTranslateY, newUnreadCount, tabBarTranslateY, isAtEnd, notificationsSeen, setNotificationsSeen }) {
     return (
         <Stack.Navigator>
             <Stack.Screen name="TabNavigator" options={{ headerShown: false }}>
@@ -198,6 +222,7 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, headerTranslateY
                         setNotificationsSeen={setNotificationsSeen}
                         newUnreadCount={newUnreadCount}
                         customNavTranslateY={customNavTranslateY}
+                        customHeaderTranslateY={customHeaderTranslateY}
                     />
                 }
             </Stack.Screen>

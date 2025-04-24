@@ -7,7 +7,8 @@ const ActivityInvite = require('../models/ActivityInvites.js');
 const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
 const depthLimit = require('graphql-depth-limit');
 const { GraphQLScalarType, Kind } = require('graphql');
-const {gatherUserReviews, gatherUserCheckIns} = require('../utils/userPosts.js');
+const { getCheckInsByPlaceId } = require('../utils/getCheckInsByPlaceId.js');
+const {gatherUserReviews, gatherUserCheckIns, resolveTaggedPhotoUsers, resolveTaggedUsers, resolveUserProfilePics} = require('../utils/userPosts.js');
 
 // ✅ Custom Scalar Type for Date
 const DateScalar = new GraphQLScalarType({
@@ -210,7 +211,7 @@ const typeDefs = gql`
   type Query {
     getUserAndFriendsReviews(userId: String!): [Review!]
     getUserPosts(userId: ID!, limit: Int, after: ActivityCursor): [UserPost!]
-    getBusinessReviews(placeId: String!): [Review!]
+    getBusinessReviews(placeId: String!, limit: Int, after: ActivityCursor): [UserPost!]
     getUserAndFriendsCheckIns(userId: String!): [CheckIn!]
     getUserAndFriendsInvites(userId: ID!): UserAndFriendsInvites
     getUserActivity(userId: ID!, limit: Int, after: ActivityCursor): [UserActivity!]
@@ -389,43 +390,43 @@ const resolvers = {
     },            
     getUserPosts: async (_, { userId, limit = 15, after }) => {
       try {
-        console.log("🔍 getUserPosts called");
-        console.log("📥 Args:", { userId, limit, after });
+        console.log("🔍 getUserPosts resolver called");
+        console.log("📥 Incoming args:", { userId, limit, after });
     
         const userObjectId = new mongoose.Types.ObjectId(userId);
     
-        // Fetch basic user data
         const user = await User.findById(userObjectId).select(
           '_id profilePic checkIns firstName lastName'
         );
+    
         if (!user) {
-          console.warn("❌ User not found for ID:", userId);
+          console.warn("❌ No user found for ID:", userId);
           throw new Error('User not found');
         }
+    
+        console.log("👤 User found:", {
+          _id: user._id,
+          fullName: `${user.firstName} ${user.lastName}`,
+          checkInsCount: user.checkIns?.length || 0,
+          hasProfilePic: !!user.profilePic,
+        });
     
         const photoKey = user.profilePic?.photoKey || null;
         const profilePicUrl = photoKey
           ? await generateDownloadPresignedUrl(photoKey)
           : null;
     
-        console.log("👤 User profile loaded. First name:", user.firstName);
-    
-        // Fetch posts
         const reviews = await gatherUserReviews(userObjectId, user.profilePic, profilePicUrl);
-        console.log(`📝 Loaded ${reviews.length} reviews`);
-    
         const checkIns = await gatherUserCheckIns(user, profilePicUrl);
-        console.log(`📍 Loaded ${checkIns.length} check-ins`);
     
-        // Normalize and attach sortDate
+        console.log(`📝 Fetched ${reviews.length} reviews`);
+        console.log(`📍 Fetched ${checkIns.length} check-ins`);
+    
         const allPosts = [...reviews, ...checkIns].map(post => ({
           ...post,
           sortDate: post.date,
         }));
     
-        console.log(`📦 Total combined posts: ${allPosts.length}`);
-    
-        // Sort by sortDate descending, tie-break by _id
         let sorted = allPosts.sort((a, b) => {
           const dateDiff = new Date(b.sortDate) - new Date(a.sortDate);
           if (dateDiff !== 0) return dateDiff;
@@ -433,143 +434,94 @@ const resolvers = {
             new mongoose.Types.ObjectId(a._id).toString()
           );
         });
-    
-        // Apply pagination cursor filter
+
         if (after?.sortDate && after?.id) {
           const afterTime = new Date(after.sortDate).getTime();
           const afterObjectId = new mongoose.Types.ObjectId(after.id).toString();
-    
-          console.log("🔎 Applying pagination filter after:", after);
-    
+        
           sorted = sorted.filter(post => {
             const postTime = new Date(post.sortDate).getTime();
             const postId = new mongoose.Types.ObjectId(post._id).toString();
-    
+        
             return (
               postTime < afterTime ||
               (postTime === afterTime && postId < afterObjectId)
             );
           });
-    
-          console.log(`📉 Posts remaining after cursor filter: ${sorted.length}`);
-        }
+        }          
     
         const result = sorted.slice(0, limit);
         console.log(`✅ Returning ${result.length} posts`);
-    
         return result;
-    
       } catch (error) {
-        console.error('❌ Error fetching user posts:', error);
-        throw new Error('Failed to fetch user posts');
-      }
-    },    
-    getBusinessReviews: async (_, { placeId }) => {
+        console.error('❌ Error in getUserPosts resolver:', error);
+        throw new Error(`[Resolver Error] ${error.message}`);
+      }    
+    },       
+    getBusinessReviews: async (_, { placeId, limit = 15, after }) => {
       try {
-        if (!placeId) {
-          throw new Error("Invalid placeId");
-        }
+        if (!placeId) throw new Error("Invalid placeId");
     
-        // Find the business with the given placeId
         const business = await Business.findOne({ placeId }).lean();
+        if (!business) return [];
     
-        if (!business) {
-          console.warn(`⚠️ No business found for placeId ${placeId}`);
-          return [];
-        }
+        const allReviews = business.reviews || [];
+        const reviewUserIds = allReviews.map(r => r.userId);
+        const userPicMap = await resolveUserProfilePics(reviewUserIds);
     
-        // Extract userIds from reviews
-        const userIds = business.reviews.map((review) => review.userId);
-    
-        // Fetch user profile pictures
-        const users = await User.find({ _id: { $in: userIds } }).select('_id profilePic');
-    
-        // Map user profile pictures
-        const userPicMap = {};
-        for (const user of users) {
-          const photoKey = user.profilePic?.photoKey || null;
-          userPicMap[user._id.toString()] = {
-            profilePic: user.profilePic || null,
-            profilePicUrl: photoKey ? await generateDownloadPresignedUrl(photoKey) : null
-          };
-        }
-    
-        // Process reviews
-        let reviews = await Promise.all(
-          business.reviews.map(async (review) => {
-    
-            // ✅ Ensure `review.photos` is an array before mapping
-            const photosWithUserNames = Array.isArray(review.photos)
-              ? await Promise.all(
-                  review.photos.map(async (photo) => {
-    
-                    // ✅ Ensure `photo.taggedUsers` is an array before mapping
-                    const taggedUserIds = Array.isArray(photo.taggedUsers)
-                      ? photo.taggedUsers.map(tag => tag.userId).filter(Boolean) // Filter out undefined values
-                      : [];
-    
-                    const taggedUserDetails = taggedUserIds.length > 0
-                      ? await User.find({ _id: { $in: taggedUserIds } }, { firstName: 1, lastName: 1 })
-                      : [];
-    
-                    const taggedUsersWithPositions = Array.isArray(photo.taggedUsers)
-                      ? photo.taggedUsers.map(tag => {
-                          const user = taggedUserDetails.find(u => u._id.toString() === tag.userId?.toString());
-                          return {
-                            _id: tag.userId,
-                            fullName: user ? `${user.firstName} ${user.lastName}` : "Unknown User",
-                            x: tag.x || 0,
-                            y: tag.y || 0
-                          };
-                        })
-                      : [];
-    
-                    return {
-                      ...photo,
-                      url: await generateDownloadPresignedUrl(photo.photoKey),
-                      taggedUsers: taggedUsersWithPositions, // ✅ Now includes x, y for rendering
-                    };
-                  })
-                )
-              : [];
-    
-            // ✅ Ensure `review.taggedUsers` is an array before processing
-            let taggedUsers = [];
-            if (Array.isArray(review.taggedUsers) && review.taggedUsers.length > 0) {
-              const taggedUsersData = await User.find(
-                { _id: { $in: review.taggedUsers } },
-                { firstName: 1, lastName: 1 }
-              );
-    
-              taggedUsers = taggedUsersData.map(user => ({
-                _id: user._id,
-                fullName: `${user.firstName} ${user.lastName}`,
-              }));
-            }
+        const enrichedReviews = await Promise.all(
+          allReviews.map(async (review) => {
+            const photos = await resolveTaggedPhotoUsers(review.photos || []);
+            const taggedUsers = await resolveTaggedUsers(review.taggedUsers || []);
     
             return {
               ...review,
-              type: review.type || "review",
+              type: 'review',
               businessName: business.businessName,
               placeId: business.placeId,
               date: new Date(review.date).toISOString(),
-              profilePic: userPicMap[review.userId]?.profilePic || null,
-              profilePicUrl: userPicMap[review.userId]?.profilePicUrl || null,
-              photos: photosWithUserNames, // ✅ Now includes x, y for rendering
-              taggedUsers, // ✅ Includes full names of tagged users
+              sortDate: new Date(review.date).toISOString(),
+              profilePic: userPicMap[review.userId?.toString()]?.profilePic || null,
+              profilePicUrl: userPicMap[review.userId?.toString()]?.profilePicUrl || null,
+              photos,
+              taggedUsers,
             };
           })
         );
     
-        // **Sort by date (newest first)**
-        reviews.sort((a, b) => new Date(b.date) - new Date(a.date));
+        const checkIns = await getCheckInsByPlaceId(placeId);
+        checkIns.forEach(ci => (ci.businessName = business.businessName));
     
-        return reviews;
+        let allPosts = [...enrichedReviews, ...checkIns];
+    
+        allPosts.sort((a, b) => {
+          const dateDiff = new Date(b.sortDate) - new Date(a.sortDate);
+          if (dateDiff !== 0) return dateDiff;
+          return new mongoose.Types.ObjectId(b._id).toString().localeCompare(
+            new mongoose.Types.ObjectId(a._id).toString()
+          );
+        });
+    
+        if (after?.sortDate && after?.id) {
+          const afterTime = new Date(after.sortDate).getTime();
+          const afterId = new mongoose.Types.ObjectId(after.id).toString();
+    
+          allPosts = allPosts.filter(post => {
+            const postTime = new Date(post.sortDate).getTime();
+            const postId = new mongoose.Types.ObjectId(post._id).toString();
+            return (
+              postTime < afterTime ||
+              (postTime === afterTime && postId < afterId)
+            );
+          });
+        }
+    
+        return allPosts.slice(0, limit);
       } catch (error) {
-        console.error('❌ Error fetching business reviews:', error);
+        console.error('❌ Error in getBusinessReviews:', error);
         throw new Error('Failed to fetch business reviews');
       }
-    },    
+    },        
     getUserAndFriendsCheckIns: async (_, { userId }) => {
       try {
         if (!mongoose.Types.ObjectId.isValid(userId)) {

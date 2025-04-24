@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { View, Text, Dimensions, StyleSheet } from 'react-native';
-import { LineChart, BarChart, PieChart } from 'react-native-chart-kit';
+import { LineChart, PieChart } from 'react-native-chart-kit';
 import { calculateMetrics } from '../../functions';
 import { selectUser } from '../../Slices/UserSlice';
 import { useSelector } from 'react-redux';

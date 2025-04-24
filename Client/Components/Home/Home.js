@@ -39,7 +39,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
         fetchThunk: fetchReviewsByUserAndFriends,
         appendAction: appendUserAndFriendsReviews,
         resetAction: setUserAndFriendsReviews,
-        userId,
+        params: { userId },
         limit: 5,
       });      
 
@@ -111,9 +111,6 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: "#f5f5f5",
         marginTop: -70,
-    },
-    list: {
-        flexGrow: 1,
     },
     input: {
         backgroundColor: '#009999',

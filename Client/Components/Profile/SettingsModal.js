@@ -4,6 +4,8 @@ import { logout } from "../../Slices/UserSlice";
 import { resetBanner, resetLogo, resetProfilePicture, } from "../../Slices/PhotosSlice";
 import { useDispatch } from "react-redux";
 import { resetPlaces, resetEvents, resetBusinessData } from "../../Slices/PlacesSlice";
+import { clearGooglePlaces } from "../../Slices/GooglePlacesSlice";
+import { resetAllReviews } from "../../Slices/ReviewsSlice";
 
 export default function SettingsModal({ visible, onClose }) {
     const dispatch = useDispatch();
@@ -18,6 +20,8 @@ export default function SettingsModal({ visible, onClose }) {
         dispatch(resetPlaces());
         dispatch(resetEvents());
         dispatch(resetBusinessData());
+        dispatch(clearGooglePlaces());
+        dispatch(resetAllReviews());
     }
 
     const onEditProfile = () => {
@@ -54,7 +58,6 @@ export default function SettingsModal({ visible, onClose }) {
         <TouchableOpacity style={styles.modalOverlay} onPress={onClose} />
         <Animated.View style={[styles.modalContent, { transform: [{ translateX: slideAnim }] }]}>
             <Text style={styles.modalTitle}>Settings</Text>
-
             {/* Buttons at the bottom */}
             <View style={styles.buttonContainer}>
             <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>

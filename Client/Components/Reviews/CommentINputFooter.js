@@ -12,9 +12,7 @@ const CommentInputFooter = ({
   commentText,
   setCommentText,
   handleAddComment,
-  onClose,
   inputHeight,
-  contentHeight,
   setContentHeight,
 }) => {
   return (
@@ -35,9 +33,6 @@ const CommentInputFooter = ({
           <Text style={styles.commentButtonText}>Post</Text>
         </TouchableOpacity>
       </View>
-      <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-        <Text style={styles.closeButtonText}>Close</Text>
-      </TouchableOpacity>
     </>
   );
 };
@@ -50,6 +45,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 10,
     padding: 15,
+    marginBottom: 15,
   },
   commentInput: {
     flex: 1,

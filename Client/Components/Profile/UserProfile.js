@@ -39,7 +39,7 @@ export default function UserProfile() {
     fetchThunk: fetchReviewsByUserId,
     appendAction: appendProfileReviews,
     resetAction: setProfileReviews,
-    userId,
+    params: { userId },
     limit: 5,
   });
 

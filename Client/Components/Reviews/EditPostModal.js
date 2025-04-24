@@ -10,6 +10,7 @@ import {
     Dimensions,
     Animated,
     TouchableWithoutFeedback,
+    Keyboard,
     TouchableOpacity,
     Modal,
 } from "react-native";
@@ -18,18 +19,19 @@ import { useDispatch, useSelector } from "react-redux";
 import { editReview } from "../../Slices/ReviewsSlice";
 import { editCheckIn } from "../../Slices/CheckInsSlice";
 import { selectUser } from "../../Slices/UserSlice";
-import { PanGestureHandler, State } from "react-native-gesture-handler";
 import TagFriendsModal from "./TagFriendsModal";
 import EditPhotosModal from "../Profile/EditPhotosModal";
 import EditPhotoDetailsModal from "../Profile/EditPhotoDetailsModal";
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
+import { GestureHandlerRootView, PanGestureHandler } from "react-native-gesture-handler";
 import { launchImagePickerAndFormat } from "../../functions";
 import { handlePhotoUpload } from "../../utils/photoUploadHelper";
+import useSlideDownDismiss from "../../utils/useSlideDown";
 import { setUserAndFriendsReviews, selectUserAndFriendsReviews, setProfileReviews, selectProfileReviews } from "../../Slices/ReviewsSlice";
 
-const SCREEN_HEIGHT = Dimensions.get("window").height;
+const height = Dimensions.get("window").height;
 
-export default function EditPostModal({ visible, post, onClose, onSuccess }) {
+export default function EditPostModal({ visible, post, onClose }) {
     const dispatch = useDispatch();
     const user = useSelector(selectUser);
     const [rating, setRating] = useState(3);
@@ -42,8 +44,7 @@ export default function EditPostModal({ visible, post, onClose, onSuccess }) {
     const [previewPhoto, setPreviewPhoto] = useState(null);
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const profileReviews = useSelector(selectProfileReviews);
-    const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
-    const gestureThreshold = 100;
+    const { gestureTranslateY, animateIn, animateOut, onGestureEvent, onHandlerStateChange} = useSlideDownDismiss(onClose);
 
     useEffect(() => {
         if (post) {
@@ -54,56 +55,21 @@ export default function EditPostModal({ visible, post, onClose, onSuccess }) {
         }
 
         if (visible) {
-            Animated.timing(translateY, {
-                toValue: 0,
-                duration: 250,
-                useNativeDriver: true,
-            }).start();
+            animateIn();            // Animate it in
+        } else {
+            // Animate it out and hide the modal
+            (async () => {
+                await animateOut();
+                onClose();
+            })();
         }
     }, [visible, post]);
-
-    const closeModal = () => {
-        Animated.timing(translateY, {
-            toValue: SCREEN_HEIGHT,
-            duration: 250,
-            useNativeDriver: true,
-        }).start(() => {
-            onClose();
-        });
-    };
-
-    const onGestureEvent = Animated.event(
-        [{ nativeEvent: { translationY: translateY } }],
-        {
-            useNativeDriver: true,
-            listener: (event) => {
-                const y = event.nativeEvent.translationY;
-                if (y < 0) {
-                    translateY.setValue(0);
-                }
-            },
-        }
-    );
 
     const handlePhotoAlbumSelection = async () => {
         const newFiles = await launchImagePickerAndFormat();
         if (newFiles.length > 0) {
             setPhotos((prev) => [...prev, ...newFiles]);
             setEditPhotosVisible(true);
-        }
-    };
-
-    const onHandlerStateChange = ({ nativeEvent }) => {
-        if (nativeEvent.state === State.END) {
-            if (nativeEvent.translationY > gestureThreshold) {
-                closeModal();
-            } else {
-                Animated.timing(translateY, {
-                    toValue: 0,
-                    duration: 250,
-                    useNativeDriver: true,
-                }).start();
-            }
         }
     };
 
@@ -199,106 +165,111 @@ export default function EditPostModal({ visible, post, onClose, onSuccess }) {
     );
 
     return (
-        <Modal visible={visible} animationType="none" transparent onRequestClose={closeModal}>
-            <TouchableWithoutFeedback onPress={closeModal}>
-                <View style={styles.overlay}>
-                    <PanGestureHandler
-                        onGestureEvent={onGestureEvent}
-                        onHandlerStateChange={onHandlerStateChange}
-                    >
-                        <Animated.View
-                            style={[styles.container, { transform: [{ translateY }] }]}
+        <Modal visible={visible} animationType="none" transparent >
+            <GestureHandlerRootView style={{ flex: 1 }}>
+                <TouchableWithoutFeedback onPress={animateOut}>
+                    <View style={styles.overlay} >
+                        <PanGestureHandler
+                            onGestureEvent={onGestureEvent}
+                            onHandlerStateChange={onHandlerStateChange}
                         >
-                            <View style={styles.notchContainer}>
-                                <View style={styles.notch} />
-                            </View>
-
-                            {post?.type === "review" && (
-                                <>
-                                    <Text style={styles.label}>Edit Rating</Text>
-                                    <AirbnbRating
-                                        count={5}
-                                        defaultRating={rating}
-                                        size={20}
-                                        showRating={false}
-                                        onFinishRating={setRating}
-                                    />
-                                </>
-                            )}
-
-                            <Text style={styles.label}>
-                                {post?.type === "review" ? "Edit Review" : "Edit Message"}
-                            </Text>
-                            <TextInput
-                                style={styles.textArea}
-                                multiline
-                                value={text}
-                                onChangeText={setText}
-                            />
-
-                            <Text style={styles.label}>Tagged Friends</Text>
-                            {taggedUsers.length > 0 ? renderFriendPills(taggedUsers) : (
-                                <Text style={{ color: '#888', marginBottom: 10 }}>No friends tagged yet.</Text>
-                            )}
-
-                            <TouchableOpacity
-                                style={styles.uploadButton}
-                                onPress={() => setTagFriendsVisible(true)}
+                            <Animated.View
+                                style={[styles.container, { transform: [{ translateY: gestureTranslateY }] }]}
                             >
-                                <Text style={styles.uploadButtonText}>Edit Tagged Friends 🏷️</Text>
-                            </TouchableOpacity>
+                                <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                                    <View>
+                                    <View style={styles.notchContainer}>
+                                        <View style={styles.notch} />
+                                    </View>
 
-                            {photos.length > 0 && (
-                                <FlatList
-                                    data={photos}
-                                    horizontal
-                                    keyExtractor={(item, index) => index.toString()}
-                                    renderItem={({ item }) => (
-                                        <TouchableOpacity onPress={() => {
-                                            setPreviewPhoto(item);
-                                            setEditPhotoDetailsVisible(true);
-                                        }}>
-                                            <Image source={{ uri: item.url || item.uri }} style={styles.photoPreview} />
-                                        </TouchableOpacity>
+                                    {post?.type === "review" && (
+                                        <>
+                                            <Text style={styles.label}>Edit Rating</Text>
+                                            <AirbnbRating
+                                                count={5}
+                                                defaultRating={rating}
+                                                size={20}
+                                                showRating={false}
+                                                onFinishRating={setRating}
+                                            />
+                                        </>
                                     )}
-                                />
-                            )}
 
-                            <TouchableOpacity onPress={handlePhotoAlbumSelection} style={styles.editButton}>
-                                <Text style={styles.editButtonText}>Edit/Add Photos 🖼️</Text>
-                            </TouchableOpacity>
+                                    <Text style={styles.label}>
+                                        {post?.type === "review" ? "Edit Review" : "Edit Message"}
+                                    </Text>
+                                    <TextInput
+                                        style={styles.textArea}
+                                        multiline
+                                        value={text}
+                                        onChangeText={setText}
+                                    />
 
-                            <TouchableOpacity style={styles.updateButton} onPress={handleUpdate}>
-                                <Text style={styles.updateButtonText}>Update</Text>
-                            </TouchableOpacity>
-                        </Animated.View>
-                    </PanGestureHandler>
+                                    <Text style={styles.label}>Tagged Friends</Text>
+                                    {taggedUsers.length > 0 ? renderFriendPills(taggedUsers) : (
+                                        <Text style={{ color: '#888', marginBottom: 10 }}>No friends tagged yet.</Text>
+                                    )}
 
-                    <TagFriendsModal
-                        visible={tagFriendsVisible}
-                        onSave={setTaggedUsers}
-                        onClose={() => setTagFriendsVisible(false)}
-                        initialSelectedFriends={taggedUsers}
-                    />
+                                    <TouchableOpacity
+                                        style={styles.uploadButton}
+                                        onPress={() => setTagFriendsVisible(true)}
+                                    >
+                                        <Text style={styles.uploadButtonText}>Edit Tagged Friends 🏷️</Text>
+                                    </TouchableOpacity>
 
-                    <EditPhotosModal
-                        visible={editPhotosVisible}
-                        photos={photos}
-                        onSave={setPhotos}
-                        photoList={photos}
-                        setPhotoList={setPhotos}
-                        onClose={() => setEditPhotosVisible(false)}
-                    />
+                                    {photos.length > 0 && (
+                                        <FlatList
+                                            data={photos}
+                                            horizontal
+                                            keyExtractor={(item, index) => index.toString()}
+                                            renderItem={({ item }) => (
+                                                <TouchableOpacity onPress={() => {
+                                                    setPreviewPhoto(item);
+                                                    setEditPhotoDetailsVisible(true);
+                                                }}>
+                                                    <Image source={{ uri: item.url || item.uri }} style={styles.photoPreview} />
+                                                </TouchableOpacity>
+                                            )}
+                                        />
+                                    )}
 
-                    <EditPhotoDetailsModal
-                        visible={editPhotoDetailsVisible}
-                        photo={previewPhoto}
-                        onClose={() => setEditPhotoDetailsVisible(false)}
-                        onSave={handlePhotoSave}
-                        setPhotoList={setPhotos}
-                    />
-                </View>
-            </TouchableWithoutFeedback>
+                                    <TouchableOpacity onPress={handlePhotoAlbumSelection} style={styles.editButton}>
+                                        <Text style={styles.editButtonText}>Edit/Add Photos 🖼️</Text>
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity style={styles.updateButton} onPress={handleUpdate}>
+                                        <Text style={styles.updateButtonText}>Update</Text>
+                                    </TouchableOpacity>
+                                    </View>
+                                </TouchableWithoutFeedback>
+                            </Animated.View>
+                        </PanGestureHandler>
+                    </View>
+                </TouchableWithoutFeedback>
+            </GestureHandlerRootView>
+            <TagFriendsModal
+                visible={tagFriendsVisible}
+                onSave={setTaggedUsers}
+                onClose={() => setTagFriendsVisible(false)}
+                initialSelectedFriends={taggedUsers}
+            />
+
+            <EditPhotosModal
+                visible={editPhotosVisible}
+                photos={photos}
+                onSave={setPhotos}
+                photoList={photos}
+                setPhotoList={setPhotos}
+                onClose={() => setEditPhotosVisible(false)}
+            />
+
+            <EditPhotoDetailsModal
+                visible={editPhotoDetailsVisible}
+                photo={previewPhoto}
+                onClose={() => setEditPhotoDetailsVisible(false)}
+                onSave={handlePhotoSave}
+                setPhotoList={setPhotos}
+            />
         </Modal>
     );
 }
@@ -309,12 +280,15 @@ const styles = StyleSheet.create({
         backgroundColor: "rgba(0,0,0,0.5)",
         justifyContent: "flex-end",
     },
+    overlayTouchable: {
+        flex: 1,
+    },
     container: {
         backgroundColor: "#fff",
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
         padding: 20,
-        maxHeight: SCREEN_HEIGHT * 0.75,
+        maxHeight: height * 0.75,
     },
     notchContainer: {
         alignItems: "center",
