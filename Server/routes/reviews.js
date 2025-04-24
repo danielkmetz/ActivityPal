@@ -127,7 +127,7 @@ router.get('/:postType/:postId', async (req, res) => {
       comments: post.comments || [],
       profilePicUrl,
       businessName: business?.businessName || null,
-      placeId: post.placeId || null,
+      placeId: post.placeId || business?.placeId || null,
       recipients: postType === 'invite' ? post.recipients : undefined,
       requests: postType === 'invite' ? post.requests || [] : undefined,
       note: postType === 'invite' ? post.note : undefined,

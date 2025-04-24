@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, Image, FlatList, Animated, StyleSheet } from "react-native";
+import { View, Text, Image, FlatList, Animated, StyleSheet, TouchableOpacity } from "react-native";
 import { Avatar } from "@rneui/themed";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import profilePicPlaceholder from "../../assets/pics/profile-pic-placeholder.jpg";
@@ -23,11 +23,18 @@ const CommentModalHeader = ({
     handleLikeWithAnimation,
     lastTapRef,
     getTimeSincePosted,
+    onClose,
+    setIsPhotoListActive,
 }) => {
     return (
         <View style={styles.header}>
             <View style={styles.headerText}>
                 <View style={styles.userInfo}>
+                    <View style={styles.headerBar}>
+                        <TouchableOpacity onPress={onClose} style={styles.backButton}>
+                            <MaterialCommunityIcons name="chevron-left" size={26} color="#000" />
+                        </TouchableOpacity>
+                    </View>
                     <Avatar
                         size={48}
                         rounded
@@ -99,11 +106,12 @@ const CommentModalHeader = ({
             </View>
 
             {review?.photos?.length > 0 && (
-                <View>
+                <View >
                     <FlatList
                         data={review?.photos}
                         horizontal
                         pagingEnabled
+                        bounces={false}
                         showsHorizontalScrollIndicator={false}
                         keyExtractor={(item) => item._id}
                         onScroll={Animated.event(
@@ -111,6 +119,12 @@ const CommentModalHeader = ({
                             { useNativeDriver: false }
                         )}
                         scrollEventThrottle={16}
+                        onTouchStart={() => {
+                            setIsPhotoListActive(true);
+                        }}
+                        onTouchEnd={() => {
+                            setIsPhotoListActive(false);
+                        }}
                         renderItem={({ item: photo }) => (
                             <PhotoItem
                                 photo={photo}
@@ -228,6 +242,18 @@ const styles = StyleSheet.create({
     },
     reviewDate: {
         marginLeft: 10,
+    },
+    headerBar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderBottomWidth: 1,
+        borderBottomColor: '#eee',
+        backgroundColor: '#fff',
+        zIndex: 1,
+    },
+
+    backButton: {
+        padding: 5,
     },
 
 });

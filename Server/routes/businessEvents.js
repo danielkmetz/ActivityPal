@@ -46,8 +46,8 @@ router.get("/events/:placeId", async (req, res) => {
 // Route to create a new event for a business
 router.post('/events/:placeId', async (req, res) => {
   const { placeId } = req.params;
-  const { title, description, date, photos, recurring, recurringDays } = req.body;
-
+  const { title, description, date, photos, recurring, recurringDays, startTime, endTime, allDay } = req.body;
+  
   try {
     // Validate request body
     if (!title || !description) {
@@ -83,6 +83,9 @@ router.post('/events/:placeId', async (req, res) => {
       photos: photoObjects, // ✅ Correct field name
       recurring,
       recurringDays,
+      startTime,
+      endTime,
+      allDay,
     };
 
     business.events.push(newEvent);
@@ -100,6 +103,9 @@ router.post('/events/:placeId', async (req, res) => {
       recurringDays: recurring ? recurringDays : [],
       createdAt: new Date(),
       updatedAt: new Date(),
+      startTime,
+      endTime,
+      allDay,
     };
 
     res.status(201).json({ message: 'Event created successfully', event: eventResponse });
@@ -112,7 +118,8 @@ router.post('/events/:placeId', async (req, res) => {
 // Update an event by its _id and placeId
 router.put('/events/:placeId/:eventId', async (req, res) => {
   const { placeId, eventId } = req.params;
-  const { title, date, description, photos, recurring, recurringDays } = req.body;
+  const { title, date, description, photos, recurring, recurringDays, startTime, endTime, allDay } = req.body;
+  console.log('📥 Incoming photos array:', photos);
 
   try {
     // Find the business by placeId and eventId
@@ -133,9 +140,13 @@ router.put('/events/:placeId/:eventId', async (req, res) => {
     if (title) event.title = title;
     if (date) event.date = date;
     if (description) event.description = description;
-    if (photos) event.photos = photos;
     if (recurring) event.recurring = recurring;
     if (recurringDays) event.recurringDays = recurringDays;
+    if (startTime) event.startTime = startTime;
+    if (endTime) event.endTime = endTime;
+    if (allDay !== undefined) event.allDay = allDay;
+    event.photos = photos;
+    
     event.updatedAt = new Date();
 
     // Save the updated business document

@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     View,
     Text,
@@ -10,7 +10,7 @@ import {
     Animated,
     Image,
 } from 'react-native';
-import { PanGestureHandler, State } from 'react-native-gesture-handler';
+import { PanGestureHandler } from 'react-native-gesture-handler';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg'
 import { acceptInviteRequest, rejectInviteRequest, } from '../../Slices/InvitesSlice';
 import { createNotification } from '../../Slices/NotificationsSlice';
@@ -18,6 +18,7 @@ import { selectUser } from '../../Slices/UserSlice';
 import { useSelector, useDispatch } from 'react-redux';
 import { setUserAndFriendsReviews, selectUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
 import { setNotifications, selectNotifications } from '../../Slices/NotificationsSlice';
+import useSlideDownDismiss from '../../utils/useSlideDown';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
@@ -30,41 +31,19 @@ const InviteeModal = ({ visible, onClose, requests, recipients = [], isSender, i
     
     const going = recipients.filter(r => r.status === 'accepted');
     const invited = recipients.filter(r => r.status !== 'accepted');
-
-    const translateY = useRef(new Animated.Value(0)).current;
-    const gestureThreshold = 100;
+    const { gestureTranslateY, animateIn, animateOut, onGestureEvent, onHandlerStateChange } = useSlideDownDismiss(onClose);
 
     useEffect(() => {
-        if (!visible) {
-            translateY.setValue(0);
-        }
+        if (visible) {
+            animateIn();            // Animate it in
+          } else {
+            // Animate it out and hide the modal
+            (async () => {
+              await animateOut();
+              onClose();
+            })();
+          }
     }, [visible]);
-
-    const onGestureEvent = Animated.event(
-        [{ nativeEvent: { translationY: translateY } }],
-        {
-            useNativeDriver: false,
-            listener: (event) => {
-                const { translationY } = event.nativeEvent;
-                if (translationY < 0) {
-                    translateY.setValue(0);
-                }
-            },
-        }
-    );
-
-    const onHandlerStateChange = ({ nativeEvent }) => {
-        if (nativeEvent.state === State.END) {
-            if (nativeEvent.translationY > gestureThreshold) {
-                onClose();
-            } else {
-                Animated.spring(translateY, {
-                    toValue: 0,
-                    useNativeDriver: false,
-                }).start();
-            }
-        }
-    };
 
     const handleAcceptJoinRequest = async (relatedId, targetId) => {
             try {
@@ -162,7 +141,7 @@ const InviteeModal = ({ visible, onClose, requests, recipients = [], isSender, i
                         onGestureEvent={onGestureEvent}
                         onHandlerStateChange={onHandlerStateChange}
                     >
-                        <Animated.View style={[styles.container, { transform: [{ translateY }] }]}>
+                        <Animated.View style={[styles.container, { transform: [{ translateY: gestureTranslateY }] }]}>
                             <View style={styles.notchContainer}>
                                 <View style={styles.notch} />
                             </View>

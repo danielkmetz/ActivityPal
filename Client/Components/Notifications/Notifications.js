@@ -9,8 +9,9 @@ import {
     Image,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
-import { selectUser } from '../../Slices/UserSlice';
+import { selectIsBusiness, selectUser } from '../../Slices/UserSlice';
 import { selectNotifications, markNotificationRead, setNotifications, createNotification, deleteNotification } from '../../Slices/NotificationsSlice';
+import { selectBusinessNotifications, markBusinessNotificationRead, setBusinessNotifications, deleteBusinessNotification } from '../../Slices/BusNotificationsSlice';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { acceptFriendRequest, declineFriendRequest, selectFriendRequestDetails } from '../../Slices/UserSlice';
 import moment from 'moment';
@@ -23,13 +24,15 @@ import SwipeableRow from './SwipeableRow';
 
 export default function Notifications() {
     const dispatch = useDispatch();
+    const isBusiness = useSelector(selectIsBusiness);
     const user = useSelector(selectUser);
-    const notifications = useSelector(selectNotifications);
+    const notifications = useSelector(isBusiness ? selectNotifications : selectBusinessNotifications);
     const friendRequestDetails = useSelector(selectFriendRequestDetails);
     const reviews = useSelector(selectUserAndFriendsReviews);
     const selectedReview = useSelector(selectSelectedReview);
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const [photoTapped, setPhotoTapped] = useState(null);
+    const [commentModalVisible, setCommentModalVisible] = useState(false);
     const lastTapRef = useRef({});
     const [likedAnimations, setLikedAnimations] = useState({});
     const [targetId, setTargetId] = useState(null);
@@ -50,9 +53,10 @@ export default function Notifications() {
         ) {
             if (notification) {
                 const postType = notification.postType;
-
+                
                 dispatch(fetchPostById({ postType, postId: notification.targetId }));
                 setTargetId(notification.replyId);
+                setCommentModalVisible(true);
             } else {
                 console.warn("Comment ID is missing in notification");
             }
@@ -412,7 +416,7 @@ export default function Notifications() {
             />
             {/* Comment Modal */}
             <CommentModal
-                visible={!!selectedReview}
+                visible={commentModalVisible}
                 review={selectedReview}
                 onClose={handleCloseComments}
                 setSelectedReview={setSelectedReview}
@@ -423,6 +427,7 @@ export default function Notifications() {
                 toggleTaggedUsers={toggleTaggedUsers}
                 lastTapRef={lastTapRef}
                 photoTapped={photoTapped}
+                setCommentModalVisible={setCommentModalVisible}
             />
 
         </View>

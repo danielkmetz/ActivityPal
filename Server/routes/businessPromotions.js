@@ -46,7 +46,20 @@ router.get("/:placeId", async (req, res) => {
 // 📌 POST: Create a new promotion and save it to a business
 router.post("/", async (req, res) => {
   try {
-    const { placeId, title, description, startDate, endDate, photos, recurring, recurringDays } = req.body;
+    const {
+      placeId,
+      title,
+      description,
+      startDate,
+      endDate,
+      photos,
+      recurring,
+      recurringDays,
+      isSingleDay,
+      allDay,
+      startTime,
+      endTime,
+    } = req.body;
 
     const business = await Business.findOne({ placeId });
 
@@ -56,52 +69,45 @@ router.post("/", async (req, res) => {
 
     // Convert `photos` array into `PhotoSchema` format and generate presigned URLs
     const photoObjects = await Promise.all(
-        photos.map(async (photo) => {
-          const downloadUrl = await generateDownloadPresignedUrl(photo.photoKey);
-  
-          return {
-            photoKey: photo.photoKey,
-            uploadedBy: placeId,
-            description: photo.description || null,
-            uploadDate: new Date(),
-            url: downloadUrl,
-          };
-        })
+      photos.map(async (photo) => {
+        const downloadUrl = await generateDownloadPresignedUrl(photo.photoKey);
+
+        return {
+          photoKey: photo.photoKey,
+          uploadedBy: placeId,
+          description: photo.description || null,
+          uploadDate: new Date(),
+          url: downloadUrl,
+        };
+      })
     );
 
-    // Create a new promotion object
+    // Create promotion object with all schema-supported fields
     const newPromotion = {
       title,
       description,
       startDate,
       endDate,
+      isSingleDay: isSingleDay ?? true,
+      allDay: allDay ?? true,
+      startTime: allDay ? null : startTime ?? null,
+      endTime: allDay ? null : endTime ?? null,
+      recurring: recurring ?? false,
+      recurringDays: recurring ? recurringDays || [] : [],
       photos: photoObjects,
-      recurring,
-      recurringDays: recurring ? recurringDays : [],
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    // Add promotion to business
     business.promotions.push(newPromotion);
-    const savedBusiness = await business.save(); // Save the business
+    const savedBusiness = await business.save();
 
     const createdPromotion = savedBusiness.promotions[savedBusiness.promotions.length - 1];
 
-    const promotionResponse = {
-        _id: createdPromotion._id,
-        title,
-        description,
-        startDate,
-        endDate,
-        photos: photoObjects,
-        recurring,
-        recurringDays: recurring ? recurringDays : [],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-    };
-
-    res.status(201).json({ message: "Promotion created successfully", promotion: promotionResponse });
+    res.status(201).json({
+      message: "Promotion created successfully",
+      promotion: createdPromotion,
+    });
   } catch (error) {
     console.error("Error creating promotion:", error);
     res.status(500).json({ message: "Internal Server Error" });
@@ -112,28 +118,53 @@ router.post("/", async (req, res) => {
 router.put("/:promotionId", async (req, res) => {
   try {
     const { promotionId } = req.params;
-    const { placeId, title, description, startDate, endDate, photos, recurring, recurringDays } = req.body;
+    const {
+      placeId,
+      title,
+      description,
+      startDate,
+      endDate,
+      photos,
+      recurring,
+      recurringDays,
+      startTime,
+      endTime,
+      isSingleDay,
+      allDay,
+    } = req.body;
 
     const business = await Business.findOne({ placeId });
-
     if (!business) {
       return res.status(404).json({ message: "Business not found" });
     }
 
-    // Find promotion by ID
     const promotion = business.promotions.id(promotionId);
     if (!promotion) {
       return res.status(404).json({ message: "Promotion not found" });
     }
 
-    // Update promotion fields
-    promotion.title = title || promotion.title;
-    promotion.description = description || promotion.description;
-    promotion.startDate = startDate || promotion.startDate;
-    promotion.endDate = endDate || promotion.endDate;
-    promotion.photos = photos || promotion.photos;
-    promotion.recurring = recurring || promotion.recurring;
-    promotion.recurringDays = recurringDays || promotion.recurringDays;
+    if (title !== undefined) promotion.title = title;
+    if (description !== undefined) promotion.description = description;
+    if (startDate !== undefined) promotion.startDate = startDate;
+    if (endDate !== undefined) promotion.endDate = endDate;
+
+    if (Array.isArray(photos)) {
+      promotion.photos = photos;
+    }    
+
+    if (recurring !== undefined) promotion.recurring = recurring;
+    if (recurring) {
+      promotion.recurringDays = Array.isArray(recurringDays) ? recurringDays : [];
+    } else {
+      promotion.recurringDays = [];
+    }
+
+    if (isSingleDay !== undefined) promotion.isSingleDay = isSingleDay;
+    if (allDay !== undefined) promotion.allDay = allDay;
+
+    promotion.startTime = allDay ? null : startTime || null;
+    promotion.endTime = allDay ? null : endTime || null;
+
     promotion.updatedAt = new Date();
 
     await business.save();

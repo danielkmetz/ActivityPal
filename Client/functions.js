@@ -25,17 +25,42 @@ export const launchImagePickerAndFormat = async () => {
 };
 
 export const milesToMeters = (miles) => {
-    return miles * 1609.34;
+  return miles * 1609.34;
 };
 
 export const isValidUrl = (string) => {
-    try {
-      new URL(string);
-      return true;
-    } catch (error) {
-      return false;
-    }
+  try {
+    new URL(string);
+    return true;
+  } catch (error) {
+    return false;
+  }
 };
+
+export const formatTimeTo12Hour = (timeStr) => {
+  if (!timeStr) return "";
+  const [hour, minute] = timeStr.split(":").map(Number);
+
+  const date = new Date();
+  date.setHours(hour);
+  date.setMinutes(minute);
+
+  return date.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+};
+
+export const formatDate = (isoDate) => {
+  const date = new Date(isoDate);
+  return date.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+};
+
 
 // Step 1: Correct MIME types
 export const getMimeType = (filename) => {
@@ -72,8 +97,8 @@ export const calculateMetrics = (businessData) => {
   // Calculate average rating
   const averageRating = reviews.length
     ? (
-        reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
-      ).toFixed(2)
+      reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
+    ).toFixed(2)
     : 0;
 
   // Calculate total likes
@@ -145,4 +170,14 @@ export const getTimeLeft = (targetDate) => {
 
   return `${days > 0 ? `${days}d ` : ''}${hours}h ${minutes}m ${seconds}s`;
 };
+
+export const normalizePhoto = (p) => ({
+  photoKey: p.photoKey || p._doc?.photoKey || null,
+  uploadedBy: p.uploadedBy || p._doc?.uploadedBy || null,
+  description: p.description || p._doc?.description || "",
+  uri: p.uri || p.url || p._doc?.uri || p._doc?.url || "",
+  url: p.url || p.uri || p._doc?.url || p._doc?.uri || "",
+});
+
+
 

@@ -57,14 +57,29 @@ const ReviewSchema = new mongoose.Schema({
 const PromotionSchema = new mongoose.Schema({
   title: { type: String, required: true }, // Promotion title
   description: { type: String, required: true }, // Promotion details
-  startDate: { type: Date, required: true }, // Promotion start date
-  endDate: { type: Date, required: true }, // Promotion end date
-  businessId: { type: mongoose.Schema.Types.ObjectId, ref: "Business" }, // Business reference
+
+  // Start/end date used for single-day OR date range
+  startDate: { type: Date, required: true },
+  endDate: { type: Date, required: true },
+
+  // Optional time range (null = all day)
+  allDay: { type: Boolean, default: true },
+  startTime: { type: String, default: null }, // e.g., "17:00"
+  endTime: { type: String, default: null },   // e.g., "19:00"
+
+  isSingleDay: { type: Boolean, default: true },
+
+  recurring: { type: Boolean, default: false },
+  recurringDays: [{
+    type: String,
+    enum: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+  }],
+
   photos: [PhotoSchema], // Image key (optional)
+  businessId: { type: mongoose.Schema.Types.ObjectId, ref: "Business" },
+
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
-  recurring: { type: Boolean, default: false },
-  recurringDays: [{ type: String, enum: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] }],
 });
 
 const EventSchema = new mongoose.Schema({
@@ -76,6 +91,38 @@ const EventSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
   recurring: { type: Boolean, default: false },
   recurringDays: [{ type: String, enum: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] }],
+  allDay: { type: Boolean, default: true },
+  startTime: { type: String, default: null},
+  endTime: { type: String, default: null},
+});
+
+const NotificationSchema = new mongoose.Schema({
+  type: {
+    type: String,
+    enum: [
+      'friendRequest', 
+      'friendRequestAccepted', 
+      'like', 
+      'comment', 
+      'reply', 
+      'event', 
+      'tag', 
+      'photoTag',
+      'activityInvite',
+      'activityInviteAccepted',
+      'activityInviteDeclined',
+      'requestInvite',
+    ],
+    required: true,
+  },
+  message: { type: String, required: true },
+  relatedId: { type: mongoose.Schema.Types.ObjectId, refPath: 'typeRef' }, // The user who triggered the notification
+  typeRef: { type: String, enum: ['User', 'Review', 'Event', 'CheckIn', 'ActivityInvite'] }, // Reference model for `relatedId`
+  targetId: { type: mongoose.Schema.Types.ObjectId, refPath: 'targetRef' },
+  targetRef: { type: String, enum: ['Review', 'ActivityInvite', null] },
+  read: { type: Boolean, default: false },
+  postType: {type: String, default: null},
+  createdAt: { type: Date, default: Date.now },
 });
 
 const BusinessSchema = new mongoose.Schema({
@@ -128,6 +175,7 @@ const BusinessSchema = new mongoose.Schema({
   events: [EventSchema],
   reviews: [ReviewSchema],
   photos: [PhotoSchema],
+  notifiications: [NotificationSchema],
   createdAt: {
     type: Date,
     default: Date.now,

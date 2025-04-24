@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
+  Animated,
   Modal,
   TextInput,
   StyleSheet,
@@ -13,8 +14,9 @@ import {
   Platform,
   TouchableWithoutFeedback,
   Image,
+  Keyboard,
 } from "react-native";
-import { createEvent, editEvent, deleteEvent } from "../../Slices/EventsSlice";
+import { createEvent, editEvent } from "../../Slices/EventsSlice";
 import { useDispatch } from "react-redux";
 import { GestureHandlerRootView, PanGestureHandler } from "react-native-gesture-handler";
 import EditPhotosModal from "../Profile/EditPhotosModal";
@@ -23,6 +25,9 @@ import * as ImagePicker from "expo-image-picker";
 import { uploadReviewPhotos } from "../../Slices/PhotosSlice";
 import RecurringDaysModal from "./RecurringDaysModal";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import useSlideDownDismiss from "../../utils/useSlideDown";
+import { normalizePhoto, formatTimeTo12Hour } from "../../functions";
+import Notch from "../Notch/Notch";
 
 const CreateEventModal = ({ visible, onClose, businessId, onEventCreated, event }) => {
   const dispatch = useDispatch();
@@ -37,6 +42,11 @@ const CreateEventModal = ({ visible, onClose, businessId, onEventCreated, event 
   const [isRecurring, setIsRecurring] = useState(false);
   const [selectedDays, setSelectedDays] = useState([]);
   const [recurringDaysModalVisible, setRecurringDaysModalVisible] = useState(false);
+  const [allDay, setAllDay] = useState(true);
+  const [startTime, setStartTime] = useState(new Date());
+  const [endTime, setEndTime] = useState(new Date());
+  const [startDate, setStartDate] = useState(new Date());
+  const placeId = businessId;
 
   useEffect(() => {
     if (event) {
@@ -46,6 +56,13 @@ const CreateEventModal = ({ visible, onClose, businessId, onEventCreated, event 
       setDescription(event.description || "");
       setIsRecurring(event.recurring || false);
       setSelectedDays(event.recurringDays || []);
+      setAllDay(event.allDay ?? true);
+
+      const normalized = (event.photos || []).map(normalizePhoto);
+      setPhotoList(normalized);
+      setSelectedPhotos(normalized);
+      setStartTime(event.startTime ? new Date(event.startTime) : new Date());
+      setEndTime(event.endTime ? new Date(event.endTime) : new Date());
     } else {
       // Clear fields when creating a new event
       setTitle("");
@@ -53,29 +70,27 @@ const CreateEventModal = ({ visible, onClose, businessId, onEventCreated, event 
       setDescription("");
       setIsRecurring(false);
       setSelectedDays([]);
+      setStartTime(new Date());
+      setEndTime(new Date());
+      setPhotoList([]);
+      setSelectedPhotos([]);
+      setAllDay(true)
     }
   }, [event, visible]); // Reset fields when event or modal visibility changes
 
-  const handlePhotoAlbumSelection = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaType,
-      allowsMultipleSelection: true,
-      quality: 1,
-    });
+  const { gestureTranslateY, animateIn, animateOut, onGestureEvent, onHandlerStateChange } = useSlideDownDismiss(onClose);
 
-    if (!result.canceled) {
-      const newFiles = result.assets.map((asset) => ({
-        uri: asset.uri,
-        name: asset.uri.split("/").pop(),
-        type: asset.type || "image/jpeg",
-        description: "",
-        taggedUsers: [],
-      }));
-
-      setSelectedPhotos((prevPhotos) => [...prevPhotos, ...newFiles]);
-      setEditPhotosModalVisible(true);
+  useEffect(() => {
+    if (visible) {
+      animateIn();            // Animate it in
+    } else {
+      // Animate it out and hide the modal
+      (async () => {
+        await animateOut();
+        onClose();
+      })();
     }
-  };
+  }, [visible]);
 
   const handleSavePhotos = (updatedPhotos) => {
     setSelectedPhotos(updatedPhotos);
@@ -86,19 +101,6 @@ const CreateEventModal = ({ visible, onClose, businessId, onEventCreated, event 
     setPhotoList((prev) =>
       prev.map((photo) => (photo.uri === updatedPhoto.uri ? updatedPhoto : photo))
     );
-  };
-
-  const handlePreviewImagePress = (photo) => {
-    setPreviewPhoto(photo);
-    setPhotoDetailsEditing(true);
-  };
-
-  // Open the Recurring Days Modal
-  const handleRecurringToggle = (value) => {
-    setIsRecurring(value);
-    if (value) {
-      setRecurringDaysModalVisible(true);
-    }
   };
 
   // Save Recurring Days
@@ -115,12 +117,6 @@ const CreateEventModal = ({ visible, onClose, businessId, onEventCreated, event 
     }
   };
 
-  const onDateChange = (event, selectedDate) => {
-    if (selectedDate) {
-      setDate(selectedDate);
-    };
-  };
-
   const handleSubmit = async () => {
     if (!title || !description) {
       Alert.alert("Error", "Please fill in all fields.");
@@ -129,23 +125,32 @@ const CreateEventModal = ({ visible, onClose, businessId, onEventCreated, event 
 
     let uploadedPhotos = [];
 
-    // Upload photos if user selected any
     try {
-      if (selectedPhotos.length > 0) {
-        const uploadResult = await dispatch(uploadReviewPhotos({ placeId: businessId, files: selectedPhotos })).unwrap();
+      // ✅ Filter out only local photos with a valid `uri` that starts with "file:"
+      const newPhotosToUpload = selectedPhotos.filter(
+        (p) => p.uri && p.uri.startsWith("file:") && !p.photoKey
+      );
+
+      if (newPhotosToUpload.length > 0) {
+        const uploadResult = await dispatch(
+          uploadReviewPhotos({ placeId, files: newPhotosToUpload })
+        ).unwrap();
+
         uploadedPhotos = uploadResult.map((photoKey, index) => ({
           photoKey,
-          uploadedBy: businessId,
-          description: selectedPhotos[index]?.description || "",
+          uploadedBy: placeId,
+          description: newPhotosToUpload[index]?.description || "",
         }));
       }
+
+      // ✅ Preserve existing uploaded photos
+      const existingPhotos = selectedPhotos.filter((p) => p.photoKey && p.url);
+      uploadedPhotos = [...uploadedPhotos, ...existingPhotos];
     } catch (error) {
       console.error("Photo upload failed:", error);
       Alert.alert("Error", "Failed to upload photos.");
       return;
     }
-
-    console.log(uploadedPhotos);
 
     try {
       if (event) {
@@ -160,6 +165,9 @@ const CreateEventModal = ({ visible, onClose, businessId, onEventCreated, event 
             photos: uploadedPhotos,
             recurring: isRecurring,
             recurringDays: selectedDays,
+            allDay,
+            startTime,
+            endTime,
           })
         ).unwrap();
         Alert.alert("Success", "Event updated successfully!");
@@ -172,8 +180,11 @@ const CreateEventModal = ({ visible, onClose, businessId, onEventCreated, event 
             date,
             description,
             photos: uploadedPhotos,
+            allDay,
             recurring: isRecurring,
-            recurringDays: selectedDays
+            recurringDays: selectedDays,
+            startTime,
+            endTime,
           })
         ).unwrap();
         Alert.alert("Success", "Event created successfully!");
@@ -188,40 +199,10 @@ const CreateEventModal = ({ visible, onClose, businessId, onEventCreated, event 
     }
   };
 
-  const handleDelete = async () => {
-    Alert.alert(
-      "Confirm Deletion",
-      "Are you sure you want to delete this event?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await dispatch(
-                deleteEvent({
-                  placeId: businessId,
-                  eventId: event._id, // Use the event's ID for deletion
-                })
-              ).unwrap();
-              Alert.alert("Success", "Event deleted successfully!");
-              onEventCreated && onEventCreated(); // Refresh events
-              onClose(); // Close modal
-            } catch (error) {
-              console.error("Error deleting event:", error);
-              Alert.alert("Error", error || "Failed to delete event.");
-            }
-          },
-        },
-      ]
-    );
-  };
-
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <TouchableWithoutFeedback onPress={onClose}>
+        <TouchableWithoutFeedback onPress={animateOut}>
           <View style={styles.modalOverlay}>
             <KeyboardAvoidingView
               behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -229,94 +210,109 @@ const CreateEventModal = ({ visible, onClose, businessId, onEventCreated, event 
               style={styles.modalContainer}
             >
               <PanGestureHandler
-                onGestureEvent={(event) => {
-                  if (event.nativeEvent.translationY > 50) {
-                    onClose();
-                  }
-                }}
+                onGestureEvent={onGestureEvent}
+                onHandlerStateChange={onHandlerStateChange}
               >
-                <View style={styles.modalContent}>
-                  <TouchableWithoutFeedback onPress={() => { }}>
+                <Animated.View style={[styles.modalContent, { transform: [{ translateY: gestureTranslateY }] }]}>
+                  <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
                     <View style={{ width: "100%" }}>
-                      {/* Swipe-down notch */}
-                      <View style={styles.notchContainer}>
-                        <View style={styles.notch} />
-                      </View>
+                      <Notch />
                       <Text style={styles.modalTitle}>
                         {event ? "Edit Event" : "Create New Event"}
                       </Text>
 
-                      <Text style={styles.optionLabel}>Event Title</Text>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Enter event title"
-                        value={title}
-                        onChangeText={setTitle}
-                      />
+                      <View style={styles.inputContainer}>
+                        <Text style={styles.label}>Title</Text>
+                        <TextInput style={styles.input} value={title} onChangeText={setTitle} />
+                      </View>
 
-                      <Text style={styles.optionLabel}>Event Description</Text>
-                      <TextInput
-                        style={styles.textArea}
-                        placeholder="Enter event description"
-                        value={description}
-                        onChangeText={setDescription}
-                        multiline
-                      />
+                      <View style={styles.inputContainer}>
+                        <Text style={styles.label}>Description</Text>
+                        <TextInput
+                          style={[styles.input, styles.textArea]}
+                          value={description}
+                          onChangeText={setDescription}
+                          multiline
+                        />
+                      </View>
 
                       {!isRecurring && (
-                        <View style={styles.dateInput}>
-                          <Text style={styles.label}>Event Date</Text>
+                        <View style={styles.toggleContainer}>
+                          <Text style={styles.toggleLabel}>Event date</Text>
                           <DateTimePicker
-                            value={date || new Date()}
+                            value={startDate || new Date()}
                             mode="date"
                             display="default"
-                            onChange={onDateChange}
+                            onChange={(e, d) => setStartDate(d)}
                           />
                         </View>
                       )}
 
-                      <View style={styles.toggleContainer}>
-                        <Text style={styles.toggleLabel}>Make Recurring</Text>
-                        <Switch
-                          value={isRecurring}
-                          onValueChange={handleRecurringToggle}
-                          thumbColor={isRecurring ? "#FFFFFF" : "#f4f3f4"}
-                          trackColor={{ false: "#ccc", true: "#4CAF50" }} // Gray when OFF, Green when ON
-                        />
+                      <View style={styles.toggleRow}>
+                        <View style={styles.toggleItem}>
+                          <Text style={styles.toggleLabel}>All Day?</Text>
+                          <Switch value={allDay} onValueChange={setAllDay} trackColor={{ false: "#ccc", true: "#2196F3" }} />
+                        </View>
+
+                        <View style={styles.toggleItem}>
+                          <Text style={styles.toggleLabel}>Recurring</Text>
+                          <Switch
+                            value={isRecurring}
+                            trackColor={{ false: "#ccc", true: "#2196F3" }}
+                            onValueChange={(value) => {
+                              setIsRecurring(value);
+                              if (value) setRecurringDaysModalVisible(true);
+                            }}
+                          />
+                        </View>
                       </View>
 
-                      {isRecurring && (
-                        <Text style={styles.selectedDaysText}>Repeats on: {selectedDays.join(", ")}</Text>
+                      {!allDay && (
+                        <>
+                          <View style={styles.dateInput}>
+                            <View>
+                              <Text style={styles.dateLabel}>Start Time</Text>
+                              <DateTimePicker value={startTime} mode="time" display="default" onChange={(e, t) => { setStartTime(t); }} />
+                            </View>
+                            <View>
+                              <Text style={styles.dateLabel}>End Time</Text>
+                              <DateTimePicker value={endTime} mode="time" display="default" onChange={(e, t) => { setEndTime(t); }} />
+                            </View>
+                          </View>
+                        </>
                       )}
 
-                      {/* Render photo previews */}
+                      {isRecurring && (
+                        <Text style={styles.selectedDaysText}>Recurs every: {selectedDays.join(", ")}</Text>
+                      )}
+
                       <ScrollView horizontal style={styles.photoContainer}>
                         {photoList.map((photo, index) => (
-                          <TouchableOpacity key={index} onPress={() => handlePreviewImagePress(photo)}>
+                          <TouchableOpacity key={index} onPress={() => { setPreviewPhoto(photo); setPhotoDetailsEditing(true); }}>
                             <Image source={{ uri: photo.uri }} style={styles.imagePreview} />
                           </TouchableOpacity>
                         ))}
                       </ScrollView>
 
-                      {/* Promotional Photo Upload */}
-                      <TouchableOpacity style={styles.uploadButton} onPress={handlePhotoAlbumSelection}>
-                        <Text style={styles.uploadButtonText}>Add Event Photos</Text>
+                      <TouchableOpacity style={styles.uploadButton} onPress={async () => {
+                        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaType, allowsMultipleSelection: true, quality: 1 });
+                        if (!result.canceled) {
+                          const newFiles = result.assets.map(asset => ({ uri: asset.uri, name: asset.uri.split("/").pop(), type: asset.type || "image/jpeg", description: "", taggedUsers: [] }));
+                          setSelectedPhotos(prev => [...prev, ...newFiles]);
+                          setEditPhotosModalVisible(true);
+                        }
+                      }}>
+                        <Text style={styles.uploadButtonText}>Add Promotional Photo</Text>
                       </TouchableOpacity>
 
-                      <TouchableOpacity onPress={handleSubmit} style={styles.submitButton}>
-                        <Text style={styles.submitButtonText}>
+                      <TouchableOpacity onPress={handleSubmit} style={styles.saveButton}>
+                        <Text style={styles.saveButtonText}>
                           {event ? "Save Changes" : "Create Event"}
                         </Text>
                       </TouchableOpacity>
-
-                      {event && (
-                        <TouchableOpacity onPress={handleDelete} style={styles.deleteButton}>
-                          <Text style={styles.deleteButtonText}>Delete Event</Text>
-                        </TouchableOpacity>
-                      )}
                     </View>
                   </TouchableWithoutFeedback>
-                </View>
+                </Animated.View>
               </PanGestureHandler>
             </KeyboardAvoidingView>
           </View>
@@ -343,6 +339,7 @@ const CreateEventModal = ({ visible, onClose, businessId, onEventCreated, event 
         onClose={() => setPhotoDetailsEditing(false)}
         onSave={handlePhotoSave}
         setPhotoList={setPhotoList}
+        setSelectedPhotos={setSelectedPhotos}
         isPromotion={true}
       />
 
@@ -362,93 +359,47 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(0,0,0,0.5)",
   },
   modalContainer: {
+    width: "100%",
+  },
+  modalContent: {
+    width: "100%",
     backgroundColor: "white",
     padding: 20,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    elevation: 10,
-  },
-  scrollContent: {
-    flexGrow: 1,
+    alignItems: "flex-start",
+    flexDirection: "column",
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
   },
   modalTitle: {
     fontSize: 20,
     fontWeight: "bold",
-    marginBottom: 20,
-    textAlign: "center",
+    marginBottom: 10,
+    alignSelf: "center",
   },
-  closeIcon: {
-    position: "absolute",
-    top: 15,
-    right: 15,
-    padding: 5,
-  },
-  closeIconText: {
-    fontSize: 20,
-    color: "#333",
-  },
-  optionLabel: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginVertical: 10,
+  inputContainer: {
+    width: "100%",
+    marginBottom: 12,
+    flexDirection: "column",
   },
   input: {
-    height: 50,
-    backgroundColor: "#fff",
-    borderRadius: 5,
-    marginBottom: 15,
-    paddingHorizontal: 10,
+    width: "100%",
+    padding: 10,
     borderWidth: 1,
     borderColor: "#ccc",
+    borderRadius: 10,
+    backgroundColor: "#F5F5F5",
   },
   textArea: {
-    height: 100,
-    backgroundColor: "#fff",
-    borderRadius: 5,
-    marginBottom: 15,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    textAlignVertical: "top",
-  },
-  submitButton: {
-    backgroundColor: "#2196F3",
-    padding: 10,
-    borderRadius: 10,
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  submitButtonText: {
-    color: "white",
-    fontWeight: "bold",
-    fontSize: 16,
-  },
-  deleteButton: {
-    backgroundColor: "#FF4136",
-    padding: 10,
-    borderRadius: 10,
-    alignItems: "center",
-    marginTop: 10,
-    marginBottom: 20,
-  },
-  deleteButtonText: {
-    color: "white",
-    fontWeight: "bold",
-    fontSize: 16,
-  },
-  photoContainer: {
-    marginVertical: 10,
-    flexDirection: "row",
-  },
-  imagePreview: {
-    width: 80,
     height: 80,
-    borderRadius: 10,
-    marginRight: 10,
+    textAlignVertical: "top",
   },
   toggleContainer: {
     flexDirection: "row",
@@ -458,11 +409,34 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 10,
     marginVertical: 10,
+    width: "100%",
   },
   toggleLabel: {
     fontSize: 16,
     fontWeight: "600",
     color: "#333",
+  },
+  dateInput: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-around",
+    width: "100%",
+    padding: 8,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 10,
+    backgroundColor: "#F5F5F5",
+    marginBottom: 5,
+  },
+  dateLabel: {
+    fontWeight: 'bold',
+    alignSelf: 'center'
+  },
+  dateText: {
+    fontSize: 16,
+    color: "#000",
+    fontWeight: "500",
+    marginTop: 4,
   },
   selectedDaysText: {
     marginTop: 8,
@@ -470,45 +444,66 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: "#333",
     textAlign: "left",
+    width: "100%",
   },
   uploadButton: {
-    backgroundColor: "#FFA500",
+    backgroundColor: "#008080",
     padding: 12,
     borderRadius: 10,
     alignItems: "center",
     marginBottom: 10,
+    width: "100%",
   },
   uploadButtonText: {
     color: "white",
     fontWeight: "bold",
     fontSize: 16,
   },
-  dateInput: {
+  photoContainer: {
+    marginVertical: 10,
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     width: "100%",
-    padding: 8,
-    borderWidth: 1,
-    borderColor: "#ccc",
+  },
+  imagePreview: {
+    width: 80,
+    height: 80,
     borderRadius: 10,
-    backgroundColor: "#F5F5F5",
-    marginBottom: 10,
+    marginRight: 10,
   },
-  dateText: {
-    fontSize: 16,
-    color: "#000",
-    fontWeight: '500'
-  },
-  notchContainer: {
-    width: "100%",
+  saveButton: {
+    backgroundColor: "#2196F3",
+    padding: 15,
+    borderRadius: 10,
     alignItems: "center",
-    marginBottom: 10,
+    width: "100%",
+    marginVertical: 10,
   },
-  notch: {
-    width: 40,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: "#ccc",
+  saveButtonText: {
+    color: "white",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
+  dateLabel: {
+    fontWeight: 'bold',
+    alignSelf: 'center'
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    padding: 12,
+    borderRadius: 10,
+    marginVertical: 10,
+    width: '100%',
+    flexWrap: 'wrap', // in case screen is small
+  },
+  toggleItem: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+    paddingHorizontal: 5,
   },
 });
+

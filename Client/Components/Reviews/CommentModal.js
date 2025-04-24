@@ -10,6 +10,7 @@ import {
   Animated,
   Easing,
   Keyboard,
+  PanResponder,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { selectUser } from '../../Slices/UserSlice';
@@ -31,7 +32,6 @@ dayjs.extend(relativeTime);
 function CommentModal({
   visible,
   review,
-  onClose,
   setSelectedReview,
   reviews,
   targetId,
@@ -40,9 +40,11 @@ function CommentModal({
   likedAnimations,
   lastTapRef,
   photoTapped,
+  setCommentModalVisible,
 }) {
   const dispatch = useDispatch();
   const dateTime = review?.dateTime ? review?.dateTime : review?.date;
+  const [isAnimating, setIsAnimating] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [replyingTo, setReplyingTo] = useState(null);
   const [expandedReplies, setExpandedReplies] = useState({});
@@ -56,7 +58,7 @@ function CommentModal({
   const [keybaordHeight, setKeyboardHeight] = useState(null)
   const [isInputCovered, setIsInputCovered] = useState(false);
   const [timeLeft, setTimeLeft] = useState(getTimeLeft(dateTime));
-  const slideAnim = useRef(new Animated.Value(300)).current; // Start off-screen to the right
+  const [isPhotoListActive, setIsPhotoListActive] = useState(false);
   const shiftAnim = useRef(new Animated.Value(0)).current;
   const flatListRef = useRef(null); // Ref for the FlatList
   const user = useSelector(selectUser);
@@ -67,6 +69,7 @@ function CommentModal({
   const [inputHeight, setInputHeight] = useState(40); // Default height 40px
   const [contentHeight, setContentHeight] = useState(40);
   const scrollX = useRef(new Animated.Value(0)).current;
+  const modalVisibleRef = useRef(setCommentModalVisible);
   const postOwnerPic = review?.type === "invite" ? review?.sender?.profilePicUrl
     ? review?.sender?.profilePicUrl
     : review?.profilePicUrl
@@ -80,6 +83,8 @@ function CommentModal({
   const totalInvited = review?.recipients?.length || 0;
   const hasTaggedUsers = Array.isArray(review?.taggedUsers) && review.taggedUsers.length > 0;
   const isInvite = review?.type === "invite";
+  const panX = useRef(new Animated.Value(0)).current;        // COMMITTED motion
+  const previewX = useRef(new Animated.Value(0)).current;    // GESTURE-only preview
 
   let reviewOwner;
   if (isInvite) {
@@ -87,7 +92,68 @@ function CommentModal({
   } else {
     reviewOwner = review?.userId;
   };
+  
+  useEffect(() => {
+    if (visible) {
+      panX.setValue(500);
+      Animated.timing(panX, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [visible]);  
 
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        const { dx, dy } = gestureState;
+        return Math.abs(dx) > 10 && Math.abs(dy) < 10 && !isPhotoListActive
+      },
+  
+      onPanResponderMove: (_, gestureState) => {
+        const { dx } = gestureState;
+  
+        // Apply gesture to preview ONLY
+        if (dx > 0) {
+          previewX.setValue(dx);
+        } else {
+          previewX.setValue(0);
+        }
+      },
+  
+      onPanResponderRelease: (_, gestureState) => {
+        const { dx, vx } = gestureState;
+        const fastEnough = vx > 2.7;
+        const farEnough = dx > 150;
+
+        if (fastEnough || farEnough) {
+          setIsAnimating(true);
+          setTimeout(() => {
+            modalVisibleRef.current(false);
+          }, 150)
+          
+          Animated.timing(panX, {
+            toValue: 500,
+            duration: 300,
+            useNativeDriver: true,
+          }).start(() => {
+            panX.setValue(0);
+            previewX.setValue(0);
+            setSelectedReview(null);
+            setIsAnimating(false);
+          });
+        } else {
+          Animated.timing(previewX, {
+            toValue: 0,
+            duration: 150,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    })
+  ).current;
+  
   useEffect(() => {
     if (review && isInvite && dateTime) {
       const interval = setInterval(() => {
@@ -421,7 +487,7 @@ function CommentModal({
     const commentId = isReply ? selectedReply._id : selectedComment._id;
     const postId = review._id;
     const placeId = review.placeId;
-
+    
     try {
       await dispatch(
         editCommentOrReply({
@@ -442,26 +508,22 @@ function CommentModal({
       console.error("❌ Error updating comment:", error);
     }
   };
-
-  useEffect(() => {
-    if (visible) {
-      Animated.timing(slideAnim, {
-        toValue: 0, // Slide into view
-        duration: 300,
-        easing: Easing.out(Easing.ease),
-        useNativeDriver: true,
-      }).start();
-    } else {
-      Animated.timing(slideAnim, {
-        toValue: 300, // Slide out to the right
-        duration: 300,
-        easing: Easing.in(Easing.ease),
-        useNativeDriver: true,
-      }).start(() => {
-        onClose(); // Notify parent after modal fully closes
-      });
-    }
-  }, [visible]);
+  
+  const handleBackPress = () => {
+    setIsAnimating(true)
+    setTimeout(() => {
+      setCommentModalVisible(false);
+    }, 150); // ⏱
+    Animated.timing(panX, {
+      toValue: 400, // slide out to the right
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      panX.setValue(0); // reset for next time
+      setIsAnimating(false);
+      setSelectedReview(null);
+    });
+  };  
 
   useEffect(() => {
     if (visible && targetId && review?.comments) {
@@ -548,13 +610,24 @@ function CommentModal({
     }
   }, [visible, targetId, review?.comments]);
 
+  if (!visible && !isAnimating) {
+    return null
+  };
+
   return (
-    <Modal transparent visible={visible} animationType="none" avoidKeyboard={true}>
-      <Animated.View style={[styles.modalContainer, { transform: [{ translateX: slideAnim }, { translateY: shiftAnim }] }]}>
+    <Modal transparent={true} visible={visible} animationType="none" avoidKeyboard={true}>
+      <Animated.View 
+        {...panResponder.panHandlers}
+        style={[
+          styles.modalContainer, 
+          { transform: [{ translateX: panX }, { translateY: shiftAnim }] }
+        ]}
+      >
         <FlatList
           ref={flatListRef} // Attach the ref to the FlatList
           style={styles.comments}
           data={review?.comments || []}
+          bounce={false}
           extraData={review?.comments}
           keyExtractor={(item, index) => `${review?._id}-${index}`}
           getItemLayout={(data, index) => ({
@@ -580,6 +653,8 @@ function CommentModal({
               handleLikeWithAnimation={handleLikeWithAnimation}
               lastTapRef={lastTapRef}
               getTimeSincePosted={getTimeSincePosted}
+              onClose={handleBackPress}
+              setIsPhotoListActive={setIsPhotoListActive}
             />
           )}
           renderItem={({ item }) => (
@@ -675,7 +750,6 @@ function CommentModal({
             commentText={commentText}
             setCommentText={setCommentText}
             handleAddComment={handleAddComment}
-            onClose={onClose}
             inputHeight={inputHeight}
             contentHeight={contentHeight}
             setContentHeight={setContentHeight}

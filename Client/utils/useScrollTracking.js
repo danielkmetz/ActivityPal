@@ -25,6 +25,12 @@ export default function useScrollTracking() {
     extrapolate: 'clamp',
   });
 
+  const customHeaderTranslateY = headerTranslateY.interpolate({
+    inputRange: [-HEADER_HEIGHT, 0],
+    outputRange: [-180, 0],
+    extrapolate: 'clamp',
+  });
+
   const handleScroll = (event, setIsAtEnd) => {
     const currentY = event.nativeEvent.contentOffset.y;
     const contentHeight = event.nativeEvent.contentSize.height;
@@ -79,6 +85,7 @@ export default function useScrollTracking() {
     headerTranslateY,
     tabBarTranslateY,
     customNavTranslateY,
+    customHeaderTranslateY,
     handleScroll,
   };
 }

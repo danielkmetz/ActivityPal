@@ -15,21 +15,22 @@ import { selectUser } from "../../Slices/UserSlice";
 import {
   fetchEvents,
   selectEvents,
-  selectLoading as selectEventsLoading,
   deleteEvent,
 } from "../../Slices/EventsSlice";
 import {
   fetchPromotions,
   selectPromotions,
   deletePromotion,
-  selectLoading as selectPromotionsLoading,
 } from "../../Slices/PromotionsSlice";
 import CreateEventModal from "./CreateEventModal";
 import CreatePromotionModal from "./CreatePromotionModal";
 import PhotoItem from "../Reviews/PhotoItem";
 import PhotoPaginationDots from '../Reviews/PhotoPaginationDots';
+import EventDetailsCard from "./EventDetailsCard";
 
-const MyEventsPage = () => {
+const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
+
+const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
   const dispatch = useDispatch();
   const [selectedTab, setSelectedTab] = useState("events"); // Toggle state for Events & Promotions
   const [modalVisible, setModalVisible] = useState(false);
@@ -38,8 +39,6 @@ const MyEventsPage = () => {
   const user = useSelector(selectUser);
   const events = useSelector(selectEvents);
   const promotions = useSelector(selectPromotions) || [];
-  const eventsLoading = useSelector(selectEventsLoading);
-  const promotionsLoading = useSelector(selectPromotionsLoading);
   const placeId = user?.businessDetails?.placeId;
   const scrollX = useRef(new Animated.Value(0)).current;
 
@@ -50,15 +49,6 @@ const MyEventsPage = () => {
       dispatch(fetchPromotions(placeId));
     }
   }, [placeId]);
-
-  const formatDate = (isoDate) => {
-    const date = new Date(isoDate);
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
-  };
 
   const handleEdit = (item) => {
     setSelectedItem(item);
@@ -112,38 +102,47 @@ const MyEventsPage = () => {
 
   const isEventsTab = selectedTab === "events";
   const data = isEventsTab ? events : promotions;
-  const loading = isEventsTab ? eventsLoading : promotionsLoading;
-
+  
   return (
     <View style={styles.container}>
       {/* Toggle Buttons */}
-      <View style={styles.toggleContainer}>
-        <TouchableOpacity
-          style={[styles.toggleButton, isEventsTab && styles.activeButton]}
-          onPress={() => setSelectedTab("events")}
-        >
-          <Text style={[styles.toggleText, isEventsTab && styles.activeText]}>
-            Events
-          </Text>
-        </TouchableOpacity>
+      {customHeaderTranslateY && (
+        <Animated.View style={[styles.toggleContainer, { transform: [{ translateY: customHeaderTranslateY }] }]}>
+          <TouchableOpacity
+            style={[styles.toggleButton, isEventsTab && styles.activeButton]}
+            onPress={() => setSelectedTab("events")}
+          >
+            <Text style={[styles.toggleText, isEventsTab && styles.activeText]}>
+              Events
+            </Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.toggleButton, !isEventsTab && styles.activeButton]}
-          onPress={() => setSelectedTab("promotions")}
-        >
-          <Text style={[styles.toggleText, !isEventsTab && styles.activeText]}>
-            Promotions
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {loading ? (
-        <ActivityIndicator size="large" color="#0000ff" />
-      ) : (
-        <FlatList
+          <TouchableOpacity
+            style={[styles.toggleButton, !isEventsTab && styles.activeButton]}
+            onPress={() => setSelectedTab("promotions")}
+          >
+            <Text style={[styles.toggleText, !isEventsTab && styles.activeText]}>
+              Promotions
+            </Text>
+          </TouchableOpacity>
+        </Animated.View>
+      )}
+        <AnimatedFlatList
           data={data}
           keyExtractor={(item) => item._id}
-          contentContainerStyle={{ paddingBottom: 100 }}
+          scrollEventThrottle={16}
+          onScroll={
+            scrollY
+              ? Animated.event(
+                [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+                {
+                  useNativeDriver: true,
+                  listener: onScroll,
+                }
+              )
+              : onScroll || undefined
+          }
+          ListHeaderComponent={<View style={styles.buffer} />}
           renderItem={({ item }) => (
             <View style={styles.itemCard}>
               {/* Three-dot menu */}
@@ -171,35 +170,7 @@ const MyEventsPage = () => {
                 )}
               </View>
               <View style={styles.itemInfo}>
-                <View style={styles.descriptionAndDate}>
-                  <Text style={styles.itemTitle}>{item.title}</Text>
-                  {selectedTab === "promotions" ? (
-                    <>
-                      <Text style={styles.itemDate}>
-                        Starts: {formatDate(item.startDate)}
-                      </Text>
-                      <Text style={styles.promoItem}>
-                        Ends: {formatDate(item.endDate)}
-                      </Text>
-                      {item.recurring && item.recurringDays.length > 0 && (
-                        <Text style={styles.recurring}>
-                          Every: {item.recurringDays.join(", ")}
-                        </Text>
-                      )}
-                    </>
-                  ) : (
-                    <Text style={styles.itemDate}>
-                      {item.recurringDays.length > 0 ? (
-                        <Text>Every {item.recurringDays.join(', ')}</Text>
-                      ) : (
-                        <Text>Date: {formatDate(item.date)}</Text>
-                      )}
-                    </Text>
-                  )}
-
-                  <Text style={styles.itemDate}>{item.description}</Text>
-                </View>
-
+                <EventDetailsCard item={item} selectedTab={selectedTab} styles={styles} />
                 {item.photos.length > 0 && (
                   <>
                     <FlatList
@@ -223,6 +194,7 @@ const MyEventsPage = () => {
                           photoTapped={null} // pass in correct value if needed
                           toggleTaggedUsers={() => { }} // no-op unless you need tag functionality
                           handleLikeWithAnimation={() => { }} // no-op unless using like animation
+                          isInteractive={false}
                         />
                       )}
                       style={{ width: Dimensions.get('window').width, marginTop: -10, }}
@@ -235,15 +207,15 @@ const MyEventsPage = () => {
 
             </View>
           )}
-        />
-      )}
 
-      {/* Create Button */}
-      <TouchableOpacity style={styles.createButton} onPress={handleCreateItem}>
-        <Text style={styles.createButtonText}>
-          {isEventsTab ? "Create New Event" : "Create New Promotion"}
-        </Text>
-      </TouchableOpacity>
+        />
+        {/* Create Button */}
+        <TouchableOpacity style={styles.createButton} onPress={handleCreateItem}>
+          <Text style={styles.createButtonText}>
+            +
+          </Text>
+        </TouchableOpacity>
+      {/* </View> */}
 
       {/* Create/Edit Modal */}
       {isEventsTab ? (
@@ -273,12 +245,19 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f5f5f5",
-    marginTop: 130,
+    marginBottom: 40,
   },
   toggleContainer: {
     flexDirection: "row",
     justifyContent: "center",
     marginBottom: 10,
+    position: 'absolute',
+    top: 120,
+    left: 0,
+    right: 0,
+    zIndex: 999,
+    backgroundColor: "#f5f5f5",
+    paddingVertical: 5,
   },
   toggleButton: {
     flex: 1,
@@ -299,6 +278,11 @@ const styles = StyleSheet.create({
   activeText: {
     color: "white",
   },
+  buffer: {
+    backgroundColor: '#009999',
+    marginTop: 180,
+    justifyContent: 'start'
+  },
   itemCard: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -310,29 +294,8 @@ const styles = StyleSheet.create({
     position: 'relative',
     paddingBottom: 20,
   },
-  descriptionAndDate: {
-    padding: 15,
-  },
   itemInfo: {
     flex: 1,
-  },
-  itemTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-  },
-  itemDate: {
-    fontSize: 14,
-    color: "#555",
-    marginTop: 5,
-  },
-  promoItem: {
-    fontSize: 14,
-    color: "#555",
-  },
-  recurring: {
-    fontSize: 14,
-    color: "#555",
-    marginTop: 10,
   },
   menuContainer: {
     position: "absolute", // ✅ Position it absolutely
@@ -380,10 +343,12 @@ const styles = StyleSheet.create({
   },
   createButton: {
     backgroundColor: "#33cccc",
+    position: 'absolute',
+    bottom: 70,
+    right: 15,
     padding: 15,
-    borderRadius: 10,
+    borderRadius: 20,
     alignItems: "center",
-    marginTop: 10,
   },
   createButtonText: {
     color: "white",
