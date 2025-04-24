@@ -22,9 +22,11 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSelector, useDispatch } from 'react-redux';
 import { sendInvite, editInvite } from '../../Slices/InvitesSlice';
 import { selectUser } from '../../Slices/UserSlice';
-import { PanGestureHandler, State } from 'react-native-gesture-handler';
+import { PanGestureHandler } from 'react-native-gesture-handler';
 import { setUserAndFriendsReviews, selectUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
 import { selectFriendsDetails } from '../../Slices/UserSlice';
+import useSlideDownDismiss from '../../utils/useSlideDown';
+import Notch from '../Notch/Notch';
 
 const google_key = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 
@@ -52,9 +54,8 @@ const InviteModal = ({
     const [isPublic, setIsPublic] = useState(true);
     const [note, setNote] = useState('');
 
-    const translateY = useRef(new Animated.Value(0)).current;
-    const gestureThreshold = 100;
     const googleRef = useRef(null);
+    const { gestureTranslateY, animateIn, animateOut, onGestureEvent, onHandlerStateChange } = useSlideDownDismiss(onClose);
 
     useEffect(() => {
         if (isEditing && initialInvite && visible) {
@@ -79,38 +80,16 @@ const InviteModal = ({
     }, [isEditing, initialInvite, visible]);
 
     useEffect(() => {
-        if (!visible) {
-            translateY.setValue(0); // Reset immediately
+        if (visible) {
+            animateIn();            // Animate it in
+        } else {
+            // Animate it out and hide the modal
+            (async () => {
+                await animateOut();
+                onClose();
+            })();
         }
     }, [visible]);
-
-    const onGestureEvent = Animated.event(
-        [{ nativeEvent: { translationY: translateY } }],
-        {
-            useNativeDriver: false,
-            listener: (event) => {
-                const { translationY } = event.nativeEvent;
-
-                // Prevent dragging up — only allow positive Y movement
-                if (translationY < 0) {
-                    translateY.setValue(0);
-                }
-            },
-        }
-    );
-
-    const onHandlerStateChange = ({ nativeEvent }) => {
-        if (nativeEvent.state === State.END) {
-            if (nativeEvent.translationY > gestureThreshold) {
-                onClose(); // close the modal
-            } else {
-                Animated.spring(translateY, {
-                    toValue: 0,
-                    useNativeDriver: false,
-                }).start();
-            }
-        }
-    };
 
     const handleConfirmInvite = async () => {
         if (!selectedPlace || !dateTime || selectedFriends.length === 0) {
@@ -237,164 +216,163 @@ const InviteModal = ({
             transparent
             onRequestClose={onClose}
         >
-            <TouchableWithoutFeedback onPress={onClose}>
-                <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-                    <View style={styles.overlay}>
-                        <KeyboardAvoidingView
-                            behavior={Platform.OS === 'ios' ? 'position' : 'height'}
-                            keyboardVerticalOffset={-80}
-                            style={styles.keyboardAvoiding}
+            <TouchableWithoutFeedback onPress={animateOut}>
+                <View style={styles.overlay}>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === 'ios' ? 'position' : 'height'}
+                        keyboardVerticalOffset={-80}
+                        style={styles.keyboardAvoiding}
+                    >
+                        <PanGestureHandler
+                            onGestureEvent={onGestureEvent}
+                            onHandlerStateChange={onHandlerStateChange}
                         >
-                            <PanGestureHandler
-                                onGestureEvent={onGestureEvent}
-                                onHandlerStateChange={onHandlerStateChange}
-                            >
-                                <Animated.View style={[styles.modalContainer, { transform: [{ translateY }] }]}>
-                                    {/* Top draggable notch */}
-                                    <View style={styles.notchContainer}>
-                                        <View style={styles.notch} />
-                                    </View>
+                            <Animated.View style={[styles.modalContainer, { transform: [{ translateY: gestureTranslateY }] }]}>
+                                <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                                    <View style={{flex: 1}}>
+                                        <Notch />
+                                        <Text style={styles.title}>Create Vybe Invite</Text>
 
-                                    <Text style={styles.title}>Create Vybe Invite</Text>
-
-                                    <Text style={styles.label}>Search for a Place</Text>
-                                    <GooglePlacesAutocomplete
-                                        ref={googleRef}
-                                        placeholder="Search for a location"
-                                        onPress={(data, details = null) => {
-                                            setSelectedPlace({
-                                                placeId: data?.place_id,
-                                                name: data?.structured_formatting?.main_text,
-                                            });
-                                        }}
-                                        query={{
-                                            key: google_key,
-                                            language: 'en',
-                                        }}
-                                        styles={{
-                                            container: { zIndex: 100 },
-                                            textInputContainer: {
-                                                width: "100%",
-                                                zIndex: 101,
-                                            },
-                                            textInput: {
-                                                backgroundColor: "#f5f5f5",
-                                                height: 50,
-                                                borderRadius: 5,
-                                                paddingHorizontal: 10,
-                                                borderWidth: 1,
-                                                borderColor: "#ccc",
-                                                fontSize: 16,
-                                            },
-                                            listView: {
-                                                position: 'absolute',
-                                                top: 60, // Push it just below the textInput
-                                                zIndex: 999,
-                                                backgroundColor: "#fff",
-                                                borderRadius: 5,
-                                                elevation: 5,
-                                                maxHeight: 300,
-                                            },
-                                        }}
-                                        fetchDetails
-                                    />
-                                    <View style={styles.dateTimeInput}>
-                                        <Text style={styles.label}>Select Date & Time</Text>
-                                        <DateTimePicker
-                                            value={dateTime || new Date()}
-                                            mode="datetime"
-                                            display="default"
-                                            onChange={(event, selectedDate) => {
-                                                setShowDatePicker(false);
-                                                if (selectedDate) setDateTime(selectedDate);
+                                        <Text style={styles.label}>Search for a Place</Text>
+                                        <GooglePlacesAutocomplete
+                                            ref={googleRef}
+                                            placeholder="Search for a location"
+                                            onPress={(data, details = null) => {
+                                                setSelectedPlace({
+                                                    placeId: data?.place_id,
+                                                    name: data?.structured_formatting?.main_text,
+                                                });
                                             }}
+                                            query={{
+                                                key: google_key,
+                                                language: 'en',
+                                            }}
+                                            styles={{
+                                                container: { zIndex: 100 },
+                                                textInputContainer: {
+                                                    width: "100%",
+                                                    zIndex: 101,
+                                                },
+                                                textInput: {
+                                                    backgroundColor: "#f5f5f5",
+                                                    height: 50,
+                                                    borderRadius: 5,
+                                                    paddingHorizontal: 10,
+                                                    borderWidth: 1,
+                                                    borderColor: "#ccc",
+                                                    fontSize: 16,
+                                                },
+                                                listView: {
+                                                    position: 'absolute',
+                                                    top: 60, // Push it just below the textInput
+                                                    zIndex: 999,
+                                                    backgroundColor: "#fff",
+                                                    borderRadius: 5,
+                                                    elevation: 5,
+                                                    maxHeight: 300,
+                                                },
+                                            }}
+                                            fetchDetails
+                                        />
+                                        
+                                        <View style={styles.switchContainer}>
+                                            <Text style={styles.label}>
+                                                {isPublic ? 'Public Invite 🌍' : 'Private Invite 🔒'}
+                                            </Text>
+                                            <Switch
+                                                value={isPublic}
+                                                onValueChange={setIsPublic}
+                                                trackColor={{ false: '#ccc', true: '#4cd137' }}
+                                                thumbColor={Platform.OS === 'android' ? '#fff' : undefined}
+                                            />
+                                        </View>
+
+                                        <View style={styles.dateTimeInput}>
+                                            <Text style={styles.label}>Select Date & Time</Text>
+                                            <DateTimePicker
+                                                value={dateTime || new Date()}
+                                                mode="datetime"
+                                                display="default"
+                                                onChange={(event, selectedDate) => {
+                                                    if (Platform.OS === 'android') setShowDatePicker(false); // auto-dismiss on Android
+                                                    if (selectedDate) setDateTime(selectedDate);
+                                                }}
+                                            />
+                                        </View>
+
+                                        <View style={styles.noteContainer}>
+                                            <Text style={styles.label}>Add a Note (optional)</Text>
+                                            <TextInput
+                                                style={styles.noteInput}
+                                                placeholder="Let your friends know what's up..."
+                                                multiline
+                                                numberOfLines={3}
+                                                value={note}
+                                                onChangeText={setNote}
+                                            />
+                                        </View>
+
+                                        <TouchableOpacity
+                                            style={styles.selectFriendsButton}
+                                            onPress={() => setShowFriendsModal(true)}
+                                        >
+                                            <Text style={styles.selectFriendsText}>
+                                                {selectedFriends?.length > 0
+                                                    ? `👥 ${selectedFriends?.length} Friend${selectedFriends?.length > 1 ? 's' : ''} Selected`
+                                                    : '➕ Select Friends'}
+                                            </Text>
+                                        </TouchableOpacity>
+
+                                        <ScrollView
+                                            horizontal
+                                            showsHorizontalScrollIndicator={false}
+                                            contentContainerStyle={styles.selectedFriendsPreview}
+                                        >
+                                            {displayFriends.map((friend) => {
+                                                const id = getUserId(friend);
+
+                                                return (
+                                                    <TouchableOpacity
+                                                        key={id}
+                                                        style={styles.friendPreview}
+                                                        onPress={() => setSelectedFriends(prev => prev.filter(fid => fid !== id))}
+                                                    >
+                                                        <Image
+                                                            source={
+                                                                friend.profilePicUrl || friend.presignedProfileUrl
+                                                                    ? { uri: friend.profilePicUrl || friend.presignedProfileUrl }
+                                                                    : require('../../assets/pics/profile-pic-placeholder.jpg')
+                                                            }
+                                                            style={styles.profilePic}
+                                                        />
+                                                        <Text style={styles.friendName}>{friend.firstName}</Text>
+                                                    </TouchableOpacity>
+                                                );
+                                            })}
+                                        </ScrollView>
+
+                                        <TouchableOpacity
+                                            style={styles.confirmButton}
+                                            onPress={handleConfirmInvite}
+                                        >
+                                            <Text style={styles.confirmText}>{isEditing ? 'Save Edit' : 'Send Invite'}</Text>
+                                        </TouchableOpacity>
+                                        <TagFriendsModal
+                                            visible={showFriendsModal}
+                                            onClose={() => setShowFriendsModal(false)}
+                                            onSave={(selected) => {
+                                                const ids = selected.map(friend => friend._id);
+                                                setSelectedFriends(ids);
+                                                setShowFriendsModal(false);
+                                            }}
+                                            isEventInvite={true}
                                         />
                                     </View>
-
-                                    <View style={styles.switchContainer}>
-                                        <Text style={styles.label}>
-                                            {isPublic ? 'Public Invite 🌍' : 'Private Invite 🔒'}
-                                        </Text>
-                                        <Switch
-                                            value={isPublic}
-                                            onValueChange={setIsPublic}
-                                            trackColor={{ false: '#ccc', true: '#4cd137' }}
-                                            thumbColor={Platform.OS === 'android' ? '#fff' : undefined}
-                                        />
-                                    </View>
-
-                                    <View style={styles.noteContainer}>
-                                        <Text style={styles.label}>Add a Note (optional)</Text>
-                                        <TextInput
-                                            style={styles.noteInput}
-                                            placeholder="Let your friends know what's up..."
-                                            multiline
-                                            numberOfLines={3}
-                                            value={note}
-                                            onChangeText={setNote}
-                                        />
-                                    </View>
-
-                                    <TouchableOpacity
-                                        style={styles.selectFriendsButton}
-                                        onPress={() => setShowFriendsModal(true)}
-                                    >
-                                        <Text style={styles.selectFriendsText}>
-                                            {selectedFriends?.length > 0
-                                                ? `👥 ${selectedFriends?.length} Friend${selectedFriends?.length > 1 ? 's' : ''} Selected`
-                                                : '➕ Select Friends'}
-                                        </Text>
-                                    </TouchableOpacity>
-
-                                    <ScrollView
-                                        horizontal
-                                        showsHorizontalScrollIndicator={false}
-                                        contentContainerStyle={styles.selectedFriendsPreview}
-                                    >
-                                        {displayFriends.map((friend) => {
-                                            const id = getUserId(friend);
-
-                                            return (
-                                                <TouchableOpacity
-                                                    key={id}
-                                                    style={styles.friendPreview}
-                                                    onPress={() => setSelectedFriends(prev => prev.filter(fid => fid !== id))}
-                                                >
-                                                    <Image
-                                                        source={
-                                                            friend.profilePicUrl || friend.presignedProfileUrl
-                                                                ? { uri: friend.profilePicUrl || friend.presignedProfileUrl }
-                                                                : require('../../assets/pics/profile-pic-placeholder.jpg')
-                                                        }
-                                                        style={styles.profilePic}
-                                                    />
-                                                    <Text style={styles.friendName}>{friend.firstName}</Text>
-                                                </TouchableOpacity>
-                                            );
-                                        })}
-                                    </ScrollView>
-
-                                    <TouchableOpacity
-                                        style={styles.confirmButton}
-                                        onPress={handleConfirmInvite}
-                                    >
-                                        <Text style={styles.confirmText}>{isEditing ? 'Save Edit' : 'Send Invite'}</Text>
-                                    </TouchableOpacity>
-                                    <TagFriendsModal
-                                        visible={showFriendsModal}
-                                        onClose={() => setShowFriendsModal(false)}
-                                        onSave={(selected) => {
-                                            const ids = selected.map(friend => friend._id);
-                                            setSelectedFriends(ids);
-                                            setShowFriendsModal(false);
-                                        }}
-                                        isEventInvite={true}
-                                    />
-                                </Animated.View>
-                            </PanGestureHandler>
-                        </KeyboardAvoidingView>
-                    </View>
-                </TouchableWithoutFeedback>
+                                </TouchableWithoutFeedback>
+                            </Animated.View>
+                        </PanGestureHandler>
+                    </KeyboardAvoidingView>
+                </View>
             </TouchableWithoutFeedback>
         </Modal>
     );
@@ -420,17 +398,6 @@ const styles = StyleSheet.create({
         shadowRadius: 8,
         elevation: 10,
         alignSelf: 'flex-end', // anchor it to the bottom
-        //flexShrink: 1,
-    },
-    notchContainer: {
-        alignItems: 'center',
-        marginBottom: 10,
-    },
-    notch: {
-        width: 40,
-        height: 5,
-        borderRadius: 3,
-        backgroundColor: '#ccc',
     },
     title: {
         fontSize: 20,

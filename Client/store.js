@@ -14,6 +14,7 @@ import promotionsReducer from './Slices/PromotionsSlice';
 import GooglePlacesReducer from './Slices/GooglePlacesSlice';
 import PaginationReducer from './Slices/PaginationSlice';
 import InvitesReducer from './Slices/InvitesSlice';
+import businessNotificationsReducer from './Slices/BusNotificationsSlice';
 
 const store = configureStore({
     reducer: combineReducers({
@@ -32,6 +33,7 @@ const store = configureStore({
        GooglePlaces: GooglePlacesReducer,
        pagination: PaginationReducer,
        invites: InvitesReducer,
+       businessNotifications: businessNotificationsReducer,
     })
 });
 

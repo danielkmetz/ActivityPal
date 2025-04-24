@@ -23,6 +23,7 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
   const dispatch = useDispatch();
   const user = useSelector(selectUser);
   const [selectedReview, setSelectedReview] = useState(null); // For the modal
+  const [commentModalVisible, setCommentModalVisible] = useState(false);
   const [photoTapped, setPhotoTapped] = useState(null);
   const lastTapRef = useRef({});
   const [likedAnimations, setLikedAnimations] = useState({});
@@ -37,10 +38,7 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
 
   const handleOpenComments = (review) => {
     setSelectedReview(review);
-  };
-
-  const handleCloseComments = () => {
-    setSelectedReview(null);
+    setCommentModalVisible(true);
   };
 
   const handleLike = async (postType, postId) => {
@@ -283,11 +281,10 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
           );
         }}
       />
-      {selectedReview && (
+    
         <CommentModal
-          visible={!!selectedReview}
+          visible={commentModalVisible}
           review={selectedReview}
-          onClose={handleCloseComments}
           setSelectedReview={setSelectedReview}
           reviews={reviews}
           likedAnimations={likedAnimations}
@@ -295,21 +292,20 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
           toggleTaggedUsers={toggleTaggedUsers}
           lastTapRef={lastTapRef}
           photoTapped={photoTapped}
+          setCommentModalVisible={setCommentModalVisible}
         />
-      )}
-      {showEditModal && editingReview && (
+      
         <EditPostModal
           visible={showEditModal}
           post={editingReview}
+          showEditModal={showEditModal}
           onClose={() => {
             setShowEditModal(false);
             setEditingReview(null);
           }}
-          onSuccess={() => {
-            // Optionally refresh posts or show a toast
-          }}
+          setShowEditModal={setShowEditModal}
+          setEditingReview={setEditingReview}
         />
-      )}
     </>
   )
 };

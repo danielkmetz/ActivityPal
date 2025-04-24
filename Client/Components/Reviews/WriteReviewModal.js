@@ -11,9 +11,11 @@ import {
   Platform,
   FlatList,
   Image,
+  Animated,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from "react-native";
 import { GooglePlacesAutocomplete } from "react-native-google-places-autocomplete";
-import * as ImagePicker from "expo-image-picker";
 import { AirbnbRating } from "react-native-ratings";
 import { useDispatch } from "react-redux";
 import { createReview } from "../../Slices/ReviewsSlice";
@@ -25,10 +27,15 @@ import { createCheckIn } from "../../Slices/CheckInsSlice";
 import TagFriendsModal from "./TagFriendsModal";
 import EditPhotoDetailsModal from "../Profile/EditPhotoDetailsModal";
 import { createNotification } from "../../Slices/NotificationsSlice";
+import { selectPhotosFromGallery } from "../../utils/selectPhotos";
+import useSlideDownDismiss from "../../utils/useSlideDown";
+import { GestureHandlerRootView, PanGestureHandler } from "react-native-gesture-handler";
+import { createBusinessNotification } from "../../Slices/BusNotificationsSlice";
+import Notch from "../Notch/Notch";
 
 const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 
-const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, setBusiness, setBusinessName, businessName }) => {
+const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, setBusiness, setBusinessName }) => {
   const dispatch = useDispatch();
   const [rating, setRating] = useState(3);
   const [review, setReview] = useState("");
@@ -45,10 +52,21 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
   const userId = user.id;
   const fullName = `${user.firstName} ${user?.lastName}`;
   const googlePlacesRef = useRef(null);
+  const { gestureTranslateY, animateIn, animateOut, onGestureEvent, onHandlerStateChange } = useSlideDownDismiss(onClose);
 
   useEffect(() => {
     if (visible && business && googlePlacesRef.current) {
       googlePlacesRef.current.setAddressText(`${business.name}, ${business.formatted_address}`);
+    }
+
+    if (visible) {
+      animateIn();            // Animate it in
+    } else {
+      // Animate it out and hide the modal
+      (async () => {
+        await animateOut();
+        onClose();
+      })();
     }
   }, [visible, business]);
 
@@ -60,22 +78,9 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
   }, [selectedPhotos]);
 
   const handlePhotoAlbumSelection = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaType,
-      allowsMultipleSelection: true,
-      quality: 1,
-    });
-
-    if (!result.canceled) {
-      const newFiles = result.assets.map((asset) => ({
-        uri: asset.uri,
-        name: asset.uri.split("/").pop(),
-        type: asset.type || "image/jpeg",
-        description: "",
-        taggedUsers: [],
-      }));
-
-      setSelectedPhotos((prevPhotos) => [...prevPhotos, ...newFiles]);
+    const newFiles = await selectPhotosFromGallery();
+    if (newFiles.length > 0) {
+      setSelectedPhotos((prev) => [...prev, ...newFiles]);
       setEditPhotosModalVisible(true);
     }
   };
@@ -123,7 +128,7 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
 
       if (selectedTab === "review") {
         // Prepare and submit a review
-       const reviewResponse = await dispatch(
+        const reviewResponse = await dispatch(
           createReview({
             placeId: business.place_id,
             businessName: business.name,
@@ -137,6 +142,20 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
         ).unwrap();
 
         postId = reviewResponse._id;
+
+        if (business._id) {
+          await dispatch(
+            createBusinessNotification({
+              placeId: business._id,
+              type: "review",
+              message: `${fullName} left a review on ${business.name}`,
+              relatedId: userId,
+              typeRef: "User",
+              targetId: postId,
+              targetRef: "Review",
+            })
+          );
+        }
 
         Alert.alert("Success", "Your review has been submitted!");
       } else {
@@ -173,7 +192,7 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
             relatedId: userId, // The user who created the post
             typeRef: "User",
             targetId: postId, // The review or check-in ID
-            postType: selectedTab, 
+            postType: selectedTab,
           })
         );
       }
@@ -184,13 +203,13 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
           console.log("📸 Sending Photo Tag Notification to:", taggedUser.userId);
           await dispatch(
             createNotification({
-              userId: taggedUser.userId, 
+              userId: taggedUser.userId,
               type: "photoTag",
               message: `${fullName} tagged you in a photo!`,
               relatedId: userId,
               typeRef: "User",
               targetId: postId,
-              postType: selectedTab, 
+              postType: selectedTab,
             })
           );
         }
@@ -225,9 +244,7 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
 
   const renderContent = () => (
     <View style={styles.modalContainer}>
-      <TouchableOpacity onPress={onClose} style={styles.closeIcon}>
-        <Text style={styles.closeIconText}>✕</Text>
-      </TouchableOpacity>
+      <Notch />
       {/* Toggle Buttons */}
       <View style={styles.toggleContainer}>
         <TouchableOpacity
@@ -404,23 +421,35 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
   );
 
   return (
-    <>
-      <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            style={styles.keyboardAvoidingView}
-          >
-            <FlatList
-              data={[{ key: "content" }]} // Use FlatList to render content
-              renderItem={renderContent}
-              keyExtractor={(item) => item.key}
-              keyboardShouldPersistTaps="handled"
-            />
-          </KeyboardAvoidingView>
-        </View>
-      </Modal>
-    </>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <TouchableWithoutFeedback onPress={animateOut}>
+          <View style={styles.modalOverlay}>
+            <PanGestureHandler
+              onGestureEvent={onGestureEvent}
+              onHandlerStateChange={onHandlerStateChange}
+            >
+              <Animated.View style={{ transform: [{ translateY: gestureTranslateY }] }}>
+                <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                  <KeyboardAvoidingView
+                    behavior={Platform.OS === "ios" ? "padding" : "height"}
+                    style={styles.keyboardAvoidingView}
+                  >
+                    <FlatList
+                      data={[{ key: "content" }]} // Use FlatList to render content
+                      renderItem={renderContent}
+                      keyExtractor={(item) => item.key}
+                      scrollEnabled={false}
+                      keyboardShouldPersistTaps="handled"
+                    />
+                  </KeyboardAvoidingView>
+                </TouchableWithoutFeedback>
+              </Animated.View>
+            </PanGestureHandler>
+          </View>
+        </TouchableWithoutFeedback>
+      </GestureHandlerRootView>
+    </Modal>
   );
 };
 
@@ -500,7 +529,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   photosContainer: {
-    //marginTop: 10,
     marginBottom: 10,
   },
   photoWrapper: {
@@ -519,7 +547,6 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "bold",
   },
-  // Toggle Button Styling
   toggleContainer: {
     flexDirection: "row",
     justifyContent: "center",
@@ -542,7 +569,6 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "white",
   },
-  // Upload Button
   uploadButton: {
     backgroundColor: "teal",
     padding: 10,

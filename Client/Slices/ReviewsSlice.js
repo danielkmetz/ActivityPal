@@ -132,11 +132,9 @@ export const addReply = createAsyncThunk(
 export const fetchReviewsByUserId = createAsyncThunk(
   'reviews/fetchReviewsByUserId',
   async ({ userId, limit = 15, after }, { rejectWithValue }) => {
-    console.log('📤 Thunk: fetchReviewsByUserId called');
-    console.log('➡️ Variables:', { userId, limit, after });
     try {
       const query = `
-        query GetUserPosts($userId: String!, $limit: Int, $after: ActivityCursor) {
+        query GetUserPosts($userId: ID!, $limit: Int, $after: ActivityCursor) {
           getUserPosts(userId: $userId, limit: $limit, after: $after) {
             __typename  
 
@@ -253,40 +251,35 @@ export const fetchReviewsByUserId = createAsyncThunk(
       }
     `;
 
-    const variables = {
-      userId,
-      limit,
-      ...(after ? { after } : {})
-    };
-
-      console.log('➡️ Variables:', JSON.stringify(variables));
+      const variables = {
+        userId,
+        limit,
+        after,
+      };
 
       const response = await axios.post(GRAPHQL_ENDPOINT, {
         query,
         variables,
       });
 
-      console.log('📥 Raw response:', response.data);
-      console.log('📥 Raw response status:', response.status);
-
       if (response.data.errors) {
-        console.error('❌ GraphQL errors:', response.data.errors);
         throw new Error(response.data.errors[0].message);
       }
 
-      const posts = response.data?.data?.getUserPosts
+      const posts = response.data?.data?.getUserPosts;
 
       if (!Array.isArray(posts)) {
-        console.warn('⚠️ getUserPosts did not return an array:', posts);
         return [];
       }
 
-      console.log(`✅ Returned ${posts.length} posts`);
       return posts;
     } catch (error) {
       if (error.response) {
         return rejectWithValue(
-          `GraphQL Request Failed - Status: ${error.response.status}, Message: ${error.response.data?.message || "Unknown Error"}`
+          `GraphQL Request Failed - Status: ${error.response.status}, Message: ${error.response.data?.errors?.[0]?.message ||
+          error.response.data?.message ||
+          "Unknown Error"
+          }`
         );
       } else if (error.request) {
         return rejectWithValue("No response from GraphQL server. Please check your network connection.");
@@ -299,11 +292,11 @@ export const fetchReviewsByUserId = createAsyncThunk(
 
 export const fetchPostsByOtherUserId = createAsyncThunk(
   'reviews/fetchReviewsByOtherUserId',
-  async (userId, { rejectWithValue }) => {
+  async ({ userId, limit, after }, { rejectWithValue }) => {
     try {
       const query = `
-        query GetUserPosts($userId: String!) {
-          getUserPosts(userId: $userId) {
+        query GetUserPosts($userId: ID!, $limit: Int, $after: ActivityCursor) {
+          getUserPosts(userId: $userId, limit: $limit, after: $after) {
             __typename  
 
             ... on Review {
@@ -311,6 +304,7 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
               type
               userId
               fullName
+              sortDate
               date
               placeId
               businessName
@@ -452,6 +446,7 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
               type
               userId
               fullName
+              sortDate
               date
               placeId
               businessName
@@ -592,7 +587,7 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
 
       const response = await axios.post(GRAPHQL_ENDPOINT, {
         query,
-        variables: { userId },
+        variables: { userId, limit, after },
       });
 
       if (response.data.errors) {
@@ -603,7 +598,10 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
     } catch (error) {
       if (error.response) {
         return rejectWithValue(
-          `GraphQL Request Failed - Status: ${error.response.status}, Message: ${error.response.data?.message || "Unknown Error"}`
+          `GraphQL Request Failed - Status: ${error.response.status}, Message: ${error.response.data?.errors?.[0]?.message ||
+          error.response.data?.message ||
+          "Unknown Error"
+          }`
         );
       } else if (error.request) {
         return rejectWithValue("No response from GraphQL server. Please check your network connection.");
@@ -620,32 +618,26 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
     try {
       const query = `
         query GetUserActivity($userId: ID!, $limit: Int, $after: ActivityCursor) {
-        getUserActivity(userId: $userId, limit: $limit, after: $after) {
-          ... on Review {
-            _id
-            userId
-            fullName
-            businessName
-            placeId
-            rating
-            reviewText
-            date
-            sortDate
-            taggedUsers {
+          getUserActivity(userId: $userId, limit: $limit, after: $after) {
+            ... on Review {
               _id
-              fullName
-            }
-            likes {
               userId
               fullName
-            }
-            comments {
-              _id
-              commentText
-              userId
-              fullName
+              businessName
+              placeId
+              rating
+              reviewText
               date
-              replies {
+              sortDate
+              taggedUsers {
+                _id
+                fullName
+              }
+              likes {
+                userId
+                fullName
+              }
+              comments {
                 _id
                 commentText
                 userId
@@ -669,132 +661,132 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
                       userId
                       fullName
                       date
+                      replies {
+                        _id
+                        commentText
+                        userId
+                        fullName
+                        date
+                      }
                     }
                   }
                 }
               }
-            }
-            profilePic {
-              _id
-              photoKey
-              uploadedBy
-              description
-              tags
-              uploadDate
-            }
-            profilePicUrl
-            photos {
-              _id
-              photoKey
-              uploadedBy
-              description
-              taggedUsers {
+              profilePic {
                 _id
-                fullName
-                x
-                y
+                photoKey
+                uploadedBy
+                description
+                tags
+                uploadDate
               }
-              uploadDate
-              url
-            }
-            type
-          }
-
-          ... on ActivityInvite {
-            _id
-            sender {
-              id
-              firstName
-              lastName
               profilePicUrl
+              photos {
+                _id
+                photoKey
+                uploadedBy
+                description
+                taggedUsers {
+                  _id
+                  fullName
+                  x
+                  y
+                }
+                uploadDate
+                url
+              }
+              type
             }
-            recipients {
-              user {
+
+            ... on ActivityInvite {
+              _id
+              sender {
                 id
                 firstName
                 lastName
                 profilePicUrl
               }
+              recipients {
+                user {
+                  id
+                  firstName
+                  lastName
+                  profilePicUrl
+                }
+                status
+              }
+              placeId
+              businessName
+              businessLogoUrl
+              note
+              dateTime
+              sortDate
+              message
+              isPublic
               status
-            }
-            placeId
-            businessName
-            businessLogoUrl
-            note
-            dateTime
-            sortDate
-            message
-            isPublic
-            status
-            createdAt
-            type
-
-            requests {
-              _id
-              userId
-              status
-              firstName
-              lastName
-              profilePicUrl
-            }
-
-            # NEW: Likes
-            likes {
-              userId
-              fullName
-            }
-
-            # NEW: Comments and Replies
-            comments {
-              _id
-              userId
-              fullName
-              commentText
-              date
-              replies {
+              createdAt
+              type
+              requests {
+                _id
+                userId
+                status
+                firstName
+                lastName
+                profilePicUrl
+              }
+              likes {
+                userId
+                fullName
+              }
+              comments {
                 _id
                 userId
                 fullName
                 commentText
                 date
-                # Optionally support deeper replies here if needed
+                replies {
+                  _id
+                  userId
+                  fullName
+                  commentText
+                  date
+                }
               }
             }
-          }
 
-          ... on CheckIn {
-            _id
-            userId
-            fullName
-            placeId
-            businessName
-            date
-            sortDate
-            message
-            taggedUsers {
+            ... on CheckIn {
               _id
+              userId
               fullName
-            }
-            profilePicUrl
-            photos {
-              _id
-              photoKey
-              uploadedBy
-              description
+              placeId
+              businessName
+              date
+              sortDate
+              message
               taggedUsers {
                 _id
                 fullName
-                x
-                y
               }
-              uploadDate
-              url
+              profilePicUrl
+              photos {
+                _id
+                photoKey
+                uploadedBy
+                description
+                taggedUsers {
+                  _id
+                  fullName
+                  x
+                  y
+                }
+                uploadDate
+                url
+              }
+              type
             }
-            type
           }
         }
-      }
-    `;
+      `;
 
       const response = await axios.post(GRAPHQL_ENDPOINT, {
         query,
@@ -811,18 +803,7 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
 
       return response.data.data.getUserActivity;
     } catch (error) {
-      console.error("❌ Error in fetchUserActivity thunk:", error);
-
-      // Check if the error has a response (server-side error)
       if (error.response) {
-        console.error("❌ Axios Error Response:", JSON.stringify(error.response.data, null, 2));
-        console.error(`❌ Status Code: ${error.response.status}`);
-        console.error(`❌ Status Text: ${error.response.statusText}`);
-
-        if (error.response.data.errors) {
-          console.error("❌ GraphQL Error Messages:", error.response.data.errors.map(err => err.message).join("; "));
-        }
-
         return rejectWithValue(
           error.response.data.errors
             ? error.response.data.errors.map(err => err.message).join("; ")
@@ -830,8 +811,6 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
         );
       }
 
-      // Handle network errors or other unexpected errors
-      console.error("❌ Network or Unknown Error:", error.message);
       return rejectWithValue(error.message || "Failed to fetch user activity via GraphQL");
     }
   }
@@ -891,63 +870,127 @@ export const editCommentOrReply = createAsyncThunk(
 
 export const fetchReviewsByPlaceId = createAsyncThunk(
   'reviews/fetchReviewsByPlaceId',
-  async (placeId, { rejectWithValue }) => {
+  async ({ placeId, limit = 10, after = null }, { rejectWithValue }) => {
     try {
       const query = `
-        query GetBusinessReviews($placeId: String!) {
-          getBusinessReviews(placeId: $placeId) {
-            _id
-            type
-            businessName
-            placeId
-            userId
-            fullName
-            rating
-            reviewText
-            date
-            taggedUsers {
+        query GetBusinessReviews($placeId: String!, $limit: Int, $after: ActivityCursor) {
+          getBusinessReviews(placeId: $placeId, limit: $limit, after: $after) {
+            __typename
+            ... on Review {
               _id
-              fullName
-            }  
-            likes {
               userId
               fullName
-            }
-            comments {
-              _id
-              commentText
-              userId
-              fullName
+              businessName
+              placeId
+              rating
+              reviewText
               date
-              replies {
+              sortDate
+              taggedUsers {
+                _id
+                fullName
+              }
+              likes {
+                userId
+                fullName
+              }
+              comments {
                 _id
                 commentText
                 userId
                 fullName
                 date
+                replies {
+                  _id
+                  commentText
+                  userId
+                  fullName
+                  date
+                  replies {
+                    _id
+                    commentText
+                    userId
+                    fullName
+                    date
+                    replies {
+                      _id
+                      commentText
+                      userId
+                      fullName
+                      date
+                      replies {
+                        _id
+                        commentText
+                        userId
+                        fullName
+                        date
+                      }
+                    }
+                  }
+                }
               }
+              profilePic {
+                _id
+                photoKey
+                uploadedBy
+                description
+                tags
+                uploadDate
+              }
+              profilePicUrl
+              photos {
+                _id
+                photoKey
+                uploadedBy
+                description
+                taggedUsers {
+                  _id
+                  fullName
+                  x
+                  y
+                }
+                uploadDate
+                url
+              }
+              type
             }
-            profilePicUrl
-            photos {
+            ... on CheckIn {
               _id
-              photoKey
-              uploadedBy
-              description
+              userId
+              fullName
+              placeId
+              businessName
+              date
+              sortDate
+              message
               taggedUsers {
                 _id
                 fullName
               }
-              uploadDate
-              url # ✅ Pre-signed URL for review photos
+              profilePicUrl
+              photos {
+                _id
+                photoKey
+                uploadedBy
+                description
+                taggedUsers {
+                  _id
+                  fullName
+                  x
+                  y
+                }
+                uploadDate
+                url
+              }
+              type
             }
           }
         }
       `;
 
-      // Make GraphQL request
       const response = await axios.post(GRAPHQL_ENDPOINT, {
         query,
-        variables: { placeId },
+        variables: { placeId, limit, after },
       });
 
       if (response.data.errors) {
@@ -1028,8 +1071,26 @@ const reviewsSlice = createSlice({
         ...action.payload,
       ]; // for pagination
     },
+    appendOtherUserReviews: (state, action) => {
+      state.otherUserReviews = [
+        ...state.otherUserReviews,
+        ...action.payload,
+      ]; // for pagination
+    },
+    appendBusinessReviews: (state, action) => {
+      state.businessReviews = [
+        ...state.businessReviews,
+        ...action.payload,
+      ]; // for pagination
+    },
     setProfileReviews: (state, action) => {
       state.profileReviews = [...action.payload];
+    },
+    setBusinessReviews: (state, action) => {
+      state.businessReviews = [...action.payload]
+    },
+    setOtherUserReviews: (state, action) => {
+      state.otherUserReviews = [...action.payload];
     },
     setSelectedReview: (state, action) => {
       state.selectedReview = action.payload;
@@ -1051,6 +1112,12 @@ const reviewsSlice = createSlice({
         ...state.profileReviews,
       ]
     },
+    resetAllReviews: (state) => {
+      state.profileReviews = [];
+      state.userAndFriendsReviews = [];
+      state.otherUserReviews = [];
+      state.businessReviews = [];
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -1059,7 +1126,7 @@ const reviewsSlice = createSlice({
         state.loading = "pending";
         state.error = null;
       })
-      .addCase(fetchReviewsByUserId.fulfilled, (state, action) => {
+      .addCase(fetchReviewsByUserId.fulfilled, (state) => {
         state.loading = "idle";
       })
       .addCase(fetchReviewsByUserId.rejected, (state, action) => {
@@ -1070,9 +1137,8 @@ const reviewsSlice = createSlice({
         state.loading = "pending";
         state.error = null;
       })
-      .addCase(fetchPostsByOtherUserId.fulfilled, (state, action) => {
+      .addCase(fetchPostsByOtherUserId.fulfilled, (state) => {
         state.loading = "idle";
-        state.otherUserReviews = action.payload;
       })
       .addCase(fetchPostsByOtherUserId.rejected, (state, action) => {
         state.loading = "idle";
@@ -1083,9 +1149,8 @@ const reviewsSlice = createSlice({
         state.loading = "pending";
         state.error = null;
       })
-      .addCase(fetchReviewsByPlaceId.fulfilled, (state, action) => {
+      .addCase(fetchReviewsByPlaceId.fulfilled, (state) => {
         state.loading = "idle";
-        state.businessReviews = action.payload;
       })
       .addCase(fetchReviewsByPlaceId.rejected, (state, action) => {
         state.loading = "idle";
@@ -1164,65 +1229,69 @@ const reviewsSlice = createSlice({
       })
       .addCase(addComment.fulfilled, (state, action) => {
         const { postId, comments } = action.payload;
-
+      
         const updateComments = (review) => {
           if (review) {
             if (!Array.isArray(review.comments)) {
-              review.comments = []; // ✅ Ensure it's an array
+              review.comments = [];
             }
-            review.comments.push(...comments); // ✅ Append safely
+            review.comments.push(...comments);
           }
         };
-
+      
         updateComments(state.otherUserReviews?.find((r) => r._id === postId));
         updateComments(state.userAndFriendsReviews?.find((r) => r._id === postId));
         updateComments(state.profileReviews?.find((r) => r._id === postId));
         updateComments(state.businessReviews?.find((r) => r._id === postId));
-      })
+        updateComments(state.selectedReview?._id === postId ? state.selectedReview : null);
+      })      
       .addCase(addReply.pending, (state) => {
         state.loading = true;
       })
       .addCase(addReply.fulfilled, (state, action) => {
         const { postId, commentId, replies } = action.payload;
-
+      
         const updateReplies = (comments) => {
           return comments.map((comment) => {
             if (comment._id === commentId) {
               return {
                 ...comment,
-                replies: [...(comment.replies || []), ...replies], // ✅ Ensure new array reference
+                replies: [...(comment.replies || []), ...replies],
               };
             }
-
             if (Array.isArray(comment.replies)) {
               return {
                 ...comment,
-                replies: updateReplies(comment.replies), // ✅ Ensure nested replies update correctly
+                replies: updateReplies(comment.replies),
               };
             }
-
             return comment;
           });
         };
-
+      
         const updateReview = (reviews) => {
           const reviewIndex = reviews.findIndex((r) => r._id === postId);
           if (reviewIndex !== -1) {
             const review = reviews[reviewIndex];
-
-            // ✅ Ensure React re-renders by creating a new object reference
             reviews[reviewIndex] = {
               ...review,
               comments: updateReplies(review.comments || []),
             };
           }
         };
-
+      
         updateReview(state.userAndFriendsReviews);
         updateReview(state.otherUserReviews);
         updateReview(state.profileReviews);
         updateReview(state.businessReviews);
-      })
+      
+        if (state.selectedReview?._id === postId) {
+          state.selectedReview = {
+            ...state.selectedReview,
+            comments: updateReplies(state.selectedReview.comments || []),
+          };
+        }
+      })      
       .addCase(addReply.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload;
@@ -1254,42 +1323,35 @@ const reviewsSlice = createSlice({
       })
       .addCase(deleteCommentOrReply.fulfilled, (state, action) => {
         const { postId, commentId } = action.payload;
-
+      
         const removeCommentOrReply = (review) => {
           if (!review) return;
-
-          // ✅ First, try removing as a top-level comment
+      
           const commentIndex = review.comments.findIndex((comment) => comment._id === commentId);
           if (commentIndex !== -1) {
             review.comments.splice(commentIndex, 1);
             return;
           }
-
-          // ✅ Recursively search and delete in `comment.replies`
+      
           const removeNestedReply = (replies) => {
             if (!replies) return false;
-
             for (let i = 0; i < replies.length; i++) {
               if (replies[i]._id === commentId) {
                 replies.splice(i, 1);
                 return true;
               }
-
-              // ✅ Search deeper in nested replies
               if (removeNestedReply(replies[i].replies)) {
                 return true;
               }
             }
             return false;
           };
-
-          // ✅ Check each comment's replies for the nested reply
+      
           review.comments.forEach((comment) => {
             removeNestedReply(comment.replies);
           });
         };
-
-        // ✅ Apply the update across all relevant review categories
+      
         ["businessReviews", "profileReviews", "otherUserReviews", "userAndFriendsReviews"].forEach((category) => {
           state[category].forEach((review) => {
             if (review._id === postId) {
@@ -1297,7 +1359,11 @@ const reviewsSlice = createSlice({
             }
           });
         });
-      })
+      
+        if (state.selectedReview?._id === postId) {
+          removeCommentOrReply(state.selectedReview);
+        }
+      })      
       .addCase(editCommentOrReply.fulfilled, (state, action) => {
         const { postId, commentId, updatedComment } = action.payload;
 
@@ -1346,6 +1412,10 @@ const reviewsSlice = createSlice({
             }
           });
         });
+        // ✅ Update selectedReview if it's the one being edited
+        if (state.selectedReview && state.selectedReview._id === postId) {
+          updateCommentOrReply(state.selectedReview);
+        }
       })
       .addCase(editCommentOrReply.rejected, (state, action) => {
         state.error = action.payload;
@@ -1380,7 +1450,25 @@ const reviewsSlice = createSlice({
 
 export default reviewsSlice.reducer;
 
-export const { setUserAndFriendsReviews, appendUserAndFriendsReviews, appendProfileReviews, setSelectedReview, setProfileReviews, addCheckInUserAndFriendsReviews, addCheckInProfileReviews, resetProfileReviews, setLocalReviews, resetOtherUserReviews, resetBusinessReviews, clearSelectedReview } = reviewsSlice.actions;
+export const {
+  setUserAndFriendsReviews,
+  setBusinessReviews,
+  appendBusinessReviews,
+  setOtherUserReviews,
+  appendOtherUserReviews,
+  appendUserAndFriendsReviews,
+  appendProfileReviews,
+  setSelectedReview,
+  setProfileReviews,
+  addCheckInUserAndFriendsReviews,
+  addCheckInProfileReviews,
+  resetProfileReviews,
+  setLocalReviews,
+  resetOtherUserReviews,
+  resetBusinessReviews,
+  clearSelectedReview,
+  resetAllReviews,
+} = reviewsSlice.actions;
 
 export const selectProfileReviews = (state) => state.reviews.profileReviews;
 export const selectBusinessReviews = (state) => state.reviews.businessReviews;

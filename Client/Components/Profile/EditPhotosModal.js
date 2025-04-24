@@ -35,9 +35,13 @@ export default function EditPhotosModal({ visible, photos, onSave, onClose, phot
   };  
 
   const handleSavePhotos = () => {
-    onSave(photoList); // Pass updated photos to parent
+    const existingUris = new Set(photos.map(p => p.uri || p.photoKey));
+    const newPhotosOnly = photoList.filter(p => !existingUris.has(p.uri || p.photoKey));
+    const merged = [...photos, ...newPhotosOnly];
+  
+    onSave(merged);
     onClose();
-  };
+  };  
 
   return (
     <Modal visible={visible} animationType="slide" transparent={false}>

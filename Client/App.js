@@ -1,8 +1,8 @@
 import 'react-native-get-random-values';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, View, Animated, Platform } from 'react-native';
+import { StyleSheet, View, Animated } from 'react-native';
 import AppNavigator from './Components/Navigator/Navigator';
 import { NavigationContainer, useNavigationState } from '@react-navigation/native';
 import { Provider } from 'react-redux';
@@ -21,6 +21,8 @@ import { selectGooglePlaces } from './Slices/GooglePlacesSlice';
 import { fetchNotifications, selectUnreadCount } from './Slices/NotificationsSlice';
 import { selectUser } from './Slices/UserSlice';
 import useScrollTracking from './utils/useScrollTracking';
+import { selectIsBusiness } from './Slices/UserSlice';
+import { fetchBusinessNotifications } from './Slices/BusNotificationsSlice';
 
 const fetchFonts = async () => {
   return await Font.loadAsync({
@@ -29,16 +31,13 @@ const fetchFonts = async () => {
   });
 };
 
-const HEADER_HEIGHT = 130;
-const MIN_VELOCITY_TO_TRIGGER = .8;
-const MIN_SCROLL_DELTA = 20; //
-const TAB_BAR_HEIGHT = Platform.OS === "ios" ? 90 : 70;
-
 function MainApp() {
   const dispatch = useDispatch();
   const activities = useSelector(selectGooglePlaces);
   const coordinates = useSelector(selectCoordinates);
+  const isBusiness = useSelector(selectIsBusiness);
   const user = useSelector(selectUser);
+  const placeId = user?.placeId;
   const unreadCount = useSelector(selectUnreadCount);
   const [isAtEnd, setIsAtEnd] = useState(false);
   const [notificationsSeen, setNotificationsSeen] = useState(null);
@@ -48,7 +47,14 @@ function MainApp() {
   const [newUnreadCount, setNewUnreadCount] = useState(0);
   const previousUnreadCount = useRef(null);
 
-  const { scrollY, headerTranslateY, tabBarTranslateY, customNavTranslateY, handleScroll } = useScrollTracking();
+  const { 
+    scrollY, 
+    headerTranslateY, 
+    tabBarTranslateY, 
+    customNavTranslateY, 
+    customHeaderTranslateY, 
+    handleScroll 
+  } = useScrollTracking();
   
   useEffect(() => {
     dispatch(getCurrentCoordinates());
@@ -69,7 +75,11 @@ function MainApp() {
         previousUnreadCount.current = lastSeenCount;
   
         // Step 2: Fetch notifications AFTER that
+        if (!isBusiness) {
         await dispatch(fetchNotifications(user.id)); // wait for unreadCount to be updated
+        } else {
+          await dispatch(fetchBusinessNotifications(placeId));
+        }
   
         // Step 3: Now safe to trigger the comparison effect
         setNotificationsInitialized(true);
@@ -149,6 +159,7 @@ function MainApp() {
         tabBarTranslateY={tabBarTranslateY} 
         headerTranslateY={headerTranslateY}
         customNavTranslateY={customNavTranslateY}
+        customHeaderTranslateY={customHeaderTranslateY}
         isAtEnd={isAtEnd}
         notificationsSeen={notificationsSeen}
         setNotificationsSeen={setNotificationsSeen}

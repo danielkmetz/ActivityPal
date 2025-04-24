@@ -25,15 +25,19 @@ import {
 import { 
   fetchPostsByOtherUserId, 
   selectOtherUserReviews, 
-  resetOtherUserReviews, 
+  resetOtherUserReviews,
+  appendOtherUserReviews,
+  setOtherUserReviews, 
 } from "../../Slices/ReviewsSlice";
 import { createNotification } from "../../Slices/NotificationsSlice";
 import { selectUser } from "../../Slices/UserSlice";
 import Favorites from "./Favorites";
 import { fetchOtherUserFavorites, selectOtherUserFavorites } from "../../Slices/FavoritesSlice";
+import usePaginatedFetch from "../../utils/usePaginatedFetch";
 
 export default function OtherUserProfile({ route, navigation }) {
   const { user } = route.params;
+  const userId = user?._id;
   const mainUser = useSelector(selectUser);
   const dispatch = useDispatch();
   const friendRequests = useSelector(selectFriendRequests);
@@ -48,12 +52,23 @@ export default function OtherUserProfile({ route, navigation }) {
   const [dropdownVisible, setDropdownVisible] = useState(false);
   const [activeSection, setActiveSection] = useState("reviews");
 
-  console.log(user);
+  const {
+      loadMore,
+      refresh,
+      isLoading,
+      hasMore,
+    } = usePaginatedFetch({
+      fetchThunk: fetchPostsByOtherUserId,
+      appendAction: appendOtherUserReviews,
+      resetAction: setOtherUserReviews,
+      params: { userId },
+      limit: 5,
+    });
 
   useEffect(() => {
     if (user) {
       dispatch(fetchOtherUserBanner(user._id));
-      dispatch(fetchPostsByOtherUserId(user._id));
+      refresh();
       dispatch(fetchOtherUserProfilePic(user._id));
       dispatch(fetchOtherUserFavorites(user._id));
     }
@@ -107,6 +122,8 @@ export default function OtherUserProfile({ route, navigation }) {
   const photos = Array.from(
     new Set(profileReviews.flatMap((review) => review.photos?.map((photo) => photo.url) || []))
   ).map((url) => ({ url }));
+
+  const data = activeSection === "reviews" ? profileReviews : photos;
 
   const renderHeader = () => (
     <>
@@ -184,7 +201,7 @@ export default function OtherUserProfile({ route, navigation }) {
           <Text style={styles.navButtonText}>Favorites</Text>
         </TouchableOpacity>
       </View>
-      {activeSection === "reviews" && <Reviews reviews={profileReviews} />}
+      {activeSection === "reviews" && <Reviews reviews={profileReviews} onLoadMore={loadMore} isLoadingMore={isLoading} hasMore={hasMore}/>}
       {activeSection === "photos" && <Photos photos={photos} />}
       {activeSection === "favorites" && <Favorites favorites={favorites} />}
     </>
@@ -193,6 +210,7 @@ export default function OtherUserProfile({ route, navigation }) {
   return (
     <FlatList
       style={styles.container}
+      data={data}
       keyExtractor={(item, index) => index.toString()}
       ListHeaderComponent={renderHeader()}
       showsVerticalScrollIndicator={false}

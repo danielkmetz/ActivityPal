@@ -1,5 +1,5 @@
 // PreferencesModal.js
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     View,
     Text,
@@ -24,9 +24,11 @@ import {
     selectEventType,
     setEventType,
 } from '../../Slices/PreferencesSlice';
-import { PanGestureHandler, State } from 'react-native-gesture-handler';
+import { PanGestureHandler } from 'react-native-gesture-handler';
 import Slider from '@react-native-community/slider';
 import WheelPicker from '../CustomePicker/CustomPicker';
+import useSlideDownDismiss from '../../utils/useSlideDown';
+import Notch from '../Notch/Notch';
 
 const PreferencesModal = ({ visible, onClose, onSubmitCustomSearch }) => {
     const dispatch = useDispatch();
@@ -35,33 +37,23 @@ const PreferencesModal = ({ visible, onClose, onSubmitCustomSearch }) => {
     const eventType = useSelector(selectEventType);
     const isFamilyFriendly = useSelector(selectFamilyFriendly);
     const coordinates = useSelector(selectCoordinates);
-    const [showPicker, setShowPicker] = useState(false)
+    const [showPicker, setShowPicker] = useState(false);
+    const { gestureTranslateY, animateIn, animateOut, onGestureEvent, onHandlerStateChange } = useSlideDownDismiss(onClose);
 
     const lat = coordinates?.lat;
     const lng = coordinates?.lng;
     const radius = milesToMeters(distance);
 
-    const translateY = useRef(new Animated.Value(0)).current;
-    const gestureThreshold = 100;
-
     useEffect(() => {
-        if (!visible) {
-            translateY.setValue(0);
+        if (visible) {
+            animateIn();
+        } else {
+            (async () => {
+                await animateOut();
+                onClose();
+            })();
         }
     }, [visible]);
-
-    const onGestureEvent = Animated.event(
-        [{ nativeEvent: { translationY: translateY } }],
-        {
-            useNativeDriver: false,
-            listener: (event) => {
-                const { translationY } = event.nativeEvent;
-                if (translationY < 0) {
-                    translateY.setValue(0);
-                }
-            },
-        }
-    );
 
     const handleSubmit = () => {
         if (lat && lng && radius && budget && eventType) {
@@ -69,21 +61,7 @@ const PreferencesModal = ({ visible, onClose, onSubmitCustomSearch }) => {
                 radius,
                 budget,
             });
-    
             onClose();
-        }
-    };    
-
-    const onHandlerStateChange = ({ nativeEvent }) => {
-        if (nativeEvent.state === State.END) {
-            if (nativeEvent.translationY > gestureThreshold) {
-                onClose();
-            } else {
-                Animated.spring(translateY, {
-                    toValue: 0,
-                    useNativeDriver: false,
-                }).start();
-            }
         }
     };
 
@@ -97,81 +75,73 @@ const PreferencesModal = ({ visible, onClose, onSubmitCustomSearch }) => {
             animationType="slide"
             transparent
         >
-            <TouchableWithoutFeedback onPress={onClose}>
+            <TouchableWithoutFeedback onPress={animateOut}>
                 <View style={styles.modalOverlay}>
                     <PanGestureHandler
                         onGestureEvent={onGestureEvent}
                         onHandlerStateChange={onHandlerStateChange}
                     >
-                        <Animated.View style={[styles.modalContainer, { transform: [{ translateY }] }]}>
-                            <View style={styles.notchContainer}>
-                                <View style={styles.notch} />
-                            </View>
-                        
-                        {coordinates ? (
-                            <View style={styles.modalContainer}>
-                                <Text style={styles.modalTitle}>Customize Your Vybe</Text>
-
-                                {/* Distance Slider */}
-                                <Text style={styles.optionLabel}>Distance (miles): {distance}</Text>
-                                <Slider
-                                    style={styles.slider}
-                                    minimumValue={1}
-                                    maximumValue={50}
-                                    step={1}
-                                    value={distance}
-                                    onValueChange={value => dispatch(setDistance(value))}
-                                    minimumTrackTintColor="#2196F3"
-                                    maximumTrackTintColor="#ddd"
-                                    thumbTintColor="#2196F3"
-                                />
-
-                                {/* Budget */}
-                                {eventType === 'Dining' && (
-                                    <>
-                                        <Text style={styles.optionLabel}>Budget:</Text>
-                                        <View style={styles.buttonGroup}>
-                                            {['$', '$$', '$$$', '$$$$'].map(b => (
-                                                <TouchableOpacity
-                                                    key={b}
-                                                    style={[styles.budgetButton, budget === b && styles.selectedButton]}
-                                                    onPress={() => dispatch(setBudget(b))}
-                                                >
-                                                    <Text style={styles.buttonText}>{b}</Text>
-                                                </TouchableOpacity>
-                                            ))}
-                                        </View>
-                                    </>
-                                )}
-                                
-                                {/* Family Friendly */}
-                                <View style={styles.switchContainer}>
-                                    <Text style={styles.optionLabel}>Family Friendly</Text>
-                                    <Switch
-                                        value={isFamilyFriendly}
-                                        onValueChange={value => dispatch(setIsFamilyFriendly(value))}
-                                        trackColor={{ false: "#ccc", true: "#2196F3" }}
-                                        thumbColor={isFamilyFriendly ? "#2196F3" : "#f4f3f4"}
+                        <Animated.View style={[styles.modalContainer, { transform: [{ translateY: gestureTranslateY }] }]}>
+                            <Notch />
+                            {coordinates ? (
+                                <View style={styles.modalContainer}>
+                                    <Text style={styles.modalTitle}>Customize Your Vybe</Text>
+                                    {/* Distance Slider */}
+                                    <Text style={styles.optionLabel}>Distance (miles): {distance}</Text>
+                                    <Slider
+                                        style={styles.slider}
+                                        minimumValue={1}
+                                        maximumValue={50}
+                                        step={1}
+                                        value={distance}
+                                        onValueChange={value => dispatch(setDistance(value))}
+                                        minimumTrackTintColor="#2196F3"
+                                        maximumTrackTintColor="#ddd"
+                                        thumbTintColor="#2196F3"
                                     />
+                                    {/* Budget */}
+                                    {eventType === 'Dining' && (
+                                        <>
+                                            <Text style={styles.optionLabel}>Budget:</Text>
+                                            <View style={styles.buttonGroup}>
+                                                {['$', '$$', '$$$', '$$$$'].map(b => (
+                                                    <TouchableOpacity
+                                                        key={b}
+                                                        style={[styles.budgetButton, budget === b && styles.selectedButton]}
+                                                        onPress={() => dispatch(setBudget(b))}
+                                                    >
+                                                        <Text style={styles.buttonText}>{b}</Text>
+                                                    </TouchableOpacity>
+                                                ))}
+                                            </View>
+                                        </>
+                                    )}
+                                    {/* Family Friendly */}
+                                    <View style={styles.switchContainer}>
+                                        <Text style={styles.optionLabel}>Family Friendly</Text>
+                                        <Switch
+                                            value={isFamilyFriendly}
+                                            onValueChange={value => dispatch(setIsFamilyFriendly(value))}
+                                            trackColor={{ false: "#ccc", true: "#2196F3" }}
+                                            thumbColor={isFamilyFriendly ? "#2196F3" : "#f4f3f4"}
+                                        />
+                                    </View>
+                                    {/* Event Type Picker */}
+                                    <TouchableOpacity style={styles.pickerButton} onPress={() => setShowPicker(true)}>
+                                        <Text style={eventType ? styles.selectedText : styles.placeholderText}>
+                                            {eventType || 'Select Activity Type'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                    {/* Submit Button */}
+                                    <TouchableOpacity onPress={handleSubmit} style={styles.submitButton}>
+                                        <Text style={styles.submitButtonText}>Submit</Text>
+                                    </TouchableOpacity>
                                 </View>
-
-                                {/* Event Type Picker */}
-                                <TouchableOpacity style={styles.pickerButton} onPress={() => setShowPicker(true)}>
-                                    <Text style={eventType ? styles.selectedText : styles.placeholderText}>
-                                        {eventType || 'Select Activity Type'}
-                                    </Text>
-                                </TouchableOpacity>
-
-                                {/* Submit Button */}
-                                <TouchableOpacity onPress={handleSubmit} style={styles.submitButton}>
-                                    <Text style={styles.submitButtonText}>Submit</Text>
-                                </TouchableOpacity>
-                            </View>
-                        ) : (
-                            <View style={styles.loadingContainer}>
-                                <ActivityIndicator size="large" color="#0000ff" />
-                            </View>
-                        )}
+                            ) : (
+                                <View style={styles.loadingContainer}>
+                                    <ActivityIndicator size="large" color="#0000ff" />
+                                </View>
+                            )}
                         </Animated.View>
                     </PanGestureHandler>
                 </View>
@@ -210,32 +180,11 @@ const styles = StyleSheet.create({
         maxHeight: '80%',
         elevation: 10,
     },
-    notchContainer: {
-        alignItems: 'center',
-        marginBottom: 10,
-    },
-    notch: {
-        width: 40,
-        height: 5,
-        backgroundColor: '#ccc',
-        borderRadius: 3,
-    },
     modalTitle: {
         fontSize: 20,
         fontWeight: 'bold',
         marginBottom: 15,
         textAlign: 'center',
-    },
-    closeIcon: {
-        //position: 'absolute',
-        top: 15,
-        right: 15,
-        padding: 5,
-        zIndex: 1,
-    },
-    closeIconText: {
-        fontSize: 20,
-        color: '#333',
     },
     optionLabel: {
         fontSize: 16,
@@ -307,5 +256,5 @@ const styles = StyleSheet.create({
     selectedText: {
         color: '#000',
     },
-    
+
 });

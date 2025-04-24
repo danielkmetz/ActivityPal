@@ -4,7 +4,8 @@ import { useNavigation } from '@react-navigation/native';
 
 const Activities = ({ activity }) => {
     const navigation = useNavigation();
-    const [expanded, setExpanded] = useState(false);
+    const [eventExpanded, setEventExpanded] = useState(false);
+    const [promoExpanded, setPromoExpanded] = useState(false);
     const blinkAnim = new Animated.Value(1);
     
     useEffect(() => {
@@ -21,6 +22,10 @@ const Activities = ({ activity }) => {
             navigation.navigate("BusinessProfile", { business: activity.business });
         }
     };
+
+    const isValidDate = (date) => {
+        return date && !isNaN(new Date(date).getTime());
+    };  
     
     if (!activity.distance) return null;
 
@@ -50,24 +55,15 @@ const Activities = ({ activity }) => {
 
             {/* Special Event Indicator */}
             {activity.events.length > 0 && (
-                <TouchableOpacity onPress={() => setExpanded(!expanded)} style={styles.eventContainer}>
+                <TouchableOpacity onPress={() => setEventExpanded(!eventExpanded)} style={styles.eventContainer}>
                     <Animated.View style={[styles.redDot, { opacity: blinkAnim }]} />
-                    <Text style={styles.eventText}>🔥 Special Event Happening Today!</Text>
-                    <Text style={styles.chevron}>{expanded ? '▲' : '▼'}</Text>
-                </TouchableOpacity>
-            )}
-
-            {/* Special Event Indicator */}
-            {activity.promotions.length > 0 && (
-                <TouchableOpacity onPress={() => setExpanded(!expanded)} style={styles.eventContainer}>
-                    <Animated.View style={[styles.redDot, { opacity: blinkAnim }]} />
-                    <Text style={styles.eventText}>Special Promotions Today!</Text>
-                    <Text style={styles.chevron}>{expanded ? '▲' : '▼'}</Text>
+                    <Text style={styles.eventText}>Special Event Happening Today!</Text>
+                    <Text style={styles.chevron}>{eventExpanded ? '▲' : '▼'}</Text>
                 </TouchableOpacity>
             )}
 
             {/* Expanded Event Details */}
-            {expanded && activity.events.length > 0 && (
+            {eventExpanded && activity.events.length > 0 && (
                 <View style={styles.eventDetails}>
                     {activity.events.map((event, index) => (
                         <View key={index} style={styles.eventItem}>
@@ -79,8 +75,17 @@ const Activities = ({ activity }) => {
                 </View>
             )}
 
-            {/* Expanded Event Details */}
-            {expanded && activity.promotions.length > 0 && (
+            {/* Special Promo Indicator */}
+            {activity.promotions.length > 0 && (
+                <TouchableOpacity onPress={() => setPromoExpanded(!promoExpanded)} style={styles.eventContainer}>
+                    <Animated.View style={[styles.redDot, { opacity: blinkAnim }]} />
+                    <Text style={styles.eventText}>Special Promotions Today!</Text>
+                    <Text style={styles.chevron}>{promoExpanded ? '▲' : '▼'}</Text>
+                </TouchableOpacity>
+            )}
+
+            {/* Expanded Promo Details */}
+            {promoExpanded && activity.promotions.length > 0 && (
                 <View style={styles.eventDetails}>
                     {activity.promotions.map((promotion, index) => (
                         <View key={index} style={styles.eventItem}>
@@ -107,7 +112,6 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.3,
         shadowRadius: 3,
         elevation: 5,
-        //paddingBottom: 10,
     },
     photo: {
         width: '100%',
@@ -172,6 +176,7 @@ const styles = StyleSheet.create({
     eventDescription: {
         fontSize: 14,
         color: '#5D4037',
+        marginTop: 10,
     },
     eventDate: {
         fontSize: 12,

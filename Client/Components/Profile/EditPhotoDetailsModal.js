@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import TagFriendsModal from "../Reviews/TagFriendsModal";
 
-export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose, setPhotoList, isPromotion }) {
+export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose, setPhotoList, setSelectedPhotos, isPromotion }) {
   const [description, setDescription] = useState(photo?.description || "");
   const [taggedUsers, setTaggedUsers] = useState(photo?.taggedUsers || []); // Stores {username, x, y}
   const [selectedPosition, setSelectedPosition] = useState(null);
@@ -34,8 +34,6 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
     onClose();
   };
 
-  console.log(taggedUsers)
-
   // Handle tap on the image to open friend tagging modal
   const handleImagePress = (event) => {
     const { locationX, locationY } = event.nativeEvent;
@@ -45,6 +43,7 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
 
   const handleDelete = () => {
     setPhotoList((prevList) => prevList.filter((p) => p.uri !== photo.uri)); // Remove from photoList
+    setSelectedPhotos((prevList) => prevList.filter((p) => p.uri !== photo.uri));
     onClose(); // Close modal after deletion
   };
 

@@ -5,7 +5,6 @@ import {
     StyleSheet,
     Text,
     ActivityIndicator,
-    SafeAreaView,
     TouchableWithoutFeedback,
     Keyboard,
     Animated,

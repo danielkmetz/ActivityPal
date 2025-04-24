@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { View, Image, Text, Animated, TouchableWithoutFeedback, Dimensions, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
@@ -12,10 +12,13 @@ const PhotoItem = ({
     toggleTaggedUsers,
     handleLikeWithAnimation,
     lastTapRef,
+    isInteractive=true,
 }) => {
     const animation = likedAnimations?.[reviewItem._id] || new Animated.Value(0);
 
     const handleTap = () => {
+        if (!isInteractive) return;
+
         const now = Date.now();
 
         if (lastTapRef.current[reviewItem._id] && now - lastTapRef.current[reviewItem._id] < 300) {
@@ -39,11 +42,13 @@ const PhotoItem = ({
                 <View>
                     <Image source={{ uri: photo.url || photo.uri }} style={styles.photo} />
 
+                    {isInteractive && (
                     <Animated.View style={[styles.likeOverlay, { opacity: animation }]}>
                         <MaterialCommunityIcons name="thumb-up" size={80} color="#80E6D2" />
                     </Animated.View>
+                    )}
 
-                    {photoTapped === photo.photoKey &&
+                    {isInteractive && photoTapped === photo.photoKey &&
                         photo.taggedUsers?.map((taggedUser, index) => (
                             <View
                                 key={index}
