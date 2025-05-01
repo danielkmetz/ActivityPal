@@ -35,10 +35,22 @@ export default function EditPhotosModal({ visible, photos, onSave, onClose, phot
   };  
 
   const handleSavePhotos = () => {
-    const existingUris = new Set(photos.map(p => p.uri || p.photoKey));
-    const newPhotosOnly = photoList.filter(p => !existingUris.has(p.uri || p.photoKey));
-    const merged = [...photos, ...newPhotosOnly];
+    // Use a Map to de-duplicate and merge based on uri or photoKey
+    const mergedMap = new Map();
   
+    // Add all current photos (original)
+    photos.forEach(photo => {
+      const key = photo._id || photo.photoKey || photo.uri;
+      mergedMap.set(key, photo);
+    });
+  
+    // Overwrite with updated versions from photoList (preserves edits)
+    photoList.forEach(photo => {
+      const key = photo._id || photo.photoKey || photo.uri;
+      mergedMap.set(key, photo);
+    });
+  
+    const merged = Array.from(mergedMap.values());
     onSave(merged);
     onClose();
   };  

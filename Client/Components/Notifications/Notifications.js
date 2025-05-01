@@ -11,7 +11,7 @@ import {
 import { useDispatch, useSelector } from 'react-redux';
 import { selectIsBusiness, selectUser } from '../../Slices/UserSlice';
 import { selectNotifications, markNotificationRead, setNotifications, createNotification, deleteNotification } from '../../Slices/NotificationsSlice';
-import { selectBusinessNotifications, markBusinessNotificationRead, setBusinessNotifications, deleteBusinessNotification } from '../../Slices/BusNotificationsSlice';
+import { selectBusinessNotifications, markBusinessNotificationRead, deleteBusinessNotification } from '../../Slices/BusNotificationsSlice';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { acceptFriendRequest, declineFriendRequest, selectFriendRequestDetails } from '../../Slices/UserSlice';
 import moment from 'moment';
@@ -26,7 +26,9 @@ export default function Notifications() {
     const dispatch = useDispatch();
     const isBusiness = useSelector(selectIsBusiness);
     const user = useSelector(selectUser);
-    const notifications = useSelector(isBusiness ? selectNotifications : selectBusinessNotifications);
+    const notifications = useSelector((state) => 
+        isBusiness ? selectBusinessNotifications(state) : selectNotifications(state)
+      );
     const friendRequestDetails = useSelector(selectFriendRequestDetails);
     const reviews = useSelector(selectUserAndFriendsReviews);
     const selectedReview = useSelector(selectSelectedReview);
@@ -37,14 +39,21 @@ export default function Notifications() {
     const [likedAnimations, setLikedAnimations] = useState({});
     const [targetId, setTargetId] = useState(null);
     const userId = user?.id;
+    const placeId = user?.businessDetails?.placeId;
     const fullName = `${user.firstName} ${user.lastName}`;
 
     const handleNotificationPress = async (notification) => {
+        if (!isBusiness) {
         dispatch(markNotificationRead({ userId: user.id, notificationId: notification._id }));
+        } else {
+            dispatch(markBusinessNotificationRead({ placeId, notificationId: notification._id }));
+        }
         await decrementLastSeenUnreadCount();
 
         if (
             notification.type === "comment" ||
+            notification.type === "review" ||
+            notification.type === "check-in" ||
             notification.type === "reply" ||
             notification.type === "like" ||
             notification.type === "tag" ||
@@ -55,7 +64,9 @@ export default function Notifications() {
                 const postType = notification.postType;
                 
                 dispatch(fetchPostById({ postType, postId: notification.targetId }));
-                setTargetId(notification.replyId);
+
+                const target = notification.replyId || notification.commentId;
+                setTargetId(target);
                 setCommentModalVisible(true);
             } else {
                 console.warn("Comment ID is missing in notification");
@@ -330,7 +341,11 @@ export default function Notifications() {
     };
 
     const handleDeleteNotification = (notificationId) => {
+        if (!isBusiness) {
         dispatch(deleteNotification({ userId: user.id, notificationId }));
+        } else {
+            dispatch(deleteBusinessNotification({ placeId, notificationId }));
+        }
     };
     
     return (

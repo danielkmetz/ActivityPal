@@ -22,16 +22,17 @@ const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isE
       if (isPhotoTagging) {
         setSelectedFriends([]);
       } else if (Array.isArray(initialSelectedFriends)) {
-        // Only update state if values actually changed
-        const incomingIds = initialSelectedFriends.map(f => f._id).sort().join(',');
-        const currentIds = selectedFriends.map(f => f._id).sort().join(',');
+        // Match by ID against full friendsDetails
+        const matched = friendsDetails.filter(f =>
+          initialSelectedFriends.some(tagged =>
+            tagged.userId === f._id || tagged._id === f._id
+          )
+        );
   
-        if (incomingIds !== currentIds) {
-          setSelectedFriends(initialSelectedFriends);
-        }
+        setSelectedFriends(matched);
       }
     }
-  }, [visible]); // ✅ Only re-run when modal opens  
+  }, [visible, friendsDetails]);  
   
   // Toggle selection of friends (store full object instead of just the ID)
   const toggleFriendSelection = (friend) => {

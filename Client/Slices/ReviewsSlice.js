@@ -149,7 +149,7 @@ export const fetchReviewsByUserId = createAsyncThunk(
             date
             sortDate
             taggedUsers {
-              _id
+              userId
               fullName
             }
             likes {
@@ -161,30 +161,35 @@ export const fetchReviewsByUserId = createAsyncThunk(
               commentText
               userId
               fullName
+              likes
               date
               replies {
                 _id
                 commentText
                 userId
                 fullName
+                likes
                 date
                 replies {
                   _id
                   commentText
                   userId
                   fullName
+                  likes
                   date
                   replies {
                     _id
                     commentText
                     userId
                     fullName
+                    likes
                     date
                     replies {
                       _id
                       commentText
                       userId
                       fullName
+                      likes
                       date
                     }
                   }
@@ -206,7 +211,7 @@ export const fetchReviewsByUserId = createAsyncThunk(
               uploadedBy
               description
               taggedUsers {
-                _id
+                userId
                 fullName
                 x
                 y
@@ -226,8 +231,24 @@ export const fetchReviewsByUserId = createAsyncThunk(
             date
             sortDate
             message
+            comments {
+                _id
+                userId
+                fullName
+                commentText
+                likes
+                date
+                replies {
+                  _id
+                  userId
+                  fullName
+                  commentText
+                  likes
+                  date
+                }
+            }
             taggedUsers {
-              _id
+              userId
               fullName
             }
             profilePicUrl
@@ -237,7 +258,7 @@ export const fetchReviewsByUserId = createAsyncThunk(
               uploadedBy
               description
               taggedUsers {
-                _id
+                userId
                 fullName
                 x
                 y
@@ -309,7 +330,7 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
               placeId
               businessName
               taggedUsers {
-                _id
+                userId
                 fullName
               }
               likes {
@@ -321,84 +342,98 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
                 commentText
                 userId
                 fullName
+                likes
                 date
                 replies {
                   _id
                   commentText
                   userId
                   fullName
+                  likes
                   date
                   replies {
                     _id
                     commentText
                     userId
                     fullName
+                    likes
                     date
                     replies {
                       _id
                       commentText
                       userId
                       fullName
+                      likes
                       date
                       replies {
                         _id
                         commentText
                         userId
                         fullName
+                        likes
                         date
                         replies {
                           _id
                           commentText
                           userId
                           fullName
+                          lies
                           date
                           replies {
                             _id
                             commentText
                             userId
                             fullName
+                            likes
                             date
                             replies {
                               _id
                               commentText
                               userId
                               fullName
+                              likes
                               date
                               replies {
                                 _id
                                 commentText
                                 userId
                                 fullName
+                                likes
                                 date
                                 replies {
                                   _id
                                   commentText
                                   userId
                                   fullName
+                                  likes
                                   date
                                   replies {
                                     _id
                                     commentText
                                     userId
                                     fullName
+                                    likes
                                     date
                                     replies {
                                       _id
                                       commentText
                                       userId
                                       fullName
+                                      likes
                                       date
                                       replies {
                                         _id
                                         commentText
                                         userId
                                         fullName
+                                        likes
                                         date
                                         replies {
                                           _id
                                           commentText
                                           userId
                                           fullName
+                                          likes
                                           date
                                         }
                                       }
@@ -429,7 +464,7 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
                 uploadedBy
                 description
                 taggedUsers {
-                  _id
+                  userId
                   fullName
                   x
                   y
@@ -452,7 +487,7 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
               businessName
               message
               taggedUsers {
-                _id
+                userId
                 fullName
               }
               likes {
@@ -464,84 +499,98 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
                 commentText
                 userId
                 fullName
+                likes
                 date
                 replies {
                   _id
                   commentText
                   userId
                   fullName
+                  likes
                   date
                   replies {
                     _id
                     commentText
                     userId
                     fullName
+                    likes
                     date
                     replies {
                       _id
                       commentText
                       userId
                       fullName
+                      likes
                       date
                       replies {
                         _id
                         commentText
                         userId
                         fullName
+                        likes
                         date
                         replies {
                           _id
                           commentText
                           userId
                           fullName
+                          likes
                           date
                           replies {
                             _id
                             commentText
                             userId
                             fullName
+                            likes
                             date
                             replies {
                               _id
                               commentText
                               userId
                               fullName
+                              likes
                               date
                               replies {
                                 _id
                                 commentText
                                 userId
                                 fullName
+                                likes
                                 date
                                 replies {
                                   _id
                                   commentText
                                   userId
                                   fullName
+                                  likes
                                   date
                                   replies {
                                     _id
                                     commentText
                                     userId
                                     fullName
+                                    likes
                                     date
                                     replies {
                                       _id
                                       commentText
                                       userId
                                       fullName
+                                      likes
                                       date
                                       replies {
                                         _id
                                         commentText
                                         userId
                                         fullName
+                                        likes
                                         date
                                         replies {
                                           _id
                                           commentText
                                           userId
                                           fullName
+                                          likes
                                           date
                                         }
                                       }
@@ -572,7 +621,7 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
                 uploadedBy
                 description
                 taggedUsers {
-                  _id
+                  userId
                   fullName
                   x
                   y
@@ -630,7 +679,7 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
               date
               sortDate
               taggedUsers {
-                _id
+                userId
                 fullName
               }
               likes {
@@ -642,30 +691,35 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
                 commentText
                 userId
                 fullName
+                likes
                 date
                 replies {
                   _id
                   commentText
                   userId
                   fullName
+                  likes
                   date
                   replies {
                     _id
                     commentText
                     userId
                     fullName
+                    likes
                     date
                     replies {
                       _id
                       commentText
                       userId
                       fullName
+                      likes
                       date
                       replies {
                         _id
                         commentText
                         userId
                         fullName
+                        likes
                         date
                       }
                     }
@@ -687,7 +741,7 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
                 uploadedBy
                 description
                 taggedUsers {
-                  _id
+                  userId
                   fullName
                   x
                   y
@@ -743,14 +797,56 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
                 userId
                 fullName
                 commentText
+                likes
                 date
                 replies {
                   _id
                   userId
                   fullName
                   commentText
+                  likes
                   date
-                }
+                  replies {
+                    _id
+                    userId
+                    fullName
+                    commentText
+                    likes
+                    date
+                    replies {
+                      _id
+                      userId
+                      fullName
+                      commentText
+                      likes
+                      date
+                        replies {
+                        _id
+                        userId
+                        fullName
+                        commentText
+                        likes
+                        date
+                        replies {
+                          _id
+                          userId
+                          fullName
+                          commentText
+                          likes
+                          date
+                          replies {
+                            _id
+                            userId
+                            fullName
+                            commentText
+                            likes
+                            date
+                          }
+                        }
+                      }
+                    }
+                  }
+                } 
               }
             }
 
@@ -764,8 +860,64 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
               sortDate
               message
               taggedUsers {
-                _id
+                userId
                 fullName
+              }
+              comments {
+                _id
+                userId
+                fullName
+                commentText
+                likes
+                date
+                replies {
+                  _id
+                  userId
+                  fullName
+                  commentText
+                  likes
+                  date
+                  replies {
+                    _id
+                    userId
+                    fullName
+                    commentText
+                    likes
+                    date
+                    replies {
+                      _id
+                      userId
+                      fullName
+                      commentText
+                      likes
+                      date
+                        replies {
+                        _id
+                        userId
+                        fullName
+                        commentText
+                        likes
+                        date
+                        replies {
+                          _id
+                          userId
+                          fullName
+                          commentText
+                          likes
+                          date
+                          replies {
+                            _id
+                            userId
+                            fullName
+                            commentText
+                            likes
+                            date
+                          }
+                        }
+                      }
+                    }
+                  }
+                } 
               }
               profilePicUrl
               photos {
@@ -774,7 +926,7 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
                 uploadedBy
                 description
                 taggedUsers {
-                  _id
+                  userId
                   fullName
                   x
                   y
@@ -868,6 +1020,31 @@ export const editCommentOrReply = createAsyncThunk(
   }
 );
 
+export const toggleCommentLike = createAsyncThunk(
+  "reviews/toggleCommentLike",
+  async ({ postType, placeId, postId, commentId, userId, replyId = null }, { rejectWithValue }) => {
+    try {
+      const res = await axios.put(
+        `${BASE_URL}/reviews/${postType}/${placeId}/${postId}/${commentId}/like`, {
+        userId,
+        replyId,
+      });
+
+      return {
+        postType,
+        placeId,
+        postId,
+        commentId,
+        replyId,
+        updatedLikes: res.data.updatedLikes,
+      };
+    } catch (error) {
+      console.error("🚨 toggleCommentLike error:", error);
+      return rejectWithValue(error.response?.data?.message || "Failed to toggle like");
+    }
+  }
+);
+
 export const fetchReviewsByPlaceId = createAsyncThunk(
   'reviews/fetchReviewsByPlaceId',
   async ({ placeId, limit = 10, after = null }, { rejectWithValue }) => {
@@ -887,7 +1064,7 @@ export const fetchReviewsByPlaceId = createAsyncThunk(
               date
               sortDate
               taggedUsers {
-                _id
+                userId
                 fullName
               }
               likes {
@@ -899,30 +1076,35 @@ export const fetchReviewsByPlaceId = createAsyncThunk(
                 commentText
                 userId
                 fullName
+                likes
                 date
                 replies {
                   _id
                   commentText
                   userId
                   fullName
+                  likes
                   date
                   replies {
                     _id
                     commentText
                     userId
                     fullName
+                    likes
                     date
                     replies {
                       _id
                       commentText
                       userId
                       fullName
+                      likes
                       date
                       replies {
                         _id
                         commentText
                         userId
                         fullName
+                        likes
                         date
                       }
                     }
@@ -944,7 +1126,7 @@ export const fetchReviewsByPlaceId = createAsyncThunk(
                 uploadedBy
                 description
                 taggedUsers {
-                  _id
+                  userId
                   fullName
                   x
                   y
@@ -964,8 +1146,24 @@ export const fetchReviewsByPlaceId = createAsyncThunk(
               sortDate
               message
               taggedUsers {
-                _id
+                userId
                 fullName
+              }
+              comments {
+                _id
+                userId
+                fullName
+                commentText
+                likes
+                date
+                replies {
+                  _id
+                  userId
+                  fullName
+                  commentText
+                  likes
+                  date
+                }
               }
               profilePicUrl
               photos {
@@ -974,7 +1172,7 @@ export const fetchReviewsByPlaceId = createAsyncThunk(
                 uploadedBy
                 description
                 taggedUsers {
-                  _id
+                  userId
                   fullName
                   x
                   y
@@ -1229,7 +1427,7 @@ const reviewsSlice = createSlice({
       })
       .addCase(addComment.fulfilled, (state, action) => {
         const { postId, comments } = action.payload;
-      
+
         const updateComments = (review) => {
           if (review) {
             if (!Array.isArray(review.comments)) {
@@ -1238,19 +1436,19 @@ const reviewsSlice = createSlice({
             review.comments.push(...comments);
           }
         };
-      
+
         updateComments(state.otherUserReviews?.find((r) => r._id === postId));
         updateComments(state.userAndFriendsReviews?.find((r) => r._id === postId));
         updateComments(state.profileReviews?.find((r) => r._id === postId));
         updateComments(state.businessReviews?.find((r) => r._id === postId));
         updateComments(state.selectedReview?._id === postId ? state.selectedReview : null);
-      })      
+      })
       .addCase(addReply.pending, (state) => {
         state.loading = true;
       })
       .addCase(addReply.fulfilled, (state, action) => {
         const { postId, commentId, replies } = action.payload;
-      
+
         const updateReplies = (comments) => {
           return comments.map((comment) => {
             if (comment._id === commentId) {
@@ -1268,7 +1466,7 @@ const reviewsSlice = createSlice({
             return comment;
           });
         };
-      
+
         const updateReview = (reviews) => {
           const reviewIndex = reviews.findIndex((r) => r._id === postId);
           if (reviewIndex !== -1) {
@@ -1279,19 +1477,19 @@ const reviewsSlice = createSlice({
             };
           }
         };
-      
+
         updateReview(state.userAndFriendsReviews);
         updateReview(state.otherUserReviews);
         updateReview(state.profileReviews);
         updateReview(state.businessReviews);
-      
+
         if (state.selectedReview?._id === postId) {
           state.selectedReview = {
             ...state.selectedReview,
             comments: updateReplies(state.selectedReview.comments || []),
           };
         }
-      })      
+      })
       .addCase(addReply.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload;
@@ -1323,16 +1521,16 @@ const reviewsSlice = createSlice({
       })
       .addCase(deleteCommentOrReply.fulfilled, (state, action) => {
         const { postId, commentId } = action.payload;
-      
+
         const removeCommentOrReply = (review) => {
           if (!review) return;
-      
+
           const commentIndex = review.comments.findIndex((comment) => comment._id === commentId);
           if (commentIndex !== -1) {
             review.comments.splice(commentIndex, 1);
             return;
           }
-      
+
           const removeNestedReply = (replies) => {
             if (!replies) return false;
             for (let i = 0; i < replies.length; i++) {
@@ -1346,12 +1544,12 @@ const reviewsSlice = createSlice({
             }
             return false;
           };
-      
+
           review.comments.forEach((comment) => {
             removeNestedReply(comment.replies);
           });
         };
-      
+
         ["businessReviews", "profileReviews", "otherUserReviews", "userAndFriendsReviews"].forEach((category) => {
           state[category].forEach((review) => {
             if (review._id === postId) {
@@ -1359,11 +1557,11 @@ const reviewsSlice = createSlice({
             }
           });
         });
-      
+
         if (state.selectedReview?._id === postId) {
           removeCommentOrReply(state.selectedReview);
         }
-      })      
+      })
       .addCase(editCommentOrReply.fulfilled, (state, action) => {
         const { postId, commentId, updatedComment } = action.payload;
 
@@ -1415,6 +1613,50 @@ const reviewsSlice = createSlice({
         // ✅ Update selectedReview if it's the one being edited
         if (state.selectedReview && state.selectedReview._id === postId) {
           updateCommentOrReply(state.selectedReview);
+        }
+      })
+      .addCase(toggleCommentLike.fulfilled, (state, action) => {
+        const { postId, commentId, replyId, updatedLikes } = action.payload;
+
+        const updateLikesRecursive = (nodes, targetId) => {
+          if (!Array.isArray(nodes)) return false;
+
+          for (let node of nodes) {
+            if (node._id === targetId) {
+              node.likes = updatedLikes;
+              return true;
+            }
+            if (updateLikesRecursive(node.replies, targetId)) {
+              return true;
+            }
+          }
+          return false;
+        };
+
+        const applyLikeUpdate = (review) => {
+          if (!review || !Array.isArray(review.comments)) return;
+
+          const targetId = replyId || commentId; // 👍 Handle both cases
+          updateLikesRecursive(review.comments, targetId);
+        };
+
+        const categories = [
+          "businessReviews",
+          "profileReviews",
+          "otherUserReviews",
+          "userAndFriendsReviews",
+        ];
+
+        categories.forEach((category) => {
+          state[category]?.forEach((review) => {
+            if (review._id === postId) {
+              applyLikeUpdate(review);
+            }
+          });
+        });
+
+        if (state.selectedReview && state.selectedReview._id === postId) {
+          applyLikeUpdate(state.selectedReview);
         }
       })
       .addCase(editCommentOrReply.rejected, (state, action) => {

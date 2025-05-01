@@ -1,6 +1,10 @@
 import React, { useState, } from 'react';
 import { View, Text, TouchableOpacity, TextInput, StyleSheet, } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSelector, useDispatch } from 'react-redux';
+import { selectUser } from '../../Slices/UserSlice';
+import {toggleCommentLike} from '../../Slices/ReviewsSlice';
+import { findTopLevelCommentId } from '../../functions'
 
 const Reply = ({
   reply,
@@ -22,9 +26,19 @@ const Reply = ({
   isEditing,
   editedText,
   selectedReply,
+  postType,
+  placeId,
+  postId,
+  review,
 }) => {
+  const dispatch = useDispatch();
   const [showReplyInput, setShowReplyInput] = useState(false);
   const [nestedReplyText, setNestedReplyText] = useState('');
+  const user = useSelector(selectUser);
+  const likes = reply?.likes || [];
+  const userId = user?.id;
+
+  const hasLiked = Array.isArray(likes) && likes.includes(userId);
 
   const setNativeRef = (node) => {
     if (node) {
@@ -44,119 +58,149 @@ const Reply = ({
     }));
   };
 
+  const handleToggleLike = () => {
+    const topLevelCommentId = findTopLevelCommentId(review.comments, reply._id);
+    if (!topLevelCommentId) return;
+  
+    dispatch(toggleCommentLike({
+      postType,
+      placeId,
+      postId,
+      commentId: topLevelCommentId, // ✅ root-level comment ID
+      replyId: reply._id,
+      userId,
+    }));
+  };  
+
   return (
-        <TouchableOpacity
-          onLongPress={() => {
-            setSelectedReply({ ...reply, parentCommentId }); // ✅ Store parent ID in selectedReply
-            setSelectedComment(null);
-            handleLongPress(reply, true, parentCommentId); // ✅ Pass parent ID when handling long press
-          }}
-        >
-          <View ref={setNativeRef} style={styles.replyContainer}>
-            <View style={styles.replyBubble}>
-              <Text style={styles.replyAuthor}>{reply.fullName}:</Text>
-              {/* Show TextInput if editing, otherwise show text */}
-              {isEditing && selectedReply?._id === reply._id ? (
-                <>
-                  <TextInput
-                    style={styles.editInput}
-                    value={editedText}
-                    onChangeText={setEditedText}
-                    autoFocus={true}
-                    multiline
-                  />
-                  {/* Save and Cancel Buttons */}
-                  <View style={styles.editButtonContainer}>
-                    <TouchableOpacity style={styles.saveButton} onPress={handleSaveEdit}>
-                      <Text style={styles.saveButtonText}>Save</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.cancelButton} onPress={() => setIsEditing(false)}>
-                      <Text style={styles.cancelButtonText}>Cancel</Text>
-                    </TouchableOpacity>
-                  </View>
-                </>
-              ) : (
-                <Text style={styles.commentText}>{reply.commentText}</Text>
-              )}
-            </View>
-
-            {/* Reply button */}
-            <View style={styles.replyButtonContainer}>
-              <Text style={styles.replyDate}>{getTimeSincePosted(reply.date)}</Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setShowReplyInput(!showReplyInput);
-                  setNestedReplyInput(!nestedReplyInput);
-                }}
-                style={styles.replyButton}
-              >
-                <MaterialCommunityIcons name="comment-outline" size={20} color="#808080" />
-                <Text style={styles.replyButtonText}>{showReplyInput ? 'Cancel' : 'Reply'}</Text>
-              </TouchableOpacity>
-
-              {/* Expand/collapse replies */}
-            {reply.replies && reply.replies.length > 0 && (
-              <TouchableOpacity
-                onPress={() => setNestedExpandedReplies(!nestedExpandedReplies)}
-                style={styles.expandRepliesButton}
-              >
-                <MaterialCommunityIcons
-                  name={nestedExpandedReplies ? 'chevron-up' : 'chevron-down'}
-                  size={20}
-                  color="#808080"
-                />
-                <Text style={styles.replyCountText}>
-                  {reply.replies.length} {reply.replies.length > 1 ? 'replies' : 'reply'}
-                </Text>
-              </TouchableOpacity>
-            )}
-            
-            </View>
-
-            {/* Nested reply input */}
-            {showReplyInput && (
-              <View style={styles.nestedReplyInputContainer}>
-                <TextInput
-                  style={styles.nestedReplyInput}
-                  placeholder="Write a reply..."
-                  value={nestedReplyText}
-                  onChangeText={setNestedReplyText}
-                />
-                <TouchableOpacity style={styles.commentButton} onPress={handleAddNestedReply}>
-                  <Text style={styles.commentButtonText}>Reply</Text>
+    <TouchableOpacity
+      onLongPress={() => {
+        setSelectedReply({ ...reply, parentCommentId }); // ✅ Store parent ID in selectedReply
+        setSelectedComment(null);
+        handleLongPress(reply, true, parentCommentId); // ✅ Pass parent ID when handling long press
+      }}
+    >
+      <View ref={setNativeRef} style={styles.replyContainer}>
+        <View style={styles.replyBubble}>
+          <Text style={styles.replyAuthor}>{reply.fullName}:</Text>
+          {/* Show TextInput if editing, otherwise show text */}
+          {isEditing && selectedReply?._id === reply._id ? (
+            <>
+              <TextInput
+                style={styles.editInput}
+                value={editedText}
+                onChangeText={setEditedText}
+                autoFocus={true}
+                multiline
+              />
+              {/* Save and Cancel Buttons */}
+              <View style={styles.editButtonContainer}>
+                <TouchableOpacity style={styles.saveButton} onPress={handleSaveEdit}>
+                  <Text style={styles.saveButtonText}>Save</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.cancelButton} onPress={() => setIsEditing(false)}>
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
                 </TouchableOpacity>
               </View>
-            )}
+            </>
+          ) : (
+            <View style={styles.textRow}>
+              <Text style={styles.commentText}>{reply.commentText}</Text>
+              <View style={styles.likeRow}>
+                <TouchableOpacity onPress={handleToggleLike} style={styles.likeButton}>
+                  <MaterialCommunityIcons
+                    name={hasLiked ? "thumb-up" : "thumb-up-outline"}
+                    size={16}
+                    color={hasLiked ? "#009999" : "#999"}
+                  />
+                  <Text style={styles.likeCount}>{Array.isArray(likes) ? likes.length : 0}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
 
-            {/* Render nested replies */}
-            {nestedExpandedReplies &&
-              reply?.replies?.map((nestedReply) => (
-                <Reply
-                  key={nestedReply._id}
-                  reply={nestedReply}
-                  onAddReply={onAddReply}
-                  getTimeSincePosted={getTimeSincePosted}
-                  nestedExpandedReplies={nestedExpandedReplies}
-                  setNestedExpandedReplies={setNestedExpandedReplies}
-                  commentRefs={commentRefs}
-                  handleLongPress={handleLongPress}
-                  parentCommentId={reply._id}
-                  setSelectedReply={setSelectedReply}
-                  setSelectedComment={setSelectedComment}
-                  nestedReplyInput={nestedReplyInput}
-                  setNestedReplyInput={setNestedReplyInput}
-                  handleEditComment={handleEditComment}
-                  handleSaveEdit={handleSaveEdit}
-                  setIsEditing={setIsEditing}
-                  setEditedText={setEditedText}
-                  isEditing={isEditing}
-                  editedText={editedText}
-                  selectedReply={selectedReply}
-                />
-              ))}
+        {/* Reply button */}
+        <View style={styles.replyButtonContainer}>
+          <Text style={styles.replyDate}>{getTimeSincePosted(reply.date)}</Text>
+          <TouchableOpacity
+            onPress={() => {
+              setShowReplyInput(!showReplyInput);
+              setNestedReplyInput(!nestedReplyInput);
+            }}
+            style={styles.replyButton}
+          >
+            <MaterialCommunityIcons name="comment-outline" size={20} color="#808080" />
+            <Text style={styles.replyButtonText}>{showReplyInput ? 'Cancel' : 'Reply'}</Text>
+          </TouchableOpacity>
+
+          {/* Expand/collapse replies */}
+          {reply.replies && reply.replies.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setNestedExpandedReplies(!nestedExpandedReplies)}
+              style={styles.expandRepliesButton}
+            >
+              <MaterialCommunityIcons
+                name={nestedExpandedReplies ? 'chevron-up' : 'chevron-down'}
+                size={20}
+                color="#808080"
+              />
+              <Text style={styles.replyCountText}>
+                {reply.replies.length} {reply.replies.length > 1 ? 'replies' : 'reply'}
+              </Text>
+            </TouchableOpacity>
+          )}
+
+        </View>
+
+        {/* Nested reply input */}
+        {showReplyInput && (
+          <View style={styles.nestedReplyInputContainer}>
+            <TextInput
+              style={styles.nestedReplyInput}
+              placeholder="Write a reply..."
+              value={nestedReplyText}
+              onChangeText={setNestedReplyText}
+            />
+            <TouchableOpacity style={styles.commentButton} onPress={handleAddNestedReply}>
+              <Text style={styles.commentButtonText}>Reply</Text>
+            </TouchableOpacity>
           </View>
-        </TouchableOpacity>
-      
+        )}
+
+        {/* Render nested replies */}
+        {nestedExpandedReplies &&
+          reply?.replies?.map((nestedReply) => (
+            <Reply
+              key={nestedReply._id}
+              reply={nestedReply}
+              onAddReply={onAddReply}
+              getTimeSincePosted={getTimeSincePosted}
+              nestedExpandedReplies={nestedExpandedReplies}
+              setNestedExpandedReplies={setNestedExpandedReplies}
+              commentRefs={commentRefs}
+              handleLongPress={handleLongPress}
+              parentCommentId={reply._id}
+              setSelectedReply={setSelectedReply}
+              setSelectedComment={setSelectedComment}
+              nestedReplyInput={nestedReplyInput}
+              setNestedReplyInput={setNestedReplyInput}
+              handleEditComment={handleEditComment}
+              handleSaveEdit={handleSaveEdit}
+              setIsEditing={setIsEditing}
+              setEditedText={setEditedText}
+              isEditing={isEditing}
+              editedText={editedText}
+              selectedReply={selectedReply}
+              postType={postType}
+              placeId={placeId}
+              postId={postId}
+              review={review}
+            />
+          ))}
+      </View>
+    </TouchableOpacity>
+
   );
 };
 
@@ -211,7 +255,7 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     paddingHorizontal: 10,
     marginRight: 10,
-    
+
   },
   commentButton: {
     backgroundColor: '#4caf50',
@@ -278,5 +322,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     minHeight: 40,
   },
-
+  textRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  likeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 5,
+  },
+  likeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  likeCount: {
+    fontSize: 12,
+    color: '#777',
+    marginLeft: 4,
+  },
 });

@@ -37,7 +37,7 @@ function MainApp() {
   const coordinates = useSelector(selectCoordinates);
   const isBusiness = useSelector(selectIsBusiness);
   const user = useSelector(selectUser);
-  const placeId = user?.placeId;
+  const placeId = user?.businessDetails?.placeId;
   const unreadCount = useSelector(selectUnreadCount);
   const [isAtEnd, setIsAtEnd] = useState(false);
   const [notificationsSeen, setNotificationsSeen] = useState(null);
@@ -95,7 +95,7 @@ function MainApp() {
     if (user?.id) {
       initNotifications();
     }
-  }, [user]);  
+  }, [user, isBusiness, placeId]);  
 
   useEffect(() => {
     if (

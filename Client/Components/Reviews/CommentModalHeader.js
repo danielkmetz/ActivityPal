@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import { View, Text, Image, FlatList, Animated, StyleSheet, TouchableOpacity } from "react-native";
 import { Avatar } from "@rneui/themed";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
@@ -16,7 +16,6 @@ const CommentModalHeader = ({
     timeLeft,
     dateTime,
     formatEventDate,
-    scrollX,
     likedAnimations,
     photoTapped,
     toggleTaggedUsers,
@@ -26,6 +25,8 @@ const CommentModalHeader = ({
     onClose,
     setIsPhotoListActive,
 }) => {
+    const scrollX = useRef(new Animated.Value(0)).current;
+      
     return (
         <View style={styles.header}>
             <View style={styles.headerText}>

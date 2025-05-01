@@ -98,7 +98,7 @@ async function resolveTaggedPhotoUsers(photos = []) {
   return await Promise.all(
     photos.map(async (photo) => {
       const clean = photo.toObject ? photo.toObject() : photo;
-      if (!clean || !clean._id || !clean.photoKey) {
+      if (!clean || !clean.photoKey) {
         console.warn('⚠️ Skipping invalid photo in resolveTaggedPhotoUsers:', clean);
         return null;
       }
@@ -115,7 +115,7 @@ async function resolveTaggedPhotoUsers(photos = []) {
         ? clean.taggedUsers.map(tag => {
             const user = users.find(u => u._id.toString() === tag.userId?.toString());
             return {
-              _id: tag.userId,
+              userId: tag.userId,
               fullName: user ? `${user.firstName} ${user.lastName}` : "Unknown User",
               x: tag.x || 0,
               y: tag.y || 0,
@@ -139,7 +139,7 @@ async function resolveTaggedUsers(taggedUserIds = []) {
 
   const users = await User.find({ _id: { $in: ids } }, { firstName: 1, lastName: 1 });
   return users.map(u => ({
-    _id: u._id,
+    userId: u._id,
     fullName: `${u.firstName} ${u.lastName}`,
   }));
 }

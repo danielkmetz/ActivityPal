@@ -7,6 +7,17 @@ const dayjs = require('dayjs');
 const mongoose = require('mongoose');
 const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
 
+const generateBusinessInviteMessage = (businessName, acceptedCount) => {
+    if (acceptedCount >= 20) {
+      return `🚀 A major event is forming at ${businessName} with ${acceptedCount} attendees!`;
+    } else if (acceptedCount >= 10) {
+      return `🎉 An invite at ${businessName} is now a popular event with ${acceptedCount} attendees!`;
+    } else if (acceptedCount >= 5) {
+      return `🎉 An invite at ${businessName} has gained traction with ${acceptedCount} attendees!`;
+    } else {
+      return `🎈 An invite at ${businessName} has new activity!`; // fallback, probably won't hit since you check >=5
+    }
+};  
 
 // Get all activity invites for a user
 router.get('/user/:userId/invites', async (req, res) => {
@@ -297,7 +308,7 @@ router.post('/accept', async (req, res) => {
         // Notifications
         const senderNotification = {
             type: 'activityInviteAccepted',
-            message: `${recipientName} accepted your activity invite to ${business.businessName} on ${formattedDate}`,
+            message: generateBusinessInviteMessage(business.businessName, acceptedCount),
             relatedId: recipient._id,
             typeRef: 'ActivityInvite',
             postType: 'activityInviteAccepted',
@@ -343,6 +354,24 @@ router.post('/accept', async (req, res) => {
                 };
             })
         );
+
+        const acceptedCount = invite.recipients.filter(r => r.status === 'accepted').length;
+
+        if (acceptedCount >= 5 && business && business._id) {
+            const businessNotification = {
+                type: 'activityInvite', // or another allowed type like 'activityInviteAccepted'
+                message: `🎉 A group event at your business (${business.businessName}) just reached ${acceptedCount} attendees!`,
+                relatedId: invite._id,
+                typeRef: 'ActivityInvite',
+                targetId: invite._id,
+                postType: 'activityInvite',
+                createdAt: new Date(),
+            };
+
+            await Business.findByIdAndUpdate(business._id, {
+                $push: { notifications: businessNotification }
+            });
+        }
 
         // ✅ Enrich requests
         const requestUserIds = (invite.requests || []).map(r => r.userId);
@@ -714,10 +743,8 @@ router.delete('/delete', async (req, res) => {
         const inviteObjectId = new mongoose.Types.ObjectId(inviteId);
         const recipientObjectIds = recipientIds.map(id => new mongoose.Types.ObjectId(id));
 
-        console.log('🧨 Deleting Invite:', inviteId);
         await ActivityInvite.findByIdAndDelete(inviteObjectId);
 
-        console.log('🧹 Removing invite from sender:', senderId);
         await User.findByIdAndUpdate(senderObjectId, {
             $pull: {
                 activityInvites: inviteObjectId,
@@ -725,7 +752,6 @@ router.delete('/delete', async (req, res) => {
             },
         });
 
-        console.log('🔁 Cleaning up recipients...');
         const recipientUpdatePromises = recipientObjectIds.map(async (recipientId) => {
             await User.findByIdAndUpdate(recipientId, {
                 $pull: {

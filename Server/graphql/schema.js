@@ -167,7 +167,7 @@ const typeDefs = gql`
   }
 
   type TaggedUser {
-    _id: ID!
+    userId: ID!
     fullName: String
     x: Float
     y: Float
@@ -186,6 +186,7 @@ const typeDefs = gql`
     userId: ID!
     fullName: String!
     replies: [Reply!]
+    likes: [ID]
     date: Date!
   }
 
@@ -195,6 +196,7 @@ const typeDefs = gql`
     userId: ID!
     fullName: String!
     replies: [Reply!]
+    likes: [ID]
     date: Date!
   }
 
@@ -331,7 +333,7 @@ const resolvers = {
                   .map(uid => {
                     const user = userMap.get(uid.toString());
                     return {
-                      _id: uid.toString(),
+                      userId: uid.toString(),
                       fullName: user ? `${user.firstName} ${user.lastName}` : 'Unknown User',
                     };
                   })
@@ -350,7 +352,7 @@ const resolvers = {
                             const userId = tag.userId.toString();
                             const user = userMap.get(userId);
                             return {
-                              _id: userId,
+                              userId,
                               fullName: user ? `${user.firstName} ${user.lastName}` : 'Unknown User',
                               x: tag.x ?? 0,
                               y: tag.y ?? 0,
@@ -390,9 +392,6 @@ const resolvers = {
     },            
     getUserPosts: async (_, { userId, limit = 15, after }) => {
       try {
-        console.log("🔍 getUserPosts resolver called");
-        console.log("📥 Incoming args:", { userId, limit, after });
-    
         const userObjectId = new mongoose.Types.ObjectId(userId);
     
         const user = await User.findById(userObjectId).select(
@@ -400,16 +399,8 @@ const resolvers = {
         );
     
         if (!user) {
-          console.warn("❌ No user found for ID:", userId);
           throw new Error('User not found');
         }
-    
-        console.log("👤 User found:", {
-          _id: user._id,
-          fullName: `${user.firstName} ${user.lastName}`,
-          checkInsCount: user.checkIns?.length || 0,
-          hasProfilePic: !!user.profilePic,
-        });
     
         const photoKey = user.profilePic?.photoKey || null;
         const profilePicUrl = photoKey
@@ -418,9 +409,6 @@ const resolvers = {
     
         const reviews = await gatherUserReviews(userObjectId, user.profilePic, profilePicUrl);
         const checkIns = await gatherUserCheckIns(user, profilePicUrl);
-    
-        console.log(`📝 Fetched ${reviews.length} reviews`);
-        console.log(`📍 Fetched ${checkIns.length} check-ins`);
     
         const allPosts = [...reviews, ...checkIns].map(post => ({
           ...post,
@@ -451,10 +439,8 @@ const resolvers = {
         }          
     
         const result = sorted.slice(0, limit);
-        console.log(`✅ Returning ${result.length} posts`);
         return result;
       } catch (error) {
-        console.error('❌ Error in getUserPosts resolver:', error);
         throw new Error(`[Resolver Error] ${error.message}`);
       }    
     },       
@@ -560,7 +546,7 @@ const resolvers = {
     
                   formattedTaggedUsers = await Promise.all(
                     taggedUsersData.map(async (taggedUser) => ({
-                      _id: taggedUser._id,
+                      userId: taggedUser._id,
                       fullName: `${taggedUser.firstName} ${taggedUser.lastName}`,
                       profilePicUrl: taggedUser.profilePic?.photoKey
                         ? await generateDownloadPresignedUrl(taggedUser.profilePic.photoKey)
@@ -586,7 +572,7 @@ const resolvers = {
                           ? photo.taggedUsers.map(tag => {
                               const user = taggedUserDetails.find(u => u._id.toString() === tag.userId?.toString());
                               return {
-                                _id: tag.userId,
+                                userId: tag.userId,
                                 fullName: user ? `${user.firstName} ${user.lastName}` : "Unknown User",
                                 x: tag.x || 0,
                                 y: tag.y || 0

@@ -11,10 +11,11 @@ import {
   Easing,
   Keyboard,
   PanResponder,
+  InteractionManager,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { selectUser } from '../../Slices/UserSlice';
-import { addComment, addReply, deleteCommentOrReply, editCommentOrReply } from '../../Slices/ReviewsSlice';
+import { addComment, addReply, deleteCommentOrReply, editCommentOrReply, toggleCommentLike } from '../../Slices/ReviewsSlice';
 import { useSelector, useDispatch } from 'react-redux';
 import { createNotification } from '../../Slices/NotificationsSlice';
 import dayjs from 'dayjs';
@@ -68,8 +69,6 @@ function CommentModal({
   const commentRefs = useRef({});
   const [inputHeight, setInputHeight] = useState(40); // Default height 40px
   const [contentHeight, setContentHeight] = useState(40);
-  const scrollX = useRef(new Animated.Value(0)).current;
-  const modalVisibleRef = useRef(setCommentModalVisible);
   const postOwnerPic = review?.type === "invite" ? review?.sender?.profilePicUrl
     ? review?.sender?.profilePicUrl
     : review?.profilePicUrl
@@ -92,7 +91,7 @@ function CommentModal({
   } else {
     reviewOwner = review?.userId;
   };
-  
+
   useEffect(() => {
     if (visible) {
       panX.setValue(500);
@@ -102,7 +101,7 @@ function CommentModal({
         useNativeDriver: true,
       }).start();
     }
-  }, [visible]);  
+  }, [visible]);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -110,10 +109,10 @@ function CommentModal({
         const { dx, dy } = gestureState;
         return Math.abs(dx) > 10 && Math.abs(dy) < 10 && !isPhotoListActive
       },
-  
+
       onPanResponderMove: (_, gestureState) => {
         const { dx } = gestureState;
-  
+
         // Apply gesture to preview ONLY
         if (dx > 0) {
           previewX.setValue(dx);
@@ -121,7 +120,7 @@ function CommentModal({
           previewX.setValue(0);
         }
       },
-  
+
       onPanResponderRelease: (_, gestureState) => {
         const { dx, vx } = gestureState;
         const fastEnough = vx > 2.7;
@@ -129,19 +128,18 @@ function CommentModal({
 
         if (fastEnough || farEnough) {
           setIsAnimating(true);
-          setTimeout(() => {
-            modalVisibleRef.current(false);
-          }, 150)
-          
+
           Animated.timing(panX, {
             toValue: 500,
-            duration: 300,
+            duration: 400,
             useNativeDriver: true,
           }).start(() => {
+            // Wait a frame AFTER animation to ensure render settles
             panX.setValue(0);
             previewX.setValue(0);
-            setSelectedReview(null);
+            setCommentModalVisible(false);
             setIsAnimating(false);
+            setSelectedReview(null);
           });
         } else {
           Animated.timing(previewX, {
@@ -153,7 +151,7 @@ function CommentModal({
       },
     })
   ).current;
-  
+
   useEffect(() => {
     if (review && isInvite && dateTime) {
       const interval = setInterval(() => {
@@ -487,7 +485,7 @@ function CommentModal({
     const commentId = isReply ? selectedReply._id : selectedComment._id;
     const postId = review._id;
     const placeId = review.placeId;
-    
+
     try {
       await dispatch(
         editCommentOrReply({
@@ -508,118 +506,125 @@ function CommentModal({
       console.error("❌ Error updating comment:", error);
     }
   };
-  
+
   const handleBackPress = () => {
-    setIsAnimating(true)
-    setTimeout(() => {
-      setCommentModalVisible(false);
-    }, 150); // ⏱
+    setIsAnimating(true);
+    setCommentModalVisible(false);
+
     Animated.timing(panX, {
-      toValue: 400, // slide out to the right
-      duration: 200,
+      toValue: 500, // slide out to the right
+      duration: 300,
       useNativeDriver: true,
     }).start(() => {
       panX.setValue(0); // reset for next time
       setIsAnimating(false);
       setSelectedReview(null);
     });
-  };  
+  };
 
+  const waitForRefsAndScroll = (targetId, parentChain) => {
+    InteractionManager.runAfterInteractions(() => {
+      let attempts = 0;
+      const maxAttempts = 15;
+      const intervalMs = 200;
+  
+      const tryScroll = () => {
+        const flatList = flatListRef.current;
+        const targetRef = commentRefs.current[targetId];
+  
+        if (flatList && targetRef?.measureLayout) {
+          targetRef.measureLayout(
+            flatList.getNativeScrollRef(),
+            (x, y) => {
+              flatList.scrollToOffset({
+                offset: Math.max(y - 200, 0),
+                animated: true,
+              });
+            },
+            (err) => console.warn("⚠️ measureLayout error:", err)
+          );
+          return true;
+        }
+  
+        return false;
+      };
+  
+      const interval = setInterval(() => {
+        attempts++;
+  
+        if (tryScroll()) {
+          clearInterval(interval);
+        } else if (attempts >= maxAttempts) {
+          clearInterval(interval);
+  
+          // Fallback
+          const fallbackIndex = review?.comments?.findIndex(c => c._id === parentChain[0]);
+          if (fallbackIndex !== -1 && flatListRef.current) {
+            flatListRef.current.scrollToIndex({
+              index: fallbackIndex,
+              animated: true,
+              viewPosition: 0.5,
+            });
+          }
+        }
+      }, intervalMs);
+    });
+  };
+  
   useEffect(() => {
     if (visible && targetId && review?.comments) {
       let foundComment = null;
       let parentChain = [];
-
-      // **Recursive function to track only necessary parents**
+  
       const findNestedReply = (comments, targetId, ancestors = []) => {
         for (const comment of comments) {
           if (comment._id === targetId) {
             foundComment = comment;
-            parentChain = [...ancestors]; // ✅ Store only real parent chain
+            parentChain = [...ancestors];
             return;
           }
-
-          // ✅ Only add the current comment as a parent if the target is actually inside its replies
+  
           if (comment.replies?.some(reply => reply._id === targetId)) {
             findNestedReply(comment.replies, targetId, [...ancestors, comment._id]);
             return;
           }
-
-          // ✅ Prevent adding unrelated comments by keeping the ancestor list the same for non-parents
+  
           if (comment.replies) {
             findNestedReply(comment.replies, targetId, ancestors);
           }
         }
       };
-
+  
       findNestedReply(review.comments, targetId);
-
+  
       if (foundComment) {
-        // **Set Expanded States Properly**
         setExpandedReplies(prev => ({
           ...prev,
-          [parentChain[0]]: true, // Expand **only** the direct parent comment
+          [parentChain[0]]: true,
         }));
-
-        // **Expand only necessary nested replies**
-        if (parentChain.length > 2) {
-          // Only expand nested replies if it's deep in the hierarchy
+  
+        if (parentChain.length > 0) {
           setNestedExpandedReplies(prev => ({
             ...prev,
-            ...parentChain.slice(1).reduce((acc, id) => ({ ...acc, [id]: true }), {}),
+            ...parentChain.reduce((acc, id) => ({ ...acc, [id]: true }), {}),
           }));
-        } else {
-          console.log("🚫 Skipping nested replies expansion to avoid unnecessary expansions.");
         }
-
-        // **Ensure scrolling happens after UI update**
-        setTimeout(() => {
-          if (flatListRef.current && commentRefs.current[targetId]) {
-            const targetRef = commentRefs.current[targetId];
-
-            if (targetRef?.measureLayout) {
-              targetRef.measureLayout(
-                flatListRef.current.getNativeScrollRef(),
-                (x, y) => {
-                  flatListRef.current.scrollToOffset({
-                    offset: Math.max(y - 200, 0), // Adjust for margin
-                    animated: true,
-                  });
-                },
-                (error) => {
-                  console.warn(`⚠️ Error measuring layout: ${error}`);
-                }
-              );
-            } else {
-              console.warn(`⚠️ No valid ref for comment ${targetId}, using scrollToIndex instead.`);
-
-              // **Fallback to scrollToIndex if measureLayout fails**
-              setTimeout(() => {
-                const topLevelIndex = review.comments.findIndex(c => c._id === parentChain[0]);
-                if (topLevelIndex !== -1) {
-                  console.log("📜 Fallback: Scrolling to top-level parent at index:", topLevelIndex);
-                  flatListRef.current.scrollToIndex({ index: topLevelIndex, animated: true });
-                }
-              }, 300);
-            }
-          }
-        }, 500);
-      } else {
-        console.warn("⚠️ Target reply not found in nested comments.");
+  
+        waitForRefsAndScroll(targetId, parentChain);
       }
     }
-  }, [visible, targetId, review?.comments]);
-
+  }, [visible, targetId, review?.comments]);  
+  
   if (!visible && !isAnimating) {
-    return null
-  };
-
+    return null;
+  }
+  
   return (
     <Modal transparent={true} visible={visible} animationType="none" avoidKeyboard={true}>
-      <Animated.View 
+      <Animated.View
         {...panResponder.panHandlers}
         style={[
-          styles.modalContainer, 
+          styles.modalContainer,
           { transform: [{ translateX: panX }, { translateY: shiftAnim }] }
         ]}
       >
@@ -646,7 +651,6 @@ function CommentModal({
               timeLeft={timeLeft}
               dateTime={dateTime}
               formatEventDate={formatEventDate}
-              scrollX={scrollX}
               likedAnimations={likedAnimations}
               photoTapped={photoTapped}
               toggleTaggedUsers={toggleTaggedUsers}
@@ -662,14 +666,29 @@ function CommentModal({
               onLongPress={() => handleLongPress(item)}
             >
               <View style={styles.commentCard}>
-              <CommentBubble
-                fullName={item.fullName}
-                commentText={item.commentText}
-                isEditing={isEditing}
-                editedText={editedText}
-                setEditedText={setEditedText}
-                isSelected={selectedComment?._id === item._id}
-              />
+                <CommentBubble
+                  fullName={item.fullName}
+                  commentText={item.commentText}
+                  isEditing={isEditing}
+                  editedText={editedText}
+                  setEditedText={setEditedText}
+                  isSelected={selectedComment?._id === item._id}
+                  review={review}
+                  commentId={item._id}
+                  likes={item.likes}
+                  userId={userId}
+                  isReply={false}
+                  onToggleLike={(commentId) => {
+                    dispatch(toggleCommentLike({
+                      postType: review.type,
+                      placeId: review.placeId || userPlaceId,
+                      postId: review._id,
+                      commentId,
+                      userId,
+                      replyId: null,
+                    }));
+                  }}
+                />
                 <View style={styles.replyContainer}>
                   <Text style={styles.commentDate}>{getTimeSincePosted(item.date)}</Text>
 
@@ -736,6 +755,10 @@ function CommentModal({
                           isEditing={isEditing}
                           editedText={editedText}
                           selectedReply={selectedReply}
+                          postType={review?.type}
+                          placeId={review?.placeId}
+                          postId={review?._id}
+                          review={review}
                         />
                       </TouchableOpacity>
                     ))}

@@ -49,7 +49,6 @@ const InviteModal = ({
     const [showFriendsModal, setShowFriendsModal] = useState(false);
     const [selectedPlace, setSelectedPlace] = useState(null);
     const [dateTime, setDateTime] = useState(null);
-    const [showDatePicker, setShowDatePicker] = useState(false);
     const [selectedFriends, setSelectedFriends] = useState([]);
     const [isPublic, setIsPublic] = useState(true);
     const [note, setNote] = useState('');
@@ -294,7 +293,6 @@ const InviteModal = ({
                                                 mode="datetime"
                                                 display="default"
                                                 onChange={(event, selectedDate) => {
-                                                    if (Platform.OS === 'android') setShowDatePicker(false); // auto-dismiss on Android
                                                     if (selectedDate) setDateTime(selectedDate);
                                                 }}
                                             />

@@ -16,10 +16,11 @@ import logoPlaceholder from '../../assets/pics/logo-placeholder.png';
 import EditProfileModal from "./EditProfileModal";
 import { selectLogo, fetchLogo, selectBusinessBanner, fetchBusinessBanner, selectAlbum, fetchPhotos } from "../../Slices/PhotosSlice";
 import { useRoute, useNavigation } from "@react-navigation/native";
-import { fetchReviewsByPlaceId, selectBusinessReviews } from '../../Slices/ReviewsSlice';
+import { fetchReviewsByPlaceId, selectBusinessReviews, appendBusinessReviews, setBusinessReviews } from '../../Slices/ReviewsSlice';
 import Reviews from "../Reviews/Reviews";
 import Photos from "./Photos";
 import { selectFavorites, addFavorite, removeFavorite } from "../../Slices/FavoritesSlice";
+import usePaginatedFetch from "../../utils/usePaginatedFetch";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import ModalBox from 'react-native-modal';
 
@@ -50,6 +51,19 @@ export default function BusinessProfile() {
   const [isFavorited, setIsFavorited] = useState(mainUserFavorites?.includes(placeId));
   const [favoriteModalVisible, setFavoriteModalVisible] = useState(false);
 
+  const {
+    loadMore,
+    refresh,
+    isLoading,
+    hasMore,
+  } = usePaginatedFetch({
+    fetchThunk: fetchReviewsByPlaceId,
+    appendAction: appendBusinessReviews,
+    resetAction: setBusinessReviews,
+    params: { placeId },
+    limit: 10,
+  });
+
   const handleFavoritePress = () => {
     if (isFavorited) {
       setFavoriteModalVisible(true); // Show the modal for removal confirmation
@@ -58,7 +72,7 @@ export default function BusinessProfile() {
       setIsFavorited(true); // ✅ Update local state immediately
     }
   };
-  
+
   const handleRemoveFavorite = () => {
     dispatch(removeFavorite({ userId: mainUser.id, placeId }));
     setIsFavorited(false); // ✅ Update local state immediately
@@ -66,11 +80,11 @@ export default function BusinessProfile() {
   };
 
   useEffect(() => {
-    if (placeId) {
+    if (placeId && typeof placeId === 'string' && placeId.trim() !== '') {
       dispatch(fetchLogo(placeId));
       dispatch(fetchBusinessBanner(placeId));
       dispatch(fetchPhotos(placeId));
-      dispatch(fetchReviewsByPlaceId(placeId));
+      refresh();
     }
   }, [placeId]);
 
@@ -159,7 +173,7 @@ export default function BusinessProfile() {
         </TouchableOpacity>
       </View>
       {activeSection === "reviews" && business && (
-        <Reviews reviews={reviews} />
+        <Reviews reviews={reviews} onLoadMore={loadMore} isLoadingMore={isLoading} hasMore={hasMore} />
       )}
       {activeSection === "about" && (
         <View style={styles.aboutContainer}>

@@ -1,6 +1,6 @@
-// components/CommentBubble.js
 import React from 'react';
-import { View, Text, TextInput, StyleSheet } from 'react-native';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 const CommentBubble = ({
   fullName,
@@ -9,9 +9,16 @@ const CommentBubble = ({
   editedText,
   setEditedText,
   isSelected,
+  commentId,
+  likes = [],
+  userId,
+  onToggleLike,
+  isReply = false,
 }) => {
+  const hasLiked = Array.isArray(likes) && likes.includes(userId);
+
   return (
-    <View style={styles.commentBubble}>
+    <View style={[styles.commentBubble, isReply && { marginLeft: 20 }]}>
       <Text style={styles.commentAuthor}>{fullName}:</Text>
 
       {isEditing && isSelected ? (
@@ -23,8 +30,22 @@ const CommentBubble = ({
           multiline
         />
       ) : (
-        <Text style={styles.commentText}>{commentText}</Text>
+        <View style={styles.textRow}>
+          <Text style={styles.commentText}>{commentText}</Text>
+          <View style={styles.likeRow}>
+            <TouchableOpacity onPress={() => onToggleLike(commentId)} style={styles.likeButton}>
+              <MaterialCommunityIcons
+                name={hasLiked ? "thumb-up" : "thumb-up-outline"}
+                size={16}
+                color={hasLiked ? "#009999" : "#999"}
+              />
+              <Text style={styles.likeCount}>{Array.isArray(likes) ? likes.length : 0}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       )}
+
+
     </View>
   );
 };
@@ -55,5 +76,25 @@ const styles = StyleSheet.create({
     padding: 8,
     fontSize: 14,
     minHeight: 40,
+  },
+  textRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  likeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 5,
+  },
+  likeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  likeCount: {
+    fontSize: 12,
+    color: '#777',
+    marginLeft: 4,
   },
 });

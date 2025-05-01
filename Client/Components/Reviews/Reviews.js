@@ -31,13 +31,13 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
   const [showEditModal, setShowEditModal] = useState(false);
   const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
   const profileReviews = useSelector(selectProfileReviews);
-  const scrollX = useRef(new Animated.Value(0)).current;
 
   const userId = user?.id
   const fullName = `${user?.firstName} ${user?.lastName}`;
 
   const handleOpenComments = (review) => {
-    setSelectedReview(review);
+    if (!review) return;
+    setSelectedReview({ ...review });  // clone to force re-render freshness
     setCommentModalVisible(true);
   };
 
@@ -106,7 +106,7 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
           const newAnim = new Animated.Value(0);
           likedAnimations[postId] = newAnim;
           setLikedAnimations({ ...likedAnimations });
-        }        
+        }
 
         const animation = likedAnimations[postId] || new Animated.Value(0);
 
@@ -251,7 +251,6 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
             return (
               <CheckInItem
                 item={item}
-                scrollX={scrollX}
                 likedAnimations={likedAnimations}
                 photoTapped={photoTapped}
                 toggleTaggedUsers={toggleTaggedUsers}
@@ -267,7 +266,6 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
           return (
             <ReviewItem
               item={item}
-              scrollX={scrollX}
               likedAnimations={likedAnimations}
               photoTapped={photoTapped}
               toggleTaggedUsers={toggleTaggedUsers}
@@ -281,31 +279,31 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
           );
         }}
       />
-    
-        <CommentModal
-          visible={commentModalVisible}
-          review={selectedReview}
-          setSelectedReview={setSelectedReview}
-          reviews={reviews}
-          likedAnimations={likedAnimations}
-          handleLikeWithAnimation={handleLikeWithAnimation}
-          toggleTaggedUsers={toggleTaggedUsers}
-          lastTapRef={lastTapRef}
-          photoTapped={photoTapped}
-          setCommentModalVisible={setCommentModalVisible}
-        />
       
-        <EditPostModal
-          visible={showEditModal}
-          post={editingReview}
-          showEditModal={showEditModal}
-          onClose={() => {
-            setShowEditModal(false);
-            setEditingReview(null);
-          }}
-          setShowEditModal={setShowEditModal}
-          setEditingReview={setEditingReview}
-        />
+      <CommentModal
+        visible={commentModalVisible}
+        review={selectedReview}
+        setSelectedReview={setSelectedReview}
+        reviews={reviews}
+        likedAnimations={likedAnimations}
+        handleLikeWithAnimation={handleLikeWithAnimation}
+        toggleTaggedUsers={toggleTaggedUsers}
+        lastTapRef={lastTapRef}
+        photoTapped={photoTapped}
+        setCommentModalVisible={setCommentModalVisible}
+      />
+
+      <EditPostModal
+        visible={showEditModal}
+        post={editingReview}
+        showEditModal={showEditModal}
+        onClose={() => {
+          setShowEditModal(false);
+          setEditingReview(null);
+        }}
+        setShowEditModal={setShowEditModal}
+        setEditingReview={setEditingReview}
+      />
     </>
   )
 };

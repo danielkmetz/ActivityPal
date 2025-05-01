@@ -179,5 +179,19 @@ export const normalizePhoto = (p) => ({
   url: p.url || p.uri || p._doc?.url || p._doc?.uri || "",
 });
 
+export const findTopLevelCommentId = (comments, targetReplyId) => {
+  for (let comment of comments) {
+    if (comment.replies?.some(r => r._id === targetReplyId)) {
+      return comment._id;
+    }
+    for (let reply of comment.replies || []) {
+      if (reply.replies?.length > 0) {
+        const found = findTopLevelCommentId([reply], targetReplyId);
+        if (found) return comment._id;
+      }
+    }
+  }
+  return null;
+};
 
 

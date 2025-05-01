@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import TagFriendsModal from "../Reviews/TagFriendsModal";
 
-export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose, setPhotoList, setSelectedPhotos, isPromotion }) {
+export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose, onDelete, isPromotion }) {
   const [description, setDescription] = useState(photo?.description || "");
   const [taggedUsers, setTaggedUsers] = useState(photo?.taggedUsers || []); // Stores {username, x, y}
   const [selectedPosition, setSelectedPosition] = useState(null);
@@ -22,18 +22,24 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
 
   useEffect(() => {
     setDescription(photo?.description || "");
-    setTaggedUsers(photo?.taggedUsers || []);
-  }, [photo]);
+    setTaggedUsers(photo?.taggedUsers ? JSON.parse(JSON.stringify(photo.taggedUsers)) : []);
+  }, [photo]);  
 
   const handleSave = () => {
-    onSave({
+    const clonedTaggedUsers = taggedUsers.map(user => ({ ...user })); // shallow clone each tag
+    const clonedPhoto = {
       ...photo,
       description,
-      taggedUsers,
-    });
+      taggedUsers: clonedTaggedUsers,
+    };
+  
+    onSave(JSON.parse(JSON.stringify(clonedPhoto))); // full deep clone to break shared refs
+    setTaggedUsers([]);
+    setDescription("");
+    setSelectedPosition(null);
     onClose();
   };
-
+  
   // Handle tap on the image to open friend tagging modal
   const handleImagePress = (event) => {
     const { locationX, locationY } = event.nativeEvent;
@@ -41,49 +47,63 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
     setShowTagFriendsModal(true);
   };
 
-  const handleDelete = () => {
-    setPhotoList((prevList) => prevList.filter((p) => p.uri !== photo.uri)); // Remove from photoList
-    setSelectedPhotos((prevList) => prevList.filter((p) => p.uri !== photo.uri));
-    onClose(); // Close modal after deletion
-  };
+  console.log(taggedUsers)
 
-  // Save the selected friend as a tag
+  const handleDelete = () => {
+    if (typeof onDelete === 'function') {
+      if (!photo) {
+        console.error('❌ Cannot delete: photo is missing');
+        return;
+      }
+  
+      onDelete(photo); // 🔥 Send the whole photo object (not just id)
+      onClose();
+    } else {
+      console.error('❌ onDelete is not a function');
+    }
+  };  
+
   const handleTagFriend = (selectedFriends) => {
     if (selectedFriends.length > 0 && selectedPosition) {
       setTaggedUsers((prevTaggedUsers) => {
-        // Create a new list that retains previously tagged users' positions
-        let updatedTaggedUsers = [...prevTaggedUsers];
-
+        let updatedTaggedUsers = prevTaggedUsers.map(user => ({ ...user }));
+  
         selectedFriends.forEach(friend => {
-          // Check if the user is already tagged
-          const existingIndex = updatedTaggedUsers.findIndex(user => user._id === friend._id);
-
+          const friendId = friend.userId || friend._id || friend.id;
+  
+          if (!friendId) {
+            console.warn("⚠️ Skipping invalid friend without ID:", friend);
+            return; // Skip if no valid ID found
+          }
+  
+          const existingIndex = updatedTaggedUsers.findIndex(user => user.userId === friendId);
+  
           if (existingIndex !== -1) {
-            // Update the position of the already tagged user
+            // Update position of existing tag
             updatedTaggedUsers[existingIndex] = {
               ...updatedTaggedUsers[existingIndex],
               x: selectedPosition.x,
               y: selectedPosition.y,
             };
           } else {
-            // Add new tagged user
+            // Add new tagged friend
             updatedTaggedUsers.push({
-              username: `${friend.firstName} ${friend.lastName}`,
-              userId: friend._id,
+              username: friend.username || `${friend.firstName || ''} ${friend.lastName || ''}`.trim(),
+              userId: friendId,
               x: selectedPosition.x,
               y: selectedPosition.y,
-              profilePic: friend.presignedProfileUrl,
+              profilePic: friend.profilePic || friend.presignedProfileUrl || null,
             });
           }
         });
-
-        return updatedTaggedUsers; // Set the new tagged users array
+  
+        return updatedTaggedUsers;
       });
     }
-
+  
     setShowTagFriendsModal(false);
     setSelectedPosition(null);
-  };
+  };  
 
   // Function to remove a tagged user
   const handleRemoveTag = (userToRemove) => {

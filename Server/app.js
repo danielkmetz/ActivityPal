@@ -26,7 +26,7 @@ const promotions = require('./routes/businessPromotions');
 const google = require('./routes/googlePlaces');
 const activityInvite = require('./routes/activityInvite');
 const googlePlaces2 = require('./routes/googlePlaces2');
-const businessNotifications = require('./routes/business-notifications');
+const businessNotifications = require('./routes/businessNotifications');
 
 // Initialize app
 const app = express();
@@ -70,7 +70,7 @@ app.use('/api/promotions', promotions);
 app.use('/api/google', google);
 app.use('/api/activity-invite', activityInvite);
 app.use('/api/places2', googlePlaces2);
-app.use('/api/businessNotifications', businessNotifications);
+app.use('/api/business-notifications', businessNotifications);
 
 // Start server
 const PORT = process.env.PORT || 5000;

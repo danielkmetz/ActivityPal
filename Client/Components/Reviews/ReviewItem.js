@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
     View,
     Text,
@@ -13,12 +13,12 @@ import PhotoItem from "./PhotoItem";
 import PhotoPaginationDots from "./PhotoPaginationDots";
 import PostActions from "./PostActions";
 import PostOptionsMenu from "./PostOptionsMenu";
+import ExpandableText from "./ExpandableText";
 import { selectUser } from '../../Slices/UserSlice';
 import { useSelector } from "react-redux";
 
 export default function ReviewItem({
     item,
-    scrollX,
     likedAnimations,
     photoTapped,
     toggleTaggedUsers,
@@ -32,6 +32,10 @@ export default function ReviewItem({
     const user = useSelector(selectUser);
     const isSender = item.userId === user?.id;
     const [dropdownVisible, setDropdownVisible] = useState(false);
+    const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+    const scrollX = useRef(new Animated.Value(0)).current;
+
+    const currentPhoto = item.photos?.[currentPhotoIndex];
 
     return (
         <View style={styles.reviewCard}>
@@ -60,7 +64,7 @@ export default function ReviewItem({
                             {item.fullName}
                             {item.taggedUsers?.length > 0 && (
                                 <>
-                                    {" "}is with{" "}
+                                    <Text style={styles.business}> is with </Text>
                                     {item.taggedUsers.map((user, index) => (
                                         <Text key={user._id || index} style={styles.userEmailText}>
                                             {user.fullName}
@@ -84,9 +88,12 @@ export default function ReviewItem({
                         />
                     ))}
                 </View>
-                <Text style={styles.review}>{item.reviewText}</Text>
+                <ExpandableText
+                    text={item.reviewText}
+                    maxLines={4}
+                    textStyle={styles.review}
+                />
             </View>
-
             {/* ✅ Photos */}
             {item.photos?.length > 0 && (
                 <View>
@@ -99,8 +106,14 @@ export default function ReviewItem({
                         scrollEnabled={item.photos.length > 1}
                         onScroll={Animated.event(
                             [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-                            { useNativeDriver: false }
-                        )}
+                            {
+                              useNativeDriver: false,
+                              listener: (e) => {
+                                const index = Math.round(e.nativeEvent.contentOffset.x / screenWidth);
+                                setCurrentPhotoIndex(index);
+                              },
+                            }
+                        )}                          
                         scrollEventThrottle={16}
                         renderItem={({ item: photo }) => (
                             <PhotoItem
@@ -126,6 +139,8 @@ export default function ReviewItem({
                 item={item}
                 handleLike={handleLike}
                 handleOpenComments={handleOpenComments}
+                toggleTaggedUsers={toggleTaggedUsers}
+                photo={currentPhoto}
             />
         </View>
     );
@@ -140,6 +155,7 @@ const styles = StyleSheet.create({
     },
     section: {
         padding: 10,
+        flexShrink: 1,
     },
     profilePic: {
         marginRight: 10,
@@ -202,4 +218,9 @@ const styles = StyleSheet.create({
     commentCount: {
         marginLeft: 5,
     },
+    seeMore: {
+        color: '#007AFF',
+        fontSize: 14,
+        marginTop: 5,
+    }
 });
