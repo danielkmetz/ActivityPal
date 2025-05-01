@@ -19,6 +19,7 @@ const ReplySchema = new mongoose.Schema({
   fullName: { type: String, required: true },
   commentText: { type: String, required: true },
   date: { type: Date, default: Date.now },
+  likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   replies: [this],
 });
 
@@ -28,6 +29,7 @@ const CommentSchema = new mongoose.Schema({
   fullName: { type: String, required: true },
   commentText: { type: String, required: true },
   date: { type: Date, default: Date.now },
+  likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   replies: [ReplySchema], // Self-referencing replies for recursive nesting
 });
 
@@ -112,6 +114,8 @@ const NotificationSchema = new mongoose.Schema({
       'activityInviteAccepted',
       'activityInviteDeclined',
       'requestInvite',
+      'review',
+      'check-in',
     ],
     required: true,
   },
@@ -175,7 +179,7 @@ const BusinessSchema = new mongoose.Schema({
   events: [EventSchema],
   reviews: [ReviewSchema],
   photos: [PhotoSchema],
-  notifiications: [NotificationSchema],
+  notifications: [NotificationSchema],
   createdAt: {
     type: Date,
     default: Date.now,

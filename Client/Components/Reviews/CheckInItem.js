@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
     View,
     Text,
@@ -21,7 +21,6 @@ const pinPic = "https://cdn-icons-png.flaticon.com/512/684/684908.png";
 
 export default function CheckInItem({
     item,
-    scrollX,
     likedAnimations,
     photoTapped,
     toggleTaggedUsers,
@@ -35,6 +34,7 @@ export default function CheckInItem({
     const user = useSelector(selectUser);
     const isSender = item.userId === user?.id;
     const [dropdownVisible, setDropdownVisible] = useState(false);
+    const scrollX = useRef(new Animated.Value(0)).current;
 
     return (
         <View style={styles.reviewCard}>
@@ -68,41 +68,33 @@ export default function CheckInItem({
 
                     <View style={{ flexShrink: 1, flexDirection: 'row', flexWrap: 'wrap' }}>
                         <Text style={styles.userEmailText}>
-                            {item.fullName}
-                            {item.taggedUsers?.length > 0 && (
+                            <Text style={styles.name}>{item.fullName}</Text>
+                            {item.taggedUsers?.length > 0 ? (
                                 <>
-                                    {" "}is with{" "}
+                                    <Text style={styles.business}> is with </Text>
                                     {item.taggedUsers.map((user, index) => (
-                                        <Text key={user._id || index} style={styles.userEmailText}>
+                                        <Text key={user._id || index} style={styles.name}>
                                             {user.fullName}
                                             {index < item.taggedUsers.length - 1 ? ", " : ""}
                                         </Text>
                                     ))}
-                                    {" "}at{" "}
+                                    <Text style={styles.business}> at </Text>
                                     <Text style={styles.business}>{item.businessName}</Text>
-                                    {item.photos.length > 0 && (
-                                        <Image
-                                            source={{ uri: pinPic }}
-                                            style={styles.smallPinIcon}
-                                        />
-                                    )}
                                 </>
+                            ) : (
+                                <>
+                                    <Text style={styles.business}> is at </Text>
+                                    <Text style={styles.business}>{item.businessName}</Text>
+                                </>
+                            )}
+                            {item.photos.length > 0 && (
+                                <Image
+                                    source={{ uri: pinPic }}
+                                    style={styles.smallPinIcon}
+                                />
                             )}
                         </Text>
                     </View>
-
-                    {item.taggedUsers?.length === 0 && (
-                        <>
-                            <Text> is at </Text>
-                            <Text style={styles.business}>{item.businessName}</Text>
-                            <Image
-                                source={{
-                                    uri: pinPic,
-                                }}
-                                style={styles.smallPinIcon}
-                            />
-                        </>
-                    )}
                 </View>
 
                 <Text style={styles.message}>{item.message || null}</Text>
@@ -185,7 +177,11 @@ const styles = StyleSheet.create({
     },
     userEmailText: {
         fontSize: 18,
-        fontWeight: "bold",
+        //fontWeight: "bold",
+    },
+    name: {
+        fontSize: 18,
+        fontWeight: 'bold',
     },
     business: {
         fontSize: 16,
@@ -193,9 +189,11 @@ const styles = StyleSheet.create({
         color: "#555",
     },
     smallPinIcon: {
-        width: 20,
-        height: 20,
+        width: 16,
+        height: 16,
         marginLeft: 5,
+        marginBottom: -5,
+        marginTop: 5,
     },
     pinIcon: {
         width: 50,

@@ -20,6 +20,7 @@ const ReplySchema = new mongoose.Schema({
   fullName: { type: String, required: true },
   commentText: { type: String, required: true },
   date: { type: Date, default: Date.now },
+  likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   replies: [this],
 });
 
@@ -28,6 +29,7 @@ const CommentSchema = new mongoose.Schema({
   userId: { type: String, required: true },
   fullName: { type: String, required: true },
   commentText: { type: String, required: true },
+  likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   date: { type: Date, default: Date.now },
   replies: [ReplySchema], // Self-referencing replies for recursive nesting
 });
@@ -90,7 +92,7 @@ const NotificationSchema = new mongoose.Schema({
   relatedId: { type: mongoose.Schema.Types.ObjectId, refPath: 'typeRef' }, // The user who triggered the notification
   typeRef: { type: String, enum: ['User', 'Review', 'Event', 'CheckIn', 'ActivityInvite'] }, // Reference model for `relatedId`
   targetId: { type: mongoose.Schema.Types.ObjectId, refPath: 'targetRef' },
-  targetRef: { type: String, enum: ['Review', 'ActivityInvite', null] },
+  targetRef: { type: String, enum: ['Review', 'ActivityInvite', 'CheckIn', null] },
   commentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Comment', default: null }, // The comment that was liked/replied to
   replyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Comment', default: null }, // The specific reply (if applicable)
   commentText: { type: String, default: null },

@@ -6,6 +6,7 @@ import { useDispatch } from "react-redux";
 import { resetPlaces, resetEvents, resetBusinessData } from "../../Slices/PlacesSlice";
 import { clearGooglePlaces } from "../../Slices/GooglePlacesSlice";
 import { resetAllReviews } from "../../Slices/ReviewsSlice";
+import { resetNotifications } from "../../Slices/NotificationsSlice";
 
 export default function SettingsModal({ visible, onClose }) {
     const dispatch = useDispatch();
@@ -22,6 +23,7 @@ export default function SettingsModal({ visible, onClose }) {
         dispatch(resetBusinessData());
         dispatch(clearGooglePlaces());
         dispatch(resetAllReviews());
+        dispatch(resetNotifications());
     }
 
     const onEditProfile = () => {

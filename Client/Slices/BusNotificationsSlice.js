@@ -27,6 +27,7 @@ export const createBusinessNotification = createAsyncThunk(
   async (
     {
       placeId,
+      postType,
       type,
       message,
       relatedId,
@@ -38,6 +39,7 @@ export const createBusinessNotification = createAsyncThunk(
   ) => {
     try {
       const response = await axios.post(`${BASE_URL}/${placeId}/notifications`, {
+        postType,
         type,
         message,
         relatedId,
