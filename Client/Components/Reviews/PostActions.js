@@ -1,8 +1,8 @@
 import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, TouchableWithoutFeedback } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
-export default function PostActions({ item, handleLike, handleOpenComments }) {
+export default function PostActions({ item, handleLike, handleOpenComments, toggleTaggedUsers, photo }) {
   return (
     <View style={styles.actionsContainer}>
       <TouchableOpacity
@@ -28,6 +28,12 @@ export default function PostActions({ item, handleLike, handleOpenComments }) {
         />
         <Text style={styles.commentCount}>{item?.comments?.length || 0}</Text>
       </TouchableOpacity>
+
+      <TouchableWithoutFeedback onPress={() => toggleTaggedUsers(photo.photoKey)}>
+    <View style={styles.tagIcon}>
+      <MaterialCommunityIcons name="tag" size={24} color="white" />
+    </View>
+  </TouchableWithoutFeedback>
     </View>
   );
 }
@@ -53,4 +59,13 @@ const styles = StyleSheet.create({
   commentCount: {
     marginLeft: 5,
   },
+  tagIcon: {
+    position: "absolute",
+    bottom: 10,
+    right: 10,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    padding: 6,
+    borderRadius: 20,
+  }
+  
 });

@@ -29,7 +29,7 @@ import EditPhotoDetailsModal from "../Profile/EditPhotoDetailsModal";
 import { createNotification } from "../../Slices/NotificationsSlice";
 import { selectPhotosFromGallery } from "../../utils/selectPhotos";
 import useSlideDownDismiss from "../../utils/useSlideDown";
-import { GestureHandlerRootView, PanGestureHandler } from "react-native-gesture-handler";
+import { PanGestureHandler } from "react-native-gesture-handler";
 import { createBusinessNotification } from "../../Slices/BusNotificationsSlice";
 import Notch from "../Notch/Notch";
 
@@ -80,10 +80,18 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
   const handlePhotoAlbumSelection = async () => {
     const newFiles = await selectPhotosFromGallery();
     if (newFiles.length > 0) {
-      setSelectedPhotos((prev) => [...prev, ...newFiles]);
+      const deepClonedNewFiles = newFiles.map(photo => ({
+        ...photo,
+        taggedUsers: [], // Ensure clean copy
+        description: photo.description || '',
+        uri: photo.uri,  // explicitly copy if it exists
+      }));
+  
+      setSelectedPhotos((prev) => [...prev, ...deepClonedNewFiles]);
+      setPhotoList((prev) => [...prev, ...deepClonedNewFiles]);
       setEditPhotosModalVisible(true);
     }
-  };
+  };  
 
   const handleSavePhotos = (updatedPhotos) => {
     setSelectedPhotos(updatedPhotos);
@@ -116,7 +124,7 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
           description: selectedPhotos[index].description || "",
           taggedUsers: selectedPhotos[index].taggedUsers
             ? selectedPhotos[index].taggedUsers.map(user => ({
-              userId: user._id,  // Store only user ID
+              userId: user.userId || user._id || user.id,
               x: user.x,          // Include x coordinate for tag positioning
               y: user.y           // Include y coordinate for tag positioning
             }))
@@ -143,11 +151,12 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
 
         postId = reviewResponse._id;
 
-        if (business._id) {
+        if (business.place_id) {
           await dispatch(
             createBusinessNotification({
-              placeId: business._id,
-              type: "review",
+              placeId: business.place_id,
+              postType: "review",
+              type: 'review',
               message: `${fullName} left a review on ${business.name}`,
               relatedId: userId,
               typeRef: "User",
@@ -178,8 +187,23 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
 
         postId = checkInResponse._id;
 
+        if (business.place_id) {
+          await dispatch(
+            createBusinessNotification({
+              placeId: business.place_id,
+              postType: "check-in",
+              type: 'check-in',
+              message: `${fullName} checked in at ${business.name}`,
+              relatedId: userId,
+              typeRef: "User",
+              targetId: postId,
+              targetRef: "Review",
+            })
+          );
+        }
+
         Alert.alert("Success", "Your check-in has been posted!");
-      }
+      };
 
       // Send notifications to tagged users in the post
       for (const taggedUser of taggedUsers) {
@@ -235,10 +259,25 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
   }
 
   const handlePhotoSave = (updatedPhoto) => {
+    const cloned = JSON.parse(JSON.stringify(updatedPhoto));
+  
+    setSelectedPhotos((prev) =>
+      prev.map((photo) => (photo.uri === cloned.uri ? cloned : photo))
+    );
+  
     setPhotoList((prev) =>
-      prev.map((photo) => (photo.uri === updatedPhoto.uri ? updatedPhoto : photo))
+      prev.map((photo) => (photo.uri === cloned.uri ? cloned : photo))
     );
   };
+  
+  const handleDeletePhoto = (photoToDelete) => {
+    setSelectedPhotos(prev => prev.filter(p => 
+      (p._id && p._id !== photoToDelete._id) || (p.uri && p.uri !== photoToDelete.uri)
+    ));
+    setPhotoList(prev => prev.filter(p => 
+      (p._id && p._id !== photoToDelete._id) || (p.uri && p.uri !== photoToDelete.uri)
+    ));
+  };  
 
   const handleRating = (newRating = 3) => setRating(newRating);
 
@@ -292,15 +331,20 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
             fontSize: 16,
           },
           listView: {
+            position: 'absolute',
+            top: 60, // Push it just below the textInput
+            zIndex: 999,
             backgroundColor: "#fff",
             borderRadius: 5,
-            elevation: 2,
-          },
+            elevation: 5,
+            maxHeight: 300,
+        },
         }}
       />
+      <View style={{ height: 60 }} />
 
       {selectedTab === "review" ? (
-        <>
+        <View>
           {/* Rating */}
           <Text style={styles.optionLabel}>Rating</Text>
           <View style={{ alignSelf: "flex-start" }}>
@@ -320,17 +364,22 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
             placeholder="Write your review"
             value={review}
             onChangeText={setReview}
+            autoCorrect={true}           // ✅ Ensure this is true
+            autoCapitalize="sentences"  // ✅ Optional, helps trigger autocorrect
+            keyboardType="default"  
             multiline
           />
-        </>
+        </View>
       ) : (
         <>
-          {/* Review Text */}
           <Text style={styles.optionLabel}>Check-In message (optional)</Text>
           <TextInput
             style={styles.textArea}
             value={checkInMessage}
             onChangeText={setCheckInMessage}
+            autoCorrect={true}
+            autoCapitalize="sentences"
+            keyboardType="default"
             multiline
           />
         </>
@@ -416,39 +465,34 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
         onClose={() => setPhotoDetailsEditing(false)}
         onSave={handlePhotoSave}
         setPhotoList={setPhotoList}
+        setSelectedPhotos={setSelectedPhotos}
+        onDelete={handleDeletePhoto}
+        isPromotion={false}
       />
     </View>
   );
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <TouchableWithoutFeedback onPress={animateOut}>
-          <View style={styles.modalOverlay}>
+      <TouchableWithoutFeedback onPress={animateOut}>
+        <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView
+            behavior="padding"
+            style={styles.keyboardAvoiding}
+          >
             <PanGestureHandler
               onGestureEvent={onGestureEvent}
               onHandlerStateChange={onHandlerStateChange}
             >
-              <Animated.View style={{ transform: [{ translateY: gestureTranslateY }] }}>
+              <Animated.View style={{ flexGrow: 1, justifyContent: 'flex-end', transform: [{ translateY: gestureTranslateY }] }}>
                 <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-                  <KeyboardAvoidingView
-                    behavior={Platform.OS === "ios" ? "padding" : "height"}
-                    style={styles.keyboardAvoidingView}
-                  >
-                    <FlatList
-                      data={[{ key: "content" }]} // Use FlatList to render content
-                      renderItem={renderContent}
-                      keyExtractor={(item) => item.key}
-                      scrollEnabled={false}
-                      keyboardShouldPersistTaps="handled"
-                    />
-                  </KeyboardAvoidingView>
+                  {renderContent()}
                 </TouchableWithoutFeedback>
               </Animated.View>
             </PanGestureHandler>
-          </View>
-        </TouchableWithoutFeedback>
-      </GestureHandlerRootView>
+          </KeyboardAvoidingView>
+        </View>
+      </TouchableWithoutFeedback>
     </Modal>
   );
 };
@@ -610,5 +654,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 5,
     color: "#333",
+  },
+  keyboardAvoiding: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'transparent',
   },
 });

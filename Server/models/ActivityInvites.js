@@ -6,6 +6,7 @@ const ReplySchema = new mongoose.Schema({
   fullName: { type: String, required: true },
   commentText: { type: String, required: true },
   date: { type: Date, default: Date.now },
+  likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   replies: [this] // You can define this recursively later if deep nesting is needed
 });
 
@@ -15,6 +16,7 @@ const CommentSchema = new mongoose.Schema({
   fullName: { type: String, required: true },
   commentText: { type: String, required: true },
   date: { type: Date, default: Date.now },
+  likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   replies: [ReplySchema]
 });
 

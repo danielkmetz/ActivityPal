@@ -1,7 +1,8 @@
 const express = require("express");
 const User = require("../models/User"); // User model (contains checkIns)
+const Business = require('../models/Business.js');
 const router = express.Router();
-const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
+const { resolveTaggedPhotoUsers, resolveTaggedUsers, resolveUserProfilePics } = require('../utils/userPosts.js');
 
 // ✅ Create a new check-in (Save to User schema)
 const mongoose = require("mongoose");
@@ -10,111 +11,81 @@ router.post("/post", async (req, res) => {
   try {
     const { userId, placeId, message, photos, taggedUsers, businessName, fullName } = req.body;
 
-    // Ensure userId is an ObjectId
     const mongoUserId = new mongoose.Types.ObjectId(userId);
     const date = Date.now();
 
-    // Fetch user profile picture
     const user = await User.findById(userId).select("profilePic");
-    let profilePicUrl = null;
-    if (user?.profilePic?.photoKey) {
-      profilePicUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
-    }
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
-    // Convert taggedUsers array into ObjectId format
-    const taggedUserIds = taggedUsers.map(id => new mongoose.Types.ObjectId(id));
-
-    // Convert `photos` array into `PhotoSchema` format and generate presigned URLs
+    // Generate photo schema objects for DB
     const photoObjects = await Promise.all(
       photos.map(async (photo) => {
-        const downloadUrl = await generateDownloadPresignedUrl(photo.photoKey);
-
-        // Ensure tagged users contain userId, x, and y
-        const formattedTaggedUsers = photo.taggedUsers.map(tag => ({
-          userId: tag.userId,  // ObjectId of the user
-          x: tag.x,            // X coordinate
-          y: tag.y             // Y coordinate
-        }));
+        const formattedTagged = Array.isArray(photo.taggedUsers)
+          ? photo.taggedUsers.map(tag => ({
+            userId: tag.userId,
+            x: tag.x,
+            y: tag.y,
+          }))
+          : [];
 
         return {
           _id: new mongoose.Types.ObjectId(),
           photoKey: photo.photoKey,
-          uploadedBy: userId,
+          uploadedBy: mongoUserId,
           description: photo.description || null,
-          taggedUsers: formattedTaggedUsers, // Store tagged users with coordinates
+          taggedUsers: formattedTagged,
           uploadDate: date,
-          url: downloadUrl,
         };
       })
     );
 
-    // Fetch user details for tagged users in the review
-    const taggedUserDetails = await User.find(
-      { _id: { $in: taggedUsers } },
-      { firstName: 1, lastName: 1 }
-    );
-
+    // Prepare check-in object
+    const taggedUserIds = taggedUsers.map(id => new mongoose.Types.ObjectId(id));
     const newCheckIn = {
       _id: new mongoose.Types.ObjectId(),
-      userId: mongoUserId, // Convert to ObjectId
-      placeId, // Leave as string
+      userId: mongoUserId,
+      placeId,
       message,
       photos: photoObjects,
-      taggedUsers: taggedUserIds, // Convert array to ObjectIds
+      taggedUsers: taggedUserIds,
       date,
     };
 
-    // Update user document and push check-in into their checkIns array
+    // Save check-in to user document
     const updatedUser = await User.findByIdAndUpdate(
       mongoUserId,
       { $push: { checkIns: newCheckIn } },
       { new: true, runValidators: true }
     );
 
-    if (!updatedUser) {
-      return res.status(404).json({ success: false, message: "User not found" });
-    };
+    if (!updatedUser) return res.status(404).json({ success: false, message: "User not found after update" });
 
     const createdCheckIn = updatedUser.checkIns[updatedUser.checkIns.length - 1];
 
-    // Populate tagged users in the response (Only for frontend display)
-    const populatedTaggedUsers = taggedUserDetails.map(user => ({
-      userId: user._id,
-      fullName: `${user.firstName} ${user.lastName}`,
-    }));
+    // ✅ Use helpers for enriched response
+    const [populatedTaggedUsers, populatedPhotos, profileMap] = await Promise.all([
+      resolveTaggedUsers(taggedUserIds),
+      resolveTaggedPhotoUsers(photoObjects),
+      resolveUserProfilePics([userId]),
+    ]);
 
-    // Fetch full names for tagged users inside each photo for the response
-    const populatedPhotoObjects = await Promise.all(
-      photoObjects.map(async (photo) => {
-        const photoTaggedUserDetails = await User.find(
-          { _id: { $in: photo.taggedUsers.map(tag => tag.userId) } },
-          { firstName: 1, lastName: 1 }
-        );
+    const profileData = profileMap[userId.toString()] || {
+      profilePic: null,
+      profilePicUrl: null,
+    };
 
-        return {
-          ...photo,
-          taggedUsers: photoTaggedUserDetails.map(user => ({
-            userId: user._id,
-            fullName: `${user.firstName} ${user.lastName}`,
-            x: photo.taggedUsers.find(tag => tag.userId.toString() === user._id.toString())?.x,
-            y: photo.taggedUsers.find(tag => tag.userId.toString() === user._id.toString())?.y,
-          })), // Full names with x, y coordinates in response
-        };
-      })
-    );
-
-    // Format response
     const checkInResponse = {
       _id: createdCheckIn._id,
       placeId,
       userId,
-      message,
       fullName,
       businessName,
-      profilePicUrl,
-      taggedUsers: populatedTaggedUsers, // Full names for frontend
+      message,
+      profilePic: profileData.profilePic,
+      profilePicUrl: profileData.profilePicUrl,
+      taggedUsers: populatedTaggedUsers,
       date,
-      photos: populatedPhotoObjects, // Photos with tagged users' full names and coordinates
+      photos: populatedPhotos,
       type: "check-in",
     };
 
@@ -125,35 +96,63 @@ router.post("/post", async (req, res) => {
   }
 });
 
+//Edit a check-in and remove/add notifications from tagged users
 router.put("/:userId/:checkInId", async (req, res) => {
   const { userId, checkInId } = req.params;
-  const { placeId, checkInText, taggedUsers, photos } = req.body;
+  const { placeId, message, taggedUsers, photos } = req.body;
 
   try {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: "User not found" });
+
+    const business = await Business.findOne({ placeId });
+    if (!business) return res.status(404).json({ message: "Business not found" });
 
     const checkInIndex = user.checkIns.findIndex(c => c._id.toString() === checkInId);
     if (checkInIndex === -1) return res.status(404).json({ message: "Check-in not found" });
 
     const checkIn = user.checkIns[checkInIndex];
 
-    if (checkInText !== undefined) checkIn.checkInText = checkInText;
+    // 1. Store old tags
+    const previousTaggedUserIds = checkIn.taggedUsers?.map(id => id.toString()) || [];
+    const previousPhotos = checkIn.photos || [];
+    const previousPhotoTaggedUserIds = previousPhotos.flatMap(photo =>
+      (photo.taggedUsers || []).map(tag => tag.userId?.toString())
+    );
+
+    const previousPhotosByKey = new Map();
+    previousPhotos.forEach((photo) => {
+      if (photo.photoKey) {
+        previousPhotosByKey.set(photo.photoKey, photo);
+      }
+    });
+
+    // 2. Apply edits
+    if (message !== undefined) checkIn.message = message;
     if (placeId !== undefined) checkIn.placeId = placeId;
 
-    const taggedUserDocs = await User.find({ _id: { $in: taggedUsers || [] } }, 'firstName lastName');
-    checkIn.taggedUsers = taggedUserDocs.map(u => u._id);
+    const taggedUserIds = taggedUsers.map(t => t.userId || t._id || t);
+    checkIn.taggedUsers = taggedUserIds;
+
+    // 3. Process photos and collect new photo-tagged users
+    const newPhotoTaggedUserIds = [];
+    const newPhotosByKey = new Map();
 
     if (Array.isArray(photos)) {
       checkIn.photos = await Promise.all(
         photos.map(async (photo) => {
           const formattedTagged = Array.isArray(photo.taggedUsers)
-            ? photo.taggedUsers.map(tag => ({
-                userId: tag.userId,
-                x: tag.x,
-                y: tag.y,
-              }))
+            ? photo.taggedUsers.map(tag => {
+                newPhotoTaggedUserIds.push(tag.userId?.toString());
+                return {
+                  userId: tag.userId,
+                  x: tag.x,
+                  y: tag.y,
+                };
+              })
             : [];
+
+          newPhotosByKey.set(photo.photoKey, photo);
 
           return {
             photoKey: photo.photoKey,
@@ -166,54 +165,112 @@ router.put("/:userId/:checkInId", async (req, res) => {
       );
     }
 
+    // 4. Identify deleted and added photos
+    const deletedPhotoKeys = [...previousPhotosByKey.keys()].filter(
+      key => !newPhotosByKey.has(key)
+    );
+    const addedPhotoKeys = [...newPhotosByKey.keys()].filter(
+      key => !previousPhotosByKey.has(key)
+    );
+
+    const removedPhotoTaggedUserIds = deletedPhotoKeys.flatMap((key) => {
+      const photo = previousPhotosByKey.get(key);
+      return photo?.taggedUsers?.map(tag => tag.userId?.toString()) || [];
+    });
+
+    const addedPhotoTaggedUserIds = addedPhotoKeys.flatMap((key) => {
+      const photo = newPhotosByKey.get(key);
+      return photo?.taggedUsers?.map(tag => tag.userId?.toString()) || [];
+    });
+
     await user.save();
 
-    const profilePicUrl = user.profilePic?.photoKey
-      ? await generateDownloadPresignedUrl(user.profilePic.photoKey)
-      : null;
+    // 5. Tag diffing
+    const currentTaggedSet = new Set(taggedUserIds.map(String));
+    const currentPhotoTaggedSet = new Set([
+      ...newPhotoTaggedUserIds,
+      ...addedPhotoTaggedUserIds,
+    ]);
 
-    const populatedTaggedUsers = taggedUserDocs.map(user => ({
-      _id: user._id,
-      fullName: `${user.firstName} ${user.lastName}`,
-    }));
+    const oldTaggedSet = new Set(previousTaggedUserIds);
+    const oldPhotoTaggedSet = new Set([
+      ...previousPhotoTaggedUserIds,
+      ...removedPhotoTaggedUserIds,
+    ]);
 
-    const populatedPhotos = await Promise.all(
-      checkIn.photos.map(async (photo) => {
-        const taggedUserDetails = await User.find(
-          { _id: { $in: photo.taggedUsers.map(t => t.userId) } },
-          'firstName lastName'
-        );
+    const checkInTagsAdded = [...currentTaggedSet].filter(id => !oldTaggedSet.has(id));
+    const checkInTagsRemoved = [...oldTaggedSet].filter(id => !currentTaggedSet.has(id));
 
-        const userMap = new Map(taggedUserDetails.map(u => [u._id.toString(), u]));
+    const photoTagsAdded = [...currentPhotoTaggedSet].filter(id => !oldPhotoTaggedSet.has(id));
+    const photoTagsRemoved = [...oldPhotoTaggedSet].filter(id => !currentPhotoTaggedSet.has(id));
 
-        const formattedTags = photo.taggedUsers.map(tag => {
-          const user = userMap.get(tag.userId.toString());
-          return {
-            _id: tag.userId,
-            fullName: user ? `${user.firstName} ${user.lastName}` : 'Unknown User',
-            x: tag.x,
-            y: tag.y,
-          };
-        });
-
-        return {
-          ...photo.toObject(),
-          url: await generateDownloadPresignedUrl(photo.photoKey),
-          taggedUsers: formattedTags,
-        };
+    // 6. Remove notifications from users no longer tagged
+    const removalIds = [...new Set([...checkInTagsRemoved, ...photoTagsRemoved])];
+    const removalPromises = removalIds.map(userId =>
+      User.findByIdAndUpdate(userId, {
+        $pull: { notifications: { targetId: checkIn._id } },
       })
     );
+
+    // 7. Add notifications to newly tagged users
+    const additionPromises = [
+      ...checkInTagsAdded.map(userId =>
+        User.findByIdAndUpdate(userId, {
+          $push: {
+            notifications: {
+              type: "tagged",
+              message: `${user.firstName} ${user.lastName} tagged you in a check-in.`,
+              targetId: checkIn._id,
+              typeRef: "check-in",
+              senderId: user._id,
+              date: new Date(),
+              read: false,
+            },
+          },
+        })
+      ),
+      ...photoTagsAdded.map(userId =>
+        User.findByIdAndUpdate(userId, {
+          $push: {
+            notifications: {
+              type: "tagged-photo",
+              message: `${user.firstName} ${user.lastName} tagged you in a photo.`,
+              targetId: checkIn._id,
+              typeRef: "check-in",
+              senderId: user._id,
+              date: new Date(),
+              read: false,
+            },
+          },
+        })
+      ),
+    ];
+
+    await Promise.all([...removalPromises, ...additionPromises]);
+
+    // 8. Enrich and return updated check-in
+    const [populatedTaggedUsers, populatedPhotos, profileMap] = await Promise.all([
+      resolveTaggedUsers(taggedUserIds),
+      resolveTaggedPhotoUsers(checkIn.photos),
+      resolveUserProfilePics([user._id]),
+    ]);
+
+    const profileData = profileMap[user._id.toString()] || {
+      profilePic: null,
+      profilePicUrl: null,
+    };
 
     res.status(200).json({
       message: "Check-in updated successfully",
       checkIn: {
         _id: checkIn._id,
         placeId: checkIn.placeId,
+        businessName: business.businessName,
         userId: user._id,
         fullName: `${user.firstName} ${user.lastName}`,
-        profilePic: user.profilePic || null,
-        profilePicUrl,
-        checkInText: checkIn.checkInText,
+        profilePic: profileData.profilePic,
+        profilePicUrl: profileData.profilePicUrl,
+        checkInText: checkIn.message,
         taggedUsers: populatedTaggedUsers,
         date: checkIn.date,
         photos: populatedPhotos,
@@ -221,6 +278,7 @@ router.put("/:userId/:checkInId", async (req, res) => {
         likes: checkIn.likes || [],
       },
     });
+
   } catch (error) {
     console.error("🚨 Error updating check-in:", error);
     res.status(500).json({ message: "Server error" });
@@ -231,18 +289,48 @@ router.put("/:userId/:checkInId", async (req, res) => {
 router.delete("/:userId/:checkInId", async (req, res) => {
   try {
     const { userId, checkInId } = req.params;
+    const checkInObjectId = new mongoose.Types.ObjectId(checkInId);
 
-    const updatedUser = await User.findByIdAndUpdate(
-      userId,
-      { $pull: { checkIns: { _id: checkInId } } }, // Remove check-in from array
-      { new: true }
-    );
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
 
-    if (!updatedUser) {
+    const checkIn = user.checkIns.id(checkInId);
+    if (!checkIn) {
       return res.status(404).json({ success: false, message: "Check-in not found" });
     }
 
-    res.status(200).json({ success: true, message: "Check-in deleted successfully" });
+    // Extract tagged users
+    const taggedUsers = checkIn.taggedUsers?.map(id => id.toString()) || [];
+    const photoTaggedUsers = checkIn.photos?.flatMap(photo =>
+      (photo.taggedUsers || []).map(tag => tag.userId?.toString())
+    ) || [];
+
+    const allTaggedUserIds = [...new Set([...taggedUsers, ...photoTaggedUsers])];
+
+    // Clean up notifications for all tagged users
+    const taggedUserNotificationCleanup = allTaggedUserIds.map(userId =>
+      User.findByIdAndUpdate(userId, {
+        $pull: { notifications: { targetId: checkInObjectId } },
+      })
+    );
+
+    // Clean up notifications from the creator
+    const creatorNotificationCleanup = User.findByIdAndUpdate(userId, {
+      $pull: { notifications: { targetId: checkInObjectId } },
+    });
+
+    // Delete the check-in manually
+    user.checkIns = user.checkIns.filter(c => c._id.toString() !== checkInId);
+    await user.save();
+
+    await Promise.all([...taggedUserNotificationCleanup, creatorNotificationCleanup]);
+
+    res.status(200).json({
+      success: true,
+      message: "Check-in and related notifications deleted successfully",
+    });
   } catch (error) {
     console.error("❌ Error deleting check-in:", error);
     res.status(500).json({ success: false, message: error.message });

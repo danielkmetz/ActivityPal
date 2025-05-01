@@ -1,4 +1,3 @@
-// components/CommentInputFooter.js
 import React from 'react';
 import {
   View,
