@@ -456,11 +456,11 @@ export const selectUser = (state) => state.user.user;
 export const selectLoading = (state) => state.user.loading;
 export const selectError = (state) => state.user.error;
 export const selectIsBusiness = (state) => state.user.isBusiness;
-export const selectOtherUserData = (state) => state.user.otherUserData;
-export const selectFriends = (state) => state.user.friends;
+export const selectOtherUserData = (state) => state.user.otherUserData || [];
+export const selectFriends = (state) => state.user.friends || [];
 export const selectFriendRequests = (state) => state.user.friendRequests;
-export const selectFriendsDetails = (state) => state.user.friendsDetails;
-export const selectFriendRequestDetails = (state) => state.user.friendRequestDetails;
+export const selectFriendsDetails = (state) => state.user.friendsDetails || [];
+export const selectFriendRequestDetails = (state) => state.user.friendRequestDetails || [];
 
 export default userSlice.reducer;
 

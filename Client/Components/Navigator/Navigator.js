@@ -3,6 +3,7 @@ import { createBottomTabNavigator, BottomTabBar } from '@react-navigation/bottom
 import { View, Animated, Text } from 'react-native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { FontAwesome, MaterialCommunityIcons } from '@expo/vector-icons';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Platform } from 'react-native';
 import Home from '../Home/Home';
 import ActivityPage from '../Activities/ActivityPage';

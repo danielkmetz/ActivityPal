@@ -1,4 +1,3 @@
-// PreferencesModal.js
 import React, { useEffect, useState } from 'react';
 import {
     View,
@@ -8,9 +7,9 @@ import {
     TouchableOpacity,
     Switch,
     ActivityIndicator,
-    Animated,
     TouchableWithoutFeedback,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { selectCoordinates, selectLocation } from '../../Slices/LocationSlice';
 import { useSelector, useDispatch } from 'react-redux';
 import { milesToMeters } from '../../functions';
@@ -24,7 +23,7 @@ import {
     selectEventType,
     setEventType,
 } from '../../Slices/PreferencesSlice';
-import { PanGestureHandler } from 'react-native-gesture-handler';
+import { GestureDetector } from 'react-native-gesture-handler';
 import Slider from '@react-native-community/slider';
 import WheelPicker from '../CustomePicker/CustomPicker';
 import useSlideDownDismiss from '../../utils/useSlideDown';
@@ -38,7 +37,7 @@ const PreferencesModal = ({ visible, onClose, onSubmitCustomSearch }) => {
     const isFamilyFriendly = useSelector(selectFamilyFriendly);
     const coordinates = useSelector(selectCoordinates);
     const [showPicker, setShowPicker] = useState(false);
-    const { gestureTranslateY, animateIn, animateOut, onGestureEvent, onHandlerStateChange } = useSlideDownDismiss(onClose);
+    const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
 
     const lat = coordinates?.lat;
     const lng = coordinates?.lng;
@@ -77,11 +76,10 @@ const PreferencesModal = ({ visible, onClose, onSubmitCustomSearch }) => {
         >
             <TouchableWithoutFeedback onPress={animateOut}>
                 <View style={styles.modalOverlay}>
-                    <PanGestureHandler
-                        onGestureEvent={onGestureEvent}
-                        onHandlerStateChange={onHandlerStateChange}
+                    <GestureDetector
+                        gesture={gesture}
                     >
-                        <Animated.View style={[styles.modalContainer, { transform: [{ translateY: gestureTranslateY }] }]}>
+                        <Animated.View style={[styles.modalContainer, animatedStyle]}>
                             <Notch />
                             {coordinates ? (
                                 <View style={styles.modalContainer}>
@@ -143,7 +141,7 @@ const PreferencesModal = ({ visible, onClose, onSubmitCustomSearch }) => {
                                 </View>
                             )}
                         </Animated.View>
-                    </PanGestureHandler>
+                    </GestureDetector>
                 </View>
             </TouchableWithoutFeedback>
             <WheelPicker

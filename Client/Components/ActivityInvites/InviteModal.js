@@ -12,20 +12,21 @@ import {
     Platform,
     TouchableWithoutFeedback,
     Switch,
-    Animated,
     Keyboard,
     ScrollView,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import TagFriendsModal from '../Reviews/TagFriendsModal';
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSelector, useDispatch } from 'react-redux';
 import { sendInvite, editInvite } from '../../Slices/InvitesSlice';
 import { selectUser } from '../../Slices/UserSlice';
-import { PanGestureHandler } from 'react-native-gesture-handler';
+import { GestureDetector } from 'react-native-gesture-handler';
 import { setUserAndFriendsReviews, selectUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
 import { selectFriendsDetails } from '../../Slices/UserSlice';
 import useSlideDownDismiss from '../../utils/useSlideDown';
+import { googlePlacesDefaultProps } from '../../utils/googleplacesDefaults';
 import Notch from '../Notch/Notch';
 
 const google_key = process.env.EXPO_PUBLIC_GOOGLE_KEY;
@@ -54,7 +55,7 @@ const InviteModal = ({
     const [note, setNote] = useState('');
 
     const googleRef = useRef(null);
-    const { gestureTranslateY, animateIn, animateOut, onGestureEvent, onHandlerStateChange } = useSlideDownDismiss(onClose);
+    const { gesture, animateIn, animateOut, animatedStyle, } = useSlideDownDismiss(onClose);
 
     useEffect(() => {
         if (isEditing && initialInvite && visible) {
@@ -118,7 +119,7 @@ const InviteModal = ({
             };
 
             function updateFeedWithItem(feed, updatedItem) {
-                const normalizedFeed = feed
+                const normalizedFeed = (feed || [])
                     .filter(item => item._id !== updatedItem._id)
                     .concat(updatedItem)
                     .map(normalizeCreatedAt)
@@ -222,11 +223,10 @@ const InviteModal = ({
                         keyboardVerticalOffset={-80}
                         style={styles.keyboardAvoiding}
                     >
-                        <PanGestureHandler
-                            onGestureEvent={onGestureEvent}
-                            onHandlerStateChange={onHandlerStateChange}
+                        <GestureDetector
+                            gesture={gesture}
                         >
-                            <Animated.View style={[styles.modalContainer, { transform: [{ translateY: gestureTranslateY }] }]}>
+                            <Animated.View style={[styles.modalContainer, animatedStyle]}>
                                 <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
                                     <View style={{flex: 1}}>
                                         <Notch />
@@ -272,6 +272,7 @@ const InviteModal = ({
                                                 },
                                             }}
                                             fetchDetails
+                                            {...googlePlacesDefaultProps}
                                         />
                                         
                                         <View style={styles.switchContainer}>
@@ -368,7 +369,7 @@ const InviteModal = ({
                                     </View>
                                 </TouchableWithoutFeedback>
                             </Animated.View>
-                        </PanGestureHandler>
+                        </GestureDetector>
                     </KeyboardAvoidingView>
                 </View>
             </TouchableWithoutFeedback>

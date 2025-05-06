@@ -9,30 +9,33 @@ const PhotoItem = ({
     reviewItem,
     likedAnimations,
     photoTapped,
-    toggleTaggedUsers,
     handleLikeWithAnimation,
     lastTapRef,
     isInteractive=true,
+    onOpenFullScreen,
 }) => {
     const animation = likedAnimations?.[reviewItem._id] || new Animated.Value(0);
-
+    
     const handleTap = () => {
         if (!isInteractive) return;
-
+      
         const now = Date.now();
-
-        if (lastTapRef.current[reviewItem._id] && now - lastTapRef.current[reviewItem._id] < 300) {
-            handleLikeWithAnimation(reviewItem.type, reviewItem._id);
-            lastTapRef.current[reviewItem._id] = 0;
+      
+        if (
+          lastTapRef.current[reviewItem._id] &&
+          now - lastTapRef.current[reviewItem._id] < 300
+        ) {
+          handleLikeWithAnimation(reviewItem.type, reviewItem._id);
+          lastTapRef.current[reviewItem._id] = 0;
         } else {
-            lastTapRef.current[reviewItem._id] = now;
-
-            setTimeout(() => {
-                if (lastTapRef.current[reviewItem._id] === now) {
-                    toggleTaggedUsers(photo.photoKey);
-                    lastTapRef.current[reviewItem._id] = 0;
-                }
-            }, 200);
+          lastTapRef.current[reviewItem._id] = now;
+      
+          setTimeout(() => {
+            if (lastTapRef.current[reviewItem._id] === now) {
+              onOpenFullScreen?.(photo); // ✅ Open the photo fullscreen
+              lastTapRef.current[reviewItem._id] = 0;
+            }
+          }, 200);
         }
     };
 

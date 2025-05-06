@@ -206,9 +206,9 @@ const friendsSlice = createSlice({
   
 export default friendsSlice.reducer;
 
-export const selectFriends = (state) => state.friends.friends;
+export const selectFriends = (state) => state.friends.friends || [];
 export const selectFriendRequests = (state) => state.friends.friendRequests;
-export const selectUserSuggestions = (state) => state.friends.userSuggestions;
+export const selectUserSuggestions = (state) => state.friends.userSuggestions || [];
 export const selectFriendsStatus = (state) => state.friends.status;
 export const selectFriendsError = (state) => state.friends.error;
 
