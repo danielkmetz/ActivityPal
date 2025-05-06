@@ -34,7 +34,10 @@ export default function CheckInItem({
     const user = useSelector(selectUser);
     const isSender = item.userId === user?.id;
     const [dropdownVisible, setDropdownVisible] = useState(false);
+    const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
     const scrollX = useRef(new Animated.Value(0)).current;
+
+    const currentPhoto = item.photos?.[currentPhotoIndex];
 
     return (
         <View style={styles.reviewCard}>
@@ -150,6 +153,8 @@ export default function CheckInItem({
                 item={item}
                 handleLike={handleLike}
                 handleOpenComments={handleOpenComments}
+                toggleTaggedUsers={toggleTaggedUsers}
+                photo={currentPhoto}
             />
         </View>
     );

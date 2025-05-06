@@ -1,71 +1,50 @@
-import { useRef } from "react";
-import { Animated, Dimensions } from "react-native";
+import { useSharedValue, useAnimatedStyle, withTiming, runOnJS } from 'react-native-reanimated';
+import { Gesture } from 'react-native-gesture-handler';
+import { Dimensions } from 'react-native';
 
-const SCREEN_HEIGHT = Dimensions.get("window").height;
+const SCREEN_HEIGHT = Dimensions.get('window').height;
 const DISMISS_THRESHOLD = 100;
 const DISMISS_VELOCITY = 1000;
 
 export default function useSlideDownDismiss(onClose) {
-    const dragY = useRef(new Animated.Value(0)).current;
-    const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const translateY = useSharedValue(SCREEN_HEIGHT);
 
-    const gestureTranslateY = Animated.add(translateY, dragY).interpolate({
-        inputRange: [-SCREEN_HEIGHT, 0, SCREEN_HEIGHT],
-        outputRange: [0, 0, SCREEN_HEIGHT],
-        extrapolate: 'clamp',
+  const gesture = Gesture.Pan()
+    .onUpdate((event) => {
+      translateY.value = Math.max(0, event.translationY);
+    })
+    .onEnd((event) => {
+      const shouldDismiss =
+        event.translationY > DISMISS_THRESHOLD || event.velocityY > DISMISS_VELOCITY;
+
+      if (shouldDismiss) {
+        translateY.value = withTiming(SCREEN_HEIGHT, { duration: 300 }, () => {
+          runOnJS(onClose)();
+        });
+      } else {
+        translateY.value = withTiming(0, { duration: 200 });
+      }
     });
 
-    const animateIn = () => {
-        translateY.setValue(SCREEN_HEIGHT);
-        Animated.timing(translateY, {
-            toValue: 0,
-            duration: 300,
-            useNativeDriver: true,
-        }).start();
-    };
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
 
-    const animateOut = () => {
-        return new Promise((resolve) => {
-            Animated.timing(translateY, {
-                toValue: SCREEN_HEIGHT,
-                duration: 300,
-                useNativeDriver: true,
-            }).start(() => {
-                onClose?.();
-                resolve();
-            });
-        });
-    };
+  const animateIn = () => {
+    translateY.value = SCREEN_HEIGHT;
+    translateY.value = withTiming(0, { duration: 300 });
+  };
 
-    const onGestureEvent = Animated.event(
-        [{ nativeEvent: { translationY: dragY } }],
-        { useNativeDriver: true }
-    );
+  const animateOut = () => {
+    translateY.value = withTiming(SCREEN_HEIGHT, { duration: 300 }, () => {
+      runOnJS(onClose)();
+    });
+  };
 
-    const onHandlerStateChange = async ({ nativeEvent }) => {
-        const { state, translationY, velocityY } = nativeEvent;
-
-        if (state === 5) {
-            const shouldDismiss = translationY > DISMISS_THRESHOLD || velocityY > DISMISS_VELOCITY;
-
-            if (shouldDismiss) {
-                await animateOut();
-            } else {
-                Animated.spring(translateY, {
-                    toValue: 0,
-                    useNativeDriver: true,
-                }).start();
-            }
-
-            dragY.setValue(0);
-        }
-    };
-
-    return {
-        gestureTranslateY,
-        animateIn,
-        animateOut,
-        onGestureEvent,
-        onHandlerStateChange,
-    };
+  return {
+    gesture,
+    animatedStyle,
+    animateIn,
+    animateOut,
+  };
 }

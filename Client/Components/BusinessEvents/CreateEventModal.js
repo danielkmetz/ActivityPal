@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
-  Animated,
   Modal,
   TextInput,
   StyleSheet,
@@ -16,9 +15,10 @@ import {
   Image,
   Keyboard,
 } from "react-native";
+import Animated from "react-native-reanimated";
 import { createEvent, editEvent } from "../../Slices/EventsSlice";
 import { useDispatch } from "react-redux";
-import { GestureHandlerRootView, PanGestureHandler } from "react-native-gesture-handler";
+import { GestureDetector } from "react-native-gesture-handler";
 import EditPhotosModal from "../Profile/EditPhotosModal";
 import EditPhotoDetailsModal from "../Profile/EditPhotoDetailsModal";
 import * as ImagePicker from "expo-image-picker";
@@ -26,7 +26,7 @@ import { uploadReviewPhotos } from "../../Slices/PhotosSlice";
 import RecurringDaysModal from "./RecurringDaysModal";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import useSlideDownDismiss from "../../utils/useSlideDown";
-import { normalizePhoto, formatTimeTo12Hour } from "../../functions";
+import { normalizePhoto } from "../../functions";
 import Notch from "../Notch/Notch";
 
 const CreateEventModal = ({ visible, onClose, businessId, onEventCreated, event }) => {
@@ -78,7 +78,7 @@ const CreateEventModal = ({ visible, onClose, businessId, onEventCreated, event 
     }
   }, [event, visible]); // Reset fields when event or modal visibility changes
 
-  const { gestureTranslateY, animateIn, animateOut, onGestureEvent, onHandlerStateChange } = useSlideDownDismiss(onClose);
+  const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
 
   useEffect(() => {
     if (visible) {
@@ -201,7 +201,6 @@ const CreateEventModal = ({ visible, onClose, businessId, onEventCreated, event 
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <GestureHandlerRootView style={{ flex: 1 }}>
         <TouchableWithoutFeedback onPress={animateOut}>
           <View style={styles.modalOverlay}>
             <KeyboardAvoidingView
@@ -209,11 +208,10 @@ const CreateEventModal = ({ visible, onClose, businessId, onEventCreated, event 
               keyboardVerticalOffset={Platform.OS === "ios" ? -150 : 0}
               style={styles.modalContainer}
             >
-              <PanGestureHandler
-                onGestureEvent={onGestureEvent}
-                onHandlerStateChange={onHandlerStateChange}
+              <GestureDetector
+                gesture={gesture}
               >
-                <Animated.View style={[styles.modalContent, { transform: [{ translateY: gestureTranslateY }] }]}>
+                <Animated.View style={[styles.modalContent, animatedStyle]}>
                   <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
                     <View style={{ width: "100%" }}>
                       <Notch />
@@ -313,12 +311,11 @@ const CreateEventModal = ({ visible, onClose, businessId, onEventCreated, event 
                     </View>
                   </TouchableWithoutFeedback>
                 </Animated.View>
-              </PanGestureHandler>
+              </GestureDetector>
             </KeyboardAvoidingView>
           </View>
         </TouchableWithoutFeedback>
-      </GestureHandlerRootView>
-
+      
       {/* Edit photos modal */}
       <EditPhotosModal
         visible={editPhotosModalVisible}

@@ -672,7 +672,7 @@ export const selectUploadError = (state) => state.photos.uploadError;
 export const selectFetchError = (state) => state.photos.fetchError;
 export const selectLogo = (state) => state.photos.logo;
 export const selectBanner = (state) => state.photos.banner;
-export const selectAlbum = (state) => state.photos.album;
+export const selectAlbum = (state) => state.photos.album || [];
 export const selectProfilePic = (state) => state.photos.profilePic;
 export const selectOtherUserBanner = (state) => state.photos.otherUserBanner;
 export const selectOtherUserProfilePic = (state) => state.photos.otherUserProfilePic;

@@ -142,4 +142,4 @@ const checkInsSlice = createSlice({
 
 export default checkInsSlice.reducer;
 
-export const selectCheckIns = (state) => state.checkIns.checkIns;
+export const selectCheckIns = (state) => state.checkIns.checkIns || [];
