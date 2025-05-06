@@ -8,15 +8,14 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Alert,
-  Platform,
   FlatList,
   Image,
-  Animated,
   Keyboard,
   TouchableWithoutFeedback,
 } from "react-native";
+import Animated from "react-native-reanimated";
 import { GooglePlacesAutocomplete } from "react-native-google-places-autocomplete";
-import { AirbnbRating } from "react-native-ratings";
+import { Rating } from "react-native-ratings";
 import { useDispatch } from "react-redux";
 import { createReview } from "../../Slices/ReviewsSlice";
 import { selectUser } from "../../Slices/UserSlice";
@@ -29,8 +28,9 @@ import EditPhotoDetailsModal from "../Profile/EditPhotoDetailsModal";
 import { createNotification } from "../../Slices/NotificationsSlice";
 import { selectPhotosFromGallery } from "../../utils/selectPhotos";
 import useSlideDownDismiss from "../../utils/useSlideDown";
-import { PanGestureHandler } from "react-native-gesture-handler";
+import { GestureDetector } from "react-native-gesture-handler";
 import { createBusinessNotification } from "../../Slices/BusNotificationsSlice";
+import { googlePlacesDefaultProps } from "../../utils/googleplacesDefaults";
 import Notch from "../Notch/Notch";
 
 const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_KEY;
@@ -52,7 +52,7 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
   const userId = user.id;
   const fullName = `${user.firstName} ${user?.lastName}`;
   const googlePlacesRef = useRef(null);
-  const { gestureTranslateY, animateIn, animateOut, onGestureEvent, onHandlerStateChange } = useSlideDownDismiss(onClose);
+  const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
 
   useEffect(() => {
     if (visible && business && googlePlacesRef.current) {
@@ -207,7 +207,6 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
 
       // Send notifications to tagged users in the post
       for (const taggedUser of taggedUsers) {
-        console.log("📢 Sending Review/Check-in Tag Notification to:", taggedUser._id);
         await dispatch(
           createNotification({
             userId: taggedUser._id,
@@ -224,7 +223,6 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
       // Send notifications to users tagged in photos
       for (const photo of uploadedPhotos) {
         for (const taggedUser of photo.taggedUsers) {
-          console.log("📸 Sending Photo Tag Notification to:", taggedUser.userId);
           await dispatch(
             createNotification({
               userId: taggedUser.userId,
@@ -338,8 +336,9 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
             borderRadius: 5,
             elevation: 5,
             maxHeight: 300,
-        },
+        }
         }}
+        {...googlePlacesDefaultProps}
       />
       <View style={{ height: 60 }} />
 
@@ -348,7 +347,7 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
           {/* Rating */}
           <Text style={styles.optionLabel}>Rating</Text>
           <View style={{ alignSelf: "flex-start" }}>
-            <AirbnbRating
+            <Rating
               count={5}
               defaultRating={rating ?? 3}
               size={20}
@@ -480,16 +479,15 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
             behavior="padding"
             style={styles.keyboardAvoiding}
           >
-            <PanGestureHandler
-              onGestureEvent={onGestureEvent}
-              onHandlerStateChange={onHandlerStateChange}
+            <GestureDetector
+              gesture={gesture}
             >
-              <Animated.View style={{ flexGrow: 1, justifyContent: 'flex-end', transform: [{ translateY: gestureTranslateY }] }}>
+              <Animated.View style={[styles.animatedOverlay, animatedStyle]}>
                 <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
                   {renderContent()}
                 </TouchableWithoutFeedback>
               </Animated.View>
-            </PanGestureHandler>
+            </GestureDetector>
           </KeyboardAvoidingView>
         </View>
       </TouchableWithoutFeedback>
@@ -513,6 +511,10 @@ const styles = StyleSheet.create({
     width: "100%",
     alignSelf: "center",
     elevation: 10,
+  },
+  animatedOverlay: {
+    flexGrow: 1,
+    justifyContent: 'flex-end',
   },
   closeIcon: {
     position: "absolute",

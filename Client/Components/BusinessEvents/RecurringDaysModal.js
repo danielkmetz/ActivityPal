@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import useSlideDownDismiss from "../../utils/useSlideDown";
-import { GestureHandlerRootView, PanGestureHandler } from "react-native-gesture-handler";
+import { GestureDetector } from "react-native-gesture-handler";
 import Notch from "../Notch/Notch";
+import Animated from "react-native-reanimated";
 import {
     Modal,
     View,
@@ -10,15 +11,13 @@ import {
     TouchableOpacity,
     StyleSheet,
     FlatList,
-    Animated,
-    Dimensions,
 } from "react-native";
 
 const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 const RecurringDaysModal = ({ visible, onClose, selectedDays, onSave, }) => {
     const [days, setDays] = useState(new Set(selectedDays));
-    const { gestureTranslateY, animateIn, animateOut, onGestureEvent, onHandlerStateChange } = useSlideDownDismiss(onClose);
+    const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
 
     useEffect(() => {
         if (visible) {
@@ -46,44 +45,40 @@ const RecurringDaysModal = ({ visible, onClose, selectedDays, onSave, }) => {
 
     return (
         <Modal visible={visible} animationType="slide" transparent>
-            <GestureHandlerRootView style={{ flex: 1 }}>
-                <View style={styles.modalOverlay} >
-                    <TouchableWithoutFeedback onPress={animateOut} >
-                        <View style={styles.overlayTouchable}>
-                            <PanGestureHandler
-                                onGestureEvent={onGestureEvent}
-                                onHandlerStateChange={onHandlerStateChange}
+            <View style={styles.modalOverlay} >
+                <TouchableWithoutFeedback onPress={animateOut} >
+                    <View style={styles.overlayTouchable}>
+                        <GestureDetector
+                            gesture={gesture}
+                        >
+                            <Animated.View
+                                style={[styles.modalContent, animatedStyle]}
                             >
+                                <Notch />
+                                <Text style={styles.title}>Select Recurring Days</Text>
+                                <FlatList
+                                    data={daysOfWeek}
+                                    keyExtractor={(item) => item}
+                                    extraData={days}
+                                    renderItem={({ item }) => {
+                                        const isSelected = days.has(item);
+                                        return (
+                                            <TouchableOpacity style={styles.item} onPress={() => toggleDay(item)}>
+                                                <Text style={styles.text}>{item}</Text>
+                                                <Text style={styles.checkbox}>{isSelected ? "✔" : "○"}</Text>
+                                            </TouchableOpacity>
+                                        );
+                                    }}
+                                />
 
-                                <Animated.View
-                                    style={[styles.modalContent, { transform: [{ translateY: gestureTranslateY }] }]}
-                                >
-                                    <Notch />
-                                    <Text style={styles.title}>Select Recurring Days</Text>
-                                    <FlatList
-                                        data={daysOfWeek}
-                                        keyExtractor={(item) => item}
-                                        extraData={days}
-                                        renderItem={({ item }) => {
-                                            const isSelected = days.has(item);
-                                            return (
-                                                <TouchableOpacity style={styles.item} onPress={() => toggleDay(item)}>
-                                                    <Text style={styles.text}>{item}</Text>
-                                                    <Text style={styles.checkbox}>{isSelected ? "✔" : "○"}</Text>
-                                                </TouchableOpacity>
-                                            );
-                                        }}
-                                    />
-
-                                    <TouchableOpacity style={styles.saveButton} onPress={() => onSave([...days])}>
-                                        <Text style={styles.saveButtonText}>Save</Text>
-                                    </TouchableOpacity>
-                                </Animated.View>
-                            </PanGestureHandler>
-                        </View>
-                    </TouchableWithoutFeedback>
-                </View>
-            </GestureHandlerRootView>
+                                <TouchableOpacity style={styles.saveButton} onPress={() => onSave([...days])}>
+                                    <Text style={styles.saveButtonText}>Save</Text>
+                                </TouchableOpacity>
+                            </Animated.View>
+                        </GestureDetector>
+                    </View>
+                </TouchableWithoutFeedback>
+            </View>
         </Modal>
     );
 };

@@ -3,6 +3,7 @@ import { TextInput, TouchableOpacity, Text, Alert, StyleSheet } from "react-nati
 import { GooglePlacesAutocomplete } from "react-native-google-places-autocomplete";
 import { useDispatch } from "react-redux";
 import { registerUser } from "../../Slices/UserSlice";
+import { googlePlacesDefaultProps } from "../../utils/googleplacesDefaults";
 
 const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 
@@ -135,6 +136,7 @@ export default function RegisterForm({ form, setForm, isBusiness, onSuccess }) {
               elevation: 2,
             },
           }}
+          {...googlePlacesDefaultProps}
         />
       )}
       <TouchableOpacity style={styles.authButton} onPress={handleRegister}>

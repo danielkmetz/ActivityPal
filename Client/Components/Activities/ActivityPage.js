@@ -44,10 +44,10 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
     const dispatch = useDispatch();
     const navigation = useNavigation();
     const status = useSelector(selectGoogleStatus);
-    const activities = useSelector(selectGooglePlaces);
-    const events = useSelector(selectEvents);
+    const activities = useSelector(selectGooglePlaces) || [];
+    const events = useSelector(selectEvents) || [];
     const eventType = useSelector(selectEventType);
-    const businessData = useSelector(selectBusinessData);
+    const businessData = useSelector(selectBusinessData) || [];
     const coordinates = useSelector(selectCoordinates);
     const [prefModalVisible, setPrefModalVisible] = useState(false);
     const [keyboardOpen, setKeyboardOpen] = useState(false);
@@ -172,37 +172,42 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
         const today = new Date();
         const todayStr = today.toISOString().split("T")[0];
         const weekday = today.toLocaleDateString("en-US", { weekday: "long" });
-
+      
+        // 🛡️ guard
+        if (!Array.isArray(activities) || !Array.isArray(businessData)) {
+          return { highlighted: [], regular: [] };
+        }
+      
         const merged = activities.map(activity => {
-            const business = businessData.find(biz => biz.placeId === activity.place_id);
-
-            if (business) {
-                const validEvents = (business.events || []).filter(event => {
-                    const isOneTimeToday = event.date === todayStr;
-                    const isRecurringToday = event.recurringDays?.includes(weekday);
-                    return isOneTimeToday || isRecurringToday;
-                });
-
-                const validPromotions = (business.promotions || []).filter(promo =>
-                    promo.recurringDays?.includes(weekday)
-                );
-
-                return {
-                    ...activity,
-                    events: validEvents,
-                    promotions: validPromotions,
-                    business,
-                };
-            }
-
-            return { ...activity, events: [], promotions: [] };
+          const business = (businessData || []).find(biz => biz.placeId === activity.place_id);
+      
+          if (business) {
+            const validEvents = (business.events || []).filter(event => {
+              const isOneTimeToday = event.date === todayStr;
+              const isRecurringToday = event.recurringDays?.includes(weekday);
+              return isOneTimeToday || isRecurringToday;
+            });
+      
+            const validPromotions = (business.promotions || []).filter(promo =>
+              promo.recurringDays?.includes(weekday)
+            );
+      
+            return {
+              ...activity,
+              events: validEvents,
+              promotions: validPromotions,
+              business,
+            };
+          }
+      
+          return { ...activity, events: [], promotions: [] };
         });
-
-        const highlighted = merged.filter(item => item.events?.length > 0 || item.promotions?.length > 0);
-        const regular = merged.filter(item => item.events?.length === 0 && item.promotions?.length === 0);
-
+      
+        const highlighted = (merged || []).filter(item => item.events?.length > 0 || item.promotions?.length > 0);
+        const regular = (merged || []).filter(item => item.events?.length === 0 && item.promotions?.length === 0);
+      
         return { highlighted, regular };
-    }, [activities, businessData]);
+    }, [activities, businessData]);      
 
     const { highlighted, regular } = mergedSorted;
 
@@ -226,31 +231,42 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
     };
 
     const allTypes = useMemo(() => {
-        const combined = [...highlighted, ...regular];
+        const combined = ([...highlighted, ...regular] || []).filter(Boolean); // filter out null/undefined
         const all = new Set();
-
+      
         combined.forEach(item => {
-            item.types?.forEach(type => {
-                // Skip generic types
-                if (!["point_of_interest", "establishment"].includes(type)) {
-                    all.add(type);
-                }
+          if (Array.isArray(item.types)) {
+            item.types.forEach(type => {
+              if (!["point_of_interest", "establishment"].includes(type)) {
+                all.add(type);
+              }
             });
+          }
         });
-
+      
         return Array.from(all).slice(0, 10); // Optional: limit to top 10
-    }, [highlighted, regular]);
+    }, [highlighted, regular]);      
 
     const filteredDisplayList = useMemo(() => {
-        const paginatedRegular = paginateRegular(regular, currentPage, perPage);
-        const combinedList = [...highlighted, ...paginatedRegular];
-
+        const safeRegular = Array.isArray(regular) ? regular : [];
+        const safeHighlighted = Array.isArray(highlighted) ? highlighted : [];
+    
+        const paginatedRegular = paginateRegular(safeRegular, currentPage, perPage);
+        const combinedList = [...safeHighlighted, ...paginatedRegular].filter(item => item && typeof item === 'object');
+    
+        combinedList.forEach((item, i) => {
+            if (!item || typeof item !== 'object') {
+              console.warn(`🚨 Invalid item at index ${i}:`, item);
+            }
+          });
+        
         const filtered = categoryFilter
-            ? combinedList.filter(item => item.types?.includes(categoryFilter))
-            : combinedList;
+  ? combinedList.filter(item => Array.isArray(item.types) && item.types.includes(categoryFilter))
+  : combinedList;
 
+    
         return filtered;
-    }, [highlighted, regular, currentPage, perPage, categoryFilter]);
+    }, [highlighted, regular, currentPage, perPage, categoryFilter]);       
     
     return (
          <View

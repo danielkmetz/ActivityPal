@@ -1,10 +1,12 @@
 import 'react-native-get-random-values';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, View, Animated } from 'react-native';
 import AppNavigator from './Components/Navigator/Navigator';
 import { NavigationContainer, useNavigationState } from '@react-navigation/native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Provider } from 'react-redux';
 import Header from './Components/Header/Header';
 import store from './store';
@@ -23,6 +25,7 @@ import { selectUser } from './Slices/UserSlice';
 import useScrollTracking from './utils/useScrollTracking';
 import { selectIsBusiness } from './Slices/UserSlice';
 import { fetchBusinessNotifications } from './Slices/BusNotificationsSlice';
+import { BackHandler } from 'react-native';
 
 const fetchFonts = async () => {
   return await Font.loadAsync({
@@ -178,9 +181,13 @@ export default function App() {
   return (
     <Provider store={store}>
       <PaperProvider>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
         <NavigationContainer>
           <MainApp />
         </NavigationContainer>
+        </SafeAreaProvider>
+        </GestureHandlerRootView>
       </PaperProvider>
     </Provider>
   );

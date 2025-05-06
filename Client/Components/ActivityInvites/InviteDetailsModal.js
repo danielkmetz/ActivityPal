@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
     Modal,
     View,
@@ -7,24 +7,30 @@ import {
     Image,
     TouchableOpacity,
     ScrollView,
-    Pressable,
+    Dimensions,
+    TouchableWithoutFeedback,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { acceptInvite, rejectInvite } from '../../Slices/InvitesSlice';
-import { PanGestureHandler } from 'react-native-gesture-handler';
+import { GestureDetector } from 'react-native-gesture-handler';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigation } from '@react-navigation/native';
+import useSlideDownDismiss from '../../utils/useSlideDown';
 import { selectUserAndFriendsReviews, setUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
+
+const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 const InviteDetailsModal = ({ visible, onClose, invite, userId, onEdit, onDelete, setShowDetailsModal }) => {
     const dispatch = useDispatch();
     const navigation = useNavigation();
     const userAndFriendReviews = useSelector(selectUserAndFriendsReviews);
-    if (!invite) return null;
-    const isSender = invite.senderId?.toString() === userId?.toString();
+    const isSender = invite?.senderId?.toString() === userId?.toString();
     const requests = invite?.requests;
 
-    const isRecipient = invite.recipients?.some(
+    const { gesture, animateIn, animateOut, animatedStyle, } = useSlideDownDismiss(onClose);
+
+    const isRecipient = invite?.recipients?.some(
         (r) => r.userId?.toString() === userId && r.status === 'pending'
     );
 
@@ -34,7 +40,7 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, onEdit, onDelete
         declined: []
     };
 
-    invite.recipients?.forEach((recipient) => {
+    invite?.recipients?.forEach((recipient) => {
         if (recipient.status === 'accepted') {
             categorizedRecipients.confirmed.push(recipient);
         } else if (recipient.status === 'pending') {
@@ -46,26 +52,26 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, onEdit, onDelete
 
     const handleAccept = async () => {
         try {
-          const { payload: updatedInvite } = await dispatch(
-            acceptInvite({ recipientId: userId, inviteId: invite._id })
-          );
-      
-          // Format the accepted invite like a review/check-in with a type and createdAt
-          const enrichedInvite = {
-            ...updatedInvite,
-            type: 'invite',
-            createdAt: updatedInvite.dateTime,
-          };
-      
-          // Merge it into the reviews state
-          const updatedFeed = [...userAndFriendReviews, enrichedInvite].sort(
-            (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
-          );
-      
-          dispatch(setUserAndFriendsReviews(updatedFeed));
-          onClose();
+            const { payload: updatedInvite } = await dispatch(
+                acceptInvite({ recipientId: userId, inviteId: invite._id })
+            );
+
+            // Format the accepted invite like a review/check-in with a type and createdAt
+            const enrichedInvite = {
+                ...updatedInvite,
+                type: 'invite',
+                createdAt: updatedInvite.dateTime,
+            };
+
+            // Merge it into the reviews state
+            const updatedFeed = [...userAndFriendReviews, enrichedInvite].sort(
+                (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+            );
+
+            dispatch(setUserAndFriendsReviews(updatedFeed));
+            onClose();
         } catch (err) {
-          console.error('Failed to accept invite:', err);
+            console.error('Failed to accept invite:', err);
         }
     };
 
@@ -85,6 +91,14 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, onEdit, onDelete
         }
     };
 
+    useEffect(() => {
+        if (visible) {
+            animateIn();            // Animate it in
+        } else {
+            onClose();
+        }
+    }, [visible]);
+
     const renderFriendPills = (list) => (
         <View style={styles.inviteesRow}>
             {list.map((recipient, index) => (
@@ -103,6 +117,8 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, onEdit, onDelete
         </View>
     );
 
+    if (!visible) return null
+
     return (
         <Modal
             visible={visible}
@@ -110,9 +126,10 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, onEdit, onDelete
             transparent
             onRequestClose={onClose}
         >
-            <Pressable style={styles.overlay} onPress={onClose}>
-                <PanGestureHandler onGestureEvent={() => { }} onEnded={onClose}>
-                    <Pressable style={styles.modalContainer} onPress={() => { }}>
+            <TouchableWithoutFeedback onPress={onClose}>
+                <View style={styles.overlay}>
+                <GestureDetector gesture={gesture}>
+                    <Animated.View style={[styles.modalContainer, animatedStyle]} >
                         <View style={styles.notch} />
                         <ScrollView>
                             <Text style={styles.title}>Invite Details</Text>
@@ -121,7 +138,7 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, onEdit, onDelete
                                 <>
                                     <View style={styles.infoRow}>
                                         <Text style={styles.label}>From:</Text>
-                                        <Image source={{ uri: invite.sender.presignedProfileUrl }} style={styles.profilePic} />
+                                        <Image source={{ uri: invite?.sender?.presignedProfileUrl }} style={styles.profilePic} />
                                         <Text style={styles.text}>
                                             {invite?.sender?.firstName} {invite?.sender?.lastName}
                                         </Text>
@@ -135,7 +152,7 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, onEdit, onDelete
                                         <Image source={{ uri: invite?.business?.presignedPhotoUrl }} style={styles.logoPic} />
                                     )}
                                     <Text style={[styles.text, { textDecorationLine: 'underline', color: '#007bff' }]}>
-                                        {invite.business?.businessName || invite.placeId}
+                                        {invite?.business?.businessName || invite?.placeId}
                                     </Text>
                                 </TouchableOpacity>
                             </View>
@@ -149,8 +166,8 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, onEdit, onDelete
 
                             {invite?.note && invite?.sender?.firstName && (
                                 <>
-                                    <Text style={styles.label}>{invite.sender.firstName} said:</Text>
-                                    <Text style={styles.note}>{invite.note}</Text>
+                                    <Text style={styles.label}>{invite?.sender.firstName} said:</Text>
+                                    <Text style={styles.note}>{invite?.note}</Text>
                                 </>
                             )}
 
@@ -202,7 +219,7 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, onEdit, onDelete
                                         style={styles.deleteButton}
                                         onPress={() => {
                                             onDelete(invite);
-                                            const filteredFeed = userAndFriendReviews.filter(item => item.id !== invite._id);
+                                            const filteredFeed = (userAndFriendReviews || []).filter(item => item.id !== invite._id);
                                             dispatch(setUserAndFriendsReviews(filteredFeed));
                                             onClose();
                                         }}
@@ -212,9 +229,10 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, onEdit, onDelete
                                 </View>
                             )}
                         </ScrollView>
-                    </Pressable>
-                </PanGestureHandler>
-            </Pressable>
+                    </Animated.View>
+                </GestureDetector>
+                </View>
+            </TouchableWithoutFeedback>
         </Modal>
     );
 };
@@ -222,15 +240,24 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, onEdit, onDelete
 const styles = StyleSheet.create({
     overlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.5)',
+        backgroundColor: '#00000088',
         justifyContent: 'flex-end',
     },
     modalContainer: {
+        width: '100%',
+        height: SCREEN_HEIGHT * 0.70,
         backgroundColor: '#fff',
-        padding: 20,
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
-        height: '68%',
+        paddingHorizontal: 16,
+        paddingTop: 10,
+        paddingBottom: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 10,
+        alignSelf: 'flex-end', // anchor it to the bottom
     },
     notch: {
         width: 50,

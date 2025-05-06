@@ -1712,11 +1712,11 @@ export const {
   resetAllReviews,
 } = reviewsSlice.actions;
 
-export const selectProfileReviews = (state) => state.reviews.profileReviews;
-export const selectBusinessReviews = (state) => state.reviews.businessReviews;
-export const selectOtherUserReviews = (state) => state.reviews.otherUserReviews;
+export const selectProfileReviews = (state) => state.reviews.profileReviews || [];
+export const selectBusinessReviews = (state) => state.reviews.businessReviews || [];
+export const selectOtherUserReviews = (state) => state.reviews.otherUserReviews || [];
 export const selectLoading = (state) => state.reviews.loading;
 export const selectError = (state) => state.reviews.error;
-export const selectLocalReviews = (state) => state.reviews.localReviews;
-export const selectUserAndFriendsReviews = (state) => state.reviews.userAndFriendsReviews;
+export const selectLocalReviews = (state) => state.reviews.localReviews || [];
+export const selectUserAndFriendsReviews = (state) => state.reviews.userAndFriendsReviews || [];
 export const selectSelectedReview = (state) => state.reviews.selectedReview;

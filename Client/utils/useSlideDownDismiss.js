@@ -1,4 +1,3 @@
-// utils/useSlideDownDismiss.js
 import { useRef } from 'react';
 import { Animated, Dimensions, PanResponder } from 'react-native';
 

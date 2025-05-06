@@ -287,7 +287,6 @@ export default function Notifications() {
                 postType: 'invite',
             };
     
-            console.log('📨 Sending acceptance notification:', notifPayload);
             await dispatch(createNotification(notifPayload));
     
             // ✅ Replace the invite in the list
@@ -351,10 +350,10 @@ export default function Notifications() {
     return (
         <View style={styles.container}>
             <FlatList
-                data={[...notifications].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))} // Sort by newest
+                data={[...notifications || []].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))} // Sort by newest
                 keyExtractor={(item) => item._id}
                 renderItem={({ item }) => {
-                    const sender = friendRequestDetails.find(user => user._id === item.relatedId);
+                    const sender = (friendRequestDetails || []).find(user => user._id === item.relatedId);
                     return (
                         <SwipeableRow onSwipe={handleDeleteNotification} notificationId={item._id}>
                         <TouchableOpacity

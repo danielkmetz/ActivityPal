@@ -162,7 +162,7 @@ export default eventsSlice.reducer;
 
 export const {resetEvents} = eventsSlice.actions;
 
-export const selectEvents = (state) => state.events.events;
+export const selectEvents = (state) => state.events.events || [];
 export const selectLoading = (state) => state.events.loading;
 export const selectError = (state) => state.events.error;
 

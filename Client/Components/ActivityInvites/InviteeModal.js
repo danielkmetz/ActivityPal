@@ -7,10 +7,10 @@ import {
     TouchableWithoutFeedback,
     Modal,
     Dimensions,
-    Animated,
     Image,
 } from 'react-native';
-import { PanGestureHandler } from 'react-native-gesture-handler';
+import Animated from 'react-native-reanimated';
+import { GestureDetector } from 'react-native-gesture-handler';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg'
 import { acceptInviteRequest, rejectInviteRequest, } from '../../Slices/InvitesSlice';
 import { createNotification } from '../../Slices/NotificationsSlice';
@@ -31,7 +31,7 @@ const InviteeModal = ({ visible, onClose, requests, recipients = [], isSender, i
     
     const going = recipients.filter(r => r.status === 'accepted');
     const invited = recipients.filter(r => r.status !== 'accepted');
-    const { gestureTranslateY, animateIn, animateOut, onGestureEvent, onHandlerStateChange } = useSlideDownDismiss(onClose);
+    const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
 
     useEffect(() => {
         if (visible) {
@@ -80,7 +80,7 @@ const InviteeModal = ({ visible, onClose, requests, recipients = [], isSender, i
                 dispatch(setUserAndFriendsReviews(updatedList));
         
                 // ✅ Remove the requestInvite notification
-                const filtered = notifications.filter(n =>
+                const filtered = (notifications || []).filter(n =>
                     !(n.type === 'requestInvite' && n.relatedId === relatedId && n.targetId === targetId)
                 );
         
@@ -137,11 +137,10 @@ const InviteeModal = ({ visible, onClose, requests, recipients = [], isSender, i
         <Modal visible={visible} transparent animationType='slide'>
             <TouchableWithoutFeedback onPress={onClose}>
                 <View style={styles.overlay}>
-                    <PanGestureHandler
-                        onGestureEvent={onGestureEvent}
-                        onHandlerStateChange={onHandlerStateChange}
+                    <GestureDetector
+                        gesture={gesture}
                     >
-                        <Animated.View style={[styles.container, { transform: [{ translateY: gestureTranslateY }] }]}>
+                        <Animated.View style={[styles.container, animatedStyle]}>
                             <View style={styles.notchContainer}>
                                 <View style={styles.notch} />
                             </View>
@@ -254,7 +253,7 @@ const InviteeModal = ({ visible, onClose, requests, recipients = [], isSender, i
                             )}
 
                         </Animated.View>
-                    </PanGestureHandler>
+                    </GestureDetector>
                 </View>
             </TouchableWithoutFeedback>
         </Modal>

@@ -5,6 +5,7 @@ import {
     FlatList,
     StyleSheet,
     Animated,
+    Dimensions,
 } from "react-native";
 import { Avatar } from "@rneui/themed";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -16,6 +17,9 @@ import PostOptionsMenu from "./PostOptionsMenu";
 import ExpandableText from "./ExpandableText";
 import { selectUser } from '../../Slices/UserSlice';
 import { useSelector } from "react-redux";
+import FullScreenPhotoModal from "./FullScreenPhotoModal";
+
+const screenWidth = Dimensions.get("window").width;
 
 export default function ReviewItem({
     item,
@@ -33,9 +37,16 @@ export default function ReviewItem({
     const isSender = item.userId === user?.id;
     const [dropdownVisible, setDropdownVisible] = useState(false);
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+    const [fullScreenPhoto, setFullScreenPhoto] = useState(null);
+    const [photoModalVisible, setPhotoModalVisible] = useState(false);
     const scrollX = useRef(new Animated.Value(0)).current;
 
     const currentPhoto = item.photos?.[currentPhotoIndex];
+
+    const handleOpenFullScreen = (photo) => {
+        setFullScreenPhoto(photo);
+        setPhotoModalVisible(true);
+    };
 
     return (
         <View style={styles.reviewCard}>
@@ -124,6 +135,7 @@ export default function ReviewItem({
                                 toggleTaggedUsers={toggleTaggedUsers}
                                 handleLikeWithAnimation={handleLikeWithAnimation}
                                 lastTapRef={lastTapRef}
+                                onOpenFullScreen={handleOpenFullScreen}
                             />
                         )}
                     />
@@ -141,6 +153,23 @@ export default function ReviewItem({
                 handleOpenComments={handleOpenComments}
                 toggleTaggedUsers={toggleTaggedUsers}
                 photo={currentPhoto}
+            />
+            
+            <FullScreenPhotoModal
+                visible={photoModalVisible}
+                photo={fullScreenPhoto}
+                setPhotoModalVisible={setPhotoModalVisible}
+                review={item}
+                likedAnimations={likedAnimations}
+                lastTapRef={lastTapRef}
+                photoTapped={photoTapped}
+                toggleTaggedUsers={toggleTaggedUsers}
+                handleLikeWithAnimation={handleLikeWithAnimation}
+                handleLike={handleLike}
+                onClose={() => {
+                    setFullScreenPhoto(null);
+                    setPhotoModalVisible(false);
+                }}                  
             />
         </View>
     );

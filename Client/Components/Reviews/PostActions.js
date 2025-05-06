@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, TouchableWithoutFeedback } fr
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 export default function PostActions({ item, handleLike, handleOpenComments, toggleTaggedUsers, photo }) {
+
   return (
     <View style={styles.actionsContainer}>
       <TouchableOpacity
@@ -29,11 +30,14 @@ export default function PostActions({ item, handleLike, handleOpenComments, togg
         <Text style={styles.commentCount}>{item?.comments?.length || 0}</Text>
       </TouchableOpacity>
 
-      <TouchableWithoutFeedback onPress={() => toggleTaggedUsers(photo.photoKey)}>
-    <View style={styles.tagIcon}>
-      <MaterialCommunityIcons name="tag" size={24} color="white" />
-    </View>
-  </TouchableWithoutFeedback>
+      {item.type !== 'invite' &&
+        photo?.taggedUsers?.length > 0 && (
+          <TouchableWithoutFeedback onPress={() => toggleTaggedUsers(photo.photoKey)}>
+            <View style={styles.tagIcon}>
+              <MaterialCommunityIcons name="tag" size={24} color="white" />
+            </View>
+          </TouchableWithoutFeedback>
+        )}
     </View>
   );
 }
@@ -67,5 +71,5 @@ const styles = StyleSheet.create({
     padding: 6,
     borderRadius: 20,
   }
-  
+
 });

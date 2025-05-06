@@ -113,8 +113,8 @@ export const calculateMetrics = (businessData) => {
 
   // Upcoming vs. past events
   const now = new Date();
-  const upcomingEvents = events.filter((event) => new Date(event.date) >= now).length;
-  const pastEvents = events.filter((event) => new Date(event.date) < now).length;
+  const upcomingEvents = (events || []).filter((event) => new Date(event.date) >= now).length;
+  const pastEvents = (events || []).filter((event) => new Date(event.date) < now).length;
 
   return {
     totalReviews,

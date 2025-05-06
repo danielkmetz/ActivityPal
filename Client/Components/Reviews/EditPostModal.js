@@ -13,10 +13,9 @@ import {
     Keyboard,
     TouchableOpacity,
     KeyboardAvoidingView,
-    Platform,
     Modal,
 } from "react-native";
-import { AirbnbRating } from "react-native-ratings";
+import { Rating } from "react-native-ratings";
 import { useDispatch, useSelector } from "react-redux";
 import { editReview } from "../../Slices/ReviewsSlice";
 import { editCheckIn } from "../../Slices/CheckInsSlice";
@@ -207,13 +206,15 @@ export default function EditPostModal({ visible, post, onClose }) {
                                         {post?.type === "review" && (
                                             <>
                                                 <Text style={styles.label}>Edit Rating</Text>
-                                                <AirbnbRating
+                                                <View style={{ alignItems: 'flex-start', marginBottom: 10,}}>
+                                                <Rating
                                                     count={5}
                                                     defaultRating={rating}
                                                     size={20}
                                                     showRating={false}
                                                     onFinishRating={setRating}
                                                 />
+                                                </View>
                                             </>
                                         )}
 
@@ -378,6 +379,7 @@ const styles = StyleSheet.create({
         height: 80,
         borderRadius: 8,
         marginRight: 10,
+        marginBottom: 10,
     },
     inviteesRow: {
         flexDirection: 'row',

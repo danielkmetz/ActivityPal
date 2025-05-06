@@ -88,7 +88,7 @@ const GooglePlacesSlice = createSlice({
 
 export const { clearGooglePlaces } = GooglePlacesSlice.actions;
 
-export const selectGooglePlaces = (state) => state.GooglePlaces.curatedPlaces;
+export const selectGooglePlaces = (state) => state.GooglePlaces.curatedPlaces || [];
 export const selectGoogleStatus = (state) => state.GooglePlaces.status;
 
 export default GooglePlacesSlice.reducer;

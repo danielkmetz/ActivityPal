@@ -1,4 +1,3 @@
-// Components/QuickFilters/QuickFilters.js
 import React from 'react';
 import {
     View,

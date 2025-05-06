@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import {
     Modal,
     View,
-    Animated,
     Text,
     TextInput,
     TouchableOpacity,
@@ -17,6 +16,7 @@ import {
     Image,
     Keyboard,
 } from "react-native";
+import Animated from "react-native-reanimated";
 import { useDispatch, useSelector } from "react-redux";
 import {
     createPromotion,
@@ -55,7 +55,7 @@ const CreatePromotionModal = ({ visible, onClose, placeId, onPromotionCreated, p
     const [endTime, setEndTime] = useState(new Date());
 
     const dateLabel = isSingleDay ? "Date" : "Valid";
-    const { gestureTranslateY, animateIn, animateOut, onGestureEvent, onHandlerStateChange } = useSlideDownDismiss(onClose);
+    const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
 
     useEffect(() => {
         if (selectedPhotos) setPhotoList(selectedPhotos);
@@ -220,14 +220,12 @@ const CreatePromotionModal = ({ visible, onClose, placeId, onPromotionCreated, p
 
     return (
         <Modal visible={visible} animationType="slide" transparent>
-            <GestureHandlerRootView style={{ flex: 1 }}>
                 <TouchableWithoutFeedback onPress={animateOut}>
                     <View style={styles.modalOverlay}>
-                        <PanGestureHandler
-                            onGestureEvent={onGestureEvent}
-                            onHandlerStateChange={onHandlerStateChange}
+                        <GestureDetector
+                            gesture={gesture}
                         >
-                            <Animated.View style={[styles.modalContent, { transform: [{ translateY: gestureTranslateY }] }]}>
+                            <Animated.View style={[styles.modalContent, animatedStyle]}>
                                 <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
                                     <KeyboardAvoidingView
                                         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -355,7 +353,7 @@ const CreatePromotionModal = ({ visible, onClose, placeId, onPromotionCreated, p
                                     </KeyboardAvoidingView>
                                 </TouchableWithoutFeedback>
                             </Animated.View>
-                        </PanGestureHandler>
+                        </GestureDetector>
                     </View>
                 </TouchableWithoutFeedback>
 
@@ -388,7 +386,6 @@ const CreatePromotionModal = ({ visible, onClose, placeId, onPromotionCreated, p
                 />
 
                 <RecurringDaysModal visible={recurringDaysModalVisible} selectedDays={selectedDays} onSave={(days) => { setSelectedDays(days); setRecurringDaysModalVisible(false); }} onClose={() => { setRecurringDaysModalVisible(false); if (selectedDays.length === 0) setIsRecurring(false); }} />
-            </GestureHandlerRootView>
         </Modal>
     );
 };

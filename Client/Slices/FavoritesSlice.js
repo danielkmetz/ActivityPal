@@ -192,10 +192,10 @@ const favoritesSlice = createSlice({
 
 export default favoritesSlice.reducer;
 
-export const selectFavorites = (state) => state.favorites.favorites;
-export const selectFavoritedDetails = (state) => state.favorites.favoritedDetails;
-export const selectFavoritesStatus = (state) => state.favorites.status;
-export const selectOtherUserFavorites = (state) => state.favorites.otherUserFavorites;
-export const selectOtherUserFavoritedDetails = (state) => state.favorites.otherUserFavoritedDetails;
+export const selectFavorites = (state) => state.favorites.favorites || [];
+export const selectFavoritedDetails = (state) => state.favorites.favoritedDetails || [];
+export const selectFavoritesStatus = (state) => state.favorites.status || [];
+export const selectOtherUserFavorites = (state) => state.favorites.otherUserFavorites || [];
+export const selectOtherUserFavoritedDetails = (state) => state.favorites.otherUserFavoritedDetails || [];
 
 export const { setFavorites, resetFavorites, setFavoritedDetails, resetFavoritedDetails } = favoritesSlice.actions;

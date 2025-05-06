@@ -1,4 +1,3 @@
-// Components/SearchBar/SearchBar.js
 import React from 'react';
 import {
     View,
@@ -8,6 +7,7 @@ import {
     StyleSheet
 } from 'react-native';
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
+import { googlePlacesDefaultProps } from '../../utils/googleplacesDefaults';
 
 const SearchBar = ({ lat, lng, onSelectPlace, fetchPlaceImage, placeImages, GOOGLE_API_KEY }) => {
     return (
@@ -22,17 +22,17 @@ const SearchBar = ({ lat, lng, onSelectPlace, fetchPlaceImage, placeImages, GOOG
                     rankby: "distance",
                 }}
                 fetchDetails={true}
-                onFail={(error) => console.log("Google Places Error:", error)}
                 styles={{
                     textInput: styles.searchInput,
                     listView: styles.listView,
                 }}
+                {...googlePlacesDefaultProps}
                 renderRow={(data) => {
                     const placeId = data?.place_id;
                     const terms = data?.terms;
 
-                    const city = terms?.[2]?.value || "Unknown City";
-                    const state = terms?.[3]?.value || "Unknown State";
+                    const city = Array.isArray(terms) && terms[2]?.value ? terms[2].value : "Unknown City";
+                    const state = Array.isArray(terms) && terms[3]?.value ? terms[3].value : "Unknown State";
 
                     if (placeId && !placeImages[placeId]) {
                         fetchPlaceImage(placeId);

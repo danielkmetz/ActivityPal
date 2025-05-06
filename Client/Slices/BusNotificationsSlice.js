@@ -120,7 +120,7 @@ const businessNotificationsSlice = createSlice({
 export default businessNotificationsSlice.reducer;
 
 export const selectBusinessNotifications = (state) =>
-  state.businessNotifications.list;
+  state.businessNotifications.list || [];
 export const selectBusinessUnreadCount = (state) =>
   state.businessNotifications.unreadCount;
 export const selectBusinessStatus = (state) =>
