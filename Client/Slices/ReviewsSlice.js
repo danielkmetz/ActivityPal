@@ -136,8 +136,6 @@ export const fetchReviewsByUserId = createAsyncThunk(
       const query = `
         query GetUserPosts($userId: ID!, $limit: Int, $after: ActivityCursor) {
           getUserPosts(userId: $userId, limit: $limit, after: $after) {
-            __typename  
-
              ... on Review {
             _id
             userId
@@ -318,8 +316,6 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
       const query = `
         query GetUserPosts($userId: ID!, $limit: Int, $after: ActivityCursor) {
           getUserPosts(userId: $userId, limit: $limit, after: $after) {
-            __typename  
-
             ... on Review {
               _id
               type
@@ -377,7 +373,7 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
                           commentText
                           userId
                           fullName
-                          lies
+                          likes
                           date
                           replies {
                             _id

@@ -54,12 +54,18 @@ export default function Header({ currentRoute }) {
                         {/* Location Display */}
                         <View style={styles.locationContainer}>
                             <Image
-                                source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // A pin icon URL
+                                source={{ uri: 'https://cdn-icons-png.flaticon.com/512/54/54481.png' }} // Search icon
+                                style={styles.smallIcon}
+                            />
+                            <Image
+                                source={{ uri: 'https://cdn-icons-png.flaticon.com/512/1828/1828817.png' }} // Plus icon
+                                style={styles.smallIcon}
+                            />
+                            <Image
+                                source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // Pin icon
                                 style={styles.pinIcon}
                             />
-                            <Text style={styles.locationText}>{location?.city || "Unknown City"}</Text>
                         </View>
-
                         {/* Weather Display */}
                         {/* <View style={styles.weatherContainer}>
                     {weatherIcon && (
@@ -114,8 +120,9 @@ const styles = StyleSheet.create({
     //     fontWeight: 'bold',
     // },
     locationContainer: {
-        flexDirection: 'column',
+        flexDirection: 'row',
         alignItems: 'center',
+        gap: 13,
     },
     pinIcon: {
         width: 18,
@@ -126,6 +133,11 @@ const styles = StyleSheet.create({
         color: 'white',
         fontWeight: 'bold',
         marginTop: 5,
+    },
+    smallIcon: {
+        width: 18,
+        height: 18,
+        marginRight: 5,
     },
 });
 

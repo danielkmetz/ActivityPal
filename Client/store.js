@@ -6,7 +6,7 @@ import userReducer from './Slices/UserSlice';
 import eventsReducer from './Slices/EventsSlice';
 import reviewsReducer from './Slices/ReviewsSlice';
 import photosReducer from './Slices/PhotosSlice';
-import friendsReducer from './Slices/friendsSlice';
+import followsReducer from './Slices/friendsSlice';
 import notificationsReducer from './Slices/NotificationsSlice';
 import checkInsReducer from './Slices/CheckInsSlice';
 import favoritesReducer from './Slices/FavoritesSlice';
@@ -15,6 +15,7 @@ import GooglePlacesReducer from './Slices/GooglePlacesSlice';
 import PaginationReducer from './Slices/PaginationSlice';
 import InvitesReducer from './Slices/InvitesSlice';
 import businessNotificationsReducer from './Slices/BusNotificationsSlice';
+import commentThreadReducer from './Slices/CommentThreadSlice';
 
 const store = configureStore({
     reducer: combineReducers({
@@ -25,7 +26,7 @@ const store = configureStore({
        events: eventsReducer,
        reviews: reviewsReducer,
        photos: photosReducer,
-       friends: friendsReducer,
+       follows: followsReducer,
        notifications: notificationsReducer,
        checkIns: checkInsReducer,
        favorites: favoritesReducer,
@@ -34,6 +35,7 @@ const store = configureStore({
        pagination: PaginationReducer,
        invites: InvitesReducer,
        businessNotifications: businessNotificationsReducer,
+       commentThread: commentThreadReducer,
     })
 });
 

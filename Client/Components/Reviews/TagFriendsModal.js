@@ -10,11 +10,11 @@ import {
   Pressable,
 } from "react-native";
 import { useSelector } from "react-redux";
-import { selectFriendsDetails } from "../../Slices/UserSlice";
+import { selectFriends } from "../../Slices/friendsSlice";
 
 const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isEventInvite, initialSelectedFriends = [] }) => {
   const [selectedFriends, setSelectedFriends] = useState([]);
-  const friendsDetails = useSelector(selectFriendsDetails);
+  const friends = useSelector(selectFriends);
 
   // **Reset selection if the modal is for photo tagging**
   useEffect(() => {
@@ -22,8 +22,7 @@ const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isE
       if (isPhotoTagging) {
         setSelectedFriends([]);
       } else if (Array.isArray(initialSelectedFriends)) {
-        // Match by ID against full friendsDetails
-        const matched = friendsDetails.filter(f =>
+        const matched = friends.filter(f =>
           initialSelectedFriends.some(tagged =>
             tagged.userId === f._id || tagged._id === f._id
           )
@@ -32,7 +31,7 @@ const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isE
         setSelectedFriends(matched);
       }
     }
-  }, [visible, friendsDetails]);  
+  }, [visible, friends]);  
   
   // Toggle selection of friends (store full object instead of just the ID)
   const toggleFriendSelection = (friend) => {
@@ -58,7 +57,7 @@ const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isE
 
           {/* Friend List with Profile Picture & Custom Checkboxes */}
           <FlatList
-            data={friendsDetails}
+            data={friends}
             keyExtractor={(item) => item._id.toString()} // Ensure unique key
             renderItem={({ item }) => {
               const isSelected = selectedFriends.some((f) => f._id === item._id);

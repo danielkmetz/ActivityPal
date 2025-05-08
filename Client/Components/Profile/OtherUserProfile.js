@@ -2,15 +2,17 @@ import React, { useEffect, useState } from "react";
 import { View, Text, Image, StyleSheet, TouchableOpacity, FlatList } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useDispatch, useSelector } from "react-redux";
+import { selectUser, fetchOtherUserSettings, selectOtherUserSettings } from "../../Slices/UserSlice";
 import { 
-  selectFriends, 
-  selectFriendRequests, 
-  sendFriendRequest, 
-  cancelFriendRequest, 
-  acceptFriendRequest, 
-  removeFriend, 
-  declineFriendRequest 
-} from "../../Slices/UserSlice";
+  selectFollowRequests, 
+  selectFollowing, 
+  acceptFollowRequest,
+  sendFollowRequest,
+  cancelFollowRequest,
+  declineFollowRequest,
+  unfollowUser,
+  followUserImmediately,
+} from "../../Slices/friendsSlice";
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import Reviews from "../Reviews/Reviews";
 import Photos from "./Photos";
@@ -30,7 +32,6 @@ import {
   setOtherUserReviews, 
 } from "../../Slices/ReviewsSlice";
 import { createNotification } from "../../Slices/NotificationsSlice";
-import { selectUser } from "../../Slices/UserSlice";
 import Favorites from "./Favorites";
 import { fetchOtherUserFavorites, selectOtherUserFavorites } from "../../Slices/FavoritesSlice";
 import usePaginatedFetch from "../../utils/usePaginatedFetch";
@@ -40,15 +41,17 @@ export default function OtherUserProfile({ route, navigation }) {
   const userId = user?._id;
   const mainUser = useSelector(selectUser);
   const dispatch = useDispatch();
-  const friendRequests = useSelector(selectFriendRequests);
+  const followRequests = useSelector(selectFollowRequests);
   const banner = useSelector(selectOtherUserBanner);
-  const friends = useSelector(selectFriends);
+  const following = useSelector(selectFollowing);
   const favorites = useSelector(selectOtherUserFavorites);
   const profileReviews = useSelector(selectOtherUserReviews);
   const otherUserProfilePic = useSelector(selectOtherUserProfilePic);
+  const otherUserPrivacy = useSelector(selectOtherUserSettings);
+  const isPrivate = otherUserPrivacy?.profileVisibility === 'private';
   const [isRequestSent, setIsRequestSent] = useState(false);
   const [isRequestReceived, setIsRequestReceived] = useState(false);
-  const [isFriend, setIsFriend] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(false);
   const [dropdownVisible, setDropdownVisible] = useState(false);
   const [activeSection, setActiveSection] = useState("reviews");
 
@@ -71,49 +74,62 @@ export default function OtherUserProfile({ route, navigation }) {
       refresh();
       dispatch(fetchOtherUserProfilePic(user._id));
       dispatch(fetchOtherUserFavorites(user._id));
+      dispatch(fetchOtherUserSettings(user._id));
     }
   }, [user]);
 
   useEffect(() => {
-    setIsRequestSent(friendRequests.sent.includes(user._id));
-    setIsRequestReceived(friendRequests.received.includes(user._id));
-    setIsFriend(friends.includes(user._id));
-  }, [friendRequests, friends, user]);
+    setIsRequestSent(followRequests.sent.includes(user._id));
+    setIsRequestReceived(followRequests.received.includes(user._id));
+    setIsFollowing(following.includes(user._id));
+  }, [followRequests, following, user]);
 
   const handleCancelRequest = async () => {
-    await dispatch(cancelFriendRequest(user._id));
-
+    await dispatch(cancelFollowRequest(user._id));
     // ✅ Explicitly update the state to ensure UI reflects the change
     setIsRequestSent(false);
   };
 
-  const handleDenyRequest = () => dispatch(declineFriendRequest(user._id));
-  const handleRemoveFriend = () => {
-    dispatch(removeFriend(user._id));
+  const handleDenyRequest = () => dispatch(declineFollowRequest(user._id));
+  const handleUnfollow = () => {
+    dispatch(unfollowUser(user._id));
     setDropdownVisible(false);
   };
 
-  const handleAddFriend = async () => {
-    await dispatch(sendFriendRequest(user._id));
-
-    // ✅ Create a notification for the recipient
-    await dispatch(createNotification({
-        userId: user._id, // Receiver of the notification
-        type: 'friendRequest',
-        message: `${mainUser.firstName} ${mainUser.lastName} sent you a friend request.`,
-        relatedId: mainUser.id,
-        typeRef: 'User'
-    }));
+  const handleFollowUser = async () => {
+    try {
+      if (isPrivate) {
+        await dispatch(sendFollowRequest(user._id));
+        await dispatch(createNotification({
+          userId: user._id,
+          type: 'followRequest',
+          message: `${mainUser.firstName} ${mainUser.lastName} wants to follow you.`,
+          relatedId: mainUser.id,
+          typeRef: 'User',
+        }));
+      } else {
+        await dispatch(followUserImmediately(user._id));
+        await dispatch(createNotification({
+          userId: user._id,
+          type: 'follow',
+          message: `${mainUser.firstName} ${mainUser.lastName} started following you.`,
+          relatedId: mainUser.id,
+          typeRef: 'User',
+        }));
+      }
+    } catch (err) {
+      console.error("Failed to follow user:", err);
+    }
   };
-
+  
   const handleAcceptRequest = async () => {
-      await dispatch(acceptFriendRequest(user._id));
+      await dispatch(acceptFollowRequest(user._id));
 
       // ✅ Create a notification for the original sender
       await dispatch(createNotification({
           userId: user._id, // The user who sent the friend request
-          type: 'friendRequestAccepted',
-          message: `${user.firstName} accepted your friend request!`,
+          type: 'followAccepted',
+          message: `${user.firstName} accepted your follow request!`,
           relatedId: user._id,
           typeRef: 'User'
       }));
@@ -146,18 +162,18 @@ export default function OtherUserProfile({ route, navigation }) {
         />
         <Text style={styles.userName}>{`${user.firstName} ${user.lastName}`}</Text>
       </View>
-      {isFriend ? (
+      {isFollowing ? (
         <>
           <TouchableOpacity
             style={styles.friendsButton}
             onPress={() => setDropdownVisible(!dropdownVisible)}
           >
-            <Text style={styles.friendsText}>Friends</Text>
+            <Text style={styles.friendsText}>Following</Text>
           </TouchableOpacity>
           {dropdownVisible && (
             <View style={styles.dropdown}>
-              <TouchableOpacity style={styles.dropdownItem} onPress={handleRemoveFriend}>
-                <Text style={styles.dropdownText}>Remove Friend</Text>
+              <TouchableOpacity style={styles.dropdownItem} onPress={handleUnfollow}>
+                <Text style={styles.dropdownText}>Unfollow</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -176,8 +192,8 @@ export default function OtherUserProfile({ route, navigation }) {
           <Text style={styles.cancelRequestText}>Cancel Request</Text>
         </TouchableOpacity>
       ) : (
-        <TouchableOpacity style={styles.addFriendButton} onPress={handleAddFriend}>
-          <Text style={styles.addFriendText}>Add Friend</Text>
+        <TouchableOpacity style={styles.addFriendButton} onPress={handleFollowUser}>
+          <Text style={styles.addFriendText}>Follow</Text>
         </TouchableOpacity>
       )}
       <View style={styles.divider} />

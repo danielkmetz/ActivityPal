@@ -26,7 +26,7 @@ const CommentModalHeader = ({
     setIsPhotoListActive,
 }) => {
     const scrollX = useRef(new Animated.Value(0)).current;
-      
+
     return (
         <View style={styles.header}>
             <View style={styles.headerText}>
@@ -40,7 +40,7 @@ const CommentModalHeader = ({
                         size={48}
                         rounded
                         source={postOwnerPic ? { uri: postOwnerPic } : profilePicPlaceholder}
-                        icon={!review?.avatarUrl ? { name: 'person', type: 'material', color: '#fff' } : null}
+                        icon={!postOwnerPic ? { name: 'person', type: 'material', color: '#fff' } : null}
                         containerStyle={{ backgroundColor: '#ccc' }}
                     />
                     <Text style={styles.reviewerName}>
@@ -63,8 +63,8 @@ const CommentModalHeader = ({
                         {review?.type === "check-in" && (
                             <Text>
                                 {" "}at{hasTaggedUsers ? <Text>{'\n'}</Text> : <Text>{" "}</Text>}
-                                <Text style={styles.businessName}>{review.businessName}</Text>
-                                {review.photos.length > 0 && (
+                                <Text style={styles.businessName}>{review?.businessName}</Text>
+                                {review?.photos?.length > 0 && (
                                     <Image
                                         source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }}
                                         style={styles.smallPinIcon}
@@ -144,7 +144,7 @@ const CommentModalHeader = ({
                 </View>
             )}
 
-            {review?.type === "check-in" && review.photos.length === 0 && (
+            {review?.type === "check-in" && review?.photos?.length === 0 && (
                 <Image
                     source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }}
                     style={styles.pinIcon}

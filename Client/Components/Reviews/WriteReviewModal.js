@@ -26,16 +26,17 @@ import { createCheckIn } from "../../Slices/CheckInsSlice";
 import TagFriendsModal from "./TagFriendsModal";
 import EditPhotoDetailsModal from "../Profile/EditPhotoDetailsModal";
 import { createNotification } from "../../Slices/NotificationsSlice";
-import { selectPhotosFromGallery } from "../../utils/selectPhotos";
+import { selectMediaFromGallery } from "../../utils/selectPhotos";
 import useSlideDownDismiss from "../../utils/useSlideDown";
 import { GestureDetector } from "react-native-gesture-handler";
 import { createBusinessNotification } from "../../Slices/BusNotificationsSlice";
 import { googlePlacesDefaultProps } from "../../utils/googleplacesDefaults";
 import Notch from "../Notch/Notch";
+import VideoThumbnail from "./VideoThumbnail";
 
 const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 
-const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, setBusiness, setBusinessName }) => {
+const WriteReviewModal = ({ visible, initialTab, onClose, setReviewModalVisible, business, setBusiness, setBusinessName }) => {
   const dispatch = useDispatch();
   const [rating, setRating] = useState(3);
   const [review, setReview] = useState("");
@@ -43,7 +44,7 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
   const [editPhotosModalVisible, setEditPhotosModalVisible] = useState(false);
   const [checkInMessage, setCheckInMessage] = useState("");
   const [taggedUsers, setTaggedUsers] = useState([]);
-  const [selectedTab, setSelectedTab] = useState("review");
+  const [selectedTab, setSelectedTab] = useState(initialTab);
   const [tagFriendsModalVisible, setTagFriendsModalVisible] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState(null);
   const [photoDetailsEditing, setPhotoDetailsEditing] = useState(false);
@@ -53,6 +54,7 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
   const fullName = `${user.firstName} ${user?.lastName}`;
   const googlePlacesRef = useRef(null);
   const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
+  const modalTitle = initialTab === "review" ? "Write a review" : "Create a check-in";
 
   useEffect(() => {
     if (visible && business && googlePlacesRef.current) {
@@ -78,20 +80,20 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
   }, [selectedPhotos]);
 
   const handlePhotoAlbumSelection = async () => {
-    const newFiles = await selectPhotosFromGallery();
+    const newFiles = await selectMediaFromGallery(); // now supports videos
     if (newFiles.length > 0) {
-      const deepClonedNewFiles = newFiles.map(photo => ({
-        ...photo,
-        taggedUsers: [], // Ensure clean copy
-        description: photo.description || '',
-        uri: photo.uri,  // explicitly copy if it exists
+      const deepClonedNewFiles = newFiles.map(file => ({
+        ...file,
+        taggedUsers: [],
+        description: file.description || '',
+        uri: file.uri,
       }));
-  
+
       setSelectedPhotos((prev) => [...prev, ...deepClonedNewFiles]);
       setPhotoList((prev) => [...prev, ...deepClonedNewFiles]);
       setEditPhotosModalVisible(true);
     }
-  };  
+  };
 
   const handleSavePhotos = (updatedPhotos) => {
     setSelectedPhotos(updatedPhotos);
@@ -258,24 +260,24 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
 
   const handlePhotoSave = (updatedPhoto) => {
     const cloned = JSON.parse(JSON.stringify(updatedPhoto));
-  
+
     setSelectedPhotos((prev) =>
       prev.map((photo) => (photo.uri === cloned.uri ? cloned : photo))
     );
-  
+
     setPhotoList((prev) =>
       prev.map((photo) => (photo.uri === cloned.uri ? cloned : photo))
     );
   };
-  
+
   const handleDeletePhoto = (photoToDelete) => {
-    setSelectedPhotos(prev => prev.filter(p => 
+    setSelectedPhotos(prev => prev.filter(p =>
       (p._id && p._id !== photoToDelete._id) || (p.uri && p.uri !== photoToDelete.uri)
     ));
-    setPhotoList(prev => prev.filter(p => 
+    setPhotoList(prev => prev.filter(p =>
       (p._id && p._id !== photoToDelete._id) || (p.uri && p.uri !== photoToDelete.uri)
     ));
-  };  
+  };
 
   const handleRating = (newRating = 3) => setRating(newRating);
 
@@ -284,21 +286,11 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
       <Notch />
       {/* Toggle Buttons */}
       <View style={styles.toggleContainer}>
-        <TouchableOpacity
-          style={[styles.toggleButton, selectedTab === "review" && styles.activeTab]}
-          onPress={() => setSelectedTab("review")}
-        >
-          <Text style={styles.toggleText}>Write a Review 📝</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.toggleButton, selectedTab === "check-in" && styles.activeTab]}
-          onPress={() => setSelectedTab("check-in")}
-        >
-          <Text style={styles.toggleText}>Check-In 📍</Text>
-        </TouchableOpacity>
+        <Text style={styles.modalTitle}>{modalTitle}</Text>
       </View>
 
       {/* Google Places Autocomplete */}
+      <Text style={styles.optionLabel}>Search a place</Text>
       <GooglePlacesAutocomplete
         placeholder="Search for a business"
         ref={googlePlacesRef}
@@ -336,7 +328,7 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
             borderRadius: 5,
             elevation: 5,
             maxHeight: 300,
-        }
+          }
         }}
         {...googlePlacesDefaultProps}
       />
@@ -365,7 +357,7 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
             onChangeText={setReview}
             autoCorrect={true}           // ✅ Ensure this is true
             autoCapitalize="sentences"  // ✅ Optional, helps trigger autocorrect
-            keyboardType="default"  
+            keyboardType="default"
             multiline
           />
         </View>
@@ -387,16 +379,24 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
       {/* Selected Photos Preview */}
       {selectedPhotos.length > 0 && (
         <View style={styles.photosContainer}>
-          <Text style={styles.optionLabel}>Photos</Text>
+          <Text style={styles.optionLabel}>Media</Text>
           <FlatList
             data={selectedPhotos}
             horizontal
             keyExtractor={(item, index) => index.toString()}
-            renderItem={({ item }) => (
-              <TouchableOpacity style={styles.photoWrapper} onPress={() => handlePreviewImagePress(item)}>
-                <Image source={{ uri: item.uri }} style={styles.photoPreview} />
-              </TouchableOpacity>
-            )}
+            renderItem={({ item }) => {
+              const isVideo = item.type?.startsWith('video/');
+            
+              return (
+                <TouchableOpacity style={styles.photoWrapper} onPress={() => handlePreviewImagePress(item)}>
+                  {isVideo ? (
+                    <VideoThumbnail file={item} width={80} height={80} />
+                  ) : (
+                    <Image source={{ uri: item.uri }} style={styles.photoPreview} />
+                  )}
+                </TouchableOpacity>
+              );
+            }}            
           />
         </View>
       )}
@@ -426,7 +426,7 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
           style={styles.uploadButton}
           onPress={handlePhotoAlbumSelection}
         >
-          <Text style={styles.uploadButtonText}>Add Photos 🖼️</Text>
+          <Text style={styles.uploadButtonText}>Add Media 🖼️</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.uploadButton} onPress={() => setTagFriendsModalVisible(true)}>
@@ -478,6 +478,7 @@ const WriteReviewModal = ({ visible, onClose, setReviewModalVisible, business, s
           <KeyboardAvoidingView
             behavior="padding"
             style={styles.keyboardAvoiding}
+            keyboardVerticalOffset={-200}
           >
             <GestureDetector
               gesture={gesture}
@@ -595,9 +596,9 @@ const styles = StyleSheet.create({
   },
   toggleContainer: {
     flexDirection: "row",
-    justifyContent: "center",
-    marginBottom: 15,
-    marginTop: 25,
+    justifyContent: "left",
+    marginBottom: 5,
+    marginTop: 15,
   },
   toggleButton: {
     flex: 1,

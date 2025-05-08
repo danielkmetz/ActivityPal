@@ -109,169 +109,40 @@ export const updateBusinessInfo = createAsyncThunk(
   }
 );
 
-// AsyncThunk for accepting friend request
-export const acceptFriendRequest = createAsyncThunk(
-  "user/acceptFriendRequest",
-  async (senderId, { rejectWithValue, getState }) => {
+export const fetchPrivacySettings = createAsyncThunk(
+  'privacy/fetchPrivacySettings',
+  async (userId, { rejectWithValue }) => {
     try {
       const token = await getUserToken();
 
-      const response = await axios.post(
-        `${BASE_URL}/friends/accept-friend-request`,
-        { senderId },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      return { senderId, friend: response.data.friend };
-    } catch (error) {
-      return rejectWithValue(
-        error.response?.data?.message || "Failed to accept friend request"
-      );
-    }
-  }
-);
-
-// Send a friend request
-export const sendFriendRequest = createAsyncThunk(
-  'user/sendFriendRequest',
-  async (recipientId, { rejectWithValue }) => {
-    try {
-      const token = await getUserToken();
-
-      const response = await axios.post(`${BASE_URL}/friends/send-friend-request`, 
-          { recipientId },
-          {
-              headers: {
-                  Authorization: `Bearer ${token}`, // Include the token here
-              },
-          }
-      );
-      return { recipientId }; // Assuming API returns a success message
-    } catch (error) {
-      return rejectWithValue(error.response.data);
-    }
-  }
-);
-
-// AsyncThunk for declining friend request
-export const declineFriendRequest = createAsyncThunk(
-  "user/declineFriendRequest",
-  async (senderId, { rejectWithValue, getState }) => {
-    try {
-      const token = await getUserToken();
-
-      await axios.post(
-        `${BASE_URL}/friends/decline-friend-request`,
-        { senderId },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      return senderId;
-    } catch (error) {
-      return rejectWithValue(
-        error.response?.data?.message || "Failed to decline friend request"
-      );
-    }
-  }
-);
-
-// AsyncThunk for removing a friend
-export const removeFriend = createAsyncThunk(
-  "user/removeFriend",
-  async (friendId, { rejectWithValue, getState }) => {
-    try {
-      const token = await getUserToken();
-
-      await axios.delete(`${BASE_URL}/friends/remove-friend/${friendId}`, {
+      const response = await axios.get(`${BASE_URL}/users/privacy-settings/${userId}`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
 
-      return friendId;
+      return response.data.privacySettings;
     } catch (error) {
-      return rejectWithValue(
-        error.response?.data?.message || "Failed to remove friend"
-      );
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch privacy settings');
     }
   }
 );
 
-// Cancel a friend request
-export const cancelFriendRequest = createAsyncThunk(
-  'user/cancelFriendRequest',
-  async (recipientId, { rejectWithValue }) => {
+export const fetchOtherUserSettings = createAsyncThunk(
+  'privacy/fetchOtherUserPrivacySettings',
+  async (userId, { rejectWithValue }) => {
     try {
-      const token = await getUserToken(); // Fetch the token
-      const response = await axios.post(
-        `${BASE_URL}/friends/cancel-friend-request`,
-        { recipientId },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`, // Add the token to the request
-          },
-        }
-      );
-      return { recipientId }; // Return recipientId to update state
+      const token = await getUserToken();
+
+      const response = await axios.get(`${BASE_URL}/users/privacy-settings/${userId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      return response.data.privacySettings;
     } catch (error) {
-      return rejectWithValue(error.response?.data || 'An error occurred');
-    }
-  }
-);
-
-// Fetch an array of users' info
-export const fetchFriendsDetails = createAsyncThunk(
-  "user/fetchFriendsDetails",
-  async (friendIds, { rejectWithValue }) => {
-    try {
-      const token = await AsyncStorage.getItem("authToken");
-      const response = await axios.post(
-        `${BASE_URL}/users/users/by-ids`,
-        { userIds: friendIds },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      return response.data; // List of friend details
-    } catch (error) {
-      return rejectWithValue(
-        error.response?.data?.message || "Failed to fetch friend details"
-      );
-    }
-  }
-);
-
-export const fetchFriendRequestsDetails = createAsyncThunk(
-  "user/fetchFriendRequestsDetails",
-  async (friendRequestIds, { rejectWithValue }) => {
-    try {
-      const token = await AsyncStorage.getItem("authToken");
-      const response = await axios.post(
-        `${BASE_URL}/users/users/by-ids`,
-        { userIds: friendRequestIds },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      return response.data; // List of users who sent friend requests
-    } catch (error) {
-      return rejectWithValue(
-        error.response?.data?.message || "Failed to fetch friend request details"
-      );
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch privacy settings');
     }
   }
 );
@@ -281,14 +152,17 @@ const userSlice = createSlice({
   name: "user",
   initialState: {
     user: null, // User data
-    friends: [], // List of friends
-    friendsDetails: [],
-    friendRequests: {
-      sent: [],
-      received: [],
-    },
-    friendRequestDetails: [],
     otherUserData: [],
+    privacySettings: {
+      profileVisibility: 'public',
+      invites: 'friendsOnly',
+      contentVisibility: 'public',
+    },
+    otherUserSettings: {
+      profileVisibility: 'public',
+      invites: 'friendsOnly',
+      contentVisibility: 'public',
+    },
     token: null, // JWT token (if applicable)
     isBusiness: false, // User type
     loading: false, // Loading state
@@ -302,22 +176,7 @@ const userSlice = createSlice({
       state.loading = false;
       state.error = null;
       state.otherUserData = [];
-      state.friends = [];
-      state.friendRequests = {
-        sent: [],
-        received: [],
-      };
-      state.friendsDetails = [];
       state.businessName = null;
-    },
-    setFriends: (state, action) => {
-      state.friends = action.payload;
-    },
-    setFriendsDetails: (state, action) => {
-      state.friendsDetails = action.payload;
-    },
-    setFriendRequests: (state, action) => {
-      state.friendRequests = action.payload;
     },
     resetBusinessName: (state) => {
       state.businessName = null;
@@ -377,90 +236,25 @@ const userSlice = createSlice({
         state.loading = false;
         state.error = action.payload || "An error occurred while updating info";
       })
-      .addCase(acceptFriendRequest.fulfilled, (state, action) => {
-        const newFriend = action.payload.friend;
-      
-        // Add new friend ID to friends array
-        if (!state.friends.includes(newFriend._id)) {
-          state.friends.push(newFriend._id);
-        }
-      
-        // Store full friend details separately
-        state.friendsDetails.push(newFriend);
-      
-        // Remove from received friend requests
-        state.friendRequests.received = state.friendRequests.received.filter(
-          id => id !== newFriend._id
-        );
-
-        state.friendRequestDetails = state.friendRequestDetails.filter(
-          user => user._id !== newFriend._id
-        );
+      .addCase(fetchPrivacySettings.fulfilled, (state, action) => {
+        state.privacySettings = action.payload;
       })
-      .addCase(declineFriendRequest.fulfilled, (state, action) => {
-        const senderId = action.payload;
-
-        state.friendRequests.received = state.friendRequests.received.filter(
-          (id) => id !== senderId
-        );
-
-        state.friendRequestDetails = state.friendRequestDetails.filter(
-          user => user._id !== senderId
-        );
-      })
-      .addCase(removeFriend.fulfilled, (state, action) => {
-        state.friends = state.friends.filter((id) => id !== action.payload);
-      })
-      .addCase(cancelFriendRequest.fulfilled, (state, action) => {
-        const { recipientId } = action.payload;
-              
-        // Ensure all IDs are strings for comparison
-        state.friendRequests.sent = state.friendRequests.sent.filter(
-            (id) => id.toString() !== recipientId.toString()
-        );
-      })
-      .addCase(fetchFriendsDetails.pending, (state) => {
-        state.loading = true;
-      })
-      .addCase(fetchFriendsDetails.fulfilled, (state, action) => {
-        state.loading = false;
-        state.friendsDetails = action.payload; // Store full details of friends
-      })
-      .addCase(fetchFriendsDetails.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload;
+      .addCase(fetchOtherUserSettings.fulfilled, (state, action) => {
+        state.otherUserSettings = action.payload;
       })
       
-      .addCase(fetchFriendRequestsDetails.pending, (state) => {
-        state.loading = true;
-      })
-      .addCase(fetchFriendRequestsDetails.fulfilled, (state, action) => {
-        state.loading = false;
-        state.friendRequestDetails = action.payload; // Store full details of friend requests
-      })
-      .addCase(fetchFriendRequestsDetails.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload;
-      })
-      .addCase(sendFriendRequest.fulfilled, (state, action) => {
-        if (action.payload?.recipientId) {
-          state.friendRequests.sent = [...state.friendRequests.sent, action.payload.recipientId];
-        }
-      })
   },
 });
 
-export const { logout, setFriendsDetails, setFriends, } = userSlice.actions;
+export const { logout } = userSlice.actions;
 
 export const selectUser = (state) => state.user.user;
 export const selectLoading = (state) => state.user.loading;
 export const selectError = (state) => state.user.error;
 export const selectIsBusiness = (state) => state.user.isBusiness;
 export const selectOtherUserData = (state) => state.user.otherUserData || [];
-export const selectFriends = (state) => state.user.friends || [];
-export const selectFriendRequests = (state) => state.user.friendRequests;
-export const selectFriendsDetails = (state) => state.user.friendsDetails || [];
-export const selectFriendRequestDetails = (state) => state.user.friendRequestDetails || [];
+export const selectOtherUserSettings = (state) => state.user.otherUserSettings;
+export const selectPrivacySettings = (state) => state.user.privacySettings;
 
 export default userSlice.reducer;
 

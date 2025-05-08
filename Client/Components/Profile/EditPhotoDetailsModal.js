@@ -13,6 +13,9 @@ import {
   Image,
 } from "react-native";
 import TagFriendsModal from "../Reviews/TagFriendsModal";
+import { VideoView } from "expo-video";
+import { useSmartVideoPlayer } from "../../utils/useSmartVideoPlayer";
+import { isVideo } from "../../utils/isVideo";
 
 export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose, onDelete, isPromotion }) {
   const [description, setDescription] = useState(photo?.description || "");
@@ -23,7 +26,9 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
   useEffect(() => {
     setDescription(photo?.description || "");
     setTaggedUsers(photo?.taggedUsers ? JSON.parse(JSON.stringify(photo.taggedUsers)) : []);
-  }, [photo]);  
+  }, [photo]);
+
+  const player = useSmartVideoPlayer(photo);
 
   const handleSave = () => {
     const clonedTaggedUsers = taggedUsers.map(user => ({ ...user })); // shallow clone each tag
@@ -32,14 +37,14 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
       description,
       taggedUsers: clonedTaggedUsers,
     };
-  
+
     onSave(JSON.parse(JSON.stringify(clonedPhoto))); // full deep clone to break shared refs
     setTaggedUsers([]);
     setDescription("");
     setSelectedPosition(null);
     onClose();
   };
-  
+
   // Handle tap on the image to open friend tagging modal
   const handleImagePress = (event) => {
     const { locationX, locationY } = event.nativeEvent;
@@ -47,37 +52,35 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
     setShowTagFriendsModal(true);
   };
 
-  console.log(taggedUsers)
-
   const handleDelete = () => {
     if (typeof onDelete === 'function') {
       if (!photo) {
         console.error('❌ Cannot delete: photo is missing');
         return;
       }
-  
+
       onDelete(photo); // 🔥 Send the whole photo object (not just id)
       onClose();
     } else {
       console.error('❌ onDelete is not a function');
     }
-  };  
+  };
 
   const handleTagFriend = (selectedFriends) => {
     if (selectedFriends.length > 0 && selectedPosition) {
       setTaggedUsers((prevTaggedUsers) => {
         let updatedTaggedUsers = prevTaggedUsers.map(user => ({ ...user }));
-  
+
         selectedFriends.forEach(friend => {
           const friendId = friend.userId || friend._id || friend.id;
-  
+
           if (!friendId) {
             console.warn("⚠️ Skipping invalid friend without ID:", friend);
             return; // Skip if no valid ID found
           }
-  
+
           const existingIndex = updatedTaggedUsers.findIndex(user => user.userId === friendId);
-  
+
           if (existingIndex !== -1) {
             // Update position of existing tag
             updatedTaggedUsers[existingIndex] = {
@@ -96,14 +99,14 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
             });
           }
         });
-  
+
         return updatedTaggedUsers;
       });
     }
-  
+
     setShowTagFriendsModal(false);
     setSelectedPosition(null);
-  };  
+  };
 
   // Function to remove a tagged user
   const handleRemoveTag = (userToRemove) => {
@@ -125,22 +128,32 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
             {/* Photo Preview with Clickable Tags */}
             {(photo?.uri || photo?.url) && (
               <View style={styles.photoContainer}>
-                <ImageBackground
-                  source={{ uri: photo.uri || photo.url }}
-                  style={styles.photoPreview}
-                  onTouchEnd={!isPromotion && handleImagePress}
-                >
-                  {/* Render tagged friends */}
-                  {taggedUsers.map((user, index) => (
-                    <View
-                      key={index}
-                      style={[styles.tagMarker, { left: user.x, top: user.y }]}
-                    >
-                      <Image source={{ uri: user.profilePic }} style={styles.tagProfilePic} />
-                      <Text style={styles.tagText}>{user.username || user.fullName || 'Unknown'}</Text>
-                    </View>
-                  ))}
-                </ImageBackground>
+                {isVideo(photo) ? (
+                  <VideoView
+                    player={player}
+                    style={styles.photoPreview}
+                    allowsFullscreen
+                    allowsPictureInPicture
+                    contentFit="cover"
+                  />
+                ) : (
+                  <ImageBackground
+                    source={{ uri: photo.uri || photo.url }}
+                    style={styles.photoPreview}
+                    onTouchEnd={!isPromotion && handleImagePress}
+                  >
+                    {/* Render tagged friends */}
+                    {taggedUsers.map((user, index) => (
+                      <View
+                        key={index}
+                        style={[styles.tagMarker, { left: user.x, top: user.y }]}
+                      >
+                        <Image source={{ uri: user.profilePic }} style={styles.tagProfilePic} />
+                        <Text style={styles.tagText}>{user.username || 'Unknown'}</Text>
+                      </View>
+                    ))}
+                  </ImageBackground>
+                )}
               </View>
             )}
 
@@ -153,24 +166,24 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
             />
 
             {/* Tagged Users Section */}
-            {!isPromotion && (
+            {!isPromotion && !isVideo && (
               <>
-              <Text style={styles.caption}>Tagged Friends</Text>
-              <View style={styles.tagsList}>
-                {taggedUsers.map((user, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={styles.tagItem}
-                    onPress={() => handleRemoveTag(user)} // Remove tag when clicked
-                  >
-                    <Text style={styles.tagText}>{user.username || user.fullName || 'Unknown'}</Text>
-                    <Text style={styles.removeTag}> ❌ </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              </>  
+                <Text style={styles.caption}>Tagged Friends</Text>
+                <View style={styles.tagsList}>
+                  {taggedUsers.map((user, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      style={styles.tagItem}
+                      onPress={() => handleRemoveTag(user)} // Remove tag when clicked
+                    >
+                      <Text style={styles.tagText}>{user.username || user.fullName || 'Unknown'}</Text>
+                      <Text style={styles.removeTag}> ❌ </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
             )}
-            
+
             {/* Save and Cancel Buttons */}
             <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
               <Text style={styles.saveButtonText}>Save</Text>
@@ -272,10 +285,25 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "bold",
   },
-  cancelButton: {
-    alignItems: "center",
-    width: "100%",
+  deleteButton: {
+    backgroundColor: "#006666",
     paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: "center",
+    marginBottom: 10,
+    width: "100%",
+  },
+  deleteButtonText: {
+    color: "#fff",
+    fontWeight: "bold",
+  },
+  cancelButton: {
+    backgroundColor: "#d9d9d9",
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: "center",
+    marginBottom: 10,
+    width: "100%",
   },
   cancelButtonText: {
     color: "#888",

@@ -12,22 +12,28 @@ import {
     setUserAndFriendsReviews,
     appendUserAndFriendsReviews,
 } from "../../Slices/ReviewsSlice";
-import { fetchFriendRequestsDetails, fetchFriendsDetails, selectFriends, selectFriendRequests } from "../../Slices/UserSlice";
-import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
+import { 
+    selectFollowing,
+    fetchFollowRequests,
+    fetchMutualFriends,
+ } from "../../Slices/friendsSlice";
 import { fetchFavorites } from "../../Slices/FavoritesSlice";
+import { useSelector, useDispatch } from "react-redux";
 import Reviews from "../Reviews/Reviews";
 import usePaginatedFetch from '../../utils/usePaginatedFetch';
+import InviteModal from "../ActivityInvites/InviteModal";
 
 const Home = ({ scrollY, onScroll, isAtEnd }) => {
     const dispatch = useDispatch();
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
-    const friends = useSelector(selectFriends);
-    const friendRequests = useSelector(selectFriendRequests);
+    const following = useSelector(selectFollowing);
     const user = useSelector(selectUser);
     const [business, setBusiness] = useState(null);
     const [businessName, setBusinessName] = useState(null);
     const [modalVisible, setModalVisible] = useState(false);
+    const [inviteVisible, setInviteVisible] = useState(false);
+    const [modalType, setModalType] = useState("review"); // NEW
 
     const userId = user?.id;
     const {
@@ -35,40 +41,27 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
         refresh,
         isLoading,
         hasMore,
-      } = usePaginatedFetch({
+    } = usePaginatedFetch({
         fetchThunk: fetchReviewsByUserAndFriends,
         appendAction: appendUserAndFriendsReviews,
         resetAction: setUserAndFriendsReviews,
         params: { userId },
         limit: 5,
-      });      
+    });
 
     useEffect(() => {
         if (userId) {
-          refresh();
-          dispatch(fetchFavorites(userId));
+            refresh();
+            dispatch(fetchFavorites(userId));
         }
-    }, [userId]);      
+    }, [userId]);
 
     useEffect(() => {
-        if (friends?.length > 0) {
-            dispatch(fetchFriendsDetails(friends)); // Populate friends with user details
+        if (userId) {
+            dispatch(fetchFollowRequests(userId));
+            dispatch(fetchMutualFriends(userId));
         }
-    }, [dispatch, friends]);
-
-    useEffect(() => {
-        if (friendRequests) {
-            dispatch(fetchFriendRequestsDetails(friendRequests?.received));
-        }
-    }, [dispatch, friendRequests])
-
-    const openModal = () => {
-        setModalVisible(true)
-    };
-
-    const closeModal = () => {
-        setModalVisible(false);
-    };
+    }, [dispatch, userId]);
 
     return (
         <View style={styles.container}>
@@ -81,24 +74,56 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
                 reviews={userAndFriendsReviews}
                 ListHeaderComponent={
                     <View style={styles.input}>
-                        <TouchableOpacity style={styles.statusInputContainer} onPress={openModal}>
-                            <Text style={styles.inputPlaceholder}>Write a review or check in!</Text>
-                        </TouchableOpacity>
+                        <View style={styles.buttonRow}>
+                            <TouchableOpacity
+                                style={styles.actionButton}
+                                onPress={() => {
+                                    setModalType("review");
+                                    setModalVisible(true);
+                                }}
+                            >
+                                <Text style={styles.buttonText}>Review</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.actionButton}
+                                onPress={() => {
+                                    setModalType("check-in");
+                                    setModalVisible(true);
+                                }}
+                            >
+                                <Text style={styles.buttonText}>Check-In</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.actionButton}
+                                onPress={() => setInviteVisible(true)}
+                            >
+                                <Text style={styles.buttonText}>Invite</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 }
             />
 
             {isAtEnd && <View style={styles.bottom} />}
 
-            {/* Write Review Modal */}
             <WriteReviewModal
                 visible={modalVisible}
                 setReviewModalVisible={setModalVisible}
-                onClose={closeModal}
+                onClose={() => setModalVisible(false)}
                 business={business}
                 setBusiness={setBusiness}
                 businessName={businessName}
                 setBusinessName={setBusinessName}
+                initialTab={modalType}
+            />
+
+            <InviteModal 
+                visible={inviteVisible}
+                onClose={() => setInviteVisible(false)}
+                friends={following}
+                setShowInviteModal={setInviteVisible}
             />
         </View>
     );
@@ -115,30 +140,32 @@ const styles = StyleSheet.create({
     input: {
         backgroundColor: '#009999',
         paddingTop: 205,
-        justifyContent: 'start'
+        paddingBottom: 15,
+        alignItems: 'center',
     },
-    statusInputContainer: {
-        backgroundColor: 'white',
-        paddingVertical: 6,
-        paddingHorizontal: 15,
-        borderRadius: 10,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 3,
-        elevation: 3,
-        marginBottom: 10,
-        marginHorizontal: 20,
-        justifyContent: 'center',
-        alignItems: 'flex-start',
-        alignSelf: 'flex-start',
+    buttonRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
         width: '90%',
     },
-    inputPlaceholder: {
-        fontSize: 16,
-        color: 'gray',
+    actionButton: {
+        backgroundColor: '#d9d9d9',
+        paddingVertical: 5,
+        paddingHorizontal: 20,
+        borderRadius: 8,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.5,
+        shadowRadius: 2,
+        elevation: 3,
+        marginHorizontal: 5,
+    },
+    buttonText: {
+        fontSize: 15,
+        color: '#333',
+        fontWeight: 'bold'
     },
     bottom: {
         marginBottom: 30,
-    }
+    },
 });

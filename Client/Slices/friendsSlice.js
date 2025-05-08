@@ -1,230 +1,323 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
 import { getUserToken } from '../functions';
-import { fetchUsersByIds } from './UserSlice';
 
-const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
+const BASE_URL = `${process.env.EXPO_PUBLIC_SERVER_URL}/connections`;
 
-// Send a friend request
-export const sendFriendRequest = createAsyncThunk(
-    'friends/sendFriendRequest',
-    async (recipientId, { rejectWithValue }) => {
-      try {
-        const token = await getUserToken();
-
-        const response = await axios.post(`${BASE_URL}/friends/send-friend-request`, 
-            { recipientId },
-            {
-                headers: {
-                    Authorization: `Bearer ${token}`, // Include the token here
-                },
-            }
-        );
-        return { recipientId }; // Assuming API returns a success message
-      } catch (error) {
-        return rejectWithValue(error.response.data);
-      }
+export const sendFollowRequest = createAsyncThunk(
+  'follows/sendFollowRequest',
+  async (targetUserId, { rejectWithValue }) => {
+    try {
+      const token = await getUserToken();
+      const response = await axios.post(`${BASE_URL}/follow-request`, { targetUserId }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return { targetUserId, isPrivate: response.data.message.includes('request') };
+    } catch (error) {
+      return rejectWithValue(error.response?.data || 'Failed to follow user.');
     }
+  }
 );
 
-// Cancel a friend request
-export const cancelFriendRequest = createAsyncThunk(
-    'friendship/cancelFriendRequest',
-    async (recipientId, { rejectWithValue }) => {
-      try {
-        const token = await getUserToken(); // Fetch the token
-        const response = await axios.post(
-          `${BASE_URL}/friends/cancel-friend-request`,
-          { recipientId },
-          {
-            headers: {
-              Authorization: `Bearer ${token}`, // Add the token to the request
-            },
-          }
-        );
-        return { recipientId }; // Return recipientId to update state
-      } catch (error) {
-        return rejectWithValue(error.response?.data || 'An error occurred')
-      }
-    }
-);
-  
-// Accept a friend request
-export const acceptFriendRequest = createAsyncThunk(
-    'friends/acceptFriendRequest',
-    async (senderId, { rejectWithValue }) => {
-        const token = await getUserToken();
-        try {
-            const response = await axios.post(`${BASE_URL}/friends/accept-friend-request`,
-                { senderId },
-                {
-                    headers: {
-                        Authorization: `Bearer ${token}`, // Include the token here
-                    },
-                }
-            
-            );
-            return response.data; // Assuming API returns a success message
-        } catch (error) {
-            return rejectWithValue(error.response.data);
-        }
-    }
-);
-  
-// Decline a friend request
-export const declineFriendRequest = createAsyncThunk(
-    'friends/declineFriendRequest',
-    async (senderId, { rejectWithValue }) => {
-      try {
-        const token = await getUserToken();
+export const followUserImmediately = createAsyncThunk(
+  'follows/followUserImmediately',
+  async (targetUserId, { rejectWithValue }) => {
+    try {
+      const token = await getUserToken();
+      const response = await axios.post(`${BASE_URL}/follow/${targetUserId}`, null, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
-        const response = await axios.post(`${BASE_URL}/friends/decline-friend-request`, 
-          { senderId },
-          {
-            headers: {
-                Authorization: `Bearer ${token}`, // Include the token here
-            },
-          }
-        );
-        return response.data; // Assuming API returns a success message
-      } catch (error) {
-        return rejectWithValue(error.response.data);
-      }
+      return { targetUserId };
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to follow user.');
     }
+  }
 );
-  
-// Remove a friend
-export const removeFriend = createAsyncThunk(
-    'friends/removeFriend',
-    async (friendId, { rejectWithValue }) => {
-      try {
-        const token = await getUserToken();
 
-        const response = await axios.delete(`${BASE_URL}/friends/remove-friend/${friendId}`, {
-          headers: {
-            Authorization: `Bearer ${token}`, // Include the token here
-          },
-        });
-        return { friendId }; // Returning the friendId so we can update the state
-      } catch (error) {
-        return rejectWithValue(error.response.data);
-      }
+export const cancelFollowRequest = createAsyncThunk(
+  'follows/cancelFollowRequest',
+  async (recipientId, { rejectWithValue }) => {
+    try {
+      const token = await getUserToken();
+      await axios.post(`${BASE_URL}/cancel-follow-request`, { recipientId }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return { recipientId };
+    } catch (error) {
+      return rejectWithValue(error.response?.data || 'Failed to cancel follow request.');
     }
+  }
 );
+
+export const approveFollowRequest = createAsyncThunk(
+  'follows/approveFollowRequest',
+  async (requesterId, { rejectWithValue }) => {
+    try {
+      const token = await getUserToken();
+      await axios.post(`${BASE_URL}/approve-follow-request`, { requesterId }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return { requesterId };
+    } catch (error) {
+      return rejectWithValue(error.response?.data || 'Failed to approve follow request.');
+    }
+  }
+);
+
+export const declineFollowRequest = createAsyncThunk(
+  'follows/declineFollowRequest',
+  async (requesterId, { rejectWithValue }) => {
+    try {
+      const token = await getUserToken();
+      await axios.post(`${BASE_URL}/decline-follow-request`, { requesterId }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return { requesterId };
+    } catch (error) {
+      return rejectWithValue(error.response?.data || 'Failed to decline follow request.');
+    }
+  }
+);
+
+export const unfollowUser = createAsyncThunk(
+  'follows/unfollowUser',
+  async (targetUserId, { rejectWithValue }) => {
+    try {
+      const token = await getUserToken();
+      await axios.delete(`${BASE_URL}/unfollow/${targetUserId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return { targetUserId };
+    } catch (error) {
+      return rejectWithValue(error.response?.data || 'Failed to unfollow user.');
+    }
+  }
+);
+
 
 export const fetchUserSuggestions = createAsyncThunk(
-    'friends/fetchUserSuggestions',
-    async (query, { rejectWithValue }) => {
-        try {
-            const token = await getUserToken();
-            
-            // Make the request with the Authorization header
-            const response = await axios.get(`${BASE_URL}/friends/search?query=${query}`, {
-                headers: {
-                    Authorization: `Bearer ${token}`, // Include the token here
-                },
-            });
+  'follows/fetchUserSuggestions',
+  async (query, { rejectWithValue }) => {
+    try {
+      const token = await getUserToken();
 
-            return response.data; // Assuming API returns an array of users
-        } catch (error) {
-            // Pass only the string error message
-            return rejectWithValue(error.response?.data?.message || 'An error occurred');
-        }
+      // Make the request with the Authorization header
+      const response = await axios.get(`${BASE_URL}/search?query=${query}`, {
+        headers: {
+          Authorization: `Bearer ${token}`, // Include the token here
+        },
+      });
+
+      return response.data; // Assuming API returns an array of users
+    } catch (error) {
+      // Pass only the string error message
+      return rejectWithValue(error.response?.data?.message || 'An error occurred');
     }
+  }
+);
+
+export const fetchSuggestedFriends = createAsyncThunk(
+  'follows/fetchSuggestedFriends',
+  async (userId, { rejectWithValue }) => {
+    try {
+      const token = await getUserToken();
+      const response = await axios.get(`${BASE_URL}/suggested-friends/${userId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      return response.data; // Array of suggested users with mutualCount
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch suggested friends');
+    }
+  }
+);
+
+export const fetchFollowersAndFollowing = createAsyncThunk(
+  'follows/fetchFollowersAndFollowing',
+  async (userId, { rejectWithValue }) => {
+    try {
+      const token = await getUserToken();
+
+      const response = await axios.get(`${BASE_URL}/followers-following/${userId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      return response.data; // contains { followers, following }
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch followers/following');
+    }
+  }
+);
+
+export const fetchFollowRequests = createAsyncThunk(
+  'follows/fetchFollowRequests',
+  async (_, { rejectWithValue }) => {
+    try {
+      const token = await getUserToken();
+      const response = await axios.get(`${BASE_URL}/follow-requests`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return response.data;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch follow requests');
+    }
+  }
+);
+
+export const fetchMutualFriends = createAsyncThunk(
+  'follows/fetchMutualFriends',
+  async (userId, { rejectWithValue }) => {
+    try {
+      const token = await getUserToken();
+      const response = await axios.get(`${BASE_URL}/${userId}/friends`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      return response.data; // array of enriched users
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch mutual friends');
+    }
+  }
 );
 
 const initialState = {
-  friends: [], // List of friends
-  friendRequests: {
-    sent: [], // Requests sent by the user
-    received: [], // Requests received by the user
+  friends: [],
+  followers: [],
+  following: [],
+  followRequests: {
+    sent: [],
+    received: [],
   },
+  suggestedUsers: [],
   userSuggestions: [],
-  status: 'idle', // 'idle' | 'loading' | 'succeeded' | 'failed'
+  status: 'idle',
   error: null,
 };
 
-const friendsSlice = createSlice({
-    name: 'friends',
-    initialState,
-    reducers: {
-        setFriends: (state, action) => {
-            state.friends = action.payload;
-        },
-        setFriendRequests: (state, action) => {
-            state.friendRequests = action.payload;
-        },
+const followsSlice = createSlice({
+  name: 'follows',
+  initialState,
+  reducers: {
+    setFollowers: (state, action) => {
+      state.followers = action.payload;
     },
-    extraReducers: (builder) => {
-      builder
-        .addCase(sendFriendRequest.fulfilled, (state, action) => {
-          if (action.payload?.recipientId) {
-            state.friendRequests.sent = [...state.friendRequests.sent, action.payload.recipientId];
-          }
-
-          console.log("Updated friendRequests.sent:", state.friendRequests.sent)
-        })
-        .addCase(acceptFriendRequest.fulfilled, (state, action) => {
-          // Add to friends and remove from received requests
-          const senderId = action.meta.arg;
-          state.friends.push(senderId);
-          state.friendRequests.received = state.friendRequests.received.filter(
-            (id) => id !== senderId
-          );
-        })
-        .addCase(declineFriendRequest.fulfilled, (state, action) => {
-          const senderId = action.meta.arg;
-          state.friendRequests.received = state.friendRequests.received.filter(
-            (id) => id !== senderId
-          );
-        })
-        .addCase(removeFriend.fulfilled, (state, action) => {
-          const { friendId } = action.payload;
-          state.friends = state.friends.filter((id) => id !== friendId);
-        })
-        .addCase(fetchUserSuggestions.pending, (state) => {
-            state.status = 'loading';
-        })
-        .addCase(fetchUserSuggestions.fulfilled, (state, action) => {
-            state.status = 'succeeded';
-            state.userSuggestions = action.payload; // Populate suggestions with API results
-        })
-        .addCase(fetchUserSuggestions.rejected, (state, action) => {
-            state.status = 'failed';
-            state.error = action.payload;
-        })
-        .addCase(cancelFriendRequest.fulfilled, (state, action) => {
-            const recipientId = action.payload.recipientId.toString();
-        
-            // Ensure all IDs are strings for comparison
-            state.friendRequests.sent = state.friendRequests.sent.filter(
-                (id) => id.toString() !== recipientId.toString()
-            );
-        })
+    setFollowing: (state, action) => {
+      state.following = action.payload;
     },
+    setFollowRequests: (state, action) => {
+      state.followRequests = {
+        sent: action.payload.sent || [],
+        received: action.payload.received || [],
+      };
+    },    
+  },
+  extraReducers: (builder) => {
+    builder
+      .addCase(sendFollowRequest.fulfilled, (state, action) => {
+        const { targetUserId, isPrivate } = action.payload;
+        if (isPrivate) {
+          state.followRequests.sent.push(targetUserId);
+        } else {
+          state.following.push(targetUserId);
+        }
+      })
+      .addCase(cancelFollowRequest.fulfilled, (state, action) => {
+        state.followRequests.sent = state.followRequests.sent.filter(
+          id => id !== action.payload.recipientId
+        );
+      })
+      .addCase(approveFollowRequest.fulfilled, (state, action) => {
+        const { requesterId } = action.payload;
+        state.followers.push(requesterId);
+        state.followRequests.received = state.followRequests.received.filter(id => id !== requesterId);
+      })
+      .addCase(declineFollowRequest.fulfilled, (state, action) => {
+        const { requesterId } = action.payload;
+        state.followRequests.received = state.followRequests.received.filter(id => id !== requesterId);
+      })
+      .addCase(unfollowUser.fulfilled, (state, action) => {
+        const { targetUserId } = action.payload;
+        state.following = state.following.filter(id => id !== targetUserId);
+        state.followers = state.followers.filter(id => id !== targetUserId);
+      })
+      // Reuse existing logic for userSuggestions & suggestedUsers
+      .addCase(fetchUserSuggestions.pending, (state) => {
+        state.status = 'loading';
+      })
+      .addCase(fetchUserSuggestions.fulfilled, (state, action) => {
+        state.status = 'succeeded';
+        state.userSuggestions = action.payload;
+      })
+      .addCase(fetchUserSuggestions.rejected, (state, action) => {
+        state.status = 'failed';
+        state.error = action.payload;
+      })
+      .addCase(fetchSuggestedFriends.fulfilled, (state, action) => {
+        state.status = 'succeeded';
+        state.suggestedUsers = action.payload;
+      })
+      .addCase(followUserImmediately.fulfilled, (state, action) => {
+        const { targetUserId } = action.payload;
+        if (!state.following.includes(targetUserId)) {
+          state.following.push(targetUserId);
+        }
+      })
+      .addCase(followUserImmediately.rejected, (state, action) => {
+        state.error = action.payload;
+      })
+      .addCase(fetchFollowersAndFollowing.pending, (state) => {
+        state.status = 'loading';
+        state.error = null;
+      })
+      .addCase(fetchFollowersAndFollowing.fulfilled, (state, action) => {
+        state.status = 'succeeded';
+        state.followers = action.payload.followers || [];
+        state.following = action.payload.following || [];
+      })
+      .addCase(fetchFollowersAndFollowing.rejected, (state, action) => {
+        state.status = 'failed';
+        state.error = action.payload;
+      })
+      .addCase(fetchFollowRequests.fulfilled, (state, action) => {
+        state.status = 'succeeded';
+        state.followRequests = {
+          sent: action.payload.sent,
+          received: action.payload.received,
+        };
+      })      
+      .addCase(fetchMutualFriends.pending, (state) => {
+        state.status = 'loading';
+      })
+      .addCase(fetchMutualFriends.fulfilled, (state, action) => {
+        state.status = 'succeeded';
+        state.friends = action.payload; // enriched mutual users
+      })
+      .addCase(fetchMutualFriends.rejected, (state, action) => {
+        state.status = 'failed';
+        state.error = action.payload;
+      })      
+  },
 });
-  
-export default friendsSlice.reducer;
 
-export const selectFriends = (state) => state.friends.friends || [];
-export const selectFriendRequests = (state) => state.friends.friendRequests;
-export const selectUserSuggestions = (state) => state.friends.userSuggestions || [];
-export const selectFriendsStatus = (state) => state.friends.status;
-export const selectFriendsError = (state) => state.friends.error;
+export default followsSlice.reducer;
 
-export const { setFriends, setFriendRequests } = friendsSlice.actions;
+export const selectFollowing = state => state.follows.following || [];
+export const selectFollowers = state => state.follows.followers || [];
+export const selectFollowRequests = state => state.follows.followRequests || [];
+export const selectSuggestedUsers = state => state.follows.suggestedUsers || [];
+export const selectUserSuggestions = state => state.follows.userSuggestions || [];
+export const selectFriends = (state) => state.follows.friends || []; 
 
-// Updated `setFriends` Reducer to Fetch User Info
-export const setFriendsWithDetails = (friendIds) => async (dispatch) => {
-  try {
-    const response = await dispatch(fetchUsersByIds(friendIds));
-    if (response.payload) {
-      dispatch(setFriends(response.payload)); // Populate friends with user details
-    }
-  } catch (error) {
-    console.error("Failed to fetch friends details:", error);
-  }
-};
+export const selectStatus = (state) => state.follows.status;
+export const selectError = (state) => state.follows.error;
 
-
-  
+export const { setFollowers, setFollowing, setFollowRequests } = followsSlice.actions;

@@ -5,8 +5,8 @@ import {
     Image,
     FlatList,
     Animated,
-    TouchableOpacity,
     StyleSheet,
+    Dimensions,
 } from "react-native";
 import { Avatar } from "@rneui/themed";
 import PhotoItem from "./PhotoItem";
@@ -16,8 +16,11 @@ import PostActions from './PostActions';
 import { selectUser } from "../../Slices/UserSlice";
 import { useSelector } from "react-redux";
 import PostOptionsMenu from "./PostOptionsMenu";
+import FullScreenPhotoModal from "./FullScreenPhotoModal";
 
 const pinPic = "https://cdn-icons-png.flaticon.com/512/684/684908.png";
+
+const screenWidth = Dimensions.get("window").width;
 
 export default function CheckInItem({
     item,
@@ -35,9 +38,18 @@ export default function CheckInItem({
     const isSender = item.userId === user?.id;
     const [dropdownVisible, setDropdownVisible] = useState(false);
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+    const [fullScreenPhoto, setFullScreenPhoto] = useState(null);
+    const [fullScreenIndex, setFullScreenIndex] = useState(0);
+    const [photoModalVisible, setPhotoModalVisible] = useState(false);
     const scrollX = useRef(new Animated.Value(0)).current;
 
     const currentPhoto = item.photos?.[currentPhotoIndex];
+
+    const handleOpenFullScreen = (photo, index) => {
+        setFullScreenPhoto(photo);
+        setPhotoModalVisible(true);
+        setFullScreenIndex(index);
+    };
 
     return (
         <View style={styles.reviewCard}>
@@ -55,16 +67,8 @@ export default function CheckInItem({
                         <Avatar
                             size={45}
                             rounded
-                            source={
-                                item?.profilePicUrl
-                                    ? { uri: item.profilePicUrl }
-                                    : profilePicPlaceholder
-                            }
-                            icon={
-                                !item?.avatarUrl
-                                    ? { name: "person", type: "material", color: "#fff" }
-                                    : null
-                            }
+                            source={item?.profilePicUrl ? { uri: item.profilePicUrl } : profilePicPlaceholder}
+                            icon={!item?.profilePicUrl ? { name: "person", type: "material", color: "#fff" } : null}
                             containerStyle={{ backgroundColor: "#ccc" }}
                         />
                     </View>
@@ -123,18 +127,26 @@ export default function CheckInItem({
                         scrollEnabled={item.photos.length > 1}
                         onScroll={Animated.event(
                             [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-                            { useNativeDriver: false }
+                            {
+                                useNativeDriver: false,
+                                listener: (e) => {
+                                    const index = Math.round(e.nativeEvent.contentOffset.x / screenWidth);
+                                    setCurrentPhotoIndex(index);
+                                },
+                            }
                         )}
                         scrollEventThrottle={16}
-                        renderItem={({ item: photo }) => (
+                        renderItem={({ item: photo, index }) => (
                             <PhotoItem
                                 photo={photo}
                                 reviewItem={item}
+                                index={index}
                                 likedAnimations={likedAnimations}
                                 photoTapped={photoTapped}
                                 toggleTaggedUsers={toggleTaggedUsers}
                                 handleLikeWithAnimation={handleLikeWithAnimation}
                                 lastTapRef={lastTapRef}
+                                onOpenFullScreen={handleOpenFullScreen}
                             />
                         )}
                     />
@@ -155,6 +167,24 @@ export default function CheckInItem({
                 handleOpenComments={handleOpenComments}
                 toggleTaggedUsers={toggleTaggedUsers}
                 photo={currentPhoto}
+            />
+
+            <FullScreenPhotoModal
+                visible={photoModalVisible}
+                initialIndex={fullScreenIndex}
+                photo={fullScreenPhoto}
+                setPhotoModalVisible={setPhotoModalVisible}
+                review={item}
+                likedAnimations={likedAnimations}
+                lastTapRef={lastTapRef}
+                photoTapped={photoTapped}
+                toggleTaggedUsers={toggleTaggedUsers}
+                handleLikeWithAnimation={handleLikeWithAnimation}
+                handleLike={handleLike}
+                onClose={() => {
+                    setFullScreenPhoto(null);
+                    setPhotoModalVisible(false);
+                }}
             />
         </View>
     );
