@@ -73,8 +73,9 @@ const NotificationSchema = new mongoose.Schema({
   type: {
     type: String,
     enum: [
-      'friendRequest', 
-      'friendRequestAccepted', 
+      'followRequest', 
+      'followRequestAccepted', 
+      'follow',        
       'like', 
       'comment', 
       'reply', 
@@ -126,25 +127,51 @@ const UserSchema = new mongoose.Schema({
     required: true,
     default: false, // false for general users, true for businesses
   },
-  friends: [
+  // 🔁 Follower/Following Structure
+  followers: [
     {
-      type: mongoose.Schema.Types.ObjectId, // Each element is an ObjectId
-      ref: 'User', // Refers to the User collection
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
     },
   ],
-  friendRequests: {
+  following: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+  ],
+  // 🔐 Follow requests (if profile is private)
+  followRequests: {
     sent: [
       {
-        type: mongoose.Schema.Types.ObjectId, // References to users you sent requests to
+        type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
       },
     ],
     received: [
       {
-        type: mongoose.Schema.Types.ObjectId, // References to users who sent requests to you
+        type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
       },
     ],
+  },
+  // ⚙️ Privacy settings
+  privacySettings: {
+    profileVisibility: {
+      type: String,
+      enum: ['public', 'private'],
+      default: 'public',
+    },
+    invites: {
+      type: String,
+      enum: ['friendsOnly', 'followers', 'public'],
+      default: 'friendsOnly',
+    },
+    contentVisibility: {
+      type: String,
+      enum: ['public', 'friendsOnly'],
+      default: 'public',
+    },
   },
   notifications: [NotificationSchema],
   checkIns: [CheckInSchema],

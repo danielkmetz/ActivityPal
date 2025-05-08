@@ -89,8 +89,6 @@ router.post('/login', async (req, res) => {
           isBusiness: false,
           firstName: user.firstName,
           lastName: user.lastName,
-          friends: user.friends,
-          friendRequests: user.friendRequests,
           notifications: user.notifications,
         };
       }
@@ -208,8 +206,6 @@ router.get('/validate', async (req, res) => {
         isBusiness: decoded.isBusiness,
         firstName: user.firstName,
         lastName: user.lastName,
-        friends: user.friends,
-        friendRequests: user.friendRequests,
         notifications: user.notifications,
         ...(decoded.isBusiness && {
           businessDetails: {
