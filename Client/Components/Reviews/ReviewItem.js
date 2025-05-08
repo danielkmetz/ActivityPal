@@ -38,15 +38,24 @@ export default function ReviewItem({
     const [dropdownVisible, setDropdownVisible] = useState(false);
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
     const [fullScreenPhoto, setFullScreenPhoto] = useState(null);
+    const [fullScreenIndex, setFullScreenIndex] = useState(0); // 👈 add this
     const [photoModalVisible, setPhotoModalVisible] = useState(false);
     const scrollX = useRef(new Animated.Value(0)).current;
 
     const currentPhoto = item.photos?.[currentPhotoIndex];
 
-    const handleOpenFullScreen = (photo) => {
+    const handleOpenFullScreen = (photo, index) => {
         setFullScreenPhoto(photo);
         setPhotoModalVisible(true);
+        setFullScreenIndex(index);
     };
+
+    const taggedUsersByPhotoKey = Object.fromEntries(
+        (item.photos || []).map((photo) => [
+          photo.photoKey,
+          photo.taggedUsers || [],
+        ])
+    );  
 
     return (
         <View style={styles.reviewCard}>
@@ -64,8 +73,8 @@ export default function ReviewItem({
                         <Avatar
                             size={45}
                             rounded
-                            source={item?.profilePicUrl ? { uri: item?.profilePicUrl } : profilePicPlaceholder}
-                            icon={!item?.avatarUrl ? { name: "person", type: "material", color: "#fff" } : null}
+                            source={item?.profilePicUrl ? { uri: item.profilePicUrl } : profilePicPlaceholder}
+                            icon={!item?.profilePicUrl ? { name: "person", type: "material", color: "#fff" } : null}
                             containerStyle={{ backgroundColor: "#ccc" }}
                         />
                     </View>
@@ -118,17 +127,18 @@ export default function ReviewItem({
                         onScroll={Animated.event(
                             [{ nativeEvent: { contentOffset: { x: scrollX } } }],
                             {
-                              useNativeDriver: false,
-                              listener: (e) => {
-                                const index = Math.round(e.nativeEvent.contentOffset.x / screenWidth);
-                                setCurrentPhotoIndex(index);
-                              },
+                                useNativeDriver: false,
+                                listener: (e) => {
+                                    const index = Math.round(e.nativeEvent.contentOffset.x / screenWidth);
+                                    setCurrentPhotoIndex(index);
+                                },
                             }
-                        )}                          
+                        )}
                         scrollEventThrottle={16}
-                        renderItem={({ item: photo }) => (
+                        renderItem={({ item: photo, index }) => (
                             <PhotoItem
                                 photo={photo}
+                                index={index}
                                 reviewItem={item}
                                 likedAnimations={likedAnimations}
                                 photoTapped={photoTapped}
@@ -154,22 +164,24 @@ export default function ReviewItem({
                 toggleTaggedUsers={toggleTaggedUsers}
                 photo={currentPhoto}
             />
-            
+
             <FullScreenPhotoModal
                 visible={photoModalVisible}
                 photo={fullScreenPhoto}
                 setPhotoModalVisible={setPhotoModalVisible}
+                initialIndex={fullScreenIndex}
                 review={item}
                 likedAnimations={likedAnimations}
                 lastTapRef={lastTapRef}
                 photoTapped={photoTapped}
                 toggleTaggedUsers={toggleTaggedUsers}
+                taggedUsersByPhotoKey={taggedUsersByPhotoKey}
                 handleLikeWithAnimation={handleLikeWithAnimation}
                 handleLike={handleLike}
                 onClose={() => {
                     setFullScreenPhoto(null);
                     setPhotoModalVisible(false);
-                }}                  
+                }}
             />
         </View>
     );

@@ -13,7 +13,7 @@ import { selectIsBusiness, selectUser } from '../../Slices/UserSlice';
 import { selectNotifications, markNotificationRead, setNotifications, createNotification, deleteNotification } from '../../Slices/NotificationsSlice';
 import { selectBusinessNotifications, markBusinessNotificationRead, deleteBusinessNotification } from '../../Slices/BusNotificationsSlice';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { acceptFriendRequest, declineFriendRequest, selectFriendRequestDetails } from '../../Slices/UserSlice';
+import { approveFollowRequest, declineFollowRequest, selectFollowRequests } from '../../Slices/friendsSlice';
 import moment from 'moment';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import CommentModal from '../Reviews/CommentModal';
@@ -29,7 +29,7 @@ export default function Notifications() {
     const notifications = useSelector((state) => 
         isBusiness ? selectBusinessNotifications(state) : selectNotifications(state)
       );
-    const friendRequestDetails = useSelector(selectFriendRequestDetails);
+    const followRequests = useSelector(selectFollowRequests);
     const reviews = useSelector(selectUserAndFriendsReviews);
     const selectedReview = useSelector(selectSelectedReview);
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
@@ -76,19 +76,19 @@ export default function Notifications() {
 
     const handleAcceptRequest = async (senderId) => {
         try {
-            await dispatch(acceptFriendRequest(senderId));
+            await dispatch(approveFollowRequest(senderId));
 
             await dispatch(createNotification({
                 userId: senderId,  // The sender of the request gets notified
-                type: 'friendRequestAccepted',
-                message: `${user.firstName} ${user.lastName} accepted your friend request.`,
+                type: 'followRequestAccepted',
+                message: `${user.firstName} ${user.lastName} accepted your follow request.`,
                 relatedId: user.id, // The ID of the user who accepted the request
                 typeRef: 'User'
             }));
 
             // Filter out the accepted friend request from notifications
             const updatedNotifications = notifications.filter(
-                (notification) => !(notification.type === 'friendRequest' && notification.relatedId === senderId)
+                (notification) => !(notification.type === 'followRequest' && notification.relatedId === senderId)
             );
 
             // Dispatch the updated notifications list
@@ -100,11 +100,11 @@ export default function Notifications() {
 
     const handleDeclineRequest = async (senderId) => {
         try {
-            await dispatch(declineFriendRequest(senderId));
+            await dispatch(declineFollowRequest(senderId));
 
             // Filter out the declined friend request from notifications
             const updatedNotifications = notifications.filter(
-                (notification) => !(notification.type === 'friendRequest' && notification.relatedId === senderId)
+                (notification) => !(notification.type === 'followRequest' && notification.relatedId === senderId)
             );
 
             dispatch(setNotifications(updatedNotifications));
@@ -119,7 +119,7 @@ export default function Notifications() {
                 return <MaterialCommunityIcons name="thumb-up-outline" size={24} color="#1877F2" />;
             case 'comment':
                 return <MaterialCommunityIcons name="comment-outline" size={24} color="#1877F2" />;
-            case 'friendRequest':
+            case 'followRequest':
                 return <MaterialCommunityIcons name="account-plus-outline" size={24} color="#42B72A" />;
             case 'event':
                 return <MaterialCommunityIcons name="calendar-star" size={24} color="#F28B24" />;
@@ -353,20 +353,20 @@ export default function Notifications() {
                 data={[...notifications || []].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))} // Sort by newest
                 keyExtractor={(item) => item._id}
                 renderItem={({ item }) => {
-                    const sender = (friendRequestDetails || []).find(user => user._id === item.relatedId);
+                    const sender = (followRequests.received || []).find(user => user._id === item.relatedId);
                     return (
                         <SwipeableRow onSwipe={handleDeleteNotification} notificationId={item._id}>
                         <TouchableOpacity
                             style={[styles.notificationCard, !item.read && styles.unreadNotification]}
                             onPress={() => handleNotificationPress(item)}
                         >
-                            {item?.type !== 'friendRequest' && (
+                            {item?.type !== 'followRequest' && (
                                 <View style={styles.iconContainer}>
                                     {getIcon(item.type)}
                                 </View>
                             )}
-                            <View style={[styles.textContainer, item.type === 'friendRequest' && { marginLeft: 10 }]}>
-                                {item?.type === 'friendRequest' && sender ? (
+                            <View style={[styles.textContainer, item.type === 'followRequest' && { marginLeft: 10 }]}>
+                                {item?.type === 'followRequest' && sender ? (
                                     <View style={styles.friendRequestContainer}>
                                         <Image
                                             source={sender.presignedProfileUrl ? { uri: sender.presignedProfileUrl } : profilePicPlaceholder}
@@ -383,14 +383,14 @@ export default function Notifications() {
                                     null
                                 )}
                                 <View style={styles.momentContainer}>
-                                    {item.type === 'friendRequest' && (
+                                    {item.type === 'followRequest' && (
                                         <View style={styles.iconContainer}>
                                             {getIcon(item.type)}
                                         </View>
                                     )}
                                     <Text style={styles.timestamp}>{moment(item.createdAt).fromNow()}</Text>
                                 </View>
-                                {item.type === 'friendRequest' && sender && (
+                                {item.type === 'followRequest' && sender && (
                                     <View style={styles.buttonGroup}>
                                         <TouchableOpacity style={styles.acceptButton} onPress={() => handleAcceptRequest(item.relatedId)}>
                                             <Text style={styles.buttonText}>Accept</Text>

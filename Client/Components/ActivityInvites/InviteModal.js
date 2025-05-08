@@ -18,13 +18,13 @@ import {
 import Animated from 'react-native-reanimated';
 import TagFriendsModal from '../Reviews/TagFriendsModal';
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
+import { selectFriends } from '../../Slices/friendsSlice';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSelector, useDispatch } from 'react-redux';
 import { sendInvite, editInvite } from '../../Slices/InvitesSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { setUserAndFriendsReviews, selectUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
-import { selectFriendsDetails } from '../../Slices/UserSlice';
 import useSlideDownDismiss from '../../utils/useSlideDown';
 import { googlePlacesDefaultProps } from '../../utils/googleplacesDefaults';
 import Notch from '../Notch/Notch';
@@ -36,7 +36,6 @@ const SCREEN_HEIGHT = Dimensions.get('window').height;
 const InviteModal = ({
     visible,
     onClose,
-    friends = [],
     setShowInviteModal,
     isEditing,
     initialInvite,
@@ -46,7 +45,7 @@ const InviteModal = ({
     const dispatch = useDispatch();
     const user = useSelector(selectUser);
     const userAndFriendReviews = useSelector(selectUserAndFriendsReviews);
-    const friendsDetails = useSelector(selectFriendsDetails);
+    const friends = useSelector(selectFriends);
     const [showFriendsModal, setShowFriendsModal] = useState(false);
     const [selectedPlace, setSelectedPlace] = useState(null);
     const [dateTime, setDateTime] = useState(null);
@@ -196,7 +195,7 @@ const InviteModal = ({
     };
 
     const displayFriends = [
-        ...friendsDetails,
+        ...friends,
         ...(initialInvite?.recipients?.map(r => r.user || r) || [])
     ]
         .filter((user, index, self) => {

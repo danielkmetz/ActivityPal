@@ -1,10 +1,11 @@
 import React, { useState, } from 'react';
-import { View, Text, TouchableOpacity, TextInput, StyleSheet, } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, StyleSheet, TouchableWithoutFeedback} from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser } from '../../Slices/UserSlice';
 import {toggleCommentLike} from '../../Slices/ReviewsSlice';
-import { findTopLevelCommentId } from '../../functions'
+import { findTopLevelCommentId } from '../../functions';
+import { setSelectedComment, setSelectedReply } from '../../Slices/CommentThreadSlice';
 
 const Reply = ({
   reply,
@@ -12,11 +13,10 @@ const Reply = ({
   getTimeSincePosted,
   nestedExpandedReplies,
   setNestedExpandedReplies,
+  handleExpandReplies,
   commentRefs,
   handleLongPress,
   parentCommentId,
-  setSelectedReply,
-  setSelectedComment,
   nestedReplyInput,
   setNestedReplyInput,
   handleEditComment,
@@ -52,10 +52,7 @@ const Reply = ({
     setNestedReplyText('');
     setShowReplyInput(false);
     setNestedReplyInput(false);
-    setNestedExpandedReplies(prev => ({
-      ...prev,
-      [reply._id]: true,  // Ensure the reply is expanded after posting
-    }));
+    handleExpandReplies(reply._id);
   };
 
   const handleToggleLike = () => {
@@ -73,12 +70,8 @@ const Reply = ({
   };  
 
   return (
-    <TouchableOpacity
-      onLongPress={() => {
-        setSelectedReply({ ...reply, parentCommentId }); // ✅ Store parent ID in selectedReply
-        setSelectedComment(null);
-        handleLongPress(reply, true, parentCommentId); // ✅ Pass parent ID when handling long press
-      }}
+    <TouchableWithoutFeedback
+      onLongPress={() => handleLongPress(reply, true, parentCommentId)}
     >
       <View ref={setNativeRef} style={styles.replyContainer}>
         <View style={styles.replyBubble}>
@@ -137,11 +130,11 @@ const Reply = ({
           {/* Expand/collapse replies */}
           {reply.replies && reply.replies.length > 0 && (
             <TouchableOpacity
-              onPress={() => setNestedExpandedReplies(!nestedExpandedReplies)}
+              onPress={() => handleExpandReplies(reply._id)}
               style={styles.expandRepliesButton}
             >
               <MaterialCommunityIcons
-                name={nestedExpandedReplies ? 'chevron-up' : 'chevron-down'}
+                name={nestedExpandedReplies[reply._id] ? 'chevron-up' : 'chevron-down'}
                 size={20}
                 color="#808080"
               />
@@ -169,7 +162,7 @@ const Reply = ({
         )}
 
         {/* Render nested replies */}
-        {nestedExpandedReplies &&
+        {nestedExpandedReplies[reply._id] &&
           reply?.replies?.map((nestedReply) => (
             <Reply
               key={nestedReply._id}
@@ -183,6 +176,7 @@ const Reply = ({
               parentCommentId={reply._id}
               setSelectedReply={setSelectedReply}
               setSelectedComment={setSelectedComment}
+              handleExpandReplies={handleExpandReplies}
               nestedReplyInput={nestedReplyInput}
               setNestedReplyInput={setNestedReplyInput}
               handleEditComment={handleEditComment}
@@ -199,8 +193,7 @@ const Reply = ({
             />
           ))}
       </View>
-    </TouchableOpacity>
-
+    </TouchableWithoutFeedback>
   );
 };
 

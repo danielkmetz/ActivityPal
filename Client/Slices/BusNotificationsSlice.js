@@ -19,7 +19,7 @@ export const markBusinessNotificationRead = createAsyncThunk(
     await axios.put(`${BASE_URL}/${placeId}/notifications/${notificationId}/read`);
     return notificationId;
   }
-);
+)
 
 // Create a new business notification
 export const createBusinessNotification = createAsyncThunk(

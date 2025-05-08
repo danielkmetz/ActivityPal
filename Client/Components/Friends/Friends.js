@@ -1,42 +1,42 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, Button, StyleSheet, TextInput, TouchableOpacity, Image, Alert } from 'react-native';
-import { FontAwesome } from '@expo/vector-icons';
+import { View, Text, FlatList, ScrollView, Button, StyleSheet, TouchableOpacity, Image, Alert } from 'react-native';
 import {
     fetchUserSuggestions,
     selectUserSuggestions,
+    fetchSuggestedFriends,
+    approveFollowRequest,
+    declineFollowRequest,
+    selectFollowRequests,
+    selectFollowing,
+    selectError,
+    selectStatus,
+    fetchFollowersAndFollowing,
+    selectFollowers,
+    selectFriends,
 } from '../../Slices/friendsSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigation } from '@react-navigation/native';
 import { createNotification } from '../../Slices/NotificationsSlice';
-import {
-    acceptFriendRequest,
-    declineFriendRequest,
-    selectFriendRequests,
-    selectFriends,
-    selectLoading,
-    selectError,
-    selectFriendsDetails,
-    selectFriendRequestDetails,
-} from '../../Slices/UserSlice';
 import { setNotifications, selectNotifications } from '../../Slices/NotificationsSlice';
 import { selectInvites, fetchInvites, deleteInvite } from '../../Slices/InvitesSlice';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import InviteModal from '../ActivityInvites/InviteModal';
 import InviteDetailsModal from '../ActivityInvites/InviteDetailsModal';
 import { setUserAndFriendsReviews, selectUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
+import FriendSearchModal from './FriendsSearchModal';
+import UserSearchCard from './UserSearchCard';
+import FriendsCard from './FriendsCard';
 
 export default function Friends() {
     const navigation = useNavigation();
     const dispatch = useDispatch();
     const user = useSelector(selectUser);
     const friends = useSelector(selectFriends);
-    const friendsDetails = useSelector(selectFriendsDetails);
-    const friendRequests = useSelector(selectFriendRequests);
-    const friendRequestsDetails = useSelector(selectFriendRequestDetails);
+    const followRequests = useSelector(selectFollowRequests);
     const userSuggestions = useSelector(selectUserSuggestions);
     const invites = useSelector(selectInvites) || [];
-    const status = useSelector(selectLoading);
+    const status = useSelector(selectStatus);
     const error = useSelector(selectError);
     const notifications = useSelector(selectNotifications);
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
@@ -47,28 +47,31 @@ export default function Friends() {
     const [selectedInvite, setSelectedInvite] = useState(null);
     const [inviteToEdit, setInviteToEdit] = useState(null);
     const [isEditing, setIsEditing] = useState(false);
+    const [showFriendSearchModal, setShowFriendSearchModal] = useState(false);
 
     useEffect(() => {
         if (user) {
-            dispatch(fetchInvites(user.id));
+            dispatch(fetchInvites(user?.id));
+            dispatch(fetchSuggestedFriends(user?.id));
+            dispatch(fetchFollowersAndFollowing(user?.id));
         }
     }, [user]);
 
     const handleAcceptRequest = async (senderId) => {
         try {
-            await dispatch(acceptFriendRequest(senderId));
+            await dispatch(approveFollowRequest(senderId));
 
             await dispatch(createNotification({
                 userId: senderId,  // The sender of the request gets notified
-                type: 'friendRequestAccepted',
-                message: `${user.firstName} ${user.lastName} accepted your friend request.`,
+                type: 'followRequestAccepted',
+                message: `${user.firstName} ${user.lastName} accepted your follow request.`,
                 relatedId: user.id, // The ID of the user who accepted the request
                 typeRef: 'User'
             }));
 
             // Filter out the accepted friend request from notifications
             const updatedNotifications = notifications.filter(
-                (notification) => !(notification.type === 'friendRequest' && notification.relatedId === senderId)
+                (notification) => !(notification.type === 'followRequest' && notification.relatedId === senderId)
             );
 
             // Dispatch the updated notifications list
@@ -80,11 +83,11 @@ export default function Friends() {
 
     const handleDeclineRequest = async (senderId) => {
         try {
-            await dispatch(declineFriendRequest(senderId));
+            await dispatch(declineFollowRequest(senderId));
 
             // Filter out the declined friend request from notifications
             const updatedNotifications = notifications.filter(
-                (notification) => !(notification.type === 'friendRequest' && notification.relatedId === senderId)
+                (notification) => !(notification.type === 'followRequest' && notification.relatedId === senderId)
             );
 
             dispatch(setNotifications(updatedNotifications));
@@ -146,11 +149,11 @@ export default function Friends() {
     const renderFriendRequests = () => (
         <View style={styles.sectionContainer}>
             <Text style={styles.sectionTitle}>
-                Friend Requests: {friendRequestsDetails.length || 0}
+                Follow Requests: {followRequests.length || 0}
             </Text>
-            {friendRequestsDetails.length > 0 ? (
+            {friends.length > 0 ? (
                 <FlatList
-                    data={friendRequestsDetails}
+                    data={friends}
                     keyExtractor={(item) => item._id}
                     renderItem={({ item }) => (
                         <View style={styles.requestContainer}>
@@ -187,37 +190,18 @@ export default function Friends() {
     );
 
     const renderFriendsList = () => (
-        <View style={styles.sectionContainer}>
-            <Text style={styles.sectionTitle}>Friends: {friends?.length || 0}</Text>
-            {friends?.length > 0 ? (
-                <FlatList
-                    data={friendsDetails}
-                    keyExtractor={(item) => item._id}
-                    renderItem={({ item }) => (
-                        <View style={styles.friendContainer}>
-                            <View style={styles.picAndName}>
-                                <Image
-                                    source={item.presignedProfileUrl ?
-                                        { uri: item.presignedProfileUrl } :
-                                        profilePicPlaceholder}
-                                    style={styles.profilePic}
-                                />
-                                <Text>{item.firstName} {item.lastName}</Text>
-                            </View>
-                            <TouchableOpacity
-                                style={styles.suggestionContainer}
-                                onPress={() => navigateToOtherUserProfile(item)}
-                            >
-                                <FontAwesome name="arrow-right" size={24} color="#007bff" />
-                            </TouchableOpacity>
-                        </View>
-                    )}
-                />
-            ) : (
-                <Text style={styles.emptyText}>No friends yet</Text>
-            )}
+        <View style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
+            <FriendsCard
+              friends={friends}
+              friendsDetails={friends}
+              onSearchPress={() => setShowFriendSearchModal(true)}
+              onFriendPress={(user) => navigateToOtherUserProfile(user)}
+            />
+          </ScrollView>
         </View>
-    );
+      );
+      
 
     const renderEventInvites = () => {
         const sentInvites = invites.filter(invite => invite.senderId === user.id);
@@ -298,42 +282,19 @@ export default function Friends() {
 
     const renderSearch = () => {
         const handleSearchChange = (query) => {
-            setSearchQuery(query);
-
-            if (query.trim()) {
-                dispatch(fetchUserSuggestions(query));
-            }
+          setSearchQuery(query);
+          if (query.trim()) dispatch(fetchUserSuggestions(query));
         };
-
+      
         return (
-            <View style={styles.sectionContainer}>
-                <Text style={styles.sectionTitle}>Search Users</Text>
-                <TextInput
-                    style={styles.searchInput}
-                    placeholder="Search for users..."
-                    value={searchQuery}
-                    onChangeText={handleSearchChange}
-                />
-                {userSuggestions?.length > 0 ? (
-                    <FlatList
-                        data={userSuggestions}
-                        keyExtractor={(item) => item.id}
-                        renderItem={({ item }) => (
-                            <TouchableOpacity
-                                style={styles.suggestionContainer}
-                                onPress={() => navigateToOtherUserProfile(item)}
-                            >
-                                <Text >{item.firstName} {item.lastName}</Text>
-                                <FontAwesome name="arrow-right" size={24} color="#007bff" />
-                            </TouchableOpacity>
-                        )}
-                    />
-                ) : (
-                    <Text style={styles.emptyText}>No users found</Text>
-                )}
-            </View>
+          <UserSearchCard
+            query={searchQuery}
+            onChangeQuery={handleSearchChange}
+            results={userSuggestions}
+            onUserSelect={navigateToOtherUserProfile}
+          />
         );
-    };
+    };  
 
     return (
         <>
@@ -353,9 +314,9 @@ export default function Friends() {
                             onPress={() => setActiveTab('requests')}
                             color={activeTab === 'requests' ? '#007bff' : '#aaa'}
                         />
-                        {friendRequests.received.length > 0 && (
+                        {followRequests.received.length > 0 && (
                             <View style={styles.notificationBadge}>
-                                <Text style={styles.notificationText}>{friendRequests.length}</Text>
+                                <Text style={styles.notificationText}>{followRequests.length}</Text>
                             </View>
                         )}
                     </View>
@@ -386,12 +347,19 @@ export default function Friends() {
             <InviteModal
                 visible={showInviteModal}
                 onClose={() => setShowInviteModal(false)}
-                friends={friendsDetails}
+                friends={friends}
                 setShowInviteModal={setShowInviteModal}
                 initialInvite={inviteToEdit}
                 setInviteToEdit={setInviteToEdit}
                 isEditing={isEditing}
                 setIsEditing={setIsEditing}
+            />
+
+            <FriendSearchModal
+                visible={showFriendSearchModal}
+                onClose={() => setShowFriendSearchModal(false)}
+                friends={friends}
+                onSelectFriend={(user) => navigateToOtherUserProfile(user)}
             />
         </>
     );
