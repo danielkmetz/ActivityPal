@@ -53,4 +53,22 @@ router.post('/users/by-ids', verifyToken, async (req, res) => {
     }
 });
 
+// GET privacy settings for a user
+router.get('/privacy-settings/:userId', verifyToken, async (req, res) => {
+    try {
+      const { userId } = req.params;
+  
+      const user = await User.findById(userId).select('privacySettings');
+  
+      if (!user) {
+        return res.status(404).json({ message: 'User not found.' });
+      }
+  
+      return res.status(200).json({ privacySettings: user.privacySettings });
+    } catch (error) {
+      console.error('Error fetching privacy settings:', error);
+      res.status(500).json({ message: 'Server error.' });
+    }
+});
+
 module.exports = router;
