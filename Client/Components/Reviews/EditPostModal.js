@@ -24,10 +24,12 @@ import TagFriendsModal from "./TagFriendsModal";
 import EditPhotosModal from "../Profile/EditPhotosModal";
 import EditPhotoDetailsModal from "../Profile/EditPhotoDetailsModal";
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
-import { PanGestureHandler } from "react-native-gesture-handler";
-import { launchImagePickerAndFormat } from "../../functions";
+import { GestureDetector } from "react-native-gesture-handler";
 import { handlePhotoUpload } from "../../utils/photoUploadHelper";
 import useSlideDownDismiss from "../../utils/useSlideDown";
+import { isVideo } from "../../utils/isVideo";
+import VideoThumbnail from "./VideoThumbnail";
+import { selectMediaFromGallery } from "../../utils/selectPhotos";
 import { setUserAndFriendsReviews, selectUserAndFriendsReviews, setProfileReviews, selectProfileReviews } from "../../Slices/ReviewsSlice";
 
 const height = Dimensions.get("window").height;
@@ -45,7 +47,7 @@ export default function EditPostModal({ visible, post, onClose }) {
     const [previewPhoto, setPreviewPhoto] = useState(null);
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const profileReviews = useSelector(selectProfileReviews);
-    const { gestureTranslateY, animateIn, animateOut, onGestureEvent, onHandlerStateChange } = useSlideDownDismiss(onClose);
+    const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
 
     useEffect(() => {
         if (post) {
@@ -67,7 +69,7 @@ export default function EditPostModal({ visible, post, onClose }) {
     }, [visible, post]);
 
     const handlePhotoAlbumSelection = async () => {
-        const newFiles = await launchImagePickerAndFormat();
+        const newFiles = await selectMediaFromGallery();
         if (newFiles.length > 0) {
             setPhotos((prev) => [...prev, ...newFiles]);
             setEditPhotosVisible(true);
@@ -190,12 +192,11 @@ export default function EditPostModal({ visible, post, onClose }) {
                         keyboardVerticalOffset={-170}
                         style={styles.keyboardAvoiding}
                     >
-                        <PanGestureHandler
-                            onGestureEvent={onGestureEvent}
-                            onHandlerStateChange={onHandlerStateChange}
+                        <GestureDetector
+                            gesture={gesture}
                         >
                             <Animated.View
-                                style={[styles.container, { transform: [{ translateY: gestureTranslateY }] }]}
+                                style={[styles.container, animatedStyle]}
                             >
                                 <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
                                     <View>
@@ -250,7 +251,11 @@ export default function EditPostModal({ visible, post, onClose }) {
                                                         setPreviewPhoto(item);
                                                         setEditPhotoDetailsVisible(true);
                                                     }}>
-                                                        <Image source={{ uri: item.url || item.uri }} style={styles.photoPreview} />
+                                                        {isVideo(item) ? (
+                                                            <VideoThumbnail file={item} width={80} height={80} />
+                                                        ) : (
+                                                            <Image source={{ uri: item.url || item.uri }} style={styles.photoPreview} />
+                                                        )}
                                                     </TouchableOpacity>
                                                 )}
                                             />
@@ -266,7 +271,7 @@ export default function EditPostModal({ visible, post, onClose }) {
                                     </View>
                                 </TouchableWithoutFeedback>
                             </Animated.View>
-                        </PanGestureHandler>
+                        </GestureDetector>
                     </KeyboardAvoidingView>
                 </View>
             </TouchableWithoutFeedback>

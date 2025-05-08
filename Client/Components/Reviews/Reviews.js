@@ -84,32 +84,29 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
     }
   };
 
-  const handleLikeWithAnimation = async (postType, postId) => {
+  const handleLikeWithAnimation = async (postType, postId, force = false) => {
     const now = Date.now();
-
+  
     if (!lastTapRef.current || typeof lastTapRef.current !== "object") {
       lastTapRef.current = {};
     }
-
-    if (!lastTapRef.current[postId]) {
-      lastTapRef.current[postId] = 0;
-    }
-
-    if (now - lastTapRef.current[postId] < 300) {
-      const postBeforeUpdate = reviews.find((review) => review._id === postId);
-      const wasLikedBefore = postBeforeUpdate?.likes?.some((like) => like.userId === user?.id);
-
+  
+    const postBeforeUpdate = reviews.find((review) => review._id === postId);
+    const wasLikedBefore = postBeforeUpdate?.likes?.some((like) => like.userId === user?.id);
+  
+    const shouldAnimate = force || (now - (lastTapRef.current[postId] || 0) < 300);
+  
+    if (shouldAnimate) {
       await handleLike(postType, postId);
-
+  
       if (!wasLikedBefore) {
         if (!likedAnimations[postId]) {
-          const newAnim = new Animated.Value(0);
-          likedAnimations[postId] = newAnim;
+          likedAnimations[postId] = new Animated.Value(0);
           setLikedAnimations({ ...likedAnimations });
         }
-
-        const animation = likedAnimations[postId] || new Animated.Value(0);
-
+  
+        const animation = likedAnimations[postId];
+  
         Animated.timing(animation, {
           toValue: 1,
           duration: 50,
@@ -123,17 +120,17 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
             }).start();
           }, 500);
         });
-
+  
         setLikedAnimations((prev) => ({
           ...prev,
           [postId]: animation,
         }));
       }
     }
-
+  
     lastTapRef.current[postId] = now;
-  };
-
+  };  
+  
   const toggleTaggedUsers = (photoKey) => {
     setPhotoTapped(photoTapped === photoKey ? null : photoKey);
   };

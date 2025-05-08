@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
     Modal,
     View,
@@ -16,62 +16,15 @@ import Animated from 'react-native-reanimated';
 import { GestureDetector } from 'react-native-gesture-handler';
 import useSlideDownDismiss from '../../utils/useSlideDown';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import CommentBubble from './CommentBubble';
-import Reply from './Reply';
+import CommentThread from './CommentThread';
 
 const { height } = Dimensions.get('window');
 
 const BottomCommentsModal = ({ visible, onClose, review }) => {
     const [comment, setComment] = useState('');
-    const [expandReplies, setExpandReplies] = useState(false);
     const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
-
-    const getFlatListData = () => {
-        if (!Array.isArray(review?.comments)) return [];
-    
-        const flatData = [];
-    
-        review.comments.forEach((comment) => {
-          flatData.push({ ...comment, type: 'comment' });
-    
-          if (expandReplies && Array.isArray(comment.replies)) {
-            comment.replies.forEach((reply) => {
-              flatData.push({ ...reply, type: 'reply', parentId: comment._id });
-            });
-          }
-        });
-    
-        return flatData;
-    };
-
-    const renderItem = ({ item }) => {
-        if (item.type === 'comment') {
-          return (
-            <View style={{ marginBottom: 10 }}>
-              <CommentBubble
-                fullName={item.fullName}
-                commentText={item.commentText}
-                likes={item.likes}
-                commentId={item._id}
-                userId={item.userId}
-                isReply={false}
-              />
-            </View>
-          );
-        }
-    
-        if (item.type === 'reply') {
-          return (
-            <View style={{ marginLeft: 40, marginBottom: 8 }}>
-              <Reply
-                reply={item}
-                getTimeSincePosted={() => null}
-              />
-            </View>
-          );
-        } 
-        return null;
-    };
+    const commentRefs = useRef({});
+    const [commentText, setCommentText] = useState('');
 
     useEffect(() => {
         if (visible) {
@@ -98,17 +51,24 @@ const BottomCommentsModal = ({ visible, onClose, review }) => {
                                 <View style={styles.handleBar} />
                                 <View style={styles.content}>
                                     <Text style={styles.title}>Comments</Text>
-                                    {/* Example comment count */}
-                                    <Text style={styles.subtitle}>{review?.comments?.length || 0} Comments</Text>
-
                                     <FlatList
-                                        data={getFlatListData()}
+                                        data={review?.comments || []}
                                         keyExtractor={(item) => item._id}
-                                        renderItem={renderItem}
+                                        renderItem={({ item }) => (
+                                            <CommentThread
+                                                item={item}
+                                                review={review}
+                                                styles={styles}
+                                                commentRefs={commentRefs}
+                                                commentText={commentText}
+                                                setCommentText={setCommentText}
+                                                setModalVisible={() => { }} // Optional, unless you support long-press actions here
+                                            />
+                                        )}
                                         contentContainerStyle={{ paddingBottom: 20 }}
                                         showsVerticalScrollIndicator={false}
                                     />
-                                    
+
                                     {/* Input */}
                                     <View style={styles.inputRow}>
                                         <TextInput

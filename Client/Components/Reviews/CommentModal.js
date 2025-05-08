@@ -10,16 +10,25 @@ import {
   InteractionManager,
 } from 'react-native';
 import { selectUser } from '../../Slices/UserSlice';
-import { addComment, addReply, deleteCommentOrReply, editCommentOrReply, toggleCommentLike } from '../../Slices/ReviewsSlice';
 import { useSelector, useDispatch } from 'react-redux';
-import { createNotification } from '../../Slices/NotificationsSlice';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { formatEventDate, getTimeLeft } from '../../functions';
 import CommentModalHeader from './CommentModalHeader';
-import CommentOptionsModal from './CommentOptionsModal';
 import CommentInputFooter from './CommentINputFooter';
 import CommentThread from './CommentThread';
+import {
+  selectReplyingTo,
+  setReplyingTo,
+  toggleReplyExpansion,
+  setNestedExpandedReplies,
+  selectIsEditing,
+  selectNestedReplyInput,
+  selectNestedExpandedReplies,
+  resetCommentState,
+  addNewComment,
+  selectExpandedReplies,
+} from '../../Slices/CommentThreadSlice';
 
 dayjs.extend(relativeTime);
 
@@ -37,18 +46,14 @@ function CommentModal({
   setCommentModalVisible,
 }) {
   const dispatch = useDispatch();
+  const replyingTo = useSelector(selectReplyingTo);
+  const expandedReplies = useSelector(selectExpandedReplies);
+  const nestedExpandedReplies = useSelector(selectNestedExpandedReplies);
+  const isEditing = useSelector(selectIsEditing);
+  const nestedReplyInput = useSelector(selectNestedReplyInput);
   const dateTime = review?.dateTime ? review?.dateTime : review?.date;
   const [isAnimating, setIsAnimating] = useState(false);
   const [commentText, setCommentText] = useState('');
-  const [replyingTo, setReplyingTo] = useState(null);
-  const [expandedReplies, setExpandedReplies] = useState({});
-  const [selectedComment, setSelectedComment] = useState(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editedText, setEditedText] = useState('');
-  const [selectedReply, setSelectedReply] = useState(null);
-  const [isModalVisible, setModalVisible] = useState(false);
-  const [nestedReplyInput, setNestedReplyInput] = useState(false)
-  const [nestedExpandedReplies, setNestedExpandedReplies] = useState({});
   const [keybaordHeight, setKeyboardHeight] = useState(null)
   const [isInputCovered, setIsInputCovered] = useState(false);
   const [timeLeft, setTimeLeft] = useState(getTimeLeft(dateTime));
@@ -57,7 +62,6 @@ function CommentModal({
   const flatListRef = useRef(null); // Ref for the FlatList
   const user = useSelector(selectUser);
   const fullName = `${user?.firstName} ${user?.lastName}` || null;
-  const userPlaceId = user?.businessDetails?.placeId || null;
   const userId = user?.id;
   const commentRefs = useRef({});
   const [inputHeight, setInputHeight] = useState(40); // Default height 40px
@@ -87,12 +91,14 @@ function CommentModal({
 
   useEffect(() => {
     if (visible) {
-      panX.setValue(500);
-      Animated.timing(panX, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
+      InteractionManager.runAfterInteractions(() => {
+        panX.setValue(500);
+        Animated.timing(panX, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }).start();
+      });
     }
   }, [visible]);
 
@@ -133,6 +139,7 @@ function CommentModal({
             setCommentModalVisible(false);
             setIsAnimating(false);
             setSelectedReview(null);
+            dispatch(resetCommentState());
           });
         } else {
           Animated.timing(previewX, {
@@ -215,198 +222,17 @@ function CommentModal({
     return dayjs(dateString).fromNow(true);
   };
 
-  const toggleReplies = (commentId) => {
-    setExpandedReplies((prevState) => ({
-      ...prevState,
-      [commentId]: !prevState[commentId], // Toggle expanded state
-    }));
-  };
-
-  const onAddComment = async (postType, postId, text) => {
-    if (!text) {
-      console.log("❌ onAddComment: No text provided, exiting...");
-      return;
-    }
-
-    try {
-      const response = await dispatch(
-        addComment({
-          postType,
-          placeId: review?.placeId || userPlaceId,
-          postId,
-          userId,
-          fullName,
-          commentText: text,
-        })
-      );
-
-      if (!response.payload || response.payload === "Failed to add comment") {
-        console.log("❌ onAddComment: API response payload is invalid:", response.payload);
-        return null;
-      }
-
-      return response.payload;
-    } catch (error) {
-      console.error("🚨 onAddComment: Error dispatching addComment:", error);
-      return null;
-    }
-  };
-
   const handleAddComment = async () => {
-    if (!commentText) {
-      return;
-    };
+    if (!commentText || !review) return;
 
-    if (!review) {
-      return;
-    };
+    await dispatch(addNewComment({ review, userId, fullName, commentText }));
 
-    const postType = review?.type || "review"; // Default to 'review' if type is missing
+    dispatch(setReplyingTo(null));
+    setCommentText('');
 
-    try {
-      const newComment = await onAddComment(postType, review._id, commentText);
-
-      if (!newComment) {
-        return;
-      };
-
-      setReplyingTo(null);
-      setCommentText('');
-
-      if (review.userId !== userId && newComment.commentId) {
-        await dispatch(
-          createNotification({
-            userId: reviewOwner,
-            type: "comment",
-            message: `${fullName} commented on your ${postType}.`,
-            relatedId: userId,
-            typeRef: "User",
-            targetId: review._id,
-            commentId: newComment.commentId,
-            commentText,
-            postType: postType,
-          })
-        );
-      }
-
-      // Scroll to end after adding a comment
-      setTimeout(() => {
-        if (flatListRef.current) {
-          flatListRef.current.scrollToEnd({ animated: true });
-        }
-      }, 100);
-    } catch (error) {
-      console.error("🚨 handleAddComment: Error adding comment:", error);
-    }
-  };
-
-  const handleAddReply = async () => {
-    if (!commentText || !replyingTo) return;
-
-    try {
-      const { payload } = await dispatch(
-        addReply({
-          postType: review.type,
-          placeId: review.placeId ? review.placeId : userPlaceId,
-          postId: review._id,
-          commentId: replyingTo,
-          userId,
-          fullName,
-          commentText,
-        })
-      );
-
-      if (!payload || !payload.replyId) return;
-
-      // ✅ Expand the comment thread
-      setExpandedReplies(prev => ({
-        ...prev,
-        [replyingTo]: true,
-      }));
-
-      // ✅ Reset input fields
-      setReplyingTo(null);
-      setCommentText('');
-
-      if (!payload.userId || payload.userId === userId) return;
-
-      // ✅ Dispatch notification
-      await dispatch(
-        createNotification({
-          userId: payload.userId,
-          type: 'reply',
-          message: `${fullName} replied to your ${review.type}.`,
-          relatedId: userId,
-          typeRef: 'User',
-          targetId: review._id,
-          commentId: replyingTo,
-          replyId: payload.replyId,
-          commentText: commentText,
-          postType: review.type,
-        })
-      );
-    } catch (error) { }
-  };
-
-  const handleAddNestedReply = async (replyId, nestedReplyText) => {
-    if (!nestedReplyText || !replyId) {
-      return;
-    }
-
-    try {
-      const { payload } = await dispatch(
-        addReply({
-          postType: review.type,
-          placeId: review.placeId ? review.placeId : userPlaceId,
-          postId: review._id,
-          commentId: replyId, // The parent reply ID
-          userId,
-          fullName,
-          commentText: nestedReplyText,
-        })
-      );
-
-      setReplyingTo(null);
-      setCommentText('');
-
-      if (!payload || !payload.replyId || !payload.userId || payload.userId === userId) {
-        return;
-      }
-
-      await dispatch(
-        createNotification({
-          userId: payload.userId, // Notify the correct parent reply owner
-          type: "reply",
-          message: `${fullName} replied to your ${review.type}.`,
-          relatedId: userId, // The user who replied
-          typeRef: "User",
-          targetId: review._id, // The review where the reply was added
-          commentId: replyId, // The parent comment ID
-          replyId: payload.replyId, // The generated reply ID
-          commentText: nestedReplyText,
-          postType: review.type,
-        })
-      );
-    } catch (error) { }
-  };
-
-  const handleReplyButtonClick = (commentId) => {
-    setReplyingTo((prevReplyingTo) => (prevReplyingTo === commentId ? null : commentId));
-    setCommentText(''); // Clear input when switching between replies
-  };
-
-  const handleLongPress = (commentOrReply, isReply = false, parentCommentId = null) => {
-    if (!commentOrReply || commentOrReply.userId !== userId) return;
-
-    if (isReply) {
-      setSelectedReply({ ...commentOrReply, parentCommentId }); // ✅ Store direct parent ID
-      setSelectedComment(null);
-    } else {
-      setSelectedComment(commentOrReply);
-      setSelectedReply(null);
-    }
-
-    setModalVisible(true);
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 100);
   };
 
   const findParentComment = (comments, targetId) => {
@@ -423,83 +249,6 @@ function CommentModal({
     return null;
   };
 
-  // Handle delete action
-  const handleDeleteCommentOrReply = async () => {
-    try {
-      if (selectedComment) {
-        await dispatch(
-          deleteCommentOrReply({
-            postType: review.type,
-            placeId: review.placeId,
-            postId: review._id,
-            commentId: selectedComment._id,
-            relatedId: reviewOwner, // ✅ Use review owner's userId
-          })
-        );
-      }
-      else if (selectedReply) {
-        if (!selectedReply.parentCommentId || !selectedReply._id) return;
-
-        // **Find the parent comment from `review.comments`**
-        const parentComment = findParentComment(review?.comments, selectedReply.parentCommentId);
-
-        if (!parentComment) return;
-
-        await dispatch(
-          deleteCommentOrReply({
-            postType: review.type,
-            placeId: review.placeId,
-            postId: review._id,
-            commentId: selectedReply._id, // ✅ Reply ID
-            relatedId: parentComment.userId, // ✅ Parent comment's userId
-          })
-        );
-      }
-    } catch (error) { }
-
-    setModalVisible(false);
-    setSelectedComment(null);
-    setSelectedReply(null);
-  };
-
-  const handleEditComment = () => {
-    if (!selectedComment && !selectedReply) return;
-
-    setIsEditing(true);
-    setEditedText(selectedReply ? selectedReply.commentText : selectedComment.commentText);
-    setModalVisible(false);
-  };
-
-  const handleSaveEdit = async () => {
-    if (!selectedComment && !selectedReply) return;
-
-    const postType = review.type;
-    const isReply = selectedReply !== null;
-    const commentId = isReply ? selectedReply._id : selectedComment._id;
-    const postId = review._id;
-    const placeId = review.placeId;
-
-    try {
-      await dispatch(
-        editCommentOrReply({
-          postType,
-          placeId,
-          postId,
-          commentId,
-          userId,
-          newText: editedText, // Updated text
-        })
-      );
-
-      setIsEditing(false);
-      setSelectedComment(null);
-      setSelectedReply(null);
-      setEditedText('');
-    } catch (error) {
-      console.error("❌ Error updating comment:", error);
-    }
-  };
-
   const handleBackPress = () => {
     setIsAnimating(true);
     setCommentModalVisible(false);
@@ -512,6 +261,7 @@ function CommentModal({
       panX.setValue(0); // reset for next time
       setIsAnimating(false);
       setSelectedReview(null);
+      dispatch(resetCommentState());
     });
   };
 
@@ -520,11 +270,11 @@ function CommentModal({
       let attempts = 0;
       const maxAttempts = 15;
       const intervalMs = 200;
-  
+
       const tryScroll = () => {
         const flatList = flatListRef.current;
         const targetRef = commentRefs.current[targetId];
-  
+
         if (flatList && targetRef?.measureLayout) {
           targetRef.measureLayout(
             flatList.getNativeScrollRef(),
@@ -538,18 +288,18 @@ function CommentModal({
           );
           return true;
         }
-  
+
         return false;
       };
-  
+
       const interval = setInterval(() => {
         attempts++;
-  
+
         if (tryScroll()) {
           clearInterval(interval);
         } else if (attempts >= maxAttempts) {
           clearInterval(interval);
-  
+
           // Fallback
           const fallbackIndex = review?.comments?.findIndex(c => c._id === parentChain[0]);
           if (fallbackIndex !== -1 && flatListRef.current) {
@@ -563,12 +313,19 @@ function CommentModal({
       }, intervalMs);
     });
   };
-  
+
+  const hasScrolledToTarget = useRef(false);
+
   useEffect(() => {
-    if (visible && targetId && review?.comments) {
+    if (!visible || !targetId || !Array.isArray(review?.comments)) return;
+
+    // Prevent re-dispatching for same target
+    if (hasScrolledToTarget.current) return;
+
+    InteractionManager.runAfterInteractions(() => {
       let foundComment = null;
       let parentChain = [];
-  
+
       const findNestedReply = (comments, targetId, ancestors = []) => {
         for (const comment of comments) {
           if (comment._id === targetId) {
@@ -576,42 +333,48 @@ function CommentModal({
             parentChain = [...ancestors];
             return;
           }
-  
+
           if (comment.replies?.some(reply => reply._id === targetId)) {
             findNestedReply(comment.replies, targetId, [...ancestors, comment._id]);
             return;
           }
-  
+
           if (comment.replies) {
             findNestedReply(comment.replies, targetId, ancestors);
           }
         }
       };
-  
+
       findNestedReply(review.comments, targetId);
-  
+
       if (foundComment) {
-        setExpandedReplies(prev => ({
-          ...prev,
-          [parentChain[0]]: true,
-        }));
-  
         if (parentChain.length > 0) {
-          setNestedExpandedReplies(prev => ({
-            ...prev,
+          const expandedNested = {
+            ...nestedExpandedReplies,
             ...parentChain.reduce((acc, id) => ({ ...acc, [id]: true }), {}),
-          }));
+          };
+          dispatch(setNestedExpandedReplies(expandedNested));
+          dispatch(toggleReplyExpansion(parentChain[0]));
         }
-  
+
         waitForRefsAndScroll(targetId, parentChain);
+        hasScrolledToTarget.current = true;
       }
+    });
+  }, [visible, targetId, review?.comments]);
+
+  // Reset tracker when modal closes or ID changes
+  useEffect(() => {
+    if (!visible) {
+      hasScrolledToTarget.current = false;
     }
-  }, [visible, targetId, review?.comments]);  
-  
+  }, [visible, targetId]);
+
+
   if (!visible && !isAnimating) {
     return null;
   }
-  
+
   return (
     <Modal transparent={true} visible={visible} animationType="none" avoidKeyboard={true}>
       <Animated.View
@@ -658,38 +421,10 @@ function CommentModal({
             <CommentThread
               item={item}
               review={review}
-              userId={userId}
-              userPlaceId={userPlaceId}
+              commentRefs={commentRefs}
               styles={styles}
-              isEditing={isEditing}
-              editedText={editedText}
-              setEditedText={setEditedText}
-              selectedComment={selectedComment}
-              setSelectedComment={setSelectedComment}
-              replyingTo={replyingTo}
               commentText={commentText}
               setCommentText={setCommentText}
-              onSaveEdit={handleSaveEdit}
-              onCancelEdit={() => setIsEditing(false)}
-              onReply={handleReplyButtonClick}
-              handleAddReply={handleAddReply}
-              expandedReplies={expandedReplies}
-              toggleReplies={toggleReplies}
-              nestedExpandedReplies={nestedExpandedReplies}
-              setNestedExpandedReplies={setNestedExpandedReplies}
-              commentRefs={commentRefs}
-              setSelectedReply={setSelectedReply}
-              nestedReplyInput={nestedReplyInput}
-              setNestedReplyInput={setNestedReplyInput}
-              handleEditComment={handleEditComment}
-              handleSaveEdit={handleSaveEdit}
-              setIsEditing={setIsEditing}
-              dispatch={dispatch}
-              toggleCommentLike={toggleCommentLike}
-              selectedReply={selectedReply}
-              getTimeSincePosted={getTimeSincePosted}
-              handleAddNestedReply={handleAddNestedReply}
-              handleLongPress={handleLongPress}
             />
           )}
         />
@@ -703,12 +438,6 @@ function CommentModal({
             setContentHeight={setContentHeight}
           />
         )}
-        <CommentOptionsModal
-          isVisible={isModalVisible}
-          onClose={() => setModalVisible(false)}
-          onEdit={handleEditComment}
-          onDelete={handleDeleteCommentOrReply}
-        />
       </Animated.View>
     </Modal>
   );
@@ -717,11 +446,6 @@ function CommentModal({
 export default CommentModal;
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
   modalContainer: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
@@ -734,71 +458,7 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     elevation: 5,
   },
-  commentCard: {
-    marginBottom: 5,
-  },
-  commentButton: {
-    backgroundColor: '#009999',
-    paddingVertical: 8,
-    paddingHorizontal: 15,
-    borderRadius: 5,
-    marginLeft: 10,
-  },
-  commentDate: {
-    fontSize: 12,
-    color: '#777',
-    marginRight: 10,
-    marginLeft: 20,
-  },
-  commentButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  closeButton: {
-    alignSelf: 'center',
-    marginBottom: 30,
-  },
-  closeButtonText: {
-    color: '#009999',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  replyButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  nestedReplyInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 10,
-    marginBottom: 30,
-    marginHorizontal: 10,
-  },
-  nestedReplyInput: {
+  comments: {
     flex: 1,
-    height: 40,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 5,
-    paddingHorizontal: 10,
-    marginRight: 10,
-  },
-  replyButtonText: {
-    fontSize: 14,
-    color: '#4caf50',
-    fontWeight: 'bold',
-  },
-  replyContainer: {
-    flexDirection: 'row',
-    marginLeft: 10,
-  },
-  expandRepliesButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 10,
-  },
-  replyCountText: {
-    fontSize: 14,
-    color: '#888',
   },
 });

@@ -1,6 +1,9 @@
 import React from 'react';
 import { View, Image, Text, Animated, TouchableWithoutFeedback, Dimensions, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { VideoView } from 'expo-video';
+import { useSmartVideoPlayer } from '../../utils/useSmartVideoPlayer';
+import { isVideo } from '../../utils/isVideo';
 
 const screenWidth = Dimensions.get("window").width;
 
@@ -9,46 +12,58 @@ const PhotoItem = ({
     reviewItem,
     likedAnimations,
     photoTapped,
+    index,
     handleLikeWithAnimation,
     lastTapRef,
-    isInteractive=true,
+    isInteractive = true,
     onOpenFullScreen,
 }) => {
     const animation = likedAnimations?.[reviewItem._id] || new Animated.Value(0);
-    
+    const player = useSmartVideoPlayer(photo);
+
     const handleTap = () => {
         if (!isInteractive) return;
-      
+
         const now = Date.now();
-      
+
         if (
-          lastTapRef.current[reviewItem._id] &&
-          now - lastTapRef.current[reviewItem._id] < 300
+            lastTapRef.current[reviewItem._id] &&
+            now - lastTapRef.current[reviewItem._id] < 300
         ) {
-          handleLikeWithAnimation(reviewItem.type, reviewItem._id);
-          lastTapRef.current[reviewItem._id] = 0;
+            handleLikeWithAnimation(reviewItem.type, reviewItem._id);
+            lastTapRef.current[reviewItem._id] = 0;
         } else {
-          lastTapRef.current[reviewItem._id] = now;
-      
-          setTimeout(() => {
-            if (lastTapRef.current[reviewItem._id] === now) {
-              onOpenFullScreen?.(photo); // ✅ Open the photo fullscreen
-              lastTapRef.current[reviewItem._id] = 0;
-            }
-          }, 200);
+            lastTapRef.current[reviewItem._id] = now;
+
+            setTimeout(() => {
+                if (lastTapRef.current[reviewItem._id] === now) {
+                    onOpenFullScreen?.(photo, index);
+                    lastTapRef.current[reviewItem._id] = 0;
+                }
+            }, 200);
         }
     };
 
     return (
         <View style={styles.photoContainer}>
             <TouchableWithoutFeedback onPress={handleTap}>
-                <View>
-                    <Image source={{ uri: photo.url || photo.uri }} style={styles.photo} />
+                <View style={styles.videoWrapper}>
+                    {isVideo(photo) ? (
+                        <VideoView
+                            player={player}
+                            style={styles.photo}
+                            allowsPictureInPicture
+                            nativeControls={false}
+                            contentFit="cover"
+                        />
+                    ) : (
+                        <Image source={{ uri: photo.url || photo.uri }} style={styles.photo} />
+                    )}
 
                     {isInteractive && (
-                    <Animated.View style={[styles.likeOverlay, { opacity: animation }]}>
-                        <MaterialCommunityIcons name="thumb-up" size={80} color="#80E6D2" />
-                    </Animated.View>
+                        <Animated.View style={[styles.likeOverlay, { opacity: animation }]}>
+                            <MaterialCommunityIcons name="thumb-up" size={80} color="#80E6D2" />
+                        </Animated.View>
                     )}
 
                     {isInteractive && photoTapped === photo.photoKey &&
@@ -70,10 +85,14 @@ const PhotoItem = ({
 };
 
 const styles = StyleSheet.create({
-    photo: {
-        width: screenWidth, // Full width of review minus padding
+    photoContainer: {
+        width: screenWidth,
         height: 400, // Larger photo height
         marginBottom: 15,
+    },
+    photo: {
+        width: screenWidth,
+        height: 400, // Larger photo heigh
     },
     taggedLabel: {
         position: "absolute",
@@ -94,7 +113,13 @@ const styles = StyleSheet.create({
         transform: [{ translateX: -40 }, { translateY: -40 }], // Center the thumbs-up
         opacity: 0, // Initially hidden
     },
-    
+    videoWrapper: {
+        width: screenWidth,
+        alignSelf: 'center',
+        backgroundColor: '#000', // prevents white flash
+    },
+
+
 
 })
 
