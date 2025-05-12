@@ -17,6 +17,7 @@ import {
     selectFollowing,
     fetchFollowRequests,
     fetchMutualFriends,
+    fetchFollowersAndFollowing,
  } from "../../Slices/friendsSlice";
 import { fetchFavorites } from "../../Slices/FavoritesSlice";
 import { useSelector, useDispatch } from "react-redux";
@@ -60,6 +61,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
         if (userId) {
             dispatch(fetchFollowRequests(userId));
             dispatch(fetchMutualFriends(userId));
+            dispatch(fetchFollowersAndFollowing(userId));
         }
     }, [dispatch, userId]);
 

@@ -147,6 +147,30 @@ export const fetchOtherUserSettings = createAsyncThunk(
   }
 );
 
+export const updatePrivacySettings = createAsyncThunk(
+  'user/updatePrivacySettings',
+  async ({ userId, profileVisibility }, { rejectWithValue }) => {
+    try {
+      const token = await getUserToken();
+
+      const response = await axios.put(
+        `${BASE_URL}/users/privacy-settings/${userId}`,
+        { profileVisibility },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      return response.data.privacySettings;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to update privacy settings');
+    }
+  }
+);
+
 // User slice
 const userSlice = createSlice({
   name: "user",
@@ -242,6 +266,12 @@ const userSlice = createSlice({
       .addCase(fetchOtherUserSettings.fulfilled, (state, action) => {
         state.otherUserSettings = action.payload;
       })
+      .addCase(updatePrivacySettings.fulfilled, (state, action) => {
+        state.privacySettings = action.payload;
+      })
+      .addCase(updatePrivacySettings.rejected, (state, action) => {
+        state.error = action.payload || 'Failed to update privacy settings';
+      })      
       
   },
 });

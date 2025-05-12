@@ -7,18 +7,19 @@ import {
     approveFollowRequest,
     declineFollowRequest,
     selectFollowRequests,
-    selectFollowing,
     selectError,
     selectStatus,
     fetchFollowersAndFollowing,
-    selectFollowers,
     selectFriends,
+    followUserImmediately,
+    setFollowBack,
+    selectFollowBack,
+    selectFollowers,
 } from '../../Slices/friendsSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigation } from '@react-navigation/native';
-import { createNotification } from '../../Slices/NotificationsSlice';
-import { setNotifications, selectNotifications } from '../../Slices/NotificationsSlice';
+import { setNotifications, selectNotifications, createNotification } from '../../Slices/NotificationsSlice';
 import { selectInvites, fetchInvites, deleteInvite } from '../../Slices/InvitesSlice';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import InviteModal from '../ActivityInvites/InviteModal';
@@ -32,6 +33,8 @@ export default function Friends() {
     const navigation = useNavigation();
     const dispatch = useDispatch();
     const user = useSelector(selectUser);
+    const followers = useSelector(selectFollowers);
+    const userId = user?.id;
     const friends = useSelector(selectFriends);
     const followRequests = useSelector(selectFollowRequests);
     const userSuggestions = useSelector(selectUserSuggestions);
@@ -39,6 +42,7 @@ export default function Friends() {
     const status = useSelector(selectStatus);
     const error = useSelector(selectError);
     const notifications = useSelector(selectNotifications);
+    const followBack = useSelector(selectFollowBack);
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const [activeTab, setActiveTab] = useState('friends'); // Toggle between "friends", "requests", and "search"
     const [searchQuery, setSearchQuery] = useState('');
@@ -48,6 +52,7 @@ export default function Friends() {
     const [inviteToEdit, setInviteToEdit] = useState(null);
     const [isEditing, setIsEditing] = useState(false);
     const [showFriendSearchModal, setShowFriendSearchModal] = useState(false);
+    const fullName = `${user?.firstName} ${user?.lastName}`;
 
     useEffect(() => {
         if (user) {
@@ -59,25 +64,67 @@ export default function Friends() {
 
     const handleAcceptRequest = async (senderId) => {
         try {
-            await dispatch(approveFollowRequest(senderId));
-
-            await dispatch(createNotification({
-                userId: senderId,  // The sender of the request gets notified
-                type: 'followRequestAccepted',
-                message: `${user.firstName} ${user.lastName} accepted your follow request.`,
-                relatedId: user.id, // The ID of the user who accepted the request
-                typeRef: 'User'
-            }));
-
-            // Filter out the accepted friend request from notifications
-            const updatedNotifications = notifications.filter(
-                (notification) => !(notification.type === 'followRequest' && notification.relatedId === senderId)
+            // Optimistic UI update first
+            const updatedNotifications = notifications.map((notification) =>
+                notification.type === 'followRequest' && notification.relatedId === senderId
+                    ? {
+                        ...notification,
+                        message: `You accepted ${notification.message.split(' ')[0]}'s follow request.`,
+                        type: 'followRequestAccepted',
+                    }
+                    : notification
             );
+            dispatch(setFollowBack(true));
+            dispatch(setNotifications(updatedNotifications)); // not awaited
 
-            // Dispatch the updated notifications list
-            dispatch(setNotifications(updatedNotifications));
+            // Now dispatch the backend calls
+            await dispatch(approveFollowRequest(senderId));
+            await dispatch(createNotification({
+                userId: senderId,
+                type: 'followRequestAccepted',
+                message: `${fullName} accepted your follow request.`,
+                relatedId: user.id,
+                typeRef: 'User',
+            }));
         } catch (error) {
             console.error('Error accepting friend request:', error);
+            // Optional: revert optimistic update if needed
+        }
+    };
+
+    const handleFollowBack = async (targetUserId) => {
+        try {
+            const { payload } = await dispatch(followUserImmediately({ targetUserId, isFollowBack: true }));
+
+            const enrichedUser = followers.find(u => u._id === targetUserId);
+            const fullNameFollowBack = await enrichedUser
+                ? `${enrichedUser.firstName} ${enrichedUser.lastName}`
+                : 'them';
+    
+            await dispatch(createNotification({
+                userId: targetUserId,
+                type: 'follow',
+                message: `${fullName} started following you back.`,
+                relatedId: userId,
+                typeRef: 'User',
+            }));
+    
+            // Optimistically update matching followRequestAccepted notification
+            const updatedNotifications = notifications.map(n =>
+                n.type === 'followRequestAccepted' && n.relatedId === targetUserId
+                    ? {
+                        ...n,
+                        type: 'follow',
+                        message: `You followed ${fullNameFollowBack} back.`,
+                        read: true,
+                    }
+                    : n
+            );
+    
+            dispatch(setNotifications(updatedNotifications));
+            dispatch(setFollowBack(false));
+        } catch (error) {
+            console.error("Error following back:", error);
         }
     };
 
@@ -151,9 +198,9 @@ export default function Friends() {
             <Text style={styles.sectionTitle}>
                 Follow Requests: {followRequests.length || 0}
             </Text>
-            {friends.length > 0 ? (
+            {followRequests.received.length > 0 ? (
                 <FlatList
-                    data={friends}
+                    data={followRequests.received}
                     keyExtractor={(item) => item._id}
                     renderItem={({ item }) => (
                         <View style={styles.requestContainer}>
@@ -166,7 +213,8 @@ export default function Friends() {
                                 />
                                 <Text>{`${item.firstName} ${item.lastName}`}</Text>
                             </View>
-                            <View style={styles.buttonGroup}>
+                            {!followBack ? (
+                                <View style={styles.buttonGroup}>
                                 <TouchableOpacity
                                     onPress={() => handleAcceptRequest(item._id)}
                                     style={styles.acceptButton}
@@ -180,6 +228,14 @@ export default function Friends() {
                                     <Text style={styles.declineButtonText}>Decline</Text>
                                 </TouchableOpacity>
                             </View>
+                            ) : (
+                                <TouchableOpacity
+                                    onPress={() => handleFollowBack(item._id)}
+                                    style={styles.declineButton}
+                                >
+                                    <Text style={styles.declineButtonText}>Follow Back</Text>
+                                </TouchableOpacity>
+                            )}
                         </View>
                     )}
                 />
@@ -191,17 +247,17 @@ export default function Friends() {
 
     const renderFriendsList = () => (
         <View style={{ flex: 1 }}>
-          <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
-            <FriendsCard
-              friends={friends}
-              friendsDetails={friends}
-              onSearchPress={() => setShowFriendSearchModal(true)}
-              onFriendPress={(user) => navigateToOtherUserProfile(user)}
-            />
-          </ScrollView>
+            <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
+                <FriendsCard
+                    friends={friends}
+                    friendsDetails={friends}
+                    onSearchPress={() => setShowFriendSearchModal(true)}
+                    onFriendPress={(user) => navigateToOtherUserProfile(user)}
+                />
+            </ScrollView>
         </View>
-      );
-      
+    );
+
 
     const renderEventInvites = () => {
         const sentInvites = invites.filter(invite => invite.senderId === user.id);
@@ -282,19 +338,19 @@ export default function Friends() {
 
     const renderSearch = () => {
         const handleSearchChange = (query) => {
-          setSearchQuery(query);
-          if (query.trim()) dispatch(fetchUserSuggestions(query));
+            setSearchQuery(query);
+            if (query.trim()) dispatch(fetchUserSuggestions(query));
         };
-      
+
         return (
-          <UserSearchCard
-            query={searchQuery}
-            onChangeQuery={handleSearchChange}
-            results={userSuggestions}
-            onUserSelect={navigateToOtherUserProfile}
-          />
+            <UserSearchCard
+                query={searchQuery}
+                onChangeQuery={handleSearchChange}
+                results={userSuggestions}
+                onUserSelect={navigateToOtherUserProfile}
+            />
         );
-    };  
+    };
 
     return (
         <>

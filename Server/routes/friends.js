@@ -7,59 +7,71 @@ const { resolveUserProfilePics } = require('../utils/userPosts');
 
 // Send Follow Request
 router.post('/follow-request', verifyToken, async (req, res) => {
-  const followerId = req.user.id;
-  const { targetUserId } = req.body;
+  try {
+    const followerId = req.user.id;
+    const { targetUserId } = req.body;
 
-  if (followerId === targetUserId) {
-    return res.status(400).json({ message: 'You cannot follow yourself.' });
-  }
+    if (followerId === targetUserId) {
+      return res.status(400).json({ message: 'You cannot follow yourself.' });
+    }
 
-  const follower = await User.findById(followerId);
-  const targetUser = await User.findById(targetUserId);
+    const follower = await User.findById(followerId).select('_id firstName lastName profilePic followRequests');
+    const targetUser = await User.findById(targetUserId).select('_id followRequests');
 
-  if (!targetUser) return res.status(404).json({ message: 'User not found.' });
+    if (!targetUser) return res.status(404).json({ message: 'Target user not found.' });
 
-  const isPrivate = targetUser.privacySettings?.profileVisibility === 'private';
-
-  // Already following?
-  if (follower.following.includes(targetUserId)) {
-    return res.status(400).json({ message: 'Already following this user.' });
-  }
-
-  if (isPrivate) {
-    // Send follow request
+    // Already sent request
     if (targetUser.followRequests.received.includes(followerId)) {
       return res.status(400).json({ message: 'Follow request already sent.' });
     }
+
+    // Add to follow request queues
     follower.followRequests.sent.push(targetUserId);
     targetUser.followRequests.received.push(followerId);
-  } else {
-    // Immediately follow
-    follower.following.push(targetUserId);
-    targetUser.followers.push(followerId);
+
+    await follower.save();
+    await targetUser.save();
+
+    // Enrich the sender (follower) with presigned profile picture
+    const profilePicUrl = follower.profilePic?.photoKey
+      ? await generateDownloadPresignedUrl(follower.profilePic.photoKey)
+      : null;
+
+    return res.status(200).json({
+      message: 'Follow request sent.',
+      follower: {
+        _id: follower._id,
+        firstName: follower.firstName,
+        lastName: follower.lastName,
+        profilePic: follower.profilePic || null,
+        presignedProfileUrl: profilePicUrl,
+      }
+    });
+  } catch (err) {
+    console.error('❌ Error sending follow request:', err);
+    return res.status(500).json({ message: 'Server error.', error: err });
   }
-
-  await follower.save();
-  await targetUser.save();
-
-  res.status(200).json({ message: isPrivate ? 'Follow request sent.' : 'Now following user.' });
 });
 
-// Accept Follow Request
+// Approve a follow request
 router.post('/approve-follow-request', verifyToken, async (req, res) => {
   try {
     const recipientId = req.user.id; // The user approving the follow
     const { requesterId } = req.body; // The user who sent the follow request
 
-    const recipient = await User.findById(recipientId);
-    const requester = await User.findById(requesterId).select(
-      '_id firstName lastName email isBusiness profilePic followRequests'
-    );
+    // Fetch recipient with followers and followRequests
+    const recipient = await User.findById(recipientId).select('_id followers followRequests');
+    const requester = await User.findById(requesterId).select('_id firstName lastName email isBusiness profilePic followRequests following');
 
-    if (!requester) {
-      return res.status(404).json({ message: 'Requester user not found.' });
+    if (!recipient || !requester) {
+      return res.status(404).json({ message: 'User not found.' });
     }
 
+    console.log('🔍 Before removal:');
+    console.log('Recipient.received:', recipient.followRequests?.received);
+    console.log('Requester.sent:', requester.followRequests?.sent);
+
+    // Validate request exists
     if (!recipient.followRequests?.received.includes(requesterId)) {
       return res.status(400).json({ message: 'No follow request from this user.' });
     }
@@ -72,29 +84,47 @@ router.post('/approve-follow-request', verifyToken, async (req, res) => {
       id => id.toString() !== recipientId
     );
 
-    // Update follower/following
+    console.log('✅ After removal:');
+    console.log('Recipient.received:', recipient.followRequests.received);
+    console.log('Requester.sent:', requester.followRequests.sent);
+
+    // Ensure arrays are initialized
+    recipient.followers = recipient.followers || [];
+    requester.following = requester.following || [];
+
+    // Add follower/following
     recipient.followers.push(requesterId);
     requester.following.push(recipientId);
 
+    // Save updates
     await recipient.save();
     await requester.save();
 
-    // Remove follow request notification
-    await User.findByIdAndUpdate(recipientId, {
-      $pull: {
-        notifications: {
-          type: 'followRequest', // You may want to rename this type in your system
-          relatedId: new mongoose.Types.ObjectId(requesterId),
+    // Remove follow request notification from recipient
+    await User.updateOne(
+      { _id: recipientId, 'notifications.relatedId': requesterId, 'notifications.type': 'followRequest' },
+      {
+        $set: {
+          'notifications.$.type': 'followRequestAccepted',
+          'notifications.$.message': `You accepted ${requester.firstName} ${requester.lastName}'s follow request.`,
         },
-      },
-    });
+      }
+    );    
 
+    // Respond with enriched user object
     res.status(200).json({
       message: 'Follow request approved.',
-      follower: requester,
+      follower: {
+        _id: requester._id,
+        firstName: requester.firstName,
+        lastName: requester.lastName,
+        email: requester.email,
+        isBusiness: requester.isBusiness,
+        profilePic: requester.profilePic || null,
+      },
     });
   } catch (error) {
-    console.error('Error approving follow request:', error);
+    console.error('❌ Error approving follow request:', error);
     res.status(500).json({ message: 'Server error.', error });
   }
 });
@@ -105,8 +135,8 @@ router.post('/decline-follow-request', verifyToken, async (req, res) => {
     const recipientId = req.user.id; // Current user (the one declining)
     const { requesterId } = req.body; // The user who sent the follow request
 
-    const recipient = await User.findById(recipientId);
-    const requester = await User.findById(requesterId);
+    const recipient = await User.findById(recipientId).select('_id followRequests');
+    const requester = await User.findById(requesterId).select('_id followRequests');
 
     if (!requester) {
       return res.status(404).json({ message: 'Requester user not found.' });
@@ -175,20 +205,20 @@ router.delete('/unfollow/:targetUserId', verifyToken, async (req, res) => {
     await User.findByIdAndUpdate(userId, {
       $pull: {
         notifications: {
-          type: 'followAccepted',
+          type: { $in: ['followRequestAccepted', 'follow', 'followRequest'] },
           relatedId: new mongoose.Types.ObjectId(targetUserId),
         },
       },
     });
-
+    
     await User.findByIdAndUpdate(targetUserId, {
       $pull: {
         notifications: {
-          type: 'followAccepted',
+          type: { $in: ['followRequestAccepted', 'follow', 'followRequest'] },
           relatedId: new mongoose.Types.ObjectId(userId),
         },
       },
-    });
+    });    
 
     res.status(200).json({ message: 'Successfully unfollowed the user.' });
   } catch (error) {
@@ -346,17 +376,17 @@ router.post('/follow/:targetUserId', verifyToken, async (req, res) => {
   try {
     const followerId = req.user.id;
     const { targetUserId } = req.params;
+    const { isFollowBack } = req.body;
 
     if (followerId === targetUserId) {
       return res.status(400).json({ message: 'Cannot follow yourself.' });
     }
 
     const follower = await User.findById(followerId);
-    const targetUser = await User.findById(targetUserId);
+    const targetUser = await User.findById(targetUserId).select('_id firstName lastName profilePic privacySettings followers');
 
     if (!targetUser) return res.status(404).json({ message: 'Target user not found.' });
 
-    // Enforce only public profiles
     if (targetUser.privacySettings?.profileVisibility === 'private') {
       return res.status(403).json({ message: 'This user requires follow approval.' });
     }
@@ -371,9 +401,33 @@ router.post('/follow/:targetUserId', verifyToken, async (req, res) => {
     await follower.save();
     await targetUser.save();
 
-    res.status(200).json({ message: 'Followed successfully.' });
+    if (isFollowBack) {
+      await User.findByIdAndUpdate(followerId, {
+        $pull: {
+          notifications: {
+            type: 'followRequestAccepted',
+            relatedId: targetUserId,
+          },
+        },
+      });
+    }
+
+    // ✅ Enrich target user with profile picture URL
+    const [profilePicData] = await Promise.all([resolveUserProfilePics([targetUserId])]);
+    const enrichedTarget = {
+      _id: targetUser._id,
+      firstName: targetUser.firstName,
+      lastName: targetUser.lastName,
+      profilePic: profilePicData[targetUserId]?.profilePic || null,
+      presignedProfileUrl: profilePicData[targetUserId]?.profilePicUrl || null,
+    };
+
+    res.status(200).json({
+      message: 'Followed successfully.',
+      targetUser: enrichedTarget,
+    });
   } catch (err) {
-    console.error('Error following user:', err);
+    console.error('❌ Error following user:', err);
     res.status(500).json({ message: 'Server error.' });
   }
 });
@@ -401,7 +455,7 @@ router.get('/followers-following/:userId', verifyToken, async (req, res) => {
         firstName: u.firstName,
         lastName: u.lastName,
         profilePic: u.profilePic || null,
-        presignedProfileUrl: profilePicMap[u._id.toString()]?.profilePicUrl || null,
+        profilePicUrl: profilePicMap[u._id.toString()]?.profilePicUrl || null,
       }));
 
     res.status(200).json({
@@ -414,6 +468,7 @@ router.get('/followers-following/:userId', verifyToken, async (req, res) => {
   }
 });
 
+//fetch enriched follow requests
 router.get('/follow-requests', verifyToken, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -456,6 +511,7 @@ router.get('/follow-requests', verifyToken, async (req, res) => {
   }
 });
 
+//fetch users that follow each other
 router.get('/:userId/friends', verifyToken, async (req, res) => {
   try {
     const { userId } = req.params;

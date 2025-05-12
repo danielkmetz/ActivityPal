@@ -9,6 +9,7 @@ export default function FriendsCard({
   onSearchPress,
   onFriendPress,
 }) {
+  
   return (
     <View style={styles.sectionContainer}>
       <View style={styles.header}>
@@ -27,7 +28,7 @@ export default function FriendsCard({
               <View style={styles.friendContainer}>
                 <View style={styles.picAndName}>
                   <Image
-                    source={item.presignedProfileUrl ? { uri: item.presignedProfileUrl } : profilePicPlaceholder}
+                    source={item.profilePicUrl ? { uri: item.profilePicUrl } : profilePicPlaceholder}
                     style={styles.profilePic}
                   />
                   <Text>{item.firstName} {item.lastName}</Text>

@@ -3,38 +3,42 @@ import { View, Text, Image, StyleSheet, TouchableOpacity, FlatList } from "react
 import { Ionicons } from "@expo/vector-icons";
 import { useDispatch, useSelector } from "react-redux";
 import { selectUser, fetchOtherUserSettings, selectOtherUserSettings } from "../../Slices/UserSlice";
-import { 
-  selectFollowRequests, 
-  selectFollowing, 
+import {
+  selectFollowRequests,
+  selectFollowing,
   acceptFollowRequest,
   sendFollowRequest,
   cancelFollowRequest,
   declineFollowRequest,
   unfollowUser,
   followUserImmediately,
+  selectOtherUserFollowers,
+  selectOtherUserFollowing,
+  fetchOtherUserFollowersAndFollowing,
 } from "../../Slices/friendsSlice";
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import Reviews from "../Reviews/Reviews";
 import Photos from "./Photos";
-import { 
-  fetchOtherUserBanner, 
-  resetOtherUserBanner, 
+import {
+  fetchOtherUserBanner,
+  resetOtherUserBanner,
   selectOtherUserBanner,
   fetchOtherUserProfilePic,
   resetOtherUserProfilePic,
-  selectOtherUserProfilePic, 
+  selectOtherUserProfilePic,
 } from "../../Slices/PhotosSlice";
-import { 
-  fetchPostsByOtherUserId, 
-  selectOtherUserReviews, 
+import {
+  fetchPostsByOtherUserId,
+  selectOtherUserReviews,
   resetOtherUserReviews,
   appendOtherUserReviews,
-  setOtherUserReviews, 
+  setOtherUserReviews,
 } from "../../Slices/ReviewsSlice";
 import { createNotification } from "../../Slices/NotificationsSlice";
 import Favorites from "./Favorites";
 import { fetchOtherUserFavorites, selectOtherUserFavorites } from "../../Slices/FavoritesSlice";
 import usePaginatedFetch from "../../utils/usePaginatedFetch";
+import ConnectionsModal from "./ConnectionsModal";
 
 export default function OtherUserProfile({ route, navigation }) {
   const { user } = route.params;
@@ -42,8 +46,10 @@ export default function OtherUserProfile({ route, navigation }) {
   const mainUser = useSelector(selectUser);
   const dispatch = useDispatch();
   const followRequests = useSelector(selectFollowRequests);
+  const otherUserFollowing = useSelector(selectOtherUserFollowing);
+  const otherUserFollowers = useSelector(selectOtherUserFollowers);
+  const following = useSelector(selectFollowing)
   const banner = useSelector(selectOtherUserBanner);
-  const following = useSelector(selectFollowing);
   const favorites = useSelector(selectOtherUserFavorites);
   const profileReviews = useSelector(selectOtherUserReviews);
   const otherUserProfilePic = useSelector(selectOtherUserProfilePic);
@@ -54,19 +60,21 @@ export default function OtherUserProfile({ route, navigation }) {
   const [isFollowing, setIsFollowing] = useState(false);
   const [dropdownVisible, setDropdownVisible] = useState(false);
   const [activeSection, setActiveSection] = useState("reviews");
+  const [connectionsModalVisible, setConnectionsModalVisible] = useState(false);
+  const [activeConnectionsTab, setActiveConnectionsTab] = useState("followers");
 
   const {
-      loadMore,
-      refresh,
-      isLoading,
-      hasMore,
-    } = usePaginatedFetch({
-      fetchThunk: fetchPostsByOtherUserId,
-      appendAction: appendOtherUserReviews,
-      resetAction: setOtherUserReviews,
-      params: { userId },
-      limit: 5,
-    });
+    loadMore,
+    refresh,
+    isLoading,
+    hasMore,
+  } = usePaginatedFetch({
+    fetchThunk: fetchPostsByOtherUserId,
+    appendAction: appendOtherUserReviews,
+    resetAction: setOtherUserReviews,
+    params: { userId },
+    limit: 5,
+  });
 
   useEffect(() => {
     if (user) {
@@ -75,14 +83,19 @@ export default function OtherUserProfile({ route, navigation }) {
       dispatch(fetchOtherUserProfilePic(user._id));
       dispatch(fetchOtherUserFavorites(user._id));
       dispatch(fetchOtherUserSettings(user._id));
+      dispatch(fetchOtherUserFollowersAndFollowing(user._id));
     }
   }, [user]);
 
   useEffect(() => {
-    setIsRequestSent(followRequests.sent.includes(user._id));
-    setIsRequestReceived(followRequests.received.includes(user._id));
-    setIsFollowing(following.includes(user._id));
-  }, [followRequests, following, user]);
+    const followingIds = following.map(u => u._id);
+    const sentRequestIds = (followRequests?.sent || []).map(u => u._id || u);
+    const receivedRequestIds = (followRequests?.received || []).map(u => u._id || u);
+
+    setIsRequestSent(sentRequestIds.includes(user._id));
+    setIsRequestReceived(receivedRequestIds.includes(user._id));
+    setIsFollowing(followingIds.includes(user._id));
+  }, [mainUser, following, user, followRequests]);
 
   const handleCancelRequest = async () => {
     await dispatch(cancelFollowRequest(user._id));
@@ -92,14 +105,17 @@ export default function OtherUserProfile({ route, navigation }) {
 
   const handleDenyRequest = () => dispatch(declineFollowRequest(user._id));
   const handleUnfollow = () => {
-    dispatch(unfollowUser(user._id));
+    dispatch(unfollowUser(userId));
     setDropdownVisible(false);
+    setIsFollowing(false);
   };
 
   const handleFollowUser = async () => {
     try {
       if (isPrivate) {
-        await dispatch(sendFollowRequest(user._id));
+        await dispatch(sendFollowRequest(userId));
+        setIsRequestSent(true);
+
         await dispatch(createNotification({
           userId: user._id,
           type: 'followRequest',
@@ -109,6 +125,8 @@ export default function OtherUserProfile({ route, navigation }) {
         }));
       } else {
         await dispatch(followUserImmediately(user._id));
+        setIsFollowing(true);
+
         await dispatch(createNotification({
           userId: user._id,
           type: 'follow',
@@ -121,18 +139,18 @@ export default function OtherUserProfile({ route, navigation }) {
       console.error("Failed to follow user:", err);
     }
   };
-  
-  const handleAcceptRequest = async () => {
-      await dispatch(acceptFollowRequest(user._id));
 
-      // ✅ Create a notification for the original sender
-      await dispatch(createNotification({
-          userId: user._id, // The user who sent the friend request
-          type: 'followAccepted',
-          message: `${user.firstName} accepted your follow request!`,
-          relatedId: user._id,
-          typeRef: 'User'
-      }));
+  const handleAcceptRequest = async () => {
+    await dispatch(acceptFollowRequest(user._id));
+
+    // ✅ Create a notification for the original sender
+    await dispatch(createNotification({
+      userId: user._id, // The user who sent the friend request
+      type: 'followAccepted',
+      message: `${user.firstName} accepted your follow request!`,
+      relatedId: user._id,
+      typeRef: 'User'
+    }));
   };
 
   const photos = Array.from(
@@ -156,11 +174,38 @@ export default function OtherUserProfile({ route, navigation }) {
       </TouchableOpacity>
       <Image source={{ uri: banner?.url }} style={styles.coverPhoto} />
       <View style={styles.profileHeader}>
-        <Image 
-          source={otherUserProfilePic?.url ? { uri: otherUserProfilePic?.url } : profilePicPlaceholder} 
-          style={styles.profilePicture} 
+        <Image
+          source={otherUserProfilePic?.url ? { uri: otherUserProfilePic?.url } : profilePicPlaceholder}
+          style={styles.profilePicture}
         />
-        <Text style={styles.userName}>{`${user.firstName} ${user.lastName}`}</Text>
+        <View style={styles.nameAndFollow}>
+          <Text style={styles.userName}>{`${user.firstName} ${user.lastName}`}</Text>
+          <View style={styles.connections}>
+            <TouchableOpacity
+              onPress={() => {
+                setActiveConnectionsTab("followers");
+                setConnectionsModalVisible(true);
+              }}
+            >
+              <View style={[styles.followers, { marginRight: 15 }]}>
+                <Text style={styles.followGroup}>Followers</Text>
+                <Text style={[styles.followText, { fontSize: 18 }]}>{otherUserFollowers.length}</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => {
+                setActiveConnectionsTab("following");
+                setConnectionsModalVisible(true);
+              }}
+            >
+              <View style={styles.followers}>
+                <Text style={styles.followGroup}>Following</Text>
+                <Text style={[styles.followText, { fontSize: 18 }]}>{otherUserFollowing.length}</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
       {isFollowing ? (
         <>
@@ -198,28 +243,29 @@ export default function OtherUserProfile({ route, navigation }) {
       )}
       <View style={styles.divider} />
       <View style={styles.navButtonsContainer}>
-        <TouchableOpacity
-          style={[styles.navButton, activeSection === "reviews" && styles.activeButton]}
-          onPress={() => setActiveSection("reviews")}
-        >
-          <Text style={styles.navButtonText}>Posts</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.navButton, activeSection === "photos" && styles.activeButton]}
-          onPress={() => setActiveSection("photos")}
-        >
-          <Text style={styles.navButtonText}>Photos</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.navButton, activeSection === "favorites" && styles.activeButton]}
-          onPress={() => setActiveSection("favorites")}
-        >
-          <Text style={styles.navButtonText}>Favorites</Text>
-        </TouchableOpacity>
-      </View>
-      {activeSection === "reviews" && <Reviews reviews={profileReviews} onLoadMore={loadMore} isLoadingMore={isLoading} hasMore={hasMore}/>}
+  {["reviews", "photos", "favorites"].map((section) => (
+    <TouchableOpacity
+      key={section}
+      style={styles.navTab}
+      onPress={() => setActiveSection(section)}
+    >
+      <Text style={[styles.navTabText, activeSection === section && styles.activeTabText]}>
+        {section === "reviews" ? "Posts" : section.charAt(0).toUpperCase() + section.slice(1)}
+      </Text>
+      {activeSection === section && <View style={styles.navUnderline} />}
+    </TouchableOpacity>
+  ))}
+</View>
+      {activeSection === "reviews" && <Reviews reviews={profileReviews} onLoadMore={loadMore} isLoadingMore={isLoading} hasMore={hasMore} />}
       {activeSection === "photos" && <Photos photos={photos} />}
       {activeSection === "favorites" && <Favorites favorites={favorites} />}
+      <ConnectionsModal
+        visible={connectionsModalVisible}
+        onClose={() => setConnectionsModalVisible(false)}
+        followers={otherUserFollowers}
+        following={otherUserFollowing}
+        initialTab={activeConnectionsTab}
+      />
     </>
   );
 
@@ -257,6 +303,27 @@ const styles = StyleSheet.create({
     marginTop: -50,
     marginBottom: 20,
     marginLeft: 20,
+    flexDirection: 'row',
+  },
+  nameAndFollow: {
+    flexDirection: 'column',
+    marginLeft: 15,
+    marginTop: 50,
+  },
+  connections: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  followers: {
+    flexDirection: 'column',
+  },
+  followGroup: {
+    fontSize: 13,
+  },
+  followText: {
+    alignSelf: 'flex-start',
+    fontWeight: 'bold',
   },
   profilePicture: {
     width: 150,
@@ -275,7 +342,7 @@ const styles = StyleSheet.create({
     color: "#555",
   },
   addFriendButton: {
-    backgroundColor: "#007bff",
+    backgroundColor: "#009999",
     marginHorizontal: 20,
     paddingVertical: 10,
     paddingHorizontal: 20,
@@ -378,24 +445,32 @@ const styles = StyleSheet.create({
   },
   navButtonsContainer: {
     flexDirection: "row",
-    //justifyContent: "space-around",
-    //marginVertical: 10,
-    marginLeft: 15,
+    marginBottom: 5,
+    marginLeft: 20,
+    gap: 25,
   },
-  navButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 30,
+  navTab: {
+    alignItems: "center",
+    
   },
-  activeButton: {
-    backgroundColor: 'rgba(144, 238, 144, 0.4)',
+  navTabText: {
+    fontSize: 16,
+    color: "#555",
+    fontWeight: "600",
   },
-  navButtonText: {
-    color: "black",
+  activeTabText: {
+    color: "#009999",
     fontWeight: "bold",
   },
+  navUnderline: {
+    height: 2,
+    backgroundColor: "#009999",
+    width: "100%",
+    marginTop: 4,
+    borderRadius: 2,
+  },  
   reviews: {
     marginTop: 10,
   }
-  
+
 });
