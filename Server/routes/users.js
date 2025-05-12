@@ -71,4 +71,34 @@ router.get('/privacy-settings/:userId', verifyToken, async (req, res) => {
     }
 });
 
+// UPDATE privacy settings for a user
+router.put('/privacy-settings/:userId', verifyToken, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { profileVisibility } = req.body;
+  
+      if (!['public', 'private'].includes(profileVisibility)) {
+        return res.status(400).json({ message: 'Invalid profile visibility value.' });
+      }
+  
+      const updatedUser = await User.findByIdAndUpdate(
+        userId,
+        { $set: { 'privacySettings.profileVisibility': profileVisibility } },
+        { new: true, runValidators: true }
+      ).select('privacySettings');
+  
+      if (!updatedUser) {
+        return res.status(404).json({ message: 'User not found.' });
+      }
+  
+      return res.status(200).json({
+        message: 'Privacy settings updated successfully.',
+        privacySettings: updatedUser.privacySettings,
+      });
+    } catch (error) {
+      console.error('Error updating privacy settings:', error);
+      res.status(500).json({ message: 'Server error.' });
+    }
+});  
+
 module.exports = router;

@@ -5,21 +5,7 @@ import { selectWeather, selectCoordinates, selectLocation, fetchWeather } from '
 
 export default function Header({ currentRoute }) {
     const dispatch = useDispatch();
-    const coordinates = useSelector(selectCoordinates);
-    const weather = useSelector(selectWeather);
-    const location = useSelector(selectLocation);
-
-    useEffect(() => {
-        if (coordinates) {
-            dispatch(fetchWeather(coordinates));
-        }
-    }, [coordinates]);
-
-    const weatherDescription = weather?.condition?.text || "N/A";
-    const weatherIcon = weather?.condition?.icon
-        ? `https:${weather.condition.icon}` // Add 'https:' to make it a valid URL
-        : null;
-
+    
     // Determine dynamic title based on the current route
     const getTitle = () => {
         switch (currentRoute) {
@@ -66,15 +52,6 @@ export default function Header({ currentRoute }) {
                                 style={styles.pinIcon}
                             />
                         </View>
-                        {/* Weather Display */}
-                        {/* <View style={styles.weatherContainer}>
-                    {weatherIcon && (
-                        <Image source={{ uri: weatherIcon }} style={styles.weatherIcon} />
-                    )}
-                    <Text style={styles.weatherText}>
-                        {weatherDescription.split(' ')[0]}
-                    </Text>
-                </View> */}
                     </View>
                 </View>
             </View>

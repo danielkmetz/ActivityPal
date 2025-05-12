@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useSelector } from "react-redux";
 import { selectFriends } from "../../Slices/friendsSlice";
+import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 
 const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isEventInvite, initialSelectedFriends = [] }) => {
   const [selectedFriends, setSelectedFriends] = useState([]);
@@ -69,7 +70,7 @@ const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isE
                   onPress={() => toggleFriendSelection(item)}
                 >
                   {/* Profile Picture */}
-                  <Image source={{ uri: item.presignedProfileUrl }} style={styles.profilePic} />
+                  <Image source={item.profilePicUrl ? { uri: item.profilePicUrl } : profilePicPlaceholder} style={styles.profilePic} />
 
                   {/* Friend Name */}
                   <Text style={styles.friendName}>

@@ -12,23 +12,28 @@ import { selectProfilePic, selectBanner, fetchProfilePic, fetchUserBanner } from
 import { selectProfileReviews, fetchReviewsByUserId, appendProfileReviews, setProfileReviews } from "../../Slices/ReviewsSlice";
 import { selectFavorites, fetchFavorites } from "../../Slices/FavoritesSlice";
 import Favorites from "./Favorites";
+import { selectFollowing, selectFollowers } from "../../Slices/friendsSlice";
 import usePaginatedFetch from "../../utils/usePaginatedFetch";
+import ConnectionsModal from "./ConnectionsModal";
 
 export default function UserProfile() {
   const dispatch = useDispatch();
   const user = useSelector(selectUser);
   const profilePic = useSelector(selectProfilePic);
   const profileReviews = useSelector(selectProfileReviews);
+  const following = useSelector(selectFollowing);
+  const followers = useSelector(selectFollowers);
   const banner = useSelector(selectBanner);
   const [modalVisible, setModalVisible] = useState(false);
   const [activeSection, setActiveSection] = useState("reviews");
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [shouldFetch, setShouldFetch] = useState(true);
+  const [connectionsModalVisible, setConnectionsModalVisible] = useState(false);
+  const [activeConnectionsTab, setActiveConnectionsTab] = useState("followers");
   const favorites = useSelector(selectFavorites);
-  
+
   const bannerPlaceholder = null;
   const userId = user?.id;
-  const numberOfFriends = user?.friends?.length;
 
   const {
     loadMore,
@@ -71,14 +76,41 @@ export default function UserProfile() {
               <View style={styles.bannerPlaceholder} />
             )}
             <View style={styles.profileHeader}>
-              <Image 
-                source={profilePic?.url ? { uri: profilePic?.url } : profilePlaceholder} 
-                style={styles.profilePicture} 
+              <Image
+                source={profilePic?.url ? { uri: profilePic?.url } : profilePlaceholder}
+                style={styles.profilePicture}
               />
-              <Text style={styles.userName}>{`${user.firstName} ${user.lastName}`}</Text>
+              <View style={styles.nameAndFollow}>
+                <Text style={styles.userName}>{`${user.firstName} ${user.lastName}`}</Text>
+                <View style={styles.connections}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setActiveConnectionsTab("followers");
+                      setConnectionsModalVisible(true);
+                    }}
+                  >
+                    <View style={[styles.followers, { marginRight: 15 }]}>
+                      <Text style={styles.followGroup}>Followers</Text>
+                      <Text style={[styles.followText, { fontSize: 18 }]}>{followers.length}</Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => {
+                      setActiveConnectionsTab("following");
+                      setConnectionsModalVisible(true);
+                    }}
+                  >
+                    <View style={styles.followers}>
+                      <Text style={styles.followGroup}>Following</Text>
+                      <Text style={[styles.followText, { fontSize: 18 }]}>{following.length}</Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+
+              </View>
             </View>
             <View style={styles.editContainer}>
-              <Text style={styles.userEmail}>Friends: {numberOfFriends}</Text>
               <View style={styles.editButtons}>
                 <TouchableOpacity
                   style={styles.editProfileButton}
@@ -88,42 +120,37 @@ export default function UserProfile() {
                   <Text style={styles.editProfileButtonText}>Edit Profile</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={styles.settingsIcon}
+                  style={[styles.editProfileButton, { marginLeft: 10, }]}
                   onPress={() => setModalVisible(true)}
                 >
-                  <Ionicons name="settings-sharp" size={24} color="gray" />
+                  <Ionicons name="settings-sharp" size={24} color="white" />
+                  <Text style={styles.editProfileButtonText}>Settings</Text>
                 </TouchableOpacity>
               </View>
             </View>
             <View style={styles.divider} />
             <View style={styles.navButtonsContainer}>
-              <TouchableOpacity
-                style={[styles.navButton, activeSection === "reviews" && styles.activeButton]}
-                onPress={() => setActiveSection("reviews")}
-              >
-                <Text style={styles.navButtonText}>Posts</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.navButton, activeSection === "photos" && styles.activeButton]}
-                onPress={() => setActiveSection("photos")}
-              >
-                <Text style={styles.navButtonText}>Photos</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.navButton, activeSection === "favorites" && styles.activeButton]}
-                onPress={() => setActiveSection("favorites")}
-              >
-                <Text style={styles.navButtonText}>Favorited</Text>
-              </TouchableOpacity>
-            </View>
+  {["reviews", "photos", "favorites"].map((section) => (
+    <TouchableOpacity
+      key={section}
+      style={styles.navTab}
+      onPress={() => setActiveSection(section)}
+    >
+      <Text style={[styles.navTabText, activeSection === section && styles.activeTabText]}>
+        {section === "reviews" ? "Posts" : section.charAt(0).toUpperCase() + section.slice(1)}
+      </Text>
+      {activeSection === section && <View style={styles.navUnderline} />}
+    </TouchableOpacity>
+  ))}
+</View>
             {activeSection === "reviews" && <Reviews reviews={profileReviews} onLoadMore={loadMore} isLoadingMore={isLoading} hasMore={hasMore} />}
             {activeSection === "photos" && <Photos photos={photos} />}
             {activeSection === "favorites" && <Favorites favorites={favorites} />}
-            <View style={styles.bottom}/>
+            <View style={styles.bottom} />
           </>
         }
-        data={data} 
-        keyExtractor={(item, index) => index.toString()}   
+        data={data}
+        keyExtractor={(item, index) => index.toString()}
       />
       <SettingsModal
         visible={modalVisible}
@@ -136,6 +163,13 @@ export default function UserProfile() {
         bannerPlaceholder={bannerPlaceholder}
         profilePicPlaceholder={profilePlaceholder}
         aboutInfo={{}}
+      />
+      <ConnectionsModal
+        visible={connectionsModalVisible}
+        onClose={() => setConnectionsModalVisible(false)}
+        followers={followers}
+        following={following}
+        initialTab={activeConnectionsTab}
       />
     </>
   );
@@ -152,9 +186,30 @@ const styles = StyleSheet.create({
   },
   profileHeader: {
     alignItems: "left",
-    marginTop: -80,
+    marginTop: -50,
     marginBottom: 10,
     marginLeft: 20,
+    flexDirection: 'row',
+  },
+  nameAndFollow: {
+    flexDirection: 'column',
+    marginLeft: 15,
+    marginTop: 50,
+  },
+  connections: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  followers: {
+    flexDirection: 'column',
+  },
+  followGroup: {
+    fontSize: 13,
+  },
+  followText: {
+    alignSelf: 'flex-start',
+    fontWeight: 'bold',
   },
   profilePicture: {
     width: 150,
@@ -198,6 +253,7 @@ const styles = StyleSheet.create({
   editButtons: {
     flexDirection: "row",
     marginRight: 20,
+    marginTop: 15,
   },
   divider: {
     width: "100%",
@@ -207,20 +263,28 @@ const styles = StyleSheet.create({
   },
   navButtonsContainer: {
     flexDirection: "row",
-    marginVertical: 10,
+    marginBottom: 5,
     marginLeft: 15,
+    gap: 25,
   },
-  navButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 30,
+  navTab: {
+    alignItems: "center",
   },
-  activeButton: {
-    backgroundColor: "rgba(144, 238, 144, 0.4)",
+  navTabText: {
+    fontSize: 16,
+    color: "#555",
+    fontWeight: "600",
   },
-  navButtonText: {
-    color: "black",
+  activeTabText: {
+    color: "#009999",
     fontWeight: "bold",
+  },
+  navUnderline: {
+    height: 2,
+    backgroundColor: "#009999",
+    width: "100%",
+    marginTop: 4,
+    borderRadius: 2,
   },
   bannerPlaceholder: {
     width: "100%",
