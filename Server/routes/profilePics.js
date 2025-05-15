@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const { generatePresignedUrl } = require('../helpers/generatePresignedUrl');
-const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
+const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 const User = require('../models/User'); // Import User model
 const router = express.Router();
 
@@ -80,7 +80,7 @@ router.get('/:userId/profile-pic', async (req, res) => {
       return res.status(404).json({ message: 'Profile picture not found.' });
     }
 
-    const url = await generateDownloadPresignedUrl(photoKey);
+    const url = await getPresignedUrl(photoKey);
 
     res.status(200).json({
       photoKey,

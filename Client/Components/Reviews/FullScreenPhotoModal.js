@@ -47,7 +47,7 @@ const FullScreenPhotoModal = ({
     if (!lastTapRef.current[postId]) lastTapRef.current[postId] = 0;
 
     if (now - lastTapRef.current[postId] < 300) {
-      handleLikeWithAnimation(review.type, postId);
+      handleLikeWithAnimation(review);
       lastTapRef.current[postId] = 0;
     } else {
       lastTapRef.current[postId] = now;
@@ -61,7 +61,7 @@ const FullScreenPhotoModal = ({
   };
 
   const handleLike = () => {
-    handleLikeWithAnimation(review.type, review._id, true);
+    handleLikeWithAnimation(review, true);
   };
 
   const handleScroll = (e) => {

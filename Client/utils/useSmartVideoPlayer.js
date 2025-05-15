@@ -1,8 +1,10 @@
 import { useVideoPlayer } from "expo-video";
 
 export function useSmartVideoPlayer(file) {
-  const uri = file?.uri || file?.url || "";
+  const uri = file?.uri || file?.url || file.mediaUrl || file.mediaUploadUrl || "";
 
+  //console.log(file)
+  
   const isVideo =
     typeof file === "object" &&
     (file?.type?.startsWith("video/") ||
@@ -10,9 +12,9 @@ export function useSmartVideoPlayer(file) {
       file?.photoKey?.toLowerCase?.().endsWith(".mp4") ||
       uri?.toLowerCase?.().includes(".mov") ||
       uri?.toLowerCase?.().includes(".mp4"));
-
+  
   // Always call the hook — pass null if not a video
-  return useVideoPlayer(isVideo ? uri : null, (player) => {
+  return useVideoPlayer(uri || null, (player) => {
     if (isVideo && uri) {
       player.loop = true;
       player.muted = true;

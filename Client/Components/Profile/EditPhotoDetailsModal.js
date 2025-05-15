@@ -140,7 +140,12 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
                   <ImageBackground
                     source={{ uri: photo.uri || photo.url }}
                     style={styles.photoPreview}
-                    onTouchEnd={!isPromotion && handleImagePress}
+                    onTouchEnd={(e) => {
+                      if (!isPromotion) {
+                        e.persist?.(); // Not always necessary in React Native, but safe
+                        handleImagePress(e);
+                      }
+                    }}
                   >
                     {/* Render tagged friends */}
                     {taggedUsers.map((user, index) => (

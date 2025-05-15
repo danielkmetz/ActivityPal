@@ -28,7 +28,6 @@ export default function CheckInItem({
     photoTapped,
     toggleTaggedUsers,
     handleLikeWithAnimation,
-    handleLike,
     handleOpenComments,
     lastTapRef,
     handleDelete,
@@ -163,7 +162,7 @@ export default function CheckInItem({
 
             <PostActions
                 item={item}
-                handleLike={handleLike}
+                handleLikeWithAnimation={handleLikeWithAnimation}
                 handleOpenComments={handleOpenComments}
                 toggleTaggedUsers={toggleTaggedUsers}
                 photo={currentPhoto}
@@ -180,7 +179,6 @@ export default function CheckInItem({
                 photoTapped={photoTapped}
                 toggleTaggedUsers={toggleTaggedUsers}
                 handleLikeWithAnimation={handleLikeWithAnimation}
-                handleLike={handleLike}
                 onClose={() => {
                     setFullScreenPhoto(null);
                     setPhotoModalVisible(false);

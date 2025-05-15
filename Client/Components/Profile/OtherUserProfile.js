@@ -42,7 +42,7 @@ import ConnectionsModal from "./ConnectionsModal";
 
 export default function OtherUserProfile({ route, navigation }) {
   const { user } = route.params;
-  const userId = user?._id;
+  //const userId = user?._id;
   const mainUser = useSelector(selectUser);
   const dispatch = useDispatch();
   const followRequests = useSelector(selectFollowRequests);
@@ -62,7 +62,9 @@ export default function OtherUserProfile({ route, navigation }) {
   const [activeSection, setActiveSection] = useState("reviews");
   const [connectionsModalVisible, setConnectionsModalVisible] = useState(false);
   const [activeConnectionsTab, setActiveConnectionsTab] = useState("followers");
-
+  const userId = user?._id ? user?._id : user?.userId;
+  const fullName = user?.fullName ? user?.fullName : `${user?.firstName} ${user?.lastName}`;
+  
   const {
     loadMore,
     refresh,
@@ -78,12 +80,12 @@ export default function OtherUserProfile({ route, navigation }) {
 
   useEffect(() => {
     if (user) {
-      dispatch(fetchOtherUserBanner(user._id));
+      dispatch(fetchOtherUserBanner(userId));
       refresh();
-      dispatch(fetchOtherUserProfilePic(user._id));
-      dispatch(fetchOtherUserFavorites(user._id));
-      dispatch(fetchOtherUserSettings(user._id));
-      dispatch(fetchOtherUserFollowersAndFollowing(user._id));
+      dispatch(fetchOtherUserProfilePic(userId));
+      dispatch(fetchOtherUserFavorites(userId));
+      dispatch(fetchOtherUserSettings(userId));
+      dispatch(fetchOtherUserFollowersAndFollowing(userId));
     }
   }, [user]);
 
@@ -92,18 +94,18 @@ export default function OtherUserProfile({ route, navigation }) {
     const sentRequestIds = (followRequests?.sent || []).map(u => u._id || u);
     const receivedRequestIds = (followRequests?.received || []).map(u => u._id || u);
 
-    setIsRequestSent(sentRequestIds.includes(user._id));
-    setIsRequestReceived(receivedRequestIds.includes(user._id));
-    setIsFollowing(followingIds.includes(user._id));
+    setIsRequestSent(sentRequestIds.includes(userId));
+    setIsRequestReceived(receivedRequestIds.includes(userId));
+    setIsFollowing(followingIds.includes(userId));
   }, [mainUser, following, user, followRequests]);
 
   const handleCancelRequest = async () => {
-    await dispatch(cancelFollowRequest(user._id));
+    await dispatch(cancelFollowRequest({recipientId: userId}));
     // ✅ Explicitly update the state to ensure UI reflects the change
     setIsRequestSent(false);
   };
 
-  const handleDenyRequest = () => dispatch(declineFollowRequest(user._id));
+  const handleDenyRequest = () => dispatch(declineFollowRequest({requesterId: userId}));
   const handleUnfollow = () => {
     dispatch(unfollowUser(userId));
     setDropdownVisible(false);
@@ -113,22 +115,22 @@ export default function OtherUserProfile({ route, navigation }) {
   const handleFollowUser = async () => {
     try {
       if (isPrivate) {
-        await dispatch(sendFollowRequest(userId));
+        await dispatch(sendFollowRequest({targetUserId: userId}));
         setIsRequestSent(true);
 
         await dispatch(createNotification({
-          userId: user._id,
+          userId,
           type: 'followRequest',
           message: `${mainUser.firstName} ${mainUser.lastName} wants to follow you.`,
           relatedId: mainUser.id,
           typeRef: 'User',
         }));
       } else {
-        await dispatch(followUserImmediately(user._id));
+        await dispatch(followUserImmediately({targetUserId: userId}));
         setIsFollowing(true);
 
         await dispatch(createNotification({
-          userId: user._id,
+          userId,
           type: 'follow',
           message: `${mainUser.firstName} ${mainUser.lastName} started following you.`,
           relatedId: mainUser.id,
@@ -145,10 +147,10 @@ export default function OtherUserProfile({ route, navigation }) {
 
     // ✅ Create a notification for the original sender
     await dispatch(createNotification({
-      userId: user._id, // The user who sent the friend request
+      userId,
       type: 'followAccepted',
       message: `${user.firstName} accepted your follow request!`,
-      relatedId: user._id,
+      relatedId: userId,
       typeRef: 'User'
     }));
   };
@@ -179,7 +181,7 @@ export default function OtherUserProfile({ route, navigation }) {
           style={styles.profilePicture}
         />
         <View style={styles.nameAndFollow}>
-          <Text style={styles.userName}>{`${user.firstName} ${user.lastName}`}</Text>
+          <Text style={styles.userName}>{fullName}</Text>
           <View style={styles.connections}>
             <TouchableOpacity
               onPress={() => {

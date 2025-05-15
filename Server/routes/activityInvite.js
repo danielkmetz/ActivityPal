@@ -5,7 +5,7 @@ const Business = require('../models/Business');
 const ActivityInvite = require('../models/ActivityInvites.js')
 const dayjs = require('dayjs');
 const mongoose = require('mongoose');
-const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
+const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 
 const generateBusinessInviteMessage = (businessName, acceptedCount) => {
     if (acceptedCount >= 20) {
@@ -38,7 +38,7 @@ router.get('/user/:userId/invites', async (req, res) => {
                 const business = await Business.findOne({ placeId: invite.placeId }).lean();
                 let presignedBusinessUrl = null;
                 if (business?.logoKey) {
-                    presignedBusinessUrl = await generateDownloadPresignedUrl(business.logoKey);
+                    presignedBusinessUrl = await getPresignedUrl(business.logoKey);
                 }
 
                 // 3️⃣ Enrich recipients
@@ -52,7 +52,7 @@ router.get('/user/:userId/invites', async (req, res) => {
                         const user = recipientUsers.find(u => u._id.toString() === r.userId.toString());
                         let profileUrl = null;
                         if (user?.profilePic?.photoKey) {
-                            profileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                            profileUrl = await getPresignedUrl(user.profilePic.photoKey);
                         }
 
                         return {
@@ -76,7 +76,7 @@ router.get('/user/:userId/invites', async (req, res) => {
                     const user = requestUsers.find(u => u._id.toString() === r.userId.toString());
                     let profileUrl = null;
                     if (user?.profilePic?.photoKey) {
-                    profileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                    profileUrl = await getPresignedUrl(user.profilePic.photoKey);
                     }
 
                     return {
@@ -97,7 +97,7 @@ router.get('/user/:userId/invites', async (req, res) => {
 
                 let senderProfileUrl = null;
                 if (sender?.profilePic?.photoKey) {
-                    senderProfileUrl = await generateDownloadPresignedUrl(sender.profilePic.photoKey);
+                    senderProfileUrl = await getPresignedUrl(sender.profilePic.photoKey);
                 }
 
                 const enrichedSender = {
@@ -202,12 +202,12 @@ router.post('/send', async (req, res) => {
         // 5️⃣ Generate presigned image
         let presignedPhotoUrl = null;
         if (business.logoKey) {
-            presignedPhotoUrl = await generateDownloadPresignedUrl(business.logoKey);
+            presignedPhotoUrl = await getPresignedUrl(business.logoKey);
         };
 
         // 5️⃣ Enrich sender
         const presignedSenderProfileUrl = sender?.profilePic?.photoKey
-            ? await generateDownloadPresignedUrl(sender.profilePic.photoKey)
+            ? await getPresignedUrl(sender.profilePic.photoKey)
             : null;
 
         const enrichedSender = {
@@ -227,7 +227,7 @@ router.post('/send', async (req, res) => {
                 const user = recipientUsers.find(u => u._id.toString() === r.userId.toString());
                 let presignedProfileUrl = null;
                 if (user?.profilePic?.photoKey) {
-                    presignedProfileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                    presignedProfileUrl = await getPresignedUrl(user.profilePic.photoKey);
                 }
 
                 return {
@@ -342,7 +342,7 @@ router.post('/accept', async (req, res) => {
                 const user = recipientUsers.find(u => u._id.toString() === r.userId.toString());
                 let presignedProfileUrl = null;
                 if (user?.profilePic?.photoKey) {
-                    presignedProfileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                    presignedProfileUrl = await getPresignedUrl(user.profilePic.photoKey);
                 }
 
                 return {
@@ -384,7 +384,7 @@ router.post('/accept', async (req, res) => {
                 const user = requestUsers.find(u => u._id.toString() === r.userId.toString());
                 let presignedProfileUrl = null;
                 if (user?.profilePic?.photoKey) {
-                    presignedProfileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                    presignedProfileUrl = await getPresignedUrl(user.profilePic.photoKey);
                 }
 
                 return {
@@ -405,7 +405,7 @@ router.post('/accept', async (req, res) => {
 
         let presignedSenderProfileUrl = null;
         if (sender?.profilePic?.photoKey) {
-            presignedSenderProfileUrl = await generateDownloadPresignedUrl(sender.profilePic.photoKey);
+            presignedSenderProfileUrl = await getPresignedUrl(sender.profilePic.photoKey);
         }
 
         const enrichedSender = {
@@ -418,7 +418,7 @@ router.post('/accept', async (req, res) => {
         // Business logo URL
         let presignedPhotoUrl = null;
         if (business?.logoKey) {
-            presignedPhotoUrl = await generateDownloadPresignedUrl(business.logoKey);
+            presignedPhotoUrl = await getPresignedUrl(business.logoKey);
         }
 
         res.status(200).json({
@@ -519,7 +519,7 @@ router.post('/reject', async (req, res) => {
                 const user = recipientUsers.find(u => u._id.toString() === r.userId.toString());
                 let presignedProfileUrl = null;
                 if (user?.profilePic?.photoKey) {
-                    presignedProfileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                    presignedProfileUrl = await getPresignedUrl(user.profilePic.photoKey);
                 }
 
                 return {
@@ -539,7 +539,7 @@ router.post('/reject', async (req, res) => {
 
         let presignedSenderProfileUrl = null;
         if (sender?.profilePic?.photoKey) {
-            presignedSenderProfileUrl = await generateDownloadPresignedUrl(sender.profilePic.photoKey);
+            presignedSenderProfileUrl = await getPresignedUrl(sender.profilePic.photoKey);
         }
 
         const enrichedSender = {
@@ -552,7 +552,7 @@ router.post('/reject', async (req, res) => {
         // Business photo
         let presignedPhotoUrl = null;
         if (business?.logoKey) {
-            presignedPhotoUrl = await generateDownloadPresignedUrl(business.logoKey);
+            presignedPhotoUrl = await getPresignedUrl(business.logoKey);
         }
 
         res.status(200).json({
@@ -617,7 +617,7 @@ router.put('/edit', async (req, res) => {
 
         let presignedPhotoUrl = null;
         if (business?.logoKey) {
-            presignedPhotoUrl = await generateDownloadPresignedUrl(business.logoKey);
+            presignedPhotoUrl = await getPresignedUrl(business.logoKey);
         }
 
         // Format notification message
@@ -682,7 +682,7 @@ router.put('/edit', async (req, res) => {
 
         // Enrich sender info for response
         const presignedSenderProfileUrl = sender?.profilePic?.photoKey
-            ? await generateDownloadPresignedUrl(sender.profilePic.photoKey)
+            ? await getPresignedUrl(sender.profilePic.photoKey)
             : null;
 
         const enrichedSender = {
@@ -702,7 +702,7 @@ router.put('/edit', async (req, res) => {
                 const user = recipientUsers.find(u => u._id.toString() === r.userId.toString());
                 let presignedProfileUrl = null;
                 if (user?.profilePic?.photoKey) {
-                    presignedProfileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                    presignedProfileUrl = await getPresignedUrl(user.profilePic.photoKey);
                 }
 
                 return {
@@ -814,7 +814,7 @@ router.post('/request', async (req, res) => {
                 const user = recipientUsers.find(u => u._id.toString() === r.userId.toString());
                 let presignedProfileUrl = null;
                 if (user?.profilePic?.photoKey) {
-                    presignedProfileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                    presignedProfileUrl = await getPresignedUrl(user.profilePic.photoKey);
                 }
 
                 return {
@@ -840,7 +840,7 @@ router.post('/request', async (req, res) => {
                 const user = requestUsers.find(u => u._id.toString() === r.userId.toString());
                 let presignedProfileUrl = null;
                 if (user?.profilePic?.photoKey) {
-                    presignedProfileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                    presignedProfileUrl = await getPresignedUrl(user.profilePic.photoKey);
                 }
 
                 return {
@@ -862,7 +862,7 @@ router.post('/request', async (req, res) => {
 
         let presignedSenderProfileUrl = null;
         if (sender?.profilePic?.photoKey) {
-            presignedSenderProfileUrl = await generateDownloadPresignedUrl(sender.profilePic.photoKey);
+            presignedSenderProfileUrl = await getPresignedUrl(sender.profilePic.photoKey);
         }
 
         const enrichedSender = {
@@ -880,7 +880,7 @@ router.post('/request', async (req, res) => {
 
         let presignedPhotoUrl = null;
         if (business?.logoKey) {
-            presignedPhotoUrl = await generateDownloadPresignedUrl(business.logoKey);
+            presignedPhotoUrl = await getPresignedUrl(business.logoKey);
         }
 
         const enrichedInvite = {
@@ -951,7 +951,7 @@ router.post('/accept-user-request', async (req, res) => {
         // ✅ Fetch sender and enrich
         const sender = await User.findById(invite.senderId).lean();
         const senderPic = sender?.profilePic?.photoKey
-            ? await generateDownloadPresignedUrl(sender.profilePic.photoKey)
+            ? await getPresignedUrl(sender.profilePic.photoKey)
             : null;
 
         const enrichedSender = {
@@ -970,7 +970,7 @@ router.post('/accept-user-request', async (req, res) => {
             invite.recipients.map(async (r) => {
                 const user = recipientUsers.find(u => u._id.toString() === r.userId.toString());
                 const profilePicUrl = user?.profilePic?.photoKey
-                    ? await generateDownloadPresignedUrl(user.profilePic.photoKey)
+                    ? await getPresignedUrl(user.profilePic.photoKey)
                     : null;
 
                 return {
@@ -994,7 +994,7 @@ router.post('/accept-user-request', async (req, res) => {
             invite.requests.map(async (r) => {
                 const user = requestUsers.find(u => u._id.toString() === r.userId.toString());
                 const profilePicUrl = user?.profilePic?.photoKey
-                    ? await generateDownloadPresignedUrl(user.profilePic.photoKey)
+                    ? await getPresignedUrl(user.profilePic.photoKey)
                     : null;
 
                 return {
@@ -1011,7 +1011,7 @@ router.post('/accept-user-request', async (req, res) => {
         // ✅ Enrich business
         const business = await Business.findOne({ placeId: invite.placeId }).lean();
         const businessLogo = business?.logoKey
-            ? await generateDownloadPresignedUrl(business.logoKey)
+            ? await getPresignedUrl(business.logoKey)
             : null;
 
         const enrichedBusiness = {
@@ -1080,7 +1080,7 @@ router.post('/reject-user-request', async (req, res) => {
                 const user = recipientUsers.find(u => u._id.toString() === r.userId.toString());
                 let profilePicUrl = null;
                 if (user?.profilePic?.photoKey) {
-                    profilePicUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                    profilePicUrl = await getPresignedUrl(user.profilePic.photoKey);
                 }
 
                 return {
@@ -1104,7 +1104,7 @@ router.post('/reject-user-request', async (req, res) => {
                 const user = requestUsers.find(u => u._id.toString() === r.userId.toString());
                 let profilePicUrl = null;
                 if (user?.profilePic?.photoKey) {
-                    profilePicUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                    profilePicUrl = await getPresignedUrl(user.profilePic.photoKey);
                 }
 
                 return {
@@ -1125,7 +1125,7 @@ router.post('/reject-user-request', async (req, res) => {
 
         let presignedSenderProfileUrl = null;
         if (sender?.profilePic?.photoKey) {
-            presignedSenderProfileUrl = await generateDownloadPresignedUrl(sender.profilePic.photoKey);
+            presignedSenderProfileUrl = await getPresignedUrl(sender.profilePic.photoKey);
         }
 
         const enrichedSender = {
@@ -1139,7 +1139,7 @@ router.post('/reject-user-request', async (req, res) => {
         const business = await Business.findOne({ placeId: invite.placeId }).lean();
         let presignedPhotoUrl = null;
         if (business?.logoKey) {
-            presignedPhotoUrl = await generateDownloadPresignedUrl(business.logoKey);
+            presignedPhotoUrl = await getPresignedUrl(business.logoKey);
         }
 
         // ✅ Send enriched invite

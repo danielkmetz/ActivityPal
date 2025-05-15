@@ -25,36 +25,32 @@ import {
   selectIsEditing,
   selectNestedReplyInput,
   selectNestedExpandedReplies,
-  resetCommentState,
   addNewComment,
-  selectExpandedReplies,
 } from '../../Slices/CommentThreadSlice';
 
 dayjs.extend(relativeTime);
 
 function CommentModal({
   visible,
+  onClose,
   review,
   setSelectedReview,
   reviews,
-  targetId,
   handleLikeWithAnimation,
   toggleTaggedUsers,
   likedAnimations,
   lastTapRef,
+  targetId,
   photoTapped,
-  setCommentModalVisible,
 }) {
   const dispatch = useDispatch();
   const replyingTo = useSelector(selectReplyingTo);
-  const expandedReplies = useSelector(selectExpandedReplies);
   const nestedExpandedReplies = useSelector(selectNestedExpandedReplies);
   const isEditing = useSelector(selectIsEditing);
   const nestedReplyInput = useSelector(selectNestedReplyInput);
   const dateTime = review?.dateTime ? review?.dateTime : review?.date;
-  const [isAnimating, setIsAnimating] = useState(false);
   const [commentText, setCommentText] = useState('');
-  const [keybaordHeight, setKeyboardHeight] = useState(null)
+  const [keyboardHeight, setKeyboardHeight] = useState(null)
   const [isInputCovered, setIsInputCovered] = useState(false);
   const [timeLeft, setTimeLeft] = useState(getTimeLeft(dateTime));
   const [isPhotoListActive, setIsPhotoListActive] = useState(false);
@@ -91,8 +87,9 @@ function CommentModal({
 
   useEffect(() => {
     if (visible) {
+      panX.setValue(500); // Move off-screen BEFORE the modal is visible
+
       InteractionManager.runAfterInteractions(() => {
-        panX.setValue(500);
         Animated.timing(panX, {
           toValue: 0,
           duration: 300,
@@ -126,20 +123,12 @@ function CommentModal({
         const farEnough = dx > 150;
 
         if (fastEnough || farEnough) {
-          setIsAnimating(true);
-
           Animated.timing(panX, {
             toValue: 500,
-            duration: 400,
+            duration: 300,
             useNativeDriver: true,
           }).start(() => {
-            // Wait a frame AFTER animation to ensure render settles
-            panX.setValue(0);
-            previewX.setValue(0);
-            setCommentModalVisible(false);
-            setIsAnimating(false);
-            setSelectedReview(null);
-            dispatch(resetCommentState());
+            onClose();
           });
         } else {
           Animated.timing(previewX, {
@@ -148,7 +137,7 @@ function CommentModal({
             useNativeDriver: true,
           }).start();
         }
-      },
+      }
     })
   ).current;
 
@@ -250,18 +239,14 @@ function CommentModal({
   };
 
   const handleBackPress = () => {
-    setIsAnimating(true);
-    setCommentModalVisible(false);
+    panX.setValue(0); // reset for next time
 
     Animated.timing(panX, {
       toValue: 500, // slide out to the right
       duration: 300,
       useNativeDriver: true,
     }).start(() => {
-      panX.setValue(0); // reset for next time
-      setIsAnimating(false);
-      setSelectedReview(null);
-      dispatch(resetCommentState());
+      onClose();
     });
   };
 
@@ -370,13 +355,8 @@ function CommentModal({
     }
   }, [visible, targetId]);
 
-
-  if (!visible && !isAnimating) {
-    return null;
-  }
-
   return (
-    <Modal transparent={true} visible={visible} animationType="none" avoidKeyboard={true}>
+    <Modal transparent={true} visible={visible} animationType="none" avoidKeyboard={true} backdropTransitionOutTiming={0}>
       <Animated.View
         {...panResponder.panHandlers}
         style={[

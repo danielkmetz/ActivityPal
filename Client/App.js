@@ -25,7 +25,7 @@ import { selectUser } from './Slices/UserSlice';
 import useScrollTracking from './utils/useScrollTracking';
 import { selectIsBusiness } from './Slices/UserSlice';
 import { fetchBusinessNotifications } from './Slices/BusNotificationsSlice';
-import { BackHandler } from 'react-native';
+import { navigationRef } from './utils/NavigationService';
 
 const fetchFonts = async () => {
   return await Font.loadAsync({
@@ -150,6 +150,9 @@ function MainApp() {
         currentRoute !== "Profile" && 
         currentRoute !== "OtherUserProfile" && 
         currentRoute !== "BusinessProfile"&& 
+        currentRoute !== "CameraScreen" &&
+        currentRoute !== "StoryPreview" &&  
+        currentRoute !== "StoryViewer" &&
         !(currentRoute === "Activities" && activities.length > 0) &&
       (
         <Animated.View style={[styles.header, { transform: [{ translateY: headerTranslateY }] }]}>
@@ -183,7 +186,9 @@ export default function App() {
       <PaperProvider>
         <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
-        <NavigationContainer>
+        <NavigationContainer ref={(ref) => {
+          navigationRef.current = ref;
+        }}>
           <MainApp />
         </NavigationContainer>
         </SafeAreaProvider>

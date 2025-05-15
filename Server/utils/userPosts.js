@@ -1,6 +1,6 @@
 const User = require("../models/User");
 const Business  = require("../models/Business");
-const { generateDownloadPresignedUrl } = require("../helpers/generateDownloadPresignedUrl.js");
+const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 
 async function gatherUserReviews(userObjectId, profilePic, profilePicUrl) {
   let businesses;
@@ -125,7 +125,7 @@ async function resolveTaggedPhotoUsers(photos = []) {
   
       return {
         ...clean,
-        url: await generateDownloadPresignedUrl(clean.photoKey),
+        url: await getPresignedUrl(clean.photoKey),
         taggedUsers: taggedUsersWithCoords,
       };
     })
@@ -154,7 +154,7 @@ async function resolveUserProfilePics(userIds = []) {
     const photoKey = user.profilePic?.photoKey || null;
     userPicMap[user._id.toString()] = {
       profilePic: user.profilePic || null,
-      profilePicUrl: photoKey ? await generateDownloadPresignedUrl(photoKey) : null,
+      profilePicUrl: photoKey ? await getPresignedUrl(photoKey) : null,
     };
   }
 

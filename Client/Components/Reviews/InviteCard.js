@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, Alert } from 'react-native';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
-import { MaterialCommunityIcons } from "@expo/vector-icons";
 import InviteeModal from '../ActivityInvites/InviteeModal';
 import { formatEventDate, getTimeLeft } from '../../functions';
 import { requestInvite } from '../../Slices/InvitesSlice';
@@ -13,9 +12,11 @@ import InviteModal from '../ActivityInvites/InviteModal';
 import { deleteInvite } from '../../Slices/InvitesSlice';
 import PostActions from './PostActions';
 import PostOptionsMenu from './PostOptionsMenu';
+import { useNavigation } from '@react-navigation/native';
 
-const InviteCard = ({ invite, handleLike, handleOpenComments }) => {
+const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments }) => {
     const dispatch = useDispatch();
+    const navigation = useNavigation();
     const [timeLeft, setTimeLeft] = useState(getTimeLeft(invite.dateTime));
     const [modalVisible, setModalVisible] = useState(false);
     const [editInviteModal, setEditInviteModal] = useState(false);
@@ -36,10 +37,12 @@ const InviteCard = ({ invite, handleLike, handleOpenComments }) => {
     const isSender = userId === senderId;
 
     const handleEdit = () => {
-        setInviteToEdit(invite);
-        setEditInviteModal(true);
-        setIsEditing(true);
-    }
+        navigation.navigate("CreatePost", {
+            postType: "invite",
+            isEditing: true,
+            initialInvite: invite,
+        });
+    };
 
     const handleDelete = (invite) => {
         Alert.alert(
@@ -195,7 +198,7 @@ const InviteCard = ({ invite, handleLike, handleOpenComments }) => {
                 <View style={styles.actionsContainer}>
                     <PostActions
                         item={invite}
-                        handleLike={handleLike}
+                        handleLikeWithAnimation={handleLikeWithAnimation}
                         handleOpenComments={handleOpenComments}
                     />
                     <View style={styles.requestsAttendance}>

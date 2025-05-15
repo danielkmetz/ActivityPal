@@ -3,6 +3,7 @@ import axios from 'axios';
 import { getUserToken } from '../functions';
 
 const BASE_URL = `${process.env.EXPO_PUBLIC_SERVER_URL}/connections`;
+const GRAPH_QL = `${process.env.EXPO_PUBLIC_SERVER_URL}/graphql`
 
 export const sendFollowRequest = createAsyncThunk(
   'follows/sendFollowRequest',
@@ -103,7 +104,6 @@ export const unfollowUser = createAsyncThunk(
   }
 );
 
-
 export const fetchUserSuggestions = createAsyncThunk(
   'follows/fetchUserSuggestions',
   async (query, { rejectWithValue }) => {
@@ -130,15 +130,65 @@ export const fetchSuggestedFriends = createAsyncThunk(
   async (userId, { rejectWithValue }) => {
     try {
       const token = await getUserToken();
-      const response = await axios.get(`${BASE_URL}/suggested-friends/${userId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
 
-      return response.data; // Array of suggested users with mutualCount
+      const query = `
+        query GetSuggestedFollows($userId: ID!) {
+          getSuggestedFollows(userId: $userId) {
+            _id
+            firstName
+            lastName
+            fullName
+            profilePicUrl
+            profilePic {
+              _id
+              photoKey
+              uploadedBy
+              description
+              tags
+              uploadDate
+            }
+            mutualConnections {
+              _id
+              firstName
+              lastName
+              profilePic {
+                _id
+                photoKey
+                uploadedBy
+                description
+                tags
+                uploadDate
+              }
+              profilePicUrl
+            }
+            profileVisibility
+          }
+        }
+      `;
+
+      const response = await axios.post(
+        GRAPH_QL,
+        {
+          query,
+          variables: { userId },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const data = response.data;
+
+      if (data.errors) {
+        return rejectWithValue(data.errors[0]?.message || 'Failed to fetch suggested users');
+      }
+
+      return data.data.getSuggestedFollows;
     } catch (error) {
-      return rejectWithValue(error.response?.data?.message || 'Failed to fetch suggested friends');
+      return rejectWithValue(error.response?.data?.message || 'Failed to fetch suggested users');
     }
   }
 );
@@ -264,6 +314,8 @@ const followsSlice = createSlice({
         if (follower && !state.followRequests.sent.find(u => u._id === follower._id)) {
           state.followRequests.sent.push(follower);
         }
+
+        state.suggestedUsers = state.suggestedUsers.filter(u => u._id !== follower._id);
       })    
       .addCase(cancelFollowRequest.fulfilled, (state, action) => {
         const { recipientId } = action.payload;
@@ -319,7 +371,6 @@ const followsSlice = createSlice({
         if (!alreadyFollowing) {
           state.following.push(targetUser);
         }
-      
         if (isFollowBack) {
           const alreadyFriends = state.friends?.some(user => user._id === targetUser._id);
           if (!alreadyFriends) {
@@ -329,6 +380,7 @@ const followsSlice = createSlice({
             );
           }
         }
+        state.suggestedUsers = state.suggestedUsers.filter(u => u._id !== targetUser._id);
       })           
       .addCase(followUserImmediately.rejected, (state, action) => {
         state.error = action.payload;

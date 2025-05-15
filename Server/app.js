@@ -27,6 +27,8 @@ const google = require('./routes/googlePlaces');
 const activityInvite = require('./routes/activityInvite');
 const googlePlaces2 = require('./routes/googlePlaces2');
 const businessNotifications = require('./routes/businessNotifications');
+const recentSearches = require('./routes/searchHistory');
+const stories = require('./routes/stories');
 
 // Initialize app
 const app = express();
@@ -71,6 +73,8 @@ app.use('/api/google', google);
 app.use('/api/activity-invite', activityInvite);
 app.use('/api/places2', googlePlaces2);
 app.use('/api/business-notifications', businessNotifications);
+app.use('/api/recent-searches', recentSearches);
+app.use('/api/stories', stories);
 
 // Start server
 const PORT = process.env.PORT || 5000;

@@ -4,11 +4,13 @@ const mongoose = require('mongoose');
 const User = require('../models/User'); // Import User Model
 const Business = require('../models/Business'); // Import Review Model
 const ActivityInvite = require('../models/ActivityInvites.js');
-const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
 const depthLimit = require('graphql-depth-limit');
 const { GraphQLScalarType, Kind } = require('graphql');
 const { getCheckInsByPlaceId } = require('../utils/getCheckInsByPlaceId.js');
+const { getUserFromToken } = require('../utils/auth.js');
 const {gatherUserReviews, gatherUserCheckIns, resolveTaggedPhotoUsers, resolveTaggedUsers, resolveUserProfilePics} = require('../utils/userPosts.js');
+const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
+const { enrichStory } = require('../utils/enrichStories.js');
 
 // ✅ Custom Scalar Type for Date
 const DateScalar = new GraphQLScalarType({
@@ -206,6 +208,47 @@ const typeDefs = gql`
     following: [User!]!
   }
 
+  type MutualUser {
+    _id: ID!
+    firstName: String
+    lastName: String
+    profilePic: ProfilePic
+    profilePicUrl: String
+  }
+
+  type SuggestedUser {
+    _id: ID!
+    firstName: String
+    lastName: String
+    fullName: String
+    profilePicUrl: String
+    profilePic: ProfilePic
+    mutualConnections: [MutualUser!]!
+    profileVisibility: String!
+  }
+
+  type Story {
+    _id: ID!
+    mediaKey: String!
+    mediaType: String!
+    caption: String
+    visibility: String
+    expiresAt: String
+    taggedUsers: [TaggedUser]
+    mediaUrl: String
+    profilePicUrl: String
+    user: UserSummary!
+    viewedBy: [UserSummary!]           # Array of user IDs who have viewed the story
+    isViewed: Boolean         # Derived field, based on current user context
+  }
+
+  type UserSummary {
+    _id: ID!
+    firstName: String!
+    lastName: String!
+    profilePicUrl: String
+  }
+
   type UserAndFriendsInvites {
     user: User!
     userInvites: [ActivityInvite!]!
@@ -223,6 +266,9 @@ const typeDefs = gql`
     getUserAndFollowingCheckIns(userId: String!): [CheckIn!]
     getUserAndFollowingInvites(userId: ID!): UserAndFriendsInvites
     getUserActivity(userId: ID!, limit: Int, after: ActivityCursor): [UserActivity!]
+    getSuggestedFollows(userId: ID!): [SuggestedUser!]!
+    userAndFollowingStories(userId: ID!): [Story]
+    storiesByUser(userId: ID!): [Story]
   }
 `;
 
@@ -311,7 +357,7 @@ const resolvers = {
     
         const photoKey = user.profilePic?.photoKey || null;
         const profilePicUrl = photoKey
-          ? await generateDownloadPresignedUrl(photoKey)
+          ? await getPresignedUrl(photoKey)
           : null;
     
         const reviews = await gatherUserReviews(userObjectId, user.profilePic, profilePicUrl);
@@ -505,14 +551,14 @@ const resolvers = {
         const enrichInvite = async (invite) => {
           const sender = userMap.get(invite.senderId.toString());
           const senderProfilePicUrl = sender?.profilePic?.photoKey
-            ? await generateDownloadPresignedUrl(sender.profilePic.photoKey)
+            ? await getPresignedUrl(sender.profilePic.photoKey)
             : null;
     
           const enrichedRecipients = await Promise.all(
             invite.recipients.map(async (r) => {
               const recipientUser = userMap.get(r.userId.toString());
               const profilePicUrl = recipientUser?.profilePic?.photoKey
-                ? await generateDownloadPresignedUrl(recipientUser.profilePic.photoKey)
+                ? await getPresignedUrl(recipientUser.profilePic.photoKey)
                 : null;
     
               return {
@@ -531,7 +577,7 @@ const resolvers = {
             (invite.requests || []).map(async (r) => {
               const requestUser = userMap.get(r.userId.toString());
               const profilePicUrl = requestUser?.profilePic?.photoKey
-                ? await generateDownloadPresignedUrl(requestUser.profilePic.photoKey)
+                ? await getPresignedUrl(requestUser.profilePic.photoKey)
                 : null;
     
               return {
@@ -547,7 +593,7 @@ const resolvers = {
     
           const business = businessMap.get(invite.placeId);
           const businessLogoUrl = business?.logoKey
-            ? await generateDownloadPresignedUrl(business.logoKey)
+            ? await getPresignedUrl(business.logoKey)
             : null;
     
           return {
@@ -633,7 +679,124 @@ const resolvers = {
       } catch (error) {
         throw new Error("Failed to fetch user activity");
       }
-    },            
+    },
+    getSuggestedFollows: async (_, { userId }, { user }) => {
+      const currentUser = await User.findById(userId).select('following');
+      if (!currentUser) throw new Error('User not found');
+
+      const followingIds = currentUser.following.map(id => id.toString());
+
+      // Step 1: Get second-degree connections with mutual tracking
+      const followedUsers = await User.find({ _id: { $in: followingIds } }).select('following');
+      const secondDegreeFollows = {};
+
+      followedUsers.forEach(fu => {
+        if (!fu.following) return;
+        fu.following.forEach(followedId => {
+          const idStr = followedId.toString();
+          if (idStr !== userId && !followingIds.includes(idStr)) {
+            if (!secondDegreeFollows[idStr]) secondDegreeFollows[idStr] = new Set();
+            secondDegreeFollows[idStr].add(fu._id.toString()); // Track mutuals
+          }
+        });
+      });
+
+      const suggestionIds = Object.keys(secondDegreeFollows);
+
+      // Step 2: Get full user and mutual data
+      const [suggestedUsers, mutualUsers] = await Promise.all([
+        User.find({ _id: { $in: suggestionIds } }).select('firstName lastName profilePic privacySettings'),
+        User.find({ _id: { $in: followingIds } }).select('firstName lastName profilePic'),
+      ]);
+
+      const mutualMap = new Map(mutualUsers.map(u => [u._id.toString(), u]));
+
+      // Step 4: Enrich and format suggestions
+      const enriched = await Promise.all(
+        suggestedUsers.map(async u => {
+          const profilePicUrl = await getPresignedUrl(u.profilePic?.photoKey);
+
+          const mutualConnections = Array.from(secondDegreeFollows[u._id.toString()] || []).map(id => {
+            const mutualUser = mutualMap.get(id);
+            return mutualUser
+              ? {
+                  _id: mutualUser._id,
+                  firstName: mutualUser.firstName,
+                  lastName: mutualUser.lastName,
+                  profilePic: mutualUser.profilePic || null,
+                }
+              : null;
+          }).filter(Boolean);
+
+          const mutualConnectionUrls = await Promise.all(
+            mutualConnections.map(async (m) => ({
+              ...m,
+              profilePicUrl: await getPresignedUrl(m.profilePic?.photoKey),
+            }))
+          );
+
+          return {
+            _id: u._id.toString(),
+            firstName: u.firstName,
+            lastName: u.lastName,
+            fullName: `${u.firstName} ${u.lastName}`,
+            profilePic: u.profilePic || null,
+            profilePicUrl,
+            mutualConnections: mutualConnectionUrls,
+            profileVisibility: u.privacySettings?.profileVisibility || 'public',
+          };
+        })
+      );
+
+      return enriched;
+    },
+    userAndFollowingStories: async (_, { userId }, context) => {
+      try {
+        const currentUserId = context?.user?._id || userId; // fallback to queried userId
+
+        const user = await User.findById(userId).populate('following');
+        if (!user) throw new Error('User not found');
+
+        const now = new Date();
+        const usersToCheck = [user, ...(user.following || [])];
+        const stories = [];
+
+        for (const u of usersToCheck) {
+          for (const story of u.stories || []) {
+            if (new Date(story.expiresAt) > now && story.visibility === 'public') {
+              const enriched = await enrichStory(story, u, currentUserId);
+              stories.push(enriched);
+            }
+          }
+        }
+
+        return stories;
+      } catch (err) {
+        console.error('Error in userAndFollowingStories resolver:', err);
+        throw new Error('Failed to fetch stories');
+      }
+    },
+    storiesByUser: async (_, { userId }, context) => {
+      try {
+        const currentUserId = context?.user?._id || null;
+
+        const user = await User.findById(userId);
+        if (!user) throw new Error('User not found');
+
+        const now = new Date();
+
+        const stories = await Promise.all(
+          (user.stories || [])
+            .filter(story => new Date(story.expiresAt) > now && story.visibility === 'public')
+            .map(story => enrichStory(story, user, currentUserId))
+        );
+
+        return stories;
+      } catch (err) {
+        console.error('Error in storiesByUser resolver:', err);
+        throw new Error('Failed to fetch user stories');
+      }
+    },      
   },
   UserActivity: {
     __resolveType(obj) {
@@ -669,6 +832,12 @@ const createApolloServer = () => {
     typeDefs,
     resolvers,
     validationRules: [depthLimit(30)],
+    context: async ({ req }) => {
+    const user = await getUserFromToken(req);
+    return {
+      user, // inject into resolvers
+    };
+  },
   });
 };
 

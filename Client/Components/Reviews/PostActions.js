@@ -2,12 +2,12 @@ import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet, TouchableWithoutFeedback } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
-export default function PostActions({ item, handleLike, handleOpenComments, toggleTaggedUsers, photo }) {
+export default function PostActions({ item, handleLikeWithAnimation, handleOpenComments, toggleTaggedUsers, photo }) {
 
   return (
     <View style={styles.actionsContainer}>
       <TouchableOpacity
-        onPress={() => handleLike(item.type, item._id)}
+        onPress={() => handleLikeWithAnimation(item, true)}
         style={styles.likeButton}
       >
         <MaterialCommunityIcons

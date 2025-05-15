@@ -6,7 +6,7 @@ const ActivityInvite = require('../models/ActivityInvites.js');
 const mongoose = require('mongoose');
 const { handleNotification } = require('../utils/notificationHandler.js');
 const { resolveTaggedPhotoUsers, resolveTaggedUsers, resolveUserProfilePics } = require('../utils/userPosts.js')
-const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
+const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 
 // Retrieve a review by its reviewId
 router.get('/:postType/:postId', async (req, res) => {
@@ -42,7 +42,7 @@ router.get('/:postType/:postId', async (req, res) => {
 
       const postUser = await User.findById(post.userId).select("profilePic firstName lastName").lean();
       if (postUser?.profilePic?.photoKey) {
-        profilePicUrl = await generateDownloadPresignedUrl(postUser.profilePic.photoKey);
+        profilePicUrl = await getPresignedUrl(postUser.profilePic.photoKey);
       }
 
     } else if (postType === 'check-in') {
@@ -70,7 +70,7 @@ router.get('/:postType/:postId', async (req, res) => {
 
       const postUser = await User.findById(post.userId).select("profilePic firstName lastName").lean();
       if (postUser?.profilePic?.photoKey) {
-        profilePicUrl = await generateDownloadPresignedUrl(postUser.profilePic.photoKey);
+        profilePicUrl = await getPresignedUrl(postUser.profilePic.photoKey);
       }
 
     } else if (postType === 'invite') {
@@ -79,7 +79,7 @@ router.get('/:postType/:postId', async (req, res) => {
 
       sender = await User.findById(post.senderId).select('firstName lastName profilePic').lean();
       if (sender?.profilePic?.photoKey) {
-        profilePicUrl = await generateDownloadPresignedUrl(sender.profilePic.photoKey);
+        profilePicUrl = await getPresignedUrl(sender.profilePic.photoKey);
       }
 
       business = await Business.findOne({ placeId: post.placeId }).lean();
@@ -101,7 +101,7 @@ router.get('/:postType/:postId', async (req, res) => {
             uploadedBy: photo.uploadedBy,
             description: photo.description || null,
             uploadDate: photo.uploadDate,
-            url: await generateDownloadPresignedUrl(photo.photoKey),
+            url: await getPresignedUrl(photo.photoKey),
             taggedUsers: photoTaggedUsers.map(user => ({
               userId: user._id,
               fullName: `${user.firstName} ${user.lastName}`,

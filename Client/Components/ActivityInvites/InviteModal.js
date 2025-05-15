@@ -36,7 +36,6 @@ const SCREEN_HEIGHT = Dimensions.get('window').height;
 const InviteModal = ({
     visible,
     onClose,
-    setShowInviteModal,
     isEditing,
     initialInvite,
     setIsEditing,
@@ -177,7 +176,6 @@ const InviteModal = ({
             setNote('');
             setSelectedPlace(null);
             setDateTime(null);
-            setShowInviteModal(false);
             setInviteToEdit(null);
             setIsEditing(false);
             setSelectedFriends([]);

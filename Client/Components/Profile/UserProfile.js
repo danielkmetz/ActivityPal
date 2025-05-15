@@ -130,19 +130,19 @@ export default function UserProfile() {
             </View>
             <View style={styles.divider} />
             <View style={styles.navButtonsContainer}>
-  {["reviews", "photos", "favorites"].map((section) => (
-    <TouchableOpacity
-      key={section}
-      style={styles.navTab}
-      onPress={() => setActiveSection(section)}
-    >
-      <Text style={[styles.navTabText, activeSection === section && styles.activeTabText]}>
-        {section === "reviews" ? "Posts" : section.charAt(0).toUpperCase() + section.slice(1)}
-      </Text>
-      {activeSection === section && <View style={styles.navUnderline} />}
-    </TouchableOpacity>
-  ))}
-</View>
+              {["reviews", "photos", "favorites"].map((section) => (
+                <TouchableOpacity
+                  key={section}
+                  style={styles.navTab}
+                  onPress={() => setActiveSection(section)}
+                >
+                  <Text style={[styles.navTabText, activeSection === section && styles.activeTabText]}>
+                    {section === "reviews" ? "Posts" : section.charAt(0).toUpperCase() + section.slice(1)}
+                  </Text>
+                  {activeSection === section && <View style={styles.navUnderline} />}
+                </TouchableOpacity>
+              ))}
+            </View>
             {activeSection === "reviews" && <Reviews reviews={profileReviews} onLoadMore={loadMore} isLoadingMore={isLoading} hasMore={hasMore} />}
             {activeSection === "photos" && <Photos photos={photos} />}
             {activeSection === "favorites" && <Favorites favorites={favorites} />}

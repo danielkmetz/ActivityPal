@@ -7,23 +7,25 @@ import {
   Text,
 } from "react-native";
 import { deleteCheckIn } from "../../Slices/CheckInsSlice";
-import { toggleLike, deleteReview, selectUserAndFriendsReviews, setUserAndFriendsReviews, setProfileReviews, selectProfileReviews } from "../../Slices/ReviewsSlice";
+import { deleteReview, selectUserAndFriendsReviews, setUserAndFriendsReviews, setProfileReviews, selectProfileReviews } from "../../Slices/ReviewsSlice";
 import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
 import CommentModal from "./CommentModal";
-import { createNotification } from "../../Slices/NotificationsSlice";
 import InviteCard from "./InviteCard";
 import ReviewItem from "./ReviewItem";
 import CheckInItem from "./CheckInItem";
 import EditPostModal from "./EditPostModal";
+import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from "../../utils/LikeHandlers";
+import { useNavigation } from "@react-navigation/native";
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
 export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY, onScroll, onLoadMore, isLoadingMore }) {
   const dispatch = useDispatch();
+  const navigation = useNavigation();
   const user = useSelector(selectUser);
-  const [selectedReview, setSelectedReview] = useState(null); // For the modal
-  const [commentModalVisible, setCommentModalVisible] = useState(false);
+  const [commentsVisible, setCommentsVisible] = useState(false);
+  const [selectedReview, setSelectedReview] = useState(null);
   const [photoTapped, setPhotoTapped] = useState(null);
   const lastTapRef = useRef({});
   const [likedAnimations, setLikedAnimations] = useState({});
@@ -33,104 +35,33 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
   const profileReviews = useSelector(selectProfileReviews);
 
   const userId = user?.id
-  const fullName = `${user?.firstName} ${user?.lastName}`;
-
+  
   const handleOpenComments = (review) => {
     if (!review) return;
-    setSelectedReview({ ...review });  // clone to force re-render freshness
-    setCommentModalVisible(true);
+    setCommentsVisible(true);
+    setSelectedReview(review);
   };
 
-  const handleLike = async (postType, postId) => {
-    // Determine where to find the post (reviews for businesses, check-ins for users)
-    const postToUpdate = reviews.find((review) => review._id === postId);
-
-    if (!postToUpdate) {
-      console.error(`${postType} with ID ${postId} not found.`);
-      return;
-    }
-
-    const placeId = postToUpdate.placeId;
-
-    try {
-      // Sync with the backend
-      const { payload } = await dispatch(toggleLike({ postType, placeId, postId, userId, fullName }));
-
-      // Check if the current user's ID exists in the likes array before sending a notification
-      const userLiked = payload?.likes?.some((like) => like.userId === userId);
-
-      // Dynamically get ownerId based on postType
-      let ownerId;
-      if (postType === 'invite') {
-        ownerId = postToUpdate.sender?.id || postToUpdate.senderId;
-      } else {
-        ownerId = postToUpdate.userId;
-      }
-
-      // Create a notification for the post owner
-      if (userLiked && ownerId !== userId) { // Avoid self-notifications
-        await dispatch(createNotification({
-          userId: ownerId,
-          type: 'like',
-          message: `${fullName} liked your ${postType}.`,
-          relatedId: userId,
-          typeRef: postType === 'review' ? 'Review' : postType === 'check-in' ? 'CheckIn' : 'ActivityInvite',
-          targetId: postId,
-          postType,
-        }));
-      }
-    } catch (error) {
-      console.error(`Error toggling like for ${postType}:`, error);
-    }
+  const handleCloseComments = () => {
+    setCommentsVisible(false);
+    setSelectedReview(null);
   };
 
-  const handleLikeWithAnimation = async (postType, postId, force = false) => {
-    const now = Date.now();
-  
-    if (!lastTapRef.current || typeof lastTapRef.current !== "object") {
-      lastTapRef.current = {};
-    }
-  
-    const postBeforeUpdate = reviews.find((review) => review._id === postId);
-    const wasLikedBefore = postBeforeUpdate?.likes?.some((like) => like.userId === user?.id);
-  
-    const shouldAnimate = force || (now - (lastTapRef.current[postId] || 0) < 300);
-  
-    if (shouldAnimate) {
-      await handleLike(postType, postId);
-  
-      if (!wasLikedBefore) {
-        if (!likedAnimations[postId]) {
-          likedAnimations[postId] = new Animated.Value(0);
-          setLikedAnimations({ ...likedAnimations });
-        }
-  
-        const animation = likedAnimations[postId];
-  
-        Animated.timing(animation, {
-          toValue: 1,
-          duration: 50,
-          useNativeDriver: true,
-        }).start(() => {
-          setTimeout(() => {
-            Animated.timing(animation, {
-              toValue: 0,
-              duration: 500,
-              useNativeDriver: true,
-            }).start();
-          }, 500);
-        });
-  
-        setLikedAnimations((prev) => ({
-          ...prev,
-          [postId]: animation,
-        }));
-      }
-    }
-  
-    lastTapRef.current[postId] = now;
-  };  
-  
+  const handleLikeWithAnimation = (review, force = false) => {
+    return sharedHandleLikeWithAnimation({
+      postType: review.type,
+      postId: review._id,
+      review,
+      user,
+      reviews,
+      dispatch,
+      lastTapRef,
+      likedAnimations,
+      setLikedAnimations,
+      force,
+    });
+  };
+
   const toggleTaggedUsers = (photoKey) => {
     setPhotoTapped(photoTapped === photoKey ? null : photoKey);
   };
@@ -174,23 +105,20 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
     );
   };
 
-  const handleEditPost = async (post, updates) => {
-    if (post.type === 'review') {
-      setEditingReview(post);
-      setShowEditModal(true);
-      return; // We skip dispatching here — it's done after modal submission
+  const handleEditPost = (post) => {
+    if (!post || !post.type) {
+      console.warn("Invalid post object passed to handleEditPost");
+      return;
     }
 
-    try {
-      if (post.type === 'check-in') {
-        setEditingReview(post);
-        setShowEditModal(true);
-        return;
-      } else {
-        console.warn("Unsupported post type for editing:", post.type);
-      }
-    } catch (error) {
-      console.error("Error editing post:", error);
+    if (post.type === "review" || post.type === "check-in") {
+      navigation.navigate("CreatePost", {
+        postType: post.type,
+        isEditing: true,
+        initialPost: post,
+      });
+    } else {
+      console.warn("Unsupported post type for editing:", post.type);
     }
   };
 
@@ -236,10 +164,8 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
             return (
               <InviteCard
                 invite={item}
-                handleLike={handleLike}
+                handleLikeWithAnimation={handleLikeWithAnimation}
                 handleOpenComments={handleOpenComments}
-                handleDelete={handleDeletePost}
-                handleEdit={handleEditPost}
               />
             )
           }
@@ -252,7 +178,7 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
                 photoTapped={photoTapped}
                 toggleTaggedUsers={toggleTaggedUsers}
                 handleLikeWithAnimation={handleLikeWithAnimation}
-                handleLike={handleLike}
+                handleLike={handleLikeWithAnimation}
                 handleOpenComments={handleOpenComments}
                 lastTapRef={lastTapRef}
                 handleDelete={handleDeletePost}
@@ -267,7 +193,6 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
               photoTapped={photoTapped}
               toggleTaggedUsers={toggleTaggedUsers}
               handleLikeWithAnimation={handleLikeWithAnimation}
-              handleLike={handleLike}
               handleOpenComments={handleOpenComments}
               lastTapRef={lastTapRef}
               handleDelete={handleDeletePost}
@@ -276,20 +201,18 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
           );
         }}
       />
-      
       <CommentModal
-        visible={commentModalVisible}
+        visible={commentsVisible}
+        onClose={handleCloseComments}
         review={selectedReview}
-        setSelectedReview={setSelectedReview}
         reviews={reviews}
+        setSelectedReview={setSelectedReview}
         likedAnimations={likedAnimations}
         handleLikeWithAnimation={handleLikeWithAnimation}
         toggleTaggedUsers={toggleTaggedUsers}
         lastTapRef={lastTapRef}
         photoTapped={photoTapped}
-        setCommentModalVisible={setCommentModalVisible}
       />
-
       <EditPostModal
         visible={showEditModal}
         post={editingReview}
