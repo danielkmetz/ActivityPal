@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
     View,
     Text,
@@ -17,15 +17,19 @@ import { approveFollowRequest, setFollowBack, declineFollowRequest, selectFollow
 import moment from 'moment';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import CommentModal from '../Reviews/CommentModal';
-import { selectUserAndFriendsReviews, fetchPostById, selectSelectedReview, setSelectedReview, toggleLike, setUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
+import { selectUserAndFriendsReviews, fetchPostById, setUserAndFriendsReviews, setSelectedReview, selectSelectedReview } from '../../Slices/ReviewsSlice';
 import { acceptInvite, rejectInvite, acceptInviteRequest, rejectInviteRequest } from '../../Slices/InvitesSlice';
 import { decrementLastSeenUnreadCount } from '../../utils/notificationsHasSeen';
+import {
+  handleLikeWithAnimation as sharedHandleLikeWithAnimation
+} from '../../utils/LikeHandlers';
 import SwipeableRow from './SwipeableRow';
 
 export default function Notifications() {
     const dispatch = useDispatch();
     const isBusiness = useSelector(selectIsBusiness);
     const user = useSelector(selectUser);
+    const selectedReview = useSelector(selectSelectedReview);
     const notifications = useSelector((state) =>
         isBusiness ? selectBusinessNotifications(state) : selectNotifications(state)
     );
@@ -33,16 +37,20 @@ export default function Notifications() {
     const following = useSelector(selectFollowing);
     const followers = useSelector(selectFollowers);
     const reviews = useSelector(selectUserAndFriendsReviews);
-    const selectedReview = useSelector(selectSelectedReview);
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const [photoTapped, setPhotoTapped] = useState(null);
-    const [commentModalVisible, setCommentModalVisible] = useState(false);
+    const [commentsVisible, setCommentsVisible] = useState(null);
+    const [targetId, setTargetId] = useState(null);
     const lastTapRef = useRef({});
     const [likedAnimations, setLikedAnimations] = useState({});
-    const [targetId, setTargetId] = useState(null);
     const userId = user?.id;
     const placeId = user?.businessDetails?.placeId;
     const fullName = `${user.firstName} ${user.lastName}`;
+
+    useEffect(() => {
+  console.log('🟢 Notifications screen mounted');
+}, []);
+
 
     const handleNotificationPress = async (notification) => {
         if (!isBusiness) {
@@ -65,11 +73,12 @@ export default function Notifications() {
             if (notification) {
                 const postType = notification.postType;
 
-                dispatch(fetchPostById({ postType, postId: notification.targetId }));
+                await dispatch(fetchPostById({ postType, postId: notification.targetId }));
 
                 const target = notification.replyId || notification.commentId;
+
                 setTargetId(target);
-                setCommentModalVisible(true);
+                setCommentsVisible(true);
             } else {
                 console.warn("Comment ID is missing in notification");
             }
@@ -78,33 +87,33 @@ export default function Notifications() {
 
     const handleAcceptRequest = async (senderId) => {
         try {
-          // Optimistic UI update first
-          const updatedNotifications = notifications.map((notification) =>
-            notification.type === 'followRequest' && notification.relatedId === senderId
-              ? {
-                  ...notification,
-                  message: `You accepted ${notification.message.split(' ')[0]}'s follow request.`,
-                  type: 'followRequestAccepted',
-                }
-              : notification
-          );
-          dispatch(setNotifications(updatedNotifications)); // not awaited
-          dispatch(setFollowBack(true));
-      
-          // Now dispatch the backend calls
-          await dispatch(approveFollowRequest(senderId));
-          await dispatch(createNotification({
-            userId: senderId,
-            type: 'followRequestAccepted',
-            message: `${user.firstName} ${user.lastName} accepted your follow request.`,
-            relatedId: user.id,
-            typeRef: 'User',
-          }));
+            // Optimistic UI update first
+            const updatedNotifications = notifications.map((notification) =>
+                notification.type === 'followRequest' && notification.relatedId === senderId
+                    ? {
+                        ...notification,
+                        message: `You accepted ${notification.message.split(' ')[0]}'s follow request.`,
+                        type: 'followRequestAccepted',
+                    }
+                    : notification
+            );
+            dispatch(setNotifications(updatedNotifications)); // not awaited
+            dispatch(setFollowBack(true));
+
+            // Now dispatch the backend calls
+            await dispatch(approveFollowRequest(senderId));
+            await dispatch(createNotification({
+                userId: senderId,
+                type: 'followRequestAccepted',
+                message: `${user.firstName} ${user.lastName} accepted your follow request.`,
+                relatedId: user.id,
+                typeRef: 'User',
+            }));
         } catch (error) {
-          console.error('Error accepting friend request:', error);
-          // Optional: revert optimistic update if needed
+            console.error('Error accepting friend request:', error);
+            // Optional: revert optimistic update if needed
         }
-    };      
+    };
 
     const handleDeclineRequest = async (senderId) => {
         try {
@@ -136,10 +145,6 @@ export default function Notifications() {
         }
     };
 
-    const handleCloseComments = () => {
-        dispatch(setSelectedReview(null));
-    };
-
     const handleAcceptInvite = async (inviteId) => {
         try {
             await dispatch(acceptInvite({ recipientId: user.id, inviteId }));
@@ -155,6 +160,11 @@ export default function Notifications() {
             console.error('Error accepting activity invite:', error);
         }
     };
+
+    const handleCloseComments = () => {
+        dispatch(setSelectedReview(null));
+        setCommentsVisible(false);
+    }
 
     const handleRejectInvite = async (inviteId) => {
         try {
@@ -176,98 +186,19 @@ export default function Notifications() {
         setPhotoTapped(photoTapped === photoKey ? null : photoKey);
     };
 
-    const handleLike = async (postType, postId) => {
-        // Determine where to find the post (reviews for businesses, check-ins for users)
-        const postToUpdate = reviews.find((review) => review._id === postId);
-
-        if (!postToUpdate) {
-            console.error(`${postType} with ID ${postId} not found.`);
-            return;
-        }
-
-        const placeId = postToUpdate.placeId;
-
-        try {
-            // Sync with the backend
-            const { payload } = await dispatch(toggleLike({ postType, placeId, postId, userId, fullName }));
-
-            // Check if the current user's ID exists in the likes array before sending a notification
-            const userLiked = payload?.likes?.some((like) => like.userId === userId);
-
-            // Dynamically get ownerId based on postType
-            let ownerId;
-            if (postType === 'invite') {
-                ownerId = postToUpdate.sender?.id || postToUpdate.senderId;
-            } else {
-                ownerId = postToUpdate.userId;
-            }
-
-            // Create a notification for the post owner
-            if (userLiked && ownerId !== userId) { // Avoid self-notifications
-                await dispatch(createNotification({
-                    userId: ownerId,
-                    type: 'like',
-                    message: `${fullName} liked your ${postType}.`,
-                    relatedId: userId,
-                    typeRef: postType === 'review' ? 'Review' : postType === 'check-in' ? 'CheckIn' : 'ActivityInvite',
-                    targetId: postId,
-                    postType,
-                }));
-            }
-        } catch (error) {
-            console.error(`Error toggling like for ${postType}:`, error);
-        }
-    };
-
-    const handleLikeWithAnimation = async (postType, postId) => {
-        const now = Date.now();
-
-        if (!lastTapRef.current || typeof lastTapRef.current !== "object") {
-            lastTapRef.current = {};
-        }
-
-        if (!lastTapRef.current[postId]) {
-            lastTapRef.current[postId] = 0;
-        }
-
-        if (now - lastTapRef.current[postId] < 300) {
-            const postBeforeUpdate = reviews.find((review) => review._id === postId);
-            const wasLikedBefore = postBeforeUpdate?.likes?.some((like) => like.userId === user?.id);
-
-            await handleLike(postType, postId);
-
-            if (!wasLikedBefore) {
-                if (!likedAnimations[postId]) {
-                    setLikedAnimations((prev) => ({
-                        ...prev,
-                        [postId]: new Animated.Value(0),
-                    }));
-                }
-
-                const animation = likedAnimations[postId] || new Animated.Value(0);
-
-                Animated.timing(animation, {
-                    toValue: 1,
-                    duration: 50,
-                    useNativeDriver: true,
-                }).start(() => {
-                    setTimeout(() => {
-                        Animated.timing(animation, {
-                            toValue: 0,
-                            duration: 500,
-                            useNativeDriver: true,
-                        }).start();
-                    }, 500);
-                });
-
-                setLikedAnimations((prev) => ({
-                    ...prev,
-                    [postId]: animation,
-                }));
-            }
-        }
-
-        lastTapRef.current[postId] = now;
+    const handleLikeWithAnimation = (review, force = false) => {
+        return sharedHandleLikeWithAnimation({
+            postType: review.type,
+            postId: review._id,
+            review,
+            user,
+            reviews,
+            dispatch,
+            lastTapRef,
+            likedAnimations,
+            setLikedAnimations,
+            force,
+        });
     };
 
     const handleAcceptJoinRequest = async (relatedId, targetId) => {
@@ -357,7 +288,7 @@ export default function Notifications() {
 
     const handleFollowBack = async (targetUserId, notificationId) => {
         try {
-            const { payload } = await dispatch(followUserImmediately({targetUserId, isFollowBack: true}));
+            const { payload } = await dispatch(followUserImmediately({ targetUserId, isFollowBack: true }));
 
             const enrichedUser = followers.find(u => u._id === targetUserId);
             const fullNameFollowBack = await enrichedUser
@@ -398,11 +329,11 @@ export default function Notifications() {
                 renderItem={({ item }) => {
                     const sender = (followRequests.received || []).find(user => user._id === item.relatedId);
                     const shouldShowFollowBack =
-                        (item.type === 'followRequestAccepted' || 
-                            item.type === 'follow' || 
+                        (item.type === 'followRequestAccepted' ||
+                            item.type === 'follow' ||
                             item.type === "followRequest") &&
-                            !following.some(user => user._id === item.relatedId) &&
-                            followers.some(user => user._id === item.relatedId)
+                        !following.some(user => user._id === item.relatedId) &&
+                        followers.some(user => user._id === item.relatedId)
                     return (
                         <SwipeableRow onSwipe={handleDeleteNotification} notificationId={item._id}>
                             <TouchableOpacity
@@ -485,22 +416,19 @@ export default function Notifications() {
                     );
                 }}
             />
-            {/* Comment Modal */}
             <CommentModal
-                visible={commentModalVisible}
-                review={selectedReview}
+                visible={commentsVisible}
                 onClose={handleCloseComments}
-                setSelectedReview={setSelectedReview}
                 reviews={reviews} // You may need to adjust this
+                setSelectedReview={setSelectedReview}
+                review={selectedReview}
                 targetId={targetId}
                 likedAnimations={likedAnimations}
                 handleLikeWithAnimation={handleLikeWithAnimation}
                 toggleTaggedUsers={toggleTaggedUsers}
                 lastTapRef={lastTapRef}
                 photoTapped={photoTapped}
-                setCommentModalVisible={setCommentModalVisible}
             />
-
         </View>
     );
 }

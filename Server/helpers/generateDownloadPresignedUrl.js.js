@@ -10,7 +10,7 @@ const generateDownloadPresignedUrl = async (key) => {
     });
 
     // Generate pre-signed URL
-    const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 }); // Expires in 1 hour
+    const url = await getSignedUrl(s3Client, command, { expiresIn: 604800 }); // Expires in 7 days
     return url;
   } catch (error) {
     console.error("Error generating download pre-signed URL:", error);

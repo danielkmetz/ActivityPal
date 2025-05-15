@@ -2,7 +2,7 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const Business = require('../models/Business'); // Path to your Business model
 const { generatePresignedUrl } = require('../helpers/generatePresignedUrl');
-const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
+const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 const router = express.Router();
 
 // Utility function: Find a business by placeId
@@ -70,7 +70,7 @@ router.get('/:placeId/all', async (req, res) => {
       const photos = await Promise.all(
         business.photos.map(async (photo) => {
           try {
-            const url = await generateDownloadPresignedUrl(photo.photoKey);
+            const url = await getPresignedUrl(photo.photoKey);
   
             return {
               photoKey: photo.photoKey,
@@ -105,7 +105,7 @@ router.post('/photos/get-urls', async (req, res) => {
       const presignedUrls = await Promise.all(
           photoKeys.map(async (photoKey) => {
               try {
-                  const url = await generateDownloadPresignedUrl(photoKey);
+                  const url = await getPresignedUrl(photoKey);
                   return { photoKey, url };
               } catch (error) {
                   console.error(`Error generating URL for ${photoKey}:`, error);

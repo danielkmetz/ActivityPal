@@ -16,6 +16,9 @@ import PaginationReducer from './Slices/PaginationSlice';
 import InvitesReducer from './Slices/InvitesSlice';
 import businessNotificationsReducer from './Slices/BusNotificationsSlice';
 import commentThreadReducer from './Slices/CommentThreadSlice';
+import modalReducer from './Slices/ModalSlice';
+import recentSearchesReducer from './Slices/RecentSearchesSlice'; 
+import storiesReducer from './Slices/StoriesSlice';
 
 const store = configureStore({
     reducer: combineReducers({
@@ -36,6 +39,9 @@ const store = configureStore({
        invites: InvitesReducer,
        businessNotifications: businessNotificationsReducer,
        commentThread: commentThreadReducer,
+       recentSearches: recentSearchesReducer,
+       modals: modalReducer,
+       stories: storiesReducer,
     })
 });
 

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Business = require('../models/Business');
-const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
+const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 
 // Route to get events for a business by placeId
 router.get("/events/:placeId", async (req, res) => {
@@ -19,7 +19,7 @@ router.get("/events/:placeId", async (req, res) => {
         if (Array.isArray(event.photos) && event.photos.length > 0) {
           const photosWithUrls = await Promise.all(
             event.photos.map(async (photo) => {
-              const url = await generateDownloadPresignedUrl(photo.photoKey);
+              const url = await getPresignedUrl(photo.photoKey);
               return {
                 ...photo,
                 url,
@@ -63,7 +63,7 @@ router.post('/events/:placeId', async (req, res) => {
     // Convert `photos` array into `PhotoSchema` format and generate presigned URLs
     const photoObjects = await Promise.all(
       (photos || []).map(async (photo) => {
-        const downloadUrl = await generateDownloadPresignedUrl(photo.photoKey);
+        const downloadUrl = await getPresignedUrl(photo.photoKey);
 
         return {
           photoKey: photo.photoKey,

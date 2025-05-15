@@ -31,7 +31,13 @@
     },
     "owner": "danielkmetz",
     "plugins": [
-      "expo-font"
+      "expo-font",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "We need access to your camera to let you create stories and record videos."
+        }
+      ]
     ]
   }
 }

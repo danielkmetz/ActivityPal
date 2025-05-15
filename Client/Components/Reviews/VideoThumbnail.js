@@ -7,6 +7,7 @@ export default function VideoThumbnail({ file, width, height }) {
   if (!file) return null;
 
   const player = useSmartVideoPlayer(file);
+  
   if (!player) return null;
 
   return (

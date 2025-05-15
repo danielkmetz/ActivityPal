@@ -30,7 +30,7 @@ const PhotoItem = ({
             lastTapRef.current[reviewItem._id] &&
             now - lastTapRef.current[reviewItem._id] < 300
         ) {
-            handleLikeWithAnimation(reviewItem.type, reviewItem._id);
+            handleLikeWithAnimation(reviewItem);
             lastTapRef.current[reviewItem._id] = 0;
         } else {
             lastTapRef.current[reviewItem._id] = now;

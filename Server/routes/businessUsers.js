@@ -3,7 +3,7 @@ const router = express.Router();
 const verifyToken = require("../middleware/verifyToken");
 const BusinessUser = require("../models/Business"); // Update with your schema location
 const mongoose = require('mongoose');
-const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
+const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 
 // Update business info
 router.patch("/update", verifyToken, async (req, res) => {
@@ -88,7 +88,7 @@ router.post("/favorites", verifyToken, async (req, res) => {
         let profilePicUrl = null;
 
         if (business.logoKey) {
-          profilePicUrl = await generateDownloadPresignedUrl(business.logoKey);
+          profilePicUrl = await getPresignedUrl(business.logoKey);
         }
 
         return {

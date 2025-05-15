@@ -1,9 +1,14 @@
 export const isVideo = (file) => {
-    const source = file?.type || file?.url || file?.photoKey || '';
-    return typeof source === 'string' && (
-        source.includes('.mp4') ||
-        source.includes('.mov') ||
-        source.startsWith('video/')
-    );
-};
+  if (typeof file !== "object" || !file) return false;
 
+  const uri = file?.uri || file?.url || file.mediaUrl || file.mediaUploadUrl || "";
+  const key = file?.photoKey?.toLowerCase?.() || "";
+
+  return (
+    file?.type?.startsWith?.("video/") ||
+    key.endsWith(".mov") ||
+    key.endsWith(".mp4") ||
+    uri.toLowerCase().includes(".mov") ||
+    uri.toLowerCase().includes(".mp4")
+  );
+};

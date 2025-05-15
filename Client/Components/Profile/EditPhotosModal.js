@@ -1,21 +1,130 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, Image, StyleSheet, TouchableOpacity, Modal, ScrollView, Dimensions } from "react-native";
+import React, { useState, useEffect, } from "react";
+import {
+  View,
+  Text,
+  Image,
+  Modal,
+  StyleSheet,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  Dimensions,
+} from "react-native";
+import { GestureDetector, Gesture } from "react-native-gesture-handler";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  runOnJS,
+} from "react-native-reanimated";
 import EditPhotoDetailsModal from "./EditPhotoDetailsModal";
 import VideoThumbnail from "../Reviews/VideoThumbnail";
 
 const { width: screenWidth } = Dimensions.get("window");
-const columnWidth = (screenWidth) / 3; // 40 for padding/margin adjustments
+const columnMargin = 5;
+const numColumns = 3;
+const columnWidth = (screenWidth - columnMargin * (numColumns + 1)) / numColumns;
 
-export default function EditPhotosModal({ visible, photos, onSave, onClose, photoList, setPhotoList, isPromotion }) {
+function DraggablePhoto({ photo, index, positions, onSwap, onPress }) {
+  if (!positions[index]) return null;
+
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+  
+  useEffect(() => {
+    if (positions[index]) {
+      translateX.value = withSpring(positions[index].x);
+      translateY.value = withSpring(positions[index].y);
+    }
+  }, [positions, index]);
+
+  const gesture = Gesture.Pan()
+    .onUpdate((e) => {
+      translateX.value = e.translationX + positions[index].x;
+      translateY.value = e.translationY + positions[index].y;
+    })
+    .onEnd(() => {
+      const newIndex = positions.findIndex(
+        (pos) =>
+          Math.abs(pos.x - translateX.value) < columnWidth / 2 &&
+          Math.abs(pos.y - translateY.value) < columnWidth / 2
+      );
+      if (newIndex !== -1 && newIndex !== index) {
+        runOnJS(onSwap)(index, newIndex);
+      } else {
+        translateX.value = withSpring(positions[index].x);
+        translateY.value = withSpring(positions[index].y);
+      }
+    });
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+    ],
+  }));
+
+  const cleanUrl = (photo.uri || photo.url || photo.photoKey || "").split("?")[0];
+  const isVideo = cleanUrl.toLowerCase().endsWith(".mp4") || cleanUrl.toLowerCase().endsWith(".mov");
+  
+  return (
+    <GestureDetector gesture={gesture}>
+      <Animated.View style={[styles.draggableItem, animatedStyle]}>
+        <TouchableWithoutFeedback onPress={() => onPress(photo)}>
+          {isVideo ? (
+            <VideoThumbnail file={photo} width={columnWidth} height={columnWidth} />
+          ) : (
+            <Image
+              source={{ uri: photo.uri || photo.url }}
+              style={styles.photoThumbnail}
+              resizeMode="cover"
+            />
+          )}
+        </TouchableWithoutFeedback>
+      </Animated.View>
+    </GestureDetector>
+  );
+}
+
+export default function EditPhotosModal({
+  visible,
+  photos,
+  onSave,
+  onClose,
+  photoList,
+  setPhotoList,
+  isPromotion,
+}) {
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
+  const [shouldRenderGrid, setShouldRenderGrid] = useState(false);
+  const [positions, setPositions] = useState([]);
 
-  // Update photoList whenever photos prop changes
+  useEffect(() => {
+    if (visible) {
+      const timeout = setTimeout(() => setShouldRenderGrid(true), 100);
+      return () => clearTimeout(timeout);
+    } else {
+      setShouldRenderGrid(false);
+    }
+  }, [visible]);
+
   useEffect(() => {
     if (photos) {
       setPhotoList(photos);
     }
   }, [photos]);
+
+  useEffect(() => {
+    const updatedPositions = photoList.map((_, index) => {
+      const row = Math.floor(index / numColumns);
+      const col = index % numColumns;
+      return {
+        x: col * (columnWidth + columnMargin) + columnMargin,
+        y: row * (columnWidth + columnMargin) + columnMargin,
+      };
+    });
+    setPositions(updatedPositions);
+  }, [photoList]);
 
   const handlePhotoClick = (photo) => {
     setSelectedPhoto(photo);
@@ -29,55 +138,43 @@ export default function EditPhotosModal({ visible, photos, onSave, onClose, phot
           (photo._id && updatedPhoto._id && photo._id === updatedPhoto._id) ||
           (photo.photoKey && updatedPhoto.photoKey && photo.photoKey === updatedPhoto.photoKey) ||
           (photo.uri && updatedPhoto.uri && photo.uri === updatedPhoto.uri);
-
         return isSamePhoto ? updatedPhoto : photo;
       })
     );
   };
 
+  const swapPhotos = (fromIndex, toIndex) => {
+    const updatedList = [...photoList];
+    const moved = updatedList.splice(fromIndex, 1)[0];
+    updatedList.splice(toIndex, 0, moved);
+    setPhotoList(updatedList);
+  };
+
   const handleSavePhotos = () => {
-    // Use a Map to de-duplicate and merge based on uri or photoKey
-    const mergedMap = new Map();
-
-    // Add all current photos (original)
-    photos.forEach(photo => {
-      const key = photo._id || photo.photoKey || photo.uri;
-      mergedMap.set(key, photo);
-    });
-
-    // Overwrite with updated versions from photoList (preserves edits)
-    photoList.forEach(photo => {
-      const key = photo._id || photo.photoKey || photo.uri;
-      mergedMap.set(key, photo);
-    });
-
-    const merged = Array.from(mergedMap.values());
-    onSave(merged);
+    onSave(photoList); // this now reflects the correct order AND updates
     onClose();
   };
 
   return (
     <Modal visible={visible} animationType="slide" transparent={false}>
       <View style={styles.container}>
-        <ScrollView contentContainerStyle={styles.scrollContainer}>
-          <Text style={styles.title}>Edit Photos</Text>
-          <View style={styles.photoGrid}>
-            {photoList?.map((photo, index) => (
-              <TouchableOpacity key={index} onPress={() => handlePhotoClick(photo)}>
-                {photo.type?.startsWith("video/") ? (
-                  <VideoThumbnail file={photo} width={columnWidth} height={columnWidth} />          
-                ) : (
-                  <Image
-                    source={{ uri: photo.uri || photo.url }}
-                    style={styles.photoThumbnail}
-                  />
-                )}
-              </TouchableOpacity>
+        <Text style={styles.title}>Edit Photos</Text>
+
+        {shouldRenderGrid && (
+          <View style={styles.gridContainer}>
+            {photoList.map((photo, index) => (
+              <DraggablePhoto
+                key={photo._id || photo.photoKey || photo.uri || index}
+                photo={photo}
+                index={index}
+                positions={positions}
+                onSwap={swapPhotos}
+                onPress={handlePhotoClick}
+              />
             ))}
           </View>
-        </ScrollView>
+        )}
 
-        {/* Button Container Positioned at the Bottom */}
         <View style={styles.buttonContainer}>
           <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
             <Text style={styles.cancelButtonText}>Cancel</Text>
@@ -87,14 +184,15 @@ export default function EditPhotosModal({ visible, photos, onSave, onClose, phot
           </TouchableOpacity>
         </View>
 
-        {/* Edit Photo Details Modal */}
-        <EditPhotoDetailsModal
-          visible={detailsModalVisible}
-          photo={selectedPhoto}
-          onSave={handlePhotoSave}
-          onClose={() => setDetailsModalVisible(false)}
-          isPromotion={isPromotion}
-        />
+        {selectedPhoto && (
+          <EditPhotoDetailsModal
+            visible={detailsModalVisible}
+            photo={selectedPhoto}
+            onSave={handlePhotoSave}
+            onClose={() => setDetailsModalVisible(false)}
+            isPromotion={isPromotion}
+          />
+        )}
       </View>
     </Modal>
   );
@@ -106,26 +204,30 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     marginTop: 85,
   },
-  scrollContainer: {
-    paddingBottom: 100, // Leave space for the button container
-  },
   title: {
     fontSize: 20,
     fontWeight: "bold",
     marginBottom: 20,
     textAlign: "center",
   },
-  photoGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
+  gridContainer: {
+    flex: 1,
+    position: "relative",
   },
   photoThumbnail: {
     width: columnWidth,
     height: columnWidth,
     borderRadius: 8,
-    marginBottom: 10,
     backgroundColor: "#f0f0f0",
+  },
+  draggableItem: {
+    position: "absolute",
+    width: columnWidth,
+    height: columnWidth,
+    borderRadius: 8,
+    marginBottom: 10,
+    justifyContent: "center",
+    alignItems: "center",
   },
   buttonContainer: {
     position: "absolute",
