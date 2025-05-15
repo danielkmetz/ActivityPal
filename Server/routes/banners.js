@@ -2,9 +2,8 @@ const express = require('express');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const { uploadToS3 } = require('../helpers/uploadToS3'); // AWS SDK-based upload helper
-const { getObjectFromS3 } = require('../helpers/getObjectFromS3');
 const { generatePresignedUrl } = require('../helpers/generatePresignedUrl');
-const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
+const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 const Business = require('../models/Business'); // Import Business model
 const User = require('../models/User');
 const router = express.Router();
@@ -110,7 +109,7 @@ router.get('/:userId/banner-user', async (req, res) => {
         return res.status(404).json({ message: 'Banner not found.' });
       }
   
-      const url = await generateDownloadPresignedUrl(photoKey);
+      const url = await getPresignedUrl(photoKey);
   
       res.status(200).json({
         photoKey,
@@ -136,7 +135,7 @@ router.get('/:placeId/banner-business', async (req, res) => {
       return res.status(404).json({ message: 'Banner not found.' });
     }
 
-    const url = await generateDownloadPresignedUrl(bannerKey);
+    const url = await getPresignedUrl(bannerKey);
 
     res.status(200).json({
       url, // Include pre-signed URL in the response

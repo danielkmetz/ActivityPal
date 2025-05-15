@@ -1,9 +1,8 @@
 import React from 'react';
 import { createBottomTabNavigator, BottomTabBar } from '@react-navigation/bottom-tabs';
-import { View, Animated, Text } from 'react-native';
+import { View, Animated } from 'react-native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { FontAwesome, MaterialCommunityIcons } from '@expo/vector-icons';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Platform } from 'react-native';
 import Home from '../Home/Home';
 import ActivityPage from '../Activities/ActivityPage';
@@ -16,35 +15,40 @@ import BusinessReviews from '../Reviews/BusinessReviews';
 import Insights from '../Insights/Insights';
 import Friends from '../Friends/Friends';
 import OtherUserProfile from '../Profile/OtherUserProfile';
+import CameraScreen from '../CameraScreen/CameraScreen';
+import StoryPreview from '../Stories/StoriesPreview';
 import { selectIsBusiness, selectUser } from '../../Slices/UserSlice';
-import { useSelector, useDispatch } from "react-redux";
+import { useSelector } from "react-redux";
 import { selectUnreadCount } from '../../Slices/NotificationsSlice';
-import { markNotificationsSeen} from '../../utils/notificationsHasSeen';
+import { markNotificationsSeen } from '../../utils/notificationsHasSeen';
+import StoryViewer from '../Stories/StoryViewer';
+import CreatePost from '../Reviews/CreatePost';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
-function TabNavigator({ 
-    scrollY, 
-    onScroll, 
+function TabNavigator({
+    scrollY,
+    onScroll,
     tabBarTranslateY,
-    headerTranslateY, 
+    headerTranslateY,
     customNavTranslateY,
     customHeaderTranslateY,
-    isAtEnd, 
-    notificationsSeen,  
+    isAtEnd,
+    notificationsSeen,
     setNotificationsSeen,
-    newUnreadCount, 
+    newUnreadCount,
 }) {
     const user = useSelector(selectUser);
     const isBusiness = useSelector(selectIsBusiness);
     const unreadCount = useSelector(selectUnreadCount);
-    
+
     return (
         <Tab.Navigator
             initialRouteName={user ? (isBusiness ? "Reviews" : "Home") : "Activities"}
             tabBar={(props) => (
                 <Animated.View
+                    pointerEvents='box-none'
                     style={{
                         transform: [{ translateY: tabBarTranslateY }],
                         position: 'absolute',
@@ -64,6 +68,7 @@ function TabNavigator({
                 tabBarIcon: ({ color, size }) => {
                     let iconName;
                     let IconComponent = FontAwesome;
+                    let iconSize = size;
 
                     if (route.name === 'Home') {
                         iconName = 'home';
@@ -80,9 +85,6 @@ function TabNavigator({
                     } else if (route.name === "My Events") {
                         iconName = 'calendar-multiselect';
                         IconComponent = MaterialCommunityIcons;
-                    } else if (route.name === "Notifications") {
-                        iconName = 'bell';
-                        IconComponent = MaterialCommunityIcons;
                     } else if (route.name === "Insights") {
                         iconName = 'chart-bar';
                         IconComponent = MaterialCommunityIcons;
@@ -92,31 +94,16 @@ function TabNavigator({
                     } else if (route.name === "Reviews") {
                         iconName = 'clipboard';
                         IconComponent = MaterialCommunityIcons;
+                    } else if (route.name === "Post") {
+                        iconName = 'plus-circle';
+                        IconComponent = MaterialCommunityIcons;
+                        iconSize = 56;
                     }
 
                     return (
                         <View style={{ position: 'relative' }}>
-                            <IconComponent name={iconName} size={size} color={color} />
-                            {route.name === "Notifications" && notificationsSeen === false && (
-                                <View
-                                    style={{
-                                        position: 'absolute',
-                                        top: -4,
-                                        right: -10,
-                                        backgroundColor: 'red',
-                                        borderRadius: 10,
-                                        paddingHorizontal: 5,
-                                        minWidth: 16,
-                                        height: 16,
-                                        justifyContent: 'center',
-                                        alignItems: 'center',
-                                    }}
-                                >
-                                    <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>
-                                        {newUnreadCount > 9 ? '9+' : newUnreadCount}
-                                    </Text>
-                                </View>
-                            )}
+                            <IconComponent name={iconName} size={iconSize} color={color} />
+
                         </View>
                     );
                 },
@@ -124,11 +111,10 @@ function TabNavigator({
                 tabBarInactiveTintColor: 'gray',
                 tabBarStyle: { height: Platform.OS === "ios" ? 90 : 70, paddingVertical: 5 },
                 tabBarItemStyle: { paddingBottom: Platform.OS === "ios" ? 0 : 6, marginHorizontal: 5, justifyContent: 'center' },
-                tabBarLabelStyle: { fontSize: 10, margin: 0, padding: 0 },
+                tabBarLabelStyle: { fontSize: 11, margin: 0, padding: 0 },
                 headerShown: false,
             })}
         >
-
             {/* Conditional Rendering Based on Login Status */}
             {user ? (
                 // Logged-in User Screens
@@ -138,30 +124,20 @@ function TabNavigator({
                         <>
                             <Tab.Screen name="Insights" component={Insights} />
                             <Tab.Screen name="My Events">
-                            {(props) => (
-                                <MyEventsPage
-                                    {...props}
-                                    scrollY={scrollY}
-                                    onScroll={onScroll}
-                                    tabBarTranslateY={tabBarTranslateY}
-                                    headerTranslateY={headerTranslateY}
-                                    customHeaderTranslateY={customHeaderTranslateY}
-                                />
-                            )}
+                                {(props) => (
+                                    <MyEventsPage
+                                        {...props}
+                                        scrollY={scrollY}
+                                        onScroll={onScroll}
+                                        tabBarTranslateY={tabBarTranslateY}
+                                        headerTranslateY={headerTranslateY}
+                                        customHeaderTranslateY={customHeaderTranslateY}
+                                    />
+                                )}
                             </Tab.Screen>
                             <Tab.Screen name="Reviews">
                                 {() => <BusinessReviews scrollY={scrollY} onScroll={onScroll} isAtEnd={isAtEnd} />}
                             </Tab.Screen>
-                            <Tab.Screen
-                                name="Notifications"
-                                component={Notifications}
-                                listeners={{
-                                    tabPress: async () => {
-                                      await markNotificationsSeen(unreadCount);
-                                      setNotificationsSeen(true);
-                                    }
-                                }}                                  
-                            />
                             <Tab.Screen name="Profile" component={BusinessProfile} />
                         </>
                     ) : (
@@ -171,27 +147,31 @@ function TabNavigator({
                                 {() => <Home scrollY={scrollY} onScroll={onScroll} isAtEnd={isAtEnd} />}
                             </Tab.Screen>
                             <Tab.Screen name="Activities">
-                            {(props) => (
-                                <ActivityPage
-                                    {...props}
-                                    scrollY={scrollY}
-                                    onScroll={onScroll}
-                                    tabBarTranslateY={tabBarTranslateY}
-                                    headerTranslateY={headerTranslateY}
-                                    customNavTranslateY={customNavTranslateY}
-                                />
-                            )}
+                                {(props) => (
+                                    <ActivityPage
+                                        {...props}
+                                        scrollY={scrollY}
+                                        onScroll={onScroll}
+                                        tabBarTranslateY={tabBarTranslateY}
+                                        headerTranslateY={headerTranslateY}
+                                        customNavTranslateY={customNavTranslateY}
+                                    />
+                                )}
                             </Tab.Screen>
                             <Tab.Screen
-                                name="Notifications"
-                                component={Notifications}
-                                listeners={{
-                                    tabPress: async () => {
-                                      await markNotificationsSeen(unreadCount);
-                                      setNotificationsSeen(true);
-                                    }
-                                }}                                  
-                            />
+                                name="Post"
+                                options={{
+                                    tabBarLabel: () => null, // 👈 hide label
+                                }}
+                                listeners={({ navigation }) => ({
+                                    tabPress: (e) => {
+                                        e.preventDefault();
+                                        navigation.navigate("CreatePost", { postType: "review" });
+                                    },
+                                })}
+                            >
+                                {() => null}
+                            </Tab.Screen>
                             <Tab.Screen name="Friends" component={Friends} />
                             <Tab.Screen name="Profile" component={UserProfile} />
                         </>
@@ -210,8 +190,13 @@ function TabNavigator({
 
 function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTranslateY, headerTranslateY, newUnreadCount, tabBarTranslateY, isAtEnd, notificationsSeen, setNotificationsSeen }) {
     return (
-        <Stack.Navigator>
-            <Stack.Screen name="TabNavigator" options={{ headerShown: false }}>
+        <Stack.Navigator
+            screenOptions={{
+                gestureEnabled: true,
+                gestureDirection: 'horizontal',
+                headerShown: false,
+            }}>
+            <Stack.Screen name="TabNavigator">
                 {() =>
                     <TabNavigator
                         scrollY={scrollY}
@@ -227,21 +212,19 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
                     />
                 }
             </Stack.Screen>
-
-            {/* OtherUserProfile Screen */}
             <Stack.Screen
                 name="OtherUserProfile"
                 component={OtherUserProfile}
-                options={{
-                    headerShown: false,
-                }}
             />
-
             <Stack.Screen
                 name="BusinessProfile"
                 component={BusinessProfile}
-                options={{ headerShown: false }}
             />
+            <Stack.Screen name="CameraScreen" component={CameraScreen} />
+            <Stack.Screen name="StoryPreview" component={StoryPreview} />
+            <Stack.Screen name="StoryViewer" component={StoryViewer} />
+            <Stack.Screen name="Notifications" component={Notifications} />
+            <Stack.Screen name="CreatePost" component={CreatePost} />
         </Stack.Navigator>
     )
 }

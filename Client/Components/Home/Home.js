@@ -5,7 +5,7 @@ import {
     StyleSheet,
     TouchableOpacity,
 } from "react-native";
-import WriteReviewModal from "../Reviews/WriteReviewModal";
+import WriteReviewModal from "../Reviews/CreatePost";
 import {
     selectUserAndFriendsReviews,
     fetchReviewsByUserAndFriends,
@@ -13,28 +13,38 @@ import {
     appendUserAndFriendsReviews,
 } from "../../Slices/ReviewsSlice";
 import { selectUser } from "../../Slices/UserSlice";
-import { 
-    selectFollowing,
+import {
     fetchFollowRequests,
     fetchMutualFriends,
     fetchFollowersAndFollowing,
- } from "../../Slices/friendsSlice";
+    selectFriends,
+} from "../../Slices/friendsSlice";
 import { fetchFavorites } from "../../Slices/FavoritesSlice";
 import { useSelector, useDispatch } from "react-redux";
 import Reviews from "../Reviews/Reviews";
 import usePaginatedFetch from '../../utils/usePaginatedFetch';
 import InviteModal from "../ActivityInvites/InviteModal";
+import { selectStories, fetchStories } from "../../Slices/StoriesSlice";
+import Stories from "../Stories/Stories";
+import {
+    closeContentModal,
+    closeInviteModal,
+    contentModalStatus,
+    inviteModalStatus,
+    openContentModal,
+    openInviteModal,
+} from "../../Slices/ModalSlice";
 
 const Home = ({ scrollY, onScroll, isAtEnd }) => {
     const dispatch = useDispatch();
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
-    const following = useSelector(selectFollowing);
+    const friends = useSelector(selectFriends);
     const user = useSelector(selectUser);
+    const contentModal = useSelector(contentModalStatus);
+    const inviteModal = useSelector(inviteModalStatus);
+    const stories = useSelector(selectStories);
     const [business, setBusiness] = useState(null);
     const [businessName, setBusinessName] = useState(null);
-    const [modalVisible, setModalVisible] = useState(false);
-    const [inviteVisible, setInviteVisible] = useState(false);
-    const [modalType, setModalType] = useState("review"); // NEW
 
     const userId = user?.id;
     const {
@@ -54,6 +64,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
         if (userId) {
             refresh();
             dispatch(fetchFavorites(userId));
+            dispatch(fetchStories(userId));
         }
     }, [userId]);
 
@@ -63,7 +74,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
             dispatch(fetchMutualFriends(userId));
             dispatch(fetchFollowersAndFollowing(userId));
         }
-    }, [dispatch, userId]);
+    }, [userId]);
 
     return (
         <View style={styles.container}>
@@ -75,57 +86,25 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
                 hasMore={hasMore}
                 reviews={userAndFriendsReviews}
                 ListHeaderComponent={
-                    <View style={styles.input}>
-                        <View style={styles.buttonRow}>
-                            <TouchableOpacity
-                                style={styles.actionButton}
-                                onPress={() => {
-                                    setModalType("review");
-                                    setModalVisible(true);
-                                }}
-                            >
-                                <Text style={styles.buttonText}>Review</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                                style={styles.actionButton}
-                                onPress={() => {
-                                    setModalType("check-in");
-                                    setModalVisible(true);
-                                }}
-                            >
-                                <Text style={styles.buttonText}>Check-In</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                                style={styles.actionButton}
-                                onPress={() => setInviteVisible(true)}
-                            >
-                                <Text style={styles.buttonText}>Invite</Text>
-                            </TouchableOpacity>
-                        </View>
+                    <View style={styles.storiesWrapper}>
+                        <Stories stories={stories} />
                     </View>
                 }
             />
-
             {isAtEnd && <View style={styles.bottom} />}
 
             <WriteReviewModal
-                visible={modalVisible}
-                setReviewModalVisible={setModalVisible}
-                onClose={() => setModalVisible(false)}
+                visible={contentModal}
+                onClose={() => dispatch(closeContentModal())}
                 business={business}
                 setBusiness={setBusiness}
                 businessName={businessName}
                 setBusinessName={setBusinessName}
-                initialTab={modalType}
             />
-
-            <InviteModal 
-                visible={inviteVisible}
-                onClose={() => setInviteVisible(false)}
-                friends={following}
-                setShowInviteModal={setInviteVisible}
+            <InviteModal
+                visible={inviteModal}
+                onClose={() => dispatch(closeInviteModal())}
+                friends={friends}
             />
         </View>
     );
@@ -141,9 +120,12 @@ const styles = StyleSheet.create({
     },
     input: {
         backgroundColor: '#009999',
-        paddingTop: 205,
-        paddingBottom: 15,
+        paddingVertical: 10,
         alignItems: 'center',
+    },
+    storiesWrapper: {
+        backgroundColor: '#008080',
+        paddingTop: 190,
     },
     buttonRow: {
         flexDirection: 'row',

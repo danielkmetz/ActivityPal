@@ -63,7 +63,6 @@ export default function EditPostModal({ visible, post, onClose }) {
             // Animate it out and hide the modal
             (async () => {
                 await animateOut();
-                onClose();
             })();
         }
     }, [visible, post]);
@@ -207,14 +206,14 @@ export default function EditPostModal({ visible, post, onClose }) {
                                         {post?.type === "review" && (
                                             <>
                                                 <Text style={styles.label}>Edit Rating</Text>
-                                                <View style={{ alignItems: 'flex-start', marginBottom: 10,}}>
-                                                <Rating
-                                                    count={5}
-                                                    defaultRating={rating}
-                                                    size={20}
-                                                    showRating={false}
-                                                    onFinishRating={setRating}
-                                                />
+                                                <View style={{ alignItems: 'flex-start', marginBottom: 10, }}>
+                                                    <Rating
+                                                        count={5}
+                                                        defaultRating={rating}
+                                                        size={20}
+                                                        showRating={false}
+                                                        onFinishRating={setRating}
+                                                    />
                                                 </View>
                                             </>
                                         )}
@@ -290,15 +289,16 @@ export default function EditPostModal({ visible, post, onClose }) {
                 setPhotoList={setPhotos}
                 onClose={() => setEditPhotosVisible(false)}
             />
-
-            <EditPhotoDetailsModal
-                visible={editPhotoDetailsVisible}
-                photo={previewPhoto}
-                onClose={() => setEditPhotoDetailsVisible(false)}
-                onSave={handlePhotoSave}
-                setPhotoList={setPhotos}
-                onDelete={handleDeletePhoto}
-            />
+            {previewPhoto && (
+                <EditPhotoDetailsModal
+                    visible={editPhotoDetailsVisible}
+                    photo={previewPhoto}
+                    onClose={() => setEditPhotoDetailsVisible(false)}
+                    onSave={handlePhotoSave}
+                    setPhotoList={setPhotos}
+                    onDelete={handleDeletePhoto}
+                />
+            )}
         </Modal>
     );
 }

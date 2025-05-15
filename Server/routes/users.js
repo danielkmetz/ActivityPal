@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
 const verifyToken = require('../middleware/verifyToken'); // Middleware to authenticate the user
-const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
+const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 
 // Get user by ID
 router.get('/user/:id', verifyToken, async (req, res) => {
@@ -41,7 +41,7 @@ router.post('/users/by-ids', verifyToken, async (req, res) => {
         // Process each user to generate a presigned URL if they have a profilePic.photoKey
         const updatedUsers = await Promise.all(users.map(async (user) => {
             if (user.profilePic?.photoKey) {
-                user.presignedProfileUrl = await generateDownloadPresignedUrl(user.profilePic.photoKey);
+                user.presignedProfileUrl = await getPresignedUrl(user.profilePic.photoKey);
             }
             return user;
         }));

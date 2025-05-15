@@ -27,7 +27,6 @@ export default function ReviewItem({
     photoTapped,
     toggleTaggedUsers,
     handleLikeWithAnimation,
-    handleLike,
     handleOpenComments,
     lastTapRef,
     handleEdit,
@@ -159,7 +158,7 @@ export default function ReviewItem({
 
             <PostActions
                 item={item}
-                handleLike={handleLike}
+                handleLikeWithAnimation={handleLikeWithAnimation}
                 handleOpenComments={handleOpenComments}
                 toggleTaggedUsers={toggleTaggedUsers}
                 photo={currentPhoto}
@@ -177,7 +176,6 @@ export default function ReviewItem({
                 toggleTaggedUsers={toggleTaggedUsers}
                 taggedUsersByPhotoKey={taggedUsersByPhotoKey}
                 handleLikeWithAnimation={handleLikeWithAnimation}
-                handleLike={handleLike}
                 onClose={() => {
                     setFullScreenPhoto(null);
                     setPhotoModalVisible(false);

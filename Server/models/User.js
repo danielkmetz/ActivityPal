@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const ActivityInviteSchema = require('../models/ActivityInvites'); 
+const StorySchema = require('./StorySchema');
 
 const PhotoSchema = new mongoose.Schema({
   photoKey: { type: String, required: true }, // Unique identifier for the photo (e.g., S3 key)
@@ -187,6 +187,15 @@ const UserSchema = new mongoose.Schema({
       ref: 'ActivityInvite',
     }
   ],
+  recentSearches: [
+    {
+      queryId: { type: mongoose.Types.ObjectId, default: () => new mongoose.Types.ObjectId() },
+      userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // 👈 reference to user
+      fullName: { type: String, required: true },
+      searchedAt: { type: Date, default: Date.now },
+    }
+  ],
+  stories: [StorySchema],
   createdAt: {
     type: Date,
     default: Date.now,

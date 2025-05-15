@@ -21,26 +21,27 @@ export const deleteReview = createAsyncThunk(
   }
 );
 
-// Thunk to create a new review for a business
 export const createReview = createAsyncThunk(
   "reviews/createReview",
   async ({ placeId, businessName, userId, rating, reviewText, date, fullName, photos, taggedUsers, location }, { rejectWithValue }) => {
     try {
-      const response = await axios.post(
-        `${BASE_URL}/reviews/${placeId}`,
-        {
-          businessName,
-          fullName,
-          userId,
-          rating,
-          reviewText,
-          date,
-          photos,
-          taggedUsers,
-          location,
-        }
-      );
-      return response.data.review; // Return the newly created review
+      console.log("📸 [Step 4] Photos passed to createReview:", photos.map(p => p.photoKey));
+
+      const response = await axios.post(`${BASE_URL}/reviews/${placeId}`, {
+        businessName,
+        fullName,
+        userId,
+        rating,
+        reviewText,
+        date,
+        photos,
+        taggedUsers,
+        location,
+      });
+
+      console.log("📸 [Step 7] Review response photos:", response.data.review.photos.map(p => p.photoKey));
+
+      return response.data.review;
     } catch (error) {
       const errorMessage =
         error.response?.data?.message || error.message || "Failed to create review";
@@ -48,6 +49,7 @@ export const createReview = createAsyncThunk(
     }
   }
 );
+
 
 export const toggleLike = createAsyncThunk(
   'posts/toggleLike',

@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const Business = require("../models/Business");
-const { generateDownloadPresignedUrl } = require('../helpers/generateDownloadPresignedUrl.js');
+const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 
 // 📌 GET all promotions for a business using placeId
 router.get("/:placeId", async (req, res) => {
@@ -18,7 +18,7 @@ router.get("/:placeId", async (req, res) => {
           if (Array.isArray(promotion.photos) && promotion.photos.length > 0) {
             const photosWithUrls = await Promise.all(
               promotion.photos.map(async (photo) => {
-                const url = await generateDownloadPresignedUrl(photo.photoKey);
+                const url = await getPresignedUrl(photo.photoKey);
                 return {
                   ...photo,
                   url,
@@ -70,7 +70,7 @@ router.post("/", async (req, res) => {
     // Convert `photos` array into `PhotoSchema` format and generate presigned URLs
     const photoObjects = await Promise.all(
       photos.map(async (photo) => {
-        const downloadUrl = await generateDownloadPresignedUrl(photo.photoKey);
+        const downloadUrl = await getPresignedUrl(photo.photoKey);
 
         return {
           photoKey: photo.photoKey,
