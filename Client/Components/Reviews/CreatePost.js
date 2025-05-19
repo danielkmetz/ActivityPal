@@ -2,16 +2,16 @@ import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
+  ScrollView,
   TextInput,
   StyleSheet,
+  FlatList,
   TouchableOpacity,
   Alert,
-  FlatList,
   Image,
   KeyboardAvoidingView,
   Keyboard,
   TouchableWithoutFeedback,
-  ScrollView,
 } from "react-native";
 import { FontAwesome, AntDesign } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -23,7 +23,6 @@ import EditPhotoDetailsModal from "../Profile/EditPhotoDetailsModal";
 import TagFriendsModal from "./TagFriendsModal";
 import VideoThumbnail from "./VideoThumbnail";
 import { selectUser } from "../../Slices/UserSlice";
-import { uploadReviewPhotos } from "../../Slices/PhotosSlice";
 import { editReview } from "../../Slices/ReviewsSlice";
 import { createReview } from "../../Slices/ReviewsSlice";
 import { createCheckIn } from "../../Slices/CheckInsSlice";
@@ -88,6 +87,7 @@ export default function CreatePost() {
 
   const handlePhotoAlbumSelection = async () => {
     const newFiles = await selectMediaFromGallery();
+
     if (newFiles.length > 0) {
       const prepared = newFiles.map(file => ({
         ...file,
@@ -95,51 +95,69 @@ export default function CreatePost() {
         description: file.description || "",
         uri: file.uri,
       }));
-      setSelectedPhotos(prev => [...prev, ...prepared]);
-      setPhotoList(prev => [...prev, ...prepared]);
+
+      const seen = new Set();
+      const combined = [...photoList, ...prepared].filter(photo => {
+        const key = photo.photoKey || photo.uri || photo.localKey;
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      setSelectedPhotos(combined);
+      setPhotoList(combined);
       setEditPhotosModalVisible(true);
+      setPreviewPhoto(null);
     }
   };
 
   const handlePhotoSave = (updatedPhoto) => {
-    setPhotoList((prev) =>
-      prev.map((photo) => {
-        const matchByUri = photo.uri && updatedPhoto.uri && photo.uri === updatedPhoto.uri;
-        const matchByKey = photo.photoKey && updatedPhoto.photoKey && photo.photoKey === updatedPhoto.photoKey;
-        const matchById = photo._id && updatedPhoto._id && photo._id === updatedPhoto._id;
+    setPhotoList((prev) => {
+      const keyToMatch = updatedPhoto.photoKey || updatedPhoto.uri || updatedPhoto._id;
+      const filtered = prev.filter(photo => {
+        const key = photo.photoKey || photo.uri || photo._id;
+        return key !== keyToMatch;
+      });
+      return [...filtered, updatedPhoto];
+    });
+  };
 
-        return matchByUri || matchByKey || matchById
-          ? { ...photo, ...updatedPhoto }
-          : photo;
+  const handlePhotoDelete = (photoToDelete) => {
+    setSelectedPhotos((prev) =>
+      prev.filter((photo) => {
+        const matchById = photo._id && photoToDelete._id && photo._id === photoToDelete._id;
+        const matchByKey = photo.photoKey && photoToDelete.photoKey && photo.photoKey === photoToDelete.photoKey;
+        const matchByUri = photo.uri && photoToDelete.uri && photo.uri === photoToDelete.uri;
+        return !(matchById || matchByKey || matchByUri);
       })
     );
-    setPhotoDetailsEditing(false);
+    setPhotoDetailsEditing(false); // close modal after deletion
   };
 
   const handleSubmit = async () => {
-    console.log("🟡 Submitting post...");
-    console.log("Post Type:", postType);
-    console.log("Business:", business);
-    console.log("Review text:", review);
-    console.log("Check-in message:", checkInMessage);
-    console.log("Tagged Users:", taggedUsers);
-    console.log("Selected Photos:", selectedPhotos);
-
     if (!business || (postType === "review" && !review.trim())) {
-      console.log("❌ Missing business or review text");
       Alert.alert("Error", "Please fill in all required fields.");
       return;
     }
 
     try {
       let uploadedPhotos = [];
-      
+
       if (selectedPhotos.length > 0) {
-        console.log("📸 Uploading photos...");
+        const dedupedPhotos = [];
+        const seenKeys = new Set();
+
+        for (const photo of photoList) {
+          const key = photo.photoKey || photo.uri || photo.localKey;
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            dedupedPhotos.push(photo);
+          }
+        }
         uploadedPhotos = await handlePhotoUpload({
           dispatch,
           userId: user.id,
-          placeId: initialPost.placeId,
+          placeId: business.place_id,
           photos: photoList,
         });
       }
@@ -147,8 +165,6 @@ export default function CreatePost() {
       let postId = null;
 
       if (isEditing && initialPost) {
-        console.log("✏️ Editing existing post", initialPost._id);
-
         if (postType === "review") {
           await dispatch(
             editReview({
@@ -178,13 +194,10 @@ export default function CreatePost() {
           postId = initialPost._id;
         }
 
-        console.log("✅ Edit successful. Post ID:", postId);
         Alert.alert("Success", `Your ${postType} has been updated!`);
         navigation.goBack();
         return;
       }
-
-      console.log("➕ Creating new post...");
 
       if (postType === "review") {
         const reviewResponse = await dispatch(
@@ -216,8 +229,6 @@ export default function CreatePost() {
         ).unwrap();
         postId = checkInResponse._id;
       }
-
-      console.log("📬 Post created. ID:", postId);
 
       await Promise.all([
         ...taggedUsers.map(user =>
@@ -256,18 +267,16 @@ export default function CreatePost() {
         })),
       ]);
 
-      console.log("📢 Notifications dispatched");
       Alert.alert("Success", `Your ${postType} has been posted!`);
       navigation.goBack();
     } catch (err) {
-      console.error("🔥 Submission error:", err);
       Alert.alert("Error", err.message || "Failed to submit.");
     }
   };
 
   const handleOpenPhotoDetails = (item) => {
     setPhotoDetailsEditing(true);
-    setPreviewPhoto(item)
+    setPreviewPhoto(item);
   };
 
   const handleClosePhotoDetails = () => {
@@ -275,53 +284,20 @@ export default function CreatePost() {
     setPreviewPhoto(null);
   };
 
+  if (!postType) {
+    return null;
+  };
+  
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={styles.container}>
+    <View style={{ flex: 1, backgroundColor: 'white', marginTop: 10, }}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <FlatList
-            data={[]} // No data needed; we use header only
-            keyExtractor={() => "static"}
-            renderItem={null}
-            ListHeaderComponent={
+            data={[{}]} // dummy item to drive the layout
+            keyExtractor={(_, i) => i.toString()}
+            renderItem={() => (
               <>
-                <View style={styles.toggleContainer}>
-                  {["review", "check-in", "invite"].map((type) => (
-                    <TouchableOpacity
-                      key={type}
-                      style={[
-                        styles.toggleButton,
-                        postType === type && styles.activeToggleButton
-                      ]}
-                      onPress={() => setPostType(type)}
-                    >
-                      <Text style={[
-                        styles.toggleButtonText,
-                        postType === type && styles.activeToggleButtonText
-                      ]}>
-                        {type === "review" ? "Review" : type === "check-in" ? "Check-in" : "Invite"}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                {postType !== "invite" && (
-                  <GooglePlacesAutocomplete
-                    ref={googlePlacesRef}
-                    placeholder="Search for a business"
-                    fetchDetails
-                    onPress={(data, details) => {
-                      setBusiness(details);
-                    }}
-                    query={{ key: GOOGLE_API_KEY, language: "en", types: "establishment" }}
-                    styles={{
-                      textInput: styles.input,
-                      listView: { backgroundColor: "#fff", maxHeight: 250 },
-                    }}
-                    {...googlePlacesDefaultProps}
-                  />
-                )}
-
+                {/* Main body content here */}
                 {postType === "review" && (
                   <>
                     <Text style={styles.label}>Rating</Text>
@@ -337,7 +313,6 @@ export default function CreatePost() {
                     />
                   </>
                 )}
-
                 {postType === "check-in" && (
                   <>
                     <Text style={styles.label}>Check-in Message (optional)</Text>
@@ -349,7 +324,6 @@ export default function CreatePost() {
                     />
                   </>
                 )}
-
                 {postType === "invite" && (
                   <InviteForm isEditing={isEditing} initialInvite={initialPost} />
                 )}
@@ -357,20 +331,19 @@ export default function CreatePost() {
                 {selectedPhotos.length > 0 && (
                   <>
                     <Text style={styles.label}>Media</Text>
-                    <FlatList
-                      data={selectedPhotos}
-                      horizontal
-                      keyExtractor={(item, i) => i.toString()}
-                      renderItem={({ item }) => (
-                        <TouchableOpacity onPress={() => handleOpenPhotoDetails(item)}>
-                          {isVideo(item) ? (
-                            <VideoThumbnail file={item} width={80} height={80} />
-                          ) : (
-                            <Image source={{ uri: item.uri || item.url }} style={styles.media} />
-                          )}
-                        </TouchableOpacity>
-                      )}
-                    />
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <View style={{ flexDirection: 'row' }}>
+                        {selectedPhotos.map((item, i) => (
+                          <TouchableOpacity key={i.toString()} onPress={() => handleOpenPhotoDetails(item)}>
+                            {isVideo(item) ? (
+                              <VideoThumbnail file={item} width={80} height={80} />
+                            ) : (
+                              <Image source={{ uri: item.uri || item.url }} style={styles.media} />
+                            )}
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </ScrollView>
                   </>
                 )}
 
@@ -401,52 +374,94 @@ export default function CreatePost() {
                     </View>
 
                     <TouchableOpacity onPress={handleSubmit} style={styles.submitButton}>
-                      <Text style={styles.submitButtonText}>Post</Text>
+                      <Text style={styles.submitButtonText}>{!isEditing ? 'Post' : "Save changes"}</Text>
                     </TouchableOpacity>
                   </>
                 )}
               </>
+            )}
+            ListHeaderComponent={
+              <>
+                {!isEditing && (
+                  <View style={styles.toggleContainer}>
+                    {["review", "check-in", "invite"].map((type) => (
+                      <TouchableOpacity
+                        key={type}
+                        style={[
+                          styles.toggleButton,
+                          postType === type && styles.activeToggleButton,
+                        ]}
+                        onPress={() => setPostType(type)}
+                      >
+                        <Text
+                          style={[
+                            styles.toggleButtonText,
+                            postType === type && styles.activeToggleButtonText,
+                          ]}
+                        >
+                          {type === "review" ? "Review" : type === "check-in" ? "Check-in" : "Invite"}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+                {postType !== "invite" && (
+                  <View style={{ zIndex: 999, position: 'relative' }}>
+                    <GooglePlacesAutocomplete
+                      ref={googlePlacesRef}
+                      placeholder="Search for a business"
+                      fetchDetails
+                      onPress={(data, details) => setBusiness(details)}
+                      query={{ key: GOOGLE_API_KEY, language: "en", types: "establishment" }}
+                      styles={{
+                        textInput: styles.input,
+                        listView: { backgroundColor: "#fff", maxHeight: 250 },
+                      }}
+                      {...googlePlacesDefaultProps}
+                    />
+                  </View>
+                )}
+              </>
             }
-            contentContainerStyle={{ paddingBottom: 140, paddingHorizontal: 16, marginTop: 120 }}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 140, marginTop: 120 }}
             keyboardShouldPersistTaps="handled"
           />
-        </View>
-      </TouchableWithoutFeedback>
-
-      {/* Modals */}
-      <TagFriendsModal
-        visible={tagFriendsModalVisible}
-        onSave={setTaggedUsers}
-        onClose={() => setTagFriendsModalVisible(false)}
-        initialSelectedFriends={taggedUsers}
-      />
-      <EditPhotosModal
-        visible={editPhotosModalVisible}
-        photos={selectedPhotos}
-        onSave={setSelectedPhotos}
-        photoList={photoList}
-        setPhotoList={setPhotoList}
-        onClose={() => setEditPhotosModalVisible(false)}
-      />
-      {previewPhoto && (
-        <EditPhotoDetailsModal
-          visible={photoDetailsEditing}
-          photo={previewPhoto}
-          onClose={handleClosePhotoDetails}
-          onSave={handlePhotoSave}
-          setPhotoList={setPhotoList}
-          setSelectedPhotos={setSelectedPhotos}
-          onDelete={() => { }}
-          isPromotion={false}
+        </TouchableWithoutFeedback>
+        {/* Modals */}
+        <TagFriendsModal
+          visible={tagFriendsModalVisible}
+          onSave={setTaggedUsers}
+          onClose={() => setTagFriendsModalVisible(false)}
+          initialSelectedFriends={taggedUsers}
         />
-      )}
-    </KeyboardAvoidingView>
+        <EditPhotosModal
+          visible={editPhotosModalVisible}
+          photos={selectedPhotos}
+          onSave={setSelectedPhotos}
+          photoList={photoList}
+          setPhotoList={setPhotoList}
+          onClose={() => setEditPhotosModalVisible(false)}
+          onDelete={handlePhotoDelete}
+        />
+        {previewPhoto && (
+          <EditPhotoDetailsModal
+            visible={photoDetailsEditing}
+            photo={previewPhoto}
+            onClose={handleClosePhotoDetails}
+            onSave={handlePhotoSave}
+            setPhotoList={setPhotoList}
+            setSelectedPhotos={setSelectedPhotos}
+            onDelete={handlePhotoDelete}
+            isPromotion={false}
+          />
+        )}
+      </KeyboardAvoidingView>
+    </View>
   );
-
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 16, backgroundColor: "white", marginTop: 120 },
+  container: { marginTop: 20, backgroundColor: "white" },
   title: { fontSize: 22, fontWeight: "bold", marginBottom: 16 },
   label: { fontSize: 14, fontWeight: 500, marginVertical: 10 },
   input: {

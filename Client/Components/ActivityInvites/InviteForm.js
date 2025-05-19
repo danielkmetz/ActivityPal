@@ -20,15 +20,16 @@ import { selectUser } from '../../Slices/UserSlice';
 import { selectUserAndFriendsReviews, setUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
 import { googlePlacesDefaultProps } from '../../utils/googleplacesDefaults';
 import TagFriendsModal from '../Reviews/TagFriendsModal';
+import { useNavigation } from '@react-navigation/native';
 
 const google_key = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 
 export default function InviteForm({ isEditing = false, initialInvite = null }) {
   const dispatch = useDispatch();
+  const navigation = useNavigation();
   const user = useSelector(selectUser);
   const friends = useSelector(selectFriends);
   const userAndFriendReviews = useSelector(selectUserAndFriendsReviews);
-
   const [showFriendsModal, setShowFriendsModal] = useState(false);
   const [selectedPlace, setSelectedPlace] = useState(null);
   const [dateTime, setDateTime] = useState(null);
@@ -65,7 +66,6 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
       alert('Please complete all invite details.');
       return;
     }
-
     const invitePayload = {
       senderId: user.id,
       recipientIds: selectedFriends,
@@ -75,7 +75,6 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
       note,
       isPublic,
     };
-
     try {
       let finalFeed = [...(userAndFriendReviews || [])];
 
@@ -114,8 +113,8 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
 
         alert('Invite sent!');
       }
-
       dispatch(setUserAndFriendsReviews(finalFeed));
+      navigation.goBack();
     } catch (err) {
       alert('Something went wrong. Please try again.');
     }
@@ -134,7 +133,7 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
   );
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <View style={styles.container}>
       <GooglePlacesAutocomplete
         ref={googleRef}
         placeholder="Search for a location"
@@ -229,7 +228,7 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
         }}
         isEventInvite
       />
-    </ScrollView>
+    </View>
   );
 }
 

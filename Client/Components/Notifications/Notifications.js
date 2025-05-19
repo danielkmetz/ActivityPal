@@ -47,11 +47,6 @@ export default function Notifications() {
     const placeId = user?.businessDetails?.placeId;
     const fullName = `${user.firstName} ${user.lastName}`;
 
-    useEffect(() => {
-  console.log('🟢 Notifications screen mounted');
-}, []);
-
-
     const handleNotificationPress = async (notification) => {
         if (!isBusiness) {
             dispatch(markNotificationRead({ userId: user.id, notificationId: notification._id }));

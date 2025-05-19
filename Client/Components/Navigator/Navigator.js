@@ -23,6 +23,8 @@ import { selectUnreadCount } from '../../Slices/NotificationsSlice';
 import { markNotificationsSeen } from '../../utils/notificationsHasSeen';
 import StoryViewer from '../Stories/StoryViewer';
 import CreatePost from '../Reviews/CreatePost';
+import CreateEventPage from '../BusinessEvents/CreateEventPage';
+import CreatePromotionPage from '../BusinessEvents/CreatePromotionPage';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -225,6 +227,8 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
             <Stack.Screen name="StoryViewer" component={StoryViewer} />
             <Stack.Screen name="Notifications" component={Notifications} />
             <Stack.Screen name="CreatePost" component={CreatePost} />
+            <Stack.Screen name="CreateEvent" component={CreateEventPage} />
+            <Stack.Screen name="CreatePromotion" component={CreatePromotionPage} />
         </Stack.Navigator>
     )
 }

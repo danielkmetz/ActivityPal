@@ -9,23 +9,39 @@ const mongoose = require("mongoose");
 
 router.post("/post", async (req, res) => {
   try {
-    const { userId, placeId, message, photos, taggedUsers, businessName, fullName } = req.body;
-
+    const { userId, placeId, message, photos, taggedUsers, businessName, location, fullName } = req.body;
     const mongoUserId = new mongoose.Types.ObjectId(userId);
     const date = Date.now();
 
     const user = await User.findById(userId).select("profilePic");
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
-    // Generate photo schema objects for DB
+    // 🔍 Ensure business exists or create a minimal one
+    let business = await Business.findOne({ placeId });
+    if (!business) {
+      business = new Business({
+        placeId,
+        businessName: businessName || "Unknown Business",
+        location: location || "Unknown Location",
+        firstName: "N/A",
+        lastName: "N/A",
+        email: "N/A",
+        password: "N/A",
+        events: [],
+        reviews: [],
+      });
+      await business.save();
+    }
+
+    // 📸 Generate photo schema objects for DB
     const photoObjects = await Promise.all(
       photos.map(async (photo) => {
         const formattedTagged = Array.isArray(photo.taggedUsers)
           ? photo.taggedUsers.map(tag => ({
-            userId: tag.userId,
-            x: tag.x,
-            y: tag.y,
-          }))
+              userId: tag.userId,
+              x: tag.x,
+              y: tag.y,
+            }))
           : [];
 
         return {
@@ -39,7 +55,7 @@ router.post("/post", async (req, res) => {
       })
     );
 
-    // Prepare check-in object
+    // 🏷️ Prepare check-in object
     const taggedUserIds = taggedUsers.map(id => new mongoose.Types.ObjectId(id));
     const newCheckIn = {
       _id: new mongoose.Types.ObjectId(),
@@ -51,7 +67,7 @@ router.post("/post", async (req, res) => {
       date,
     };
 
-    // Save check-in to user document
+    // 👤 Save check-in to user document
     const updatedUser = await User.findByIdAndUpdate(
       mongoUserId,
       { $push: { checkIns: newCheckIn } },
@@ -62,7 +78,7 @@ router.post("/post", async (req, res) => {
 
     const createdCheckIn = updatedUser.checkIns[updatedUser.checkIns.length - 1];
 
-    // ✅ Use helpers for enriched response
+    // 🌐 Use helpers for enriched response
     const [populatedTaggedUsers, populatedPhotos, profileMap] = await Promise.all([
       resolveTaggedUsers(taggedUserIds),
       resolveTaggedPhotoUsers(photoObjects),
@@ -79,7 +95,7 @@ router.post("/post", async (req, res) => {
       placeId,
       userId,
       fullName,
-      businessName,
+      businessName: business.businessName,
       message,
       profilePic: profileData.profilePic,
       profilePicUrl: profileData.profilePicUrl,

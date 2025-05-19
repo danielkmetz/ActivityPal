@@ -10,170 +10,191 @@ const JWT_SECRET = process.env.JWT_SECRET;
 
 // Login Route
 router.post('/login', async (req, res) => {
-    const { email, password, isBusiness } = req.body;
-  
-    try {
-      let responseData = {
-        message: 'Login successful',
-        token: null,
-        user: null,
+  const { email, password, isBusiness } = req.body;
+
+  try {
+    let responseData = {
+      message: 'Login successful',
+      token: null,
+      user: null,
+    };
+
+    if (isBusiness) {
+      // Check in the Business database
+      const business = await Business.findOne({ email });
+      if (!business) {
+        return res.status(400).json({ message: 'Business not found' });
+      }
+
+      // Verify password
+      const isMatch = await bcrypt.compare(password, business.password);
+      if (!isMatch) {
+        return res.status(400).json({ message: 'Invalid credentials' });
+      }
+
+      // Generate a mock token (replace with JWT in production)
+      // Generate a JWT token
+      const token = jwt.sign(
+        { id: business._id, isBusiness: true },
+        JWT_SECRET,
+        { expiresIn: '1d' } // Token expires in 1 day
+      );
+      responseData.token = token;
+
+      // Attach business details along with user details
+      responseData.user = {
+        id: business._id,
+        email: business.email,
+        isBusiness: true,
+        firstName: business.firstName,
+        lastName: business.lastName,
+        businessDetails: {
+          businessName: business.businessName,
+          placeId: business.placeId,
+          location: business.location,
+          phone: business.phone,
+          description: business.description,
+          events: business.events,
+          reviews: business.reviews,
+          logoKey: business.logoKey,
+          bannerKey: business.bannerKey,
+          photos: business.photos,
+        },
       };
-  
-      if (isBusiness) {
-        // Check in the Business database
-        const business = await Business.findOne({ email });
-        if (!business) {
-          return res.status(400).json({ message: 'Business not found' });
-        }
-  
-        // Verify password
-        const isMatch = await bcrypt.compare(password, business.password);
-        if (!isMatch) {
-          return res.status(400).json({ message: 'Invalid credentials' });
-        }
-  
-        // Generate a mock token (replace with JWT in production)
-        // Generate a JWT token
-        const token = jwt.sign(
-          { id: business._id, isBusiness: true },
-          JWT_SECRET,
-          { expiresIn: '1d' } // Token expires in 1 day
-        );
-        responseData.token = token;
-  
-        // Attach business details along with user details
-        responseData.user = {
-          id: business._id,
-          email: business.email,
-          isBusiness: true,
-          firstName: business.firstName,
-          lastName: business.lastName,
-          businessDetails: {
-            businessName: business.businessName,
-            placeId: business.placeId,
-            location: business.location,
-            phone: business.phone,
-            description: business.description,
-            events: business.events,
-            reviews: business.reviews,
-            logoKey: business.logoKey,
-            bannerKey: business.bannerKey,
-            photos: business.photos,
-          },
-        };
-      } else {
-        // Check in the User database
-        const user = await User.findOne({ email, isBusiness: false });
-        if (!user) {
-          return res.status(400).json({ message: 'User not found' });
-        }
-  
-        // Verify password
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-          return res.status(400).json({ message: 'Invalid credentials' });
-        }
-  
-        // Generate a JWT token
-        const token = jwt.sign(
-          { id: user._id, isBusiness: false },
-          JWT_SECRET,
-          { expiresIn: '1d' } // Token expires in 1 day
-        );
-        responseData.token = token;
-  
-        // Attach user details to the response
-        responseData.user = {
-          id: user._id,
-          email: user.email,
-          isBusiness: false,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          notifications: user.notifications,
-        };
+    } else {
+      // Check in the User database
+      const user = await User.findOne({ email, isBusiness: false });
+      if (!user) {
+        return res.status(400).json({ message: 'User not found' });
       }
-  
-      // Send the response
-      res.status(200).json(responseData);
-    } catch (error) {
-      console.error('Login error:', error);
-      res.status(500).json({ message: 'Server error' });
+
+      // Verify password
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) {
+        return res.status(400).json({ message: 'Invalid credentials' });
+      }
+
+      // Generate a JWT token
+      const token = jwt.sign(
+        { id: user._id, isBusiness: false },
+        JWT_SECRET,
+        { expiresIn: '1d' } // Token expires in 1 day
+      );
+      responseData.token = token;
+
+      // Attach user details to the response
+      responseData.user = {
+        id: user._id,
+        email: user.email,
+        isBusiness: false,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        notifications: user.notifications,
+      };
     }
+
+    // Send the response
+    res.status(200).json(responseData);
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
-      
+
 router.post('/register', async (req, res) => {
-    const {
-      email,
-      password,
-      firstName,
-      lastName,
-      isBusiness,
-      placeId,
-      businessName,
-      location,
-    } = req.body;
-  
-    const session = await mongoose.startSession();
-    session.startTransaction();
-  
-    try {
-      // Check for existing email or businessName based on isBusiness
-      if (isBusiness) {
-        const existingBusiness = await Business.findOne({ email });
-        if (existingBusiness) {
-          throw new Error("Business with this email already exists");
-        }
-        const duplicateBusinessName = await Business.findOne({ businessName });
-        if (duplicateBusinessName) {
-          throw new Error("Business with this name already exists");
-        }
-      } else {
-        const existingUser = await User.findOne({ email, isBusiness: false });
-        if (existingUser) {
-          throw new Error("User with this email already exists");
-        }
+  const {
+    email,
+    password,
+    firstName,
+    lastName,
+    isBusiness,
+    placeId,
+    businessName,
+    location,
+  } = req.body;
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // Hash the password early so it's ready
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    if (!isBusiness) {
+      // 🔍 Check if user already exists
+      const existingUser = await User.findOne({ email, isBusiness: false });
+      if (existingUser) {
+        throw new Error("User with this email already exists");
       }
-  
-      // Hash the password
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(password, salt);
-  
-      // If the user is not a business, save to User model
-      if (!isBusiness) {
-        const newUser = new User({
-          email,
-          password: hashedPassword,
+
+      // ✅ Create new user
+      const newUser = new User({
+        email,
+        password: hashedPassword,
+        firstName,
+        lastName,
+        isBusiness,
+      });
+
+      await newUser.save({ session });
+    } else {
+      // 🔍 Check for existing business by email (hard constraint)
+      const existingBusinessByEmail = await Business.findOne({ email });
+      if (existingBusinessByEmail) {
+        throw new Error("Business with this email already exists");
+      }
+
+      // 🔍 Check if business already exists for this placeId (dummy or not)
+      const existingBusinessByPlaceId = await Business.findOne({ placeId });
+
+      if (existingBusinessByPlaceId) {
+        const isDummy = (
+          existingBusinessByPlaceId.email === "N/A" &&
+          existingBusinessByPlaceId.password === "N/A"
+        );
+
+        if (!isDummy) {
+          throw new Error("Business for this location is already registered.");
+        }
+
+        // 🧠 Upgrade placeholder
+        existingBusinessByPlaceId.firstName = firstName;
+        existingBusinessByPlaceId.lastName = lastName;
+        existingBusinessByPlaceId.email = email;
+        existingBusinessByPlaceId.password = hashedPassword;
+        existingBusinessByPlaceId.businessName = businessName;
+        existingBusinessByPlaceId.location = location;
+
+        await existingBusinessByPlaceId.save({ session });
+        console.log(`✅ Upgraded placeholder business for placeId: ${placeId}`);
+      } else {
+        // 🆕 Create new business entry
+        const newBusiness = new Business({
           firstName,
           lastName,
-          isBusiness,
+          email,
+          password: hashedPassword,
+          placeId,
+          businessName,
+          location,
         });
-        await newUser.save({ session });
-      }
-  
-      // If the user is a business, save to Business model
-      if (isBusiness) {
-        const newBusiness = new Business({
-            firstName,
-            lastName,
-            email,
-            password: hashedPassword,
-            placeId,
-            businessName,
-            location,
-        });
+
         await newBusiness.save({ session });
+        console.log(`🆕 Registered new business for placeId: ${placeId}`);
       }
-  
-      await session.commitTransaction();
-      session.endSession();
-  
-      res.status(201).json({ message: "Registration successful" });
-    } catch (error) {
-      await session.abortTransaction();
-      session.endSession();
-      console.error("Registration error:", error);
-      res.status(500).json({ message: error.message || "Server error" });
     }
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(201).json({ message: "Registration successful" });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    console.error("❌ Registration error:", error);
+    res.status(500).json({ message: error.message || "Server error" });
+  }
 });
 
 // Validate Token Endpoint
@@ -225,6 +246,6 @@ router.get('/validate', async (req, res) => {
     res.status(401).json({ message: 'Invalid or expired token' });
   }
 });
-  
+
 
 module.exports = router;
