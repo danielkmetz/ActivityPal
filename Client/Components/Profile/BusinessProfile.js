@@ -14,7 +14,7 @@ import { selectUser } from "../../Slices/UserSlice";
 import bannerPlaceholder from '../../assets/pics/business-placeholder.png';
 import logoPlaceholder from '../../assets/pics/logo-placeholder.png';
 import EditProfileModal from "./EditProfileModal";
-import { selectLogo, fetchLogo, selectBusinessBanner, fetchBusinessBanner, selectAlbum, fetchPhotos } from "../../Slices/PhotosSlice";
+import { selectLogo, fetchLogo, selectBanner, fetchBusinessBanner, selectAlbum, fetchPhotos } from "../../Slices/PhotosSlice";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { fetchReviewsByPlaceId, selectBusinessReviews, appendBusinessReviews, setBusinessReviews } from '../../Slices/ReviewsSlice';
 import Reviews from "../Reviews/Reviews";
@@ -39,7 +39,7 @@ export default function BusinessProfile() {
   const mainUserFavorites = useSelector(selectFavorites);
   const reviews = useSelector(selectBusinessReviews);
   const logo = useSelector(selectLogo);
-  const banner = useSelector(selectBusinessBanner);
+  const banner = useSelector(selectBanner);
   const photos = useSelector(selectAlbum);
   const businessName = user?.businessName;
   const placeId = user?.placeId;

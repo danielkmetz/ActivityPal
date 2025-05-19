@@ -10,6 +10,9 @@ const CameraScreen = () => {
     const [facing, setFacing] = useState("back");
     const [isRecording, setIsRecording] = useState(false);
     const cameraRef = useRef(null);
+    const pressTimer = useRef(null);
+    const longPressTriggered = useRef(false);
+    const recordingPromiseRef = useRef(null);
     const navigation = useNavigation();
 
     if (!permission) {
@@ -53,14 +56,15 @@ const CameraScreen = () => {
     };
 
     const handleRecord = async () => {
-        try {
-            if (!cameraRef.current) {
-                console.warn('⚠️ cameraRef is null.');
-                return;
-            }
+        if (!cameraRef.current) {
+            console.warn('⚠️ cameraRef is null.');
+            return;
+        }
 
+        try {
             setIsRecording(true);
-            const video = await cameraRef.current.recordAsync({ maxDuration: 15 });
+            recordingPromiseRef.current = cameraRef.current.recordAsync({ maxDuration: 15 });
+            const video = await recordingPromiseRef.current;
             setIsRecording(false);
 
             if (video?.uri) {
@@ -76,7 +80,11 @@ const CameraScreen = () => {
 
     const handleStop = () => {
         if (cameraRef.current && isRecording) {
-            cameraRef.current.stopRecording();
+            try {
+                cameraRef.current.stopRecording();
+            } catch (err) {
+                console.warn('⚠️ Failed to stop recording:', err);
+            }
         }
     };
 
@@ -101,10 +109,22 @@ const CameraScreen = () => {
                 <View style={[styles.captureWrapper, isRecording && styles.recordingBorder]}>
                     <TouchableOpacity
                         style={styles.captureButton}
-                        onPress={handleTakePhoto}
-                        onLongPress={handleRecord}
-                        onPressOut={handleStop}
-                        delayLongPress={200}
+                        onPressIn={() => {
+                            longPressTriggered.current = false;
+                            pressTimer.current = setTimeout(() => {
+                                longPressTriggered.current = true;
+                                handleRecord(); // call this after delay
+                            }, 300); // wait 300ms to determine it's a long press
+                        }}
+                        onPressOut={() => {
+                            clearTimeout(pressTimer.current);
+
+                            if (longPressTriggered.current) {
+                                handleStop(); // only stop if long press triggered
+                            } else {
+                                handleTakePhoto(); // otherwise take a picture
+                            }
+                        }}
                     >
                         <View style={[styles.recordDot, isRecording && styles.recording]} />
                     </TouchableOpacity>

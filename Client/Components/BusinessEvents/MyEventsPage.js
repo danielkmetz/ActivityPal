@@ -5,7 +5,6 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  ActivityIndicator,
   Alert,
   Dimensions,
   Animated,
@@ -22,19 +21,17 @@ import {
   selectPromotions,
   deletePromotion,
 } from "../../Slices/PromotionsSlice";
-import CreateEventModal from "./CreateEventModal";
-import CreatePromotionModal from "./CreatePromotionModal";
 import PhotoItem from "../Reviews/PhotoItem";
 import PhotoPaginationDots from '../Reviews/PhotoPaginationDots';
 import EventDetailsCard from "./EventDetailsCard";
+import { useNavigation } from "@react-navigation/native";
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
 const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
   const dispatch = useDispatch();
+  const navigation = useNavigation();
   const [selectedTab, setSelectedTab] = useState("events"); // Toggle state for Events & Promotions
-  const [modalVisible, setModalVisible] = useState(false);
-  const [selectedItem, setSelectedItem] = useState(null); // Event or promotion being edited
   const [dropdownVisible, setDropdownVisible] = useState(null);
   const user = useSelector(selectUser);
   const events = useSelector(selectEvents);
@@ -51,18 +48,33 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
   }, [placeId]);
 
   const handleEdit = (item) => {
-    setSelectedItem(item);
-    setModalVisible(true);
-  };
-
-  const handleModalClose = () => {
-    setModalVisible(false);
-    setSelectedItem(null);
+    if (selectedTab === "events") {
+      navigation.navigate("CreateEvent", {
+        businessId: placeId,
+        event: item,
+        onEventCreated: () => dispatch(fetchEvents(placeId)),
+      });
+    } else {
+      navigation.navigate("CreatePromotion", {
+        placeId,
+        promotion: item,
+        onPromotionCreated: () => dispatch(fetchPromotions(placeId)),
+      });
+    }
   };
 
   const handleCreateItem = () => {
-    setSelectedItem(null);
-    setModalVisible(true);
+    if (selectedTab === "events") {
+      navigation.navigate("CreateEvent", {
+        businessId: placeId,
+        onEventCreated: () => dispatch(fetchEvents(placeId)),
+      });
+    } else {
+      navigation.navigate("CreatePromotion", {
+        placeId,
+        onPromotionCreated: () => dispatch(fetchPromotions(placeId)),
+      });
+    }
   };
 
   const toggleDropdown = (itemId) => {
@@ -102,7 +114,7 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
 
   const isEventsTab = selectedTab === "events";
   const data = isEventsTab ? events : promotions;
-  
+
   return (
     <View style={styles.container}>
       {/* Toggle Buttons */}
@@ -127,114 +139,94 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
           </TouchableOpacity>
         </Animated.View>
       )}
-        <AnimatedFlatList
-          data={data}
-          keyExtractor={(item) => item._id}
-          scrollEventThrottle={16}
-          onScroll={
-            scrollY
-              ? Animated.event(
-                [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-                {
-                  useNativeDriver: true,
-                  listener: onScroll,
-                }
-              )
-              : onScroll || undefined
-          }
-          ListHeaderComponent={<View style={styles.buffer} />}
-          renderItem={({ item }) => (
-            <View style={styles.itemCard}>
-              {/* Three-dot menu */}
-              <View style={styles.menuContainer}>
-                <TouchableOpacity onPress={() => toggleDropdown(item._id)}>
-                  <Text style={styles.menuDots}>⋮</Text>
-                </TouchableOpacity>
+      <AnimatedFlatList
+        data={data}
+        keyExtractor={(item) => item._id}
+        scrollEventThrottle={16}
+        onScroll={
+          scrollY
+            ? Animated.event(
+              [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+              {
+                useNativeDriver: true,
+                listener: onScroll,
+              }
+            )
+            : onScroll || undefined
+        }
+        ListHeaderComponent={<View style={styles.buffer} />}
+        renderItem={({ item }) => (
+          <View style={styles.itemCard}>
+            {/* Three-dot menu */}
+            <View style={styles.menuContainer}>
+              <TouchableOpacity onPress={() => toggleDropdown(item._id)}>
+                <Text style={styles.menuDots}>⋮</Text>
+              </TouchableOpacity>
 
-                {/* Dropdown Menu */}
-                {dropdownVisible === item._id && (
-                  <View style={styles.dropdownMenu}>
-                    <TouchableOpacity
-                      style={[styles.dropdownItem, styles.editButton]}
-                      onPress={() => handleEdit(item)}
-                    >
-                      <Text style={styles.dropdownText}>Edit</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.dropdownItem, styles.deleteButton]}
-                      onPress={() => handleDelete(item)}
-                    >
-                      <Text style={styles.dropdownText}>Delete</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-              <View style={styles.itemInfo}>
-                <EventDetailsCard item={item} selectedTab={selectedTab} styles={styles} />
-                {item.photos.length > 0 && (
-                  <>
-                    <FlatList
-                      data={item.photos}
-                      horizontal
-                      pagingEnabled
-                      showsHorizontalScrollIndicator={false}
-                      keyExtractor={(photo, index) => index.toString()}
-                      scrollEnabled={item.photos.length > 1}
-                      onScroll={Animated.event(
-                        [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-                        { useNativeDriver: false } // Native driver is false since we animate layout properties
-                      )}
-                      scrollEventThrottle={16}
-
-                      renderItem={({ item: photo }) => (
-                        <PhotoItem
-                          photo={photo}
-                          reviewItem={item} // can rename if not actually a review
-                          likedAnimations={{}} // or pass in your real likedAnimations object
-                          photoTapped={null} // pass in correct value if needed
-                          toggleTaggedUsers={() => { }} // no-op unless you need tag functionality
-                          handleLikeWithAnimation={() => { }} // no-op unless using like animation
-                          isInteractive={false}
-                        />
-                      )}
-                      style={{ width: Dimensions.get('window').width, marginTop: -10, }}
-                    />
-                    <PhotoPaginationDots photos={item.photos} scrollX={scrollX} />
-
-                  </>
-                )}
-              </View>
-
+              {/* Dropdown Menu */}
+              {dropdownVisible === item._id && (
+                <View style={styles.dropdownMenu}>
+                  <TouchableOpacity
+                    style={[styles.dropdownItem, styles.editButton]}
+                    onPress={() => handleEdit(item)}
+                  >
+                    <Text style={styles.dropdownText}>Edit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.dropdownItem, styles.deleteButton]}
+                    onPress={() => handleDelete(item)}
+                  >
+                    <Text style={styles.dropdownText}>Delete</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
-          )}
+            <View style={styles.itemInfo}>
+              <EventDetailsCard item={item} selectedTab={selectedTab} styles={styles} />
+              {item.photos.length > 0 && (
+                <>
+                  <FlatList
+                    data={item.photos}
+                    horizontal
+                    pagingEnabled
+                    showsHorizontalScrollIndicator={false}
+                    keyExtractor={(photo, index) => index.toString()}
+                    scrollEnabled={item.photos.length > 1}
+                    onScroll={Animated.event(
+                      [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+                      { useNativeDriver: false } // Native driver is false since we animate layout properties
+                    )}
+                    scrollEventThrottle={16}
 
-        />
-        {/* Create Button */}
-        <TouchableOpacity style={styles.createButton} onPress={handleCreateItem}>
-          <Text style={styles.createButtonText}>
-            +
-          </Text>
-        </TouchableOpacity>
-      {/* </View> */}
+                    renderItem={({ item: photo }) => (
+                      <PhotoItem
+                        photo={photo}
+                        reviewItem={item} // can rename if not actually a review
+                        likedAnimations={{}} // or pass in your real likedAnimations object
+                        photoTapped={null} // pass in correct value if needed
+                        toggleTaggedUsers={() => { }} // no-op unless you need tag functionality
+                        handleLikeWithAnimation={() => { }} // no-op unless using like animation
+                        isInteractive={false}
+                      />
+                    )}
+                    style={{ width: Dimensions.get('window').width, marginTop: -10, }}
+                  />
+                  <PhotoPaginationDots photos={item.photos} scrollX={scrollX} />
 
-      {/* Create/Edit Modal */}
-      {isEventsTab ? (
-        <CreateEventModal
-          visible={modalVisible}
-          onClose={handleModalClose}
-          businessId={placeId}
-          onEventCreated={() => dispatch(fetchEvents(placeId))}
-          event={selectedItem}
-        />
-      ) : (
-        <CreatePromotionModal
-          visible={modalVisible}
-          onClose={handleModalClose}
-          placeId={placeId}
-          onPromotionCreated={() => dispatch(fetchPromotions(placeId))}
-          promotion={selectedItem}
-        />
-      )}
+                </>
+              )}
+            </View>
+
+          </View>
+        )}
+
+      />
+      {/* Create Button */}
+      <TouchableOpacity style={styles.createButton} onPress={handleCreateItem}>
+        <Text style={styles.createButtonText}>
+          +
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 };

@@ -21,20 +21,86 @@ export default function StoryViewer() {
   const { stories = [], startIndex = 0 } = route.params;
 
   const [currentIndex, setCurrentIndex] = useState(startIndex);
+  const [duration, setDuration] = useState(4000);
+  const [paused, setPaused] = useState(false);
+  
   const story = stories[currentIndex];
   const mediaUrl = story?.mediaUrl || story?.mediaUploadUrl;
 
+  const fadeAnim = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(0)).current;
-  const scale = translateY.interpolate({
-    inputRange: [0, SCREEN_HEIGHT],
-    outputRange: [1, 0.5],
-    extrapolate: 'clamp',
-  });
-  const opacity = translateY.interpolate({
-    inputRange: [0, SCREEN_HEIGHT / 2],
-    outputRange: [1, 0],
-    extrapolate: 'clamp',
-  });
+  const progress = useRef(stories.map(() => new Animated.Value(0))).current;
+  const animationRef = useRef(null);
+  const hasSyncedRef = useRef(false);
+  const previousStoryRef = useRef(null);
+
+  useEffect(() => {
+  previousStoryRef.current = story;
+}, [currentIndex]);
+
+  const startProgressAnimation = (ms) => {
+    console.log(`🚀 Starting animation for index ${currentIndex} with duration ${ms}`);
+    progress[currentIndex].setValue(0);
+    animationRef.current = Animated.timing(progress[currentIndex], {
+      toValue: 1,
+      duration: ms,
+      useNativeDriver: false,
+    });
+    animationRef.current.start(({ finished }) => {
+      console.log(`🎞️ Animation finished=${finished} for index ${currentIndex}`);
+      if (finished) handleNext();
+    });
+  };
+
+  const resetAllBars = () => {
+    console.log('🔁 Resetting progress bars for index', currentIndex);
+    progress.forEach((bar, i) => {
+      bar.setValue(i < currentIndex ? 1 : 0);
+    });
+  };
+
+  const handleNext = () => {
+    console.log('👉 Next tapped');
+    animationRef.current?.stop();
+    if (currentIndex < stories.length - 1) {
+      setCurrentIndex((prev) => prev + 1);
+    } else {
+      console.log('🏁 Reached end of stories, closing');
+      navigation.goBack();
+    }
+  };
+
+  const handlePrev = () => {
+    console.log('👈 Previous tapped');
+    animationRef.current?.stop();
+    if (currentIndex > 0) {
+      setCurrentIndex((prev) => prev - 1);
+    }
+  };
+
+  useEffect(() => {
+    console.log('📦 currentIndex changed:', currentIndex, 'mediaType:', story.mediaType);
+    resetAllBars();
+    hasSyncedRef.current = false;
+    fadeAnim.setValue(0);
+    
+    const defaultDuration = story.mediaType === 'video' ? 10000 : 4000;
+    setDuration(defaultDuration);
+
+    if (!paused && story.mediaType !== 'video') {
+      setIsMediaReady(true); // Images load instantly
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+      startProgressAnimation(defaultDuration);
+    }
+
+    return () => {
+      animationRef.current?.stop();
+    };
+  }, [currentIndex, paused]);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -57,27 +123,6 @@ export default function StoryViewer() {
     })
   ).current;
 
-  const handleNext = () => {
-    if (currentIndex < stories.length - 1) {
-      setCurrentIndex((prev) => prev + 1);
-    } else {
-      navigation.goBack();
-    }
-  };
-
-  const handlePrev = () => {
-    if (currentIndex > 0) {
-      setCurrentIndex((prev) => prev - 1);
-    }
-  };
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      handleNext();
-    }, 4000); // auto-advance after 4s
-    return () => clearTimeout(timer);
-  }, [currentIndex]);
-
   if (!story?.mediaKey) {
     return (
       <View style={styles.container}>
@@ -91,17 +136,14 @@ export default function StoryViewer() {
       style={[
         styles.container,
         {
-          transform: [{ translateY }, { scale }],
-          opacity,
+          transform: [{ translateY }],
         },
       ]}
       {...panResponder.panHandlers}
     >
-      {/* Tap Left/Right to Skip */}
       <Pressable style={styles.leftTapZone} onPress={handlePrev} />
       <Pressable style={styles.rightTapZone} onPress={handleNext} />
 
-      {/* Close Button */}
       <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()}>
         <Text style={styles.closeText}>✕</Text>
       </TouchableOpacity>
@@ -109,17 +151,16 @@ export default function StoryViewer() {
       {/* Status Bar */}
       <View style={styles.progressBarContainer}>
         {stories.map((_, i) => (
-          <View
+          <Animated.View
             key={i}
             style={[
               styles.segment,
               {
                 flex: 1,
-                backgroundColor: i < currentIndex
-                  ? 'rgba(255,255,255,0.8)'
-                  : i === currentIndex
-                  ? 'white'
-                  : 'rgba(255,255,255,0.3)',
+                marginHorizontal: 2,
+                backgroundColor: i < currentIndex ? 'white' : 'rgba(255,255,255,0.3)',
+                transform: [{ scaleX: progress[i] }],
+                transformOrigin: 'left',
               },
             ]}
           />
@@ -127,18 +168,43 @@ export default function StoryViewer() {
       </View>
 
       {/* Media */}
-      {story.mediaType === 'video' ? (
-        <Video
-          source={{ uri: mediaUrl }}
-          shouldPlay
-          resizeMode="cover"
-          useNativeControls={false}
-          isMuted
-          style={StyleSheet.absoluteFill}
-        />
-      ) : (
-        <Image source={{ uri: mediaUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-      )}
+      <Animated.View style={[StyleSheet.absoluteFill, { opacity: fadeAnim }]}>
+        {story.mediaType === 'video' ? (
+          <Video
+            key={mediaUrl}
+            source={{ uri: mediaUrl }}
+            resizeMode="cover"
+            shouldPlay
+            isMuted
+            style={StyleSheet.absoluteFill}
+            onPlaybackStatusUpdate={(status) => {
+              console.log('🎥 Video status:', {
+                isLoaded: status.isLoaded,
+                durationMillis: status.durationMillis,
+                positionMillis: status.positionMillis,
+              });
+
+              if (!status.isLoaded || hasSyncedRef.current) return;
+
+              if (status.durationMillis && status.positionMillis < 500) {
+                console.log('📏 Syncing animation with video duration:', status.durationMillis);
+                hasSyncedRef.current = true;
+                animationRef.current?.stop();
+                startProgressAnimation(status.durationMillis);
+
+                // Show the video by fading in
+                Animated.timing(fadeAnim, {
+                  toValue: 1,
+                  duration: 300,
+                  useNativeDriver: true,
+                }).start();
+              }
+            }}
+          />
+        ) : (
+          <Image source={{ uri: mediaUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+        )}
+      </Animated.View>
     </Animated.View>
   );
 }
@@ -168,11 +234,11 @@ const styles = StyleSheet.create({
     right: 10,
     height: 4,
     zIndex: 3,
-    gap: 4,
   },
   segment: {
-    borderRadius: 2,
     height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.3)',
   },
   leftTapZone: {
     position: 'absolute',
