@@ -315,6 +315,8 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
   'reviews/fetchReviewsByOtherUserId',
   async ({ userId, limit, after }, { rejectWithValue }) => {
     try {
+      console.log('📡 fetchPostsByOtherUserId called with:', { userId, limit, after });
+
       const query = `
         query GetUserPosts($userId: ID!, $limit: Int, $after: ActivityCursor) {
           getUserPosts(userId: $userId, limit: $limit, after: $after) {
@@ -327,112 +329,36 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
               date
               placeId
               businessName
-              taggedUsers {
-                userId
-                fullName
-              }
-              likes {
-                userId
-                fullName
-              }
+              taggedUsers { userId fullName }
+              likes { userId fullName }
               comments {
-                _id
-                commentText
-                userId
-                fullName
-                likes
-                date
+                _id commentText userId fullName likes date
                 replies {
-                  _id
-                  commentText
-                  userId
-                  fullName
-                  likes
-                  date
+                  _id commentText userId fullName likes date
                   replies {
-                    _id
-                    commentText
-                    userId
-                    fullName
-                    likes
-                    date
+                    _id commentText userId fullName likes date
                     replies {
-                      _id
-                      commentText
-                      userId
-                      fullName
-                      likes
-                      date
+                      _id commentText userId fullName likes date
                       replies {
-                        _id
-                        commentText
-                        userId
-                        fullName
-                        likes
-                        date
+                        _id commentText userId fullName likes date
                         replies {
-                          _id
-                          commentText
-                          userId
-                          fullName
-                          likes
-                          date
+                          _id commentText userId fullName likes date
                           replies {
-                            _id
-                            commentText
-                            userId
-                            fullName
-                            likes
-                            date
+                            _id commentText userId fullName likes date
                             replies {
-                              _id
-                              commentText
-                              userId
-                              fullName
-                              likes
-                              date
+                              _id commentText userId fullName likes date
                               replies {
-                                _id
-                                commentText
-                                userId
-                                fullName
-                                likes
-                                date
+                                _id commentText userId fullName likes date
                                 replies {
-                                  _id
-                                  commentText
-                                  userId
-                                  fullName
-                                  likes
-                                  date
+                                  _id commentText userId fullName likes date
                                   replies {
-                                    _id
-                                    commentText
-                                    userId
-                                    fullName
-                                    likes
-                                    date
+                                    _id commentText userId fullName likes date
                                     replies {
-                                      _id
-                                      commentText
-                                      userId
-                                      fullName
-                                      likes
-                                      date
+                                      _id commentText userId fullName likes date
                                       replies {
-                                        _id
-                                        commentText
-                                        userId
-                                        fullName
-                                        likes
-                                        date
+                                        _id commentText userId fullName likes date
                                         replies {
-                                          _id
-                                          commentText
-                                          userId
-                                          fullName
-                                          likes
-                                          date
+                                          _id commentText userId fullName likes date
                                         }
                                       }
                                     }
@@ -447,149 +373,49 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
                   }
                 }
               }
-              profilePic {
-                _id
-                photoKey
-                uploadedBy
-                description
-                tags
-                uploadDate
-              }
+              profilePic { _id photoKey uploadedBy description tags uploadDate }
               profilePicUrl
               photos {
-                _id
-                photoKey
-                uploadedBy
-                description
-                taggedUsers {
-                  userId
-                  fullName
-                  x
-                  y
-                }
-                uploadDate
-                url
+                _id photoKey uploadedBy description
+                taggedUsers { userId fullName x y }
+                uploadDate url
               }
               rating
               reviewText
             }
 
             ... on CheckIn {
-              _id
-              type
-              userId
-              fullName
-              sortDate
-              date
-              placeId
-              businessName
-              message
-              taggedUsers {
-                userId
-                fullName
-              }
-              likes {
-                userId
-                fullName
-              }
+              _id type userId fullName sortDate date placeId businessName message
+              taggedUsers { userId fullName }
+              likes { userId fullName }
               comments {
-                _id
-                commentText
-                userId
-                fullName
-                likes
-                date
+                _id commentText userId fullName likes date
                 replies {
-                  _id
-                  commentText
-                  userId
-                  fullName
-                  likes
-                  date
+                  _id commentText userId fullName likes date
                   replies {
-                    _id
-                    commentText
-                    userId
-                    fullName
-                    likes
-                    date
+                    _id commentText userId fullName likes date
                     replies {
-                      _id
-                      commentText
-                      userId
-                      fullName
-                      likes
-                      date
+                      _id commentText userId fullName likes date
                       replies {
-                        _id
-                        commentText
-                        userId
-                        fullName
-                        likes
-                        date
+                        _id commentText userId fullName likes date
                         replies {
-                          _id
-                          commentText
-                          userId
-                          fullName
-                          likes
-                          date
+                          _id commentText userId fullName likes date
                           replies {
-                            _id
-                            commentText
-                            userId
-                            fullName
-                            likes
-                            date
+                            _id commentText userId fullName likes date
                             replies {
-                              _id
-                              commentText
-                              userId
-                              fullName
-                              likes
-                              date
+                              _id commentText userId fullName likes date
                               replies {
-                                _id
-                                commentText
-                                userId
-                                fullName
-                                likes
-                                date
+                                _id commentText userId fullName likes date
                                 replies {
-                                  _id
-                                  commentText
-                                  userId
-                                  fullName
-                                  likes
-                                  date
+                                  _id commentText userId fullName likes date
                                   replies {
-                                    _id
-                                    commentText
-                                    userId
-                                    fullName
-                                    likes
-                                    date
+                                    _id commentText userId fullName likes date
                                     replies {
-                                      _id
-                                      commentText
-                                      userId
-                                      fullName
-                                      likes
-                                      date
+                                      _id commentText userId fullName likes date
                                       replies {
-                                        _id
-                                        commentText
-                                        userId
-                                        fullName
-                                        likes
-                                        date
+                                        _id commentText userId fullName likes date
                                         replies {
-                                          _id
-                                          commentText
-                                          userId
-                                          fullName
-                                          likes
-                                          date
+                                          _id commentText userId fullName likes date
                                         }
                                       }
                                     }
@@ -604,50 +430,45 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
                   }
                 }
               }
-              profilePic {
-                _id
-                photoKey
-                uploadedBy
-                description
-                tags
-                uploadDate
-              }
+              profilePic { _id photoKey uploadedBy description tags uploadDate }
               profilePicUrl
               photos {
-                _id
-                photoKey
-                uploadedBy
-                description
-                taggedUsers {
-                  userId
-                  fullName
-                  x
-                  y
-                }
-                uploadDate
-                url
+                _id photoKey uploadedBy description
+                taggedUsers { userId fullName x y }
+                uploadDate url
               }
             }
           }
         }
       `;
 
+      const variables = { userId, limit, after };
+
       const response = await axios.post(GRAPHQL_ENDPOINT, {
         query,
-        variables: { userId, limit, after },
+        variables,
       });
 
+      console.log('📥 GraphQL response:', response.data);
+
       if (response.data.errors) {
+        console.error('❌ GraphQL errors:', response.data.errors);
         throw new Error(response.data.errors[0].message);
       }
 
-      return response.data.data.getUserPosts || [];
+      const posts = response.data.data.getUserPosts || [];
+      console.log(`✅ Retrieved ${posts.length} posts for user ${userId}`);
+
+      return posts;
     } catch (error) {
+      console.error('🔥 fetchPostsByOtherUserId error:', error);
+
       if (error.response) {
         return rejectWithValue(
-          `GraphQL Request Failed - Status: ${error.response.status}, Message: ${error.response.data?.errors?.[0]?.message ||
-          error.response.data?.message ||
-          "Unknown Error"
+          `GraphQL Request Failed - Status: ${error.response.status}, Message: ${
+            error.response.data?.errors?.[0]?.message ||
+            error.response.data?.message ||
+            "Unknown Error"
           }`
         );
       } else if (error.request) {

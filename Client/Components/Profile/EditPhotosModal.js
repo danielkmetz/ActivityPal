@@ -29,7 +29,7 @@ function DraggablePhoto({ photo, index, positions, onSwap, onPress }) {
 
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
-  
+
   useEffect(() => {
     if (positions[index]) {
       translateX.value = withSpring(positions[index].x);
@@ -65,13 +65,15 @@ function DraggablePhoto({ photo, index, positions, onSwap, onPress }) {
 
   const cleanUrl = (photo.uri || photo.url || photo.photoKey || "").split("?")[0];
   const isVideo = cleanUrl.toLowerCase().endsWith(".mp4") || cleanUrl.toLowerCase().endsWith(".mov");
-  
+
   return (
     <GestureDetector gesture={gesture}>
       <Animated.View style={[styles.draggableItem, animatedStyle]}>
         <TouchableWithoutFeedback onPress={() => onPress(photo)}>
           {isVideo ? (
-            <VideoThumbnail file={photo} width={columnWidth} height={columnWidth} />
+            <View>
+              <VideoThumbnail file={photo} width={columnWidth} height={columnWidth} />
+            </View>
           ) : (
             <Image
               source={{ uri: photo.uri || photo.url }}
@@ -93,6 +95,7 @@ export default function EditPhotosModal({
   photoList,
   setPhotoList,
   isPromotion,
+  onDelete,
 }) {
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
@@ -191,6 +194,7 @@ export default function EditPhotosModal({
             onSave={handlePhotoSave}
             onClose={() => setDetailsModalVisible(false)}
             isPromotion={isPromotion}
+            onDelete={onDelete}
           />
         )}
       </View>

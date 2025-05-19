@@ -500,6 +500,7 @@ const photoSlice = createSlice({
       })
       .addCase(uploadBanner.fulfilled, (state, action) => {
         state.uploadLoading = false;
+        state.banner = action.payload;
       })
       .addCase(uploadBanner.rejected, (state, action) => {
         state.uploadLoading = false;
@@ -649,7 +650,7 @@ const photoSlice = createSlice({
       })
       .addCase(fetchBusinessBanner.fulfilled, (state, action) => {
         state.fetchLoading = false;
-        state.businessBanner = action.payload;
+        state.banner = action.payload;
       })
       .addCase(fetchBusinessBanner.rejected, (state, action) => {
         state.fetchLoading = false;

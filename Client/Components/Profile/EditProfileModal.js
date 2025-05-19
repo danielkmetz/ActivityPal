@@ -24,6 +24,7 @@ import {
   selectProfilePic,
   uploadProfilePic,
   uploadUserBanner,
+  selectBusinessBanner,
 } from "../../Slices/PhotosSlice"; // Import your thunks
 import EditAboutInfoModal from "./EditAboutInfoModal";
 import EditPhotosModal from "./EditPhotosModal";
@@ -54,6 +55,9 @@ export default function EditProfileModal({
   const placeId = user?.placeId;
   const userId = generalUser?.id;
   const fullName = `${user?.firstName} ${user?.lastName}`;
+  const bannerUrl = typeof banner === 'string'
+    ? banner
+    : banner?.url || banner?.presignedUrl;
 
   // Update photoList whenever photos prop changes
   useEffect(() => {
@@ -233,7 +237,7 @@ export default function EditProfileModal({
             <Text style={styles.sectionTitle}>Current Banner Image</Text>
             {isBusiness ?
               <Image
-                source={banner ? { uri: banner } : bannerPlaceholder}
+                source={banner ? { uri: bannerUrl } : bannerPlaceholder}
                 style={styles.previewImage}
               /> : (
                 banner?.url ? (

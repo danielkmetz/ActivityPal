@@ -13,8 +13,6 @@ const upload = multer({ storage });
 router.post("/upload/:placeId", upload.single("logo"), async (req, res) => {
     const { placeId } = req.params;
 
-    console.log("Incoming file details:", req.file);
-  
     try {
       if (!req.file) {
         return res.status(400).json({ message: "No file provided" });

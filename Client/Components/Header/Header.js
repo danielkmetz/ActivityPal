@@ -31,6 +31,10 @@ export default function Header({ currentRoute }) {
                 return "Insights";
             case "CreatePost":
                 return "Post";
+            case "CreateEvent":
+                return "Create Event";
+            case "CreatePromotion":
+                return "Create Promo";
             default:
                 return "ActivityPal";
         }
@@ -55,7 +59,13 @@ export default function Header({ currentRoute }) {
             <View style={styles.header}>
                 {/* Title */}
                 <View style={styles.headerContent}>
-                    {currentRoute === "Notifications" || currentRoute === "CreatePost" && (
+                    {
+                        (
+                        currentRoute === "Notifications" || 
+                        currentRoute === "CreatePost" ||
+                        currentRoute === "CreateEvent" ||
+                        currentRoute === "CreatePromotion" 
+                        ) && (
                         <TouchableOpacity onPress={goBack} style={{marginRight: 10}}>
                             <MaterialCommunityIcons name="chevron-left" size={35} color="black" />
                         </TouchableOpacity>

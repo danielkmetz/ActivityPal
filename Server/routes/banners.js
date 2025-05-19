@@ -18,34 +18,36 @@ const findUser = async (userId) => {
 };
 
 // Configure multer to use memory storage
-const storage = multer.memoryStorage(); // Store file in memory as a buffer
+const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-// Upload Banner Route
-router.post("/upload-business/:placeId", upload.single("banner"), async (req, res) => {
-    const { placeId } = req.params;
+// Endpoint to generate a pre-signed URL for uploading a business banner
+router.post('/upload-business-banner/:placeId', async (req, res) => {
+  const { placeId } = req.params;
+  const { fileName } = req.body;
 
-    try {
-        if (!req.file) {
-            return res.status(400).json({ message: "No file provided" });
-        }
+  if (!fileName) {
+    return res.status(400).json({ message: 'No file name provided.' });
+  }
 
-        const business = await Business.findOne({ placeId });
-        if (!business) {
-            return res.status(404).json({ message: "Business not found" });
-        }
-
-        const key = `banners/${placeId}/${Date.now()}-${req.file.originalname}`;
-        const objectKey = await uploadToS3(req.file, key);
-
-        business.bannerKey = objectKey;
-        await business.save();
-
-        res.status(200).json({ message: "Banner uploaded successfully", objectKey });
-    } catch (error) {
-        console.error("Error uploading banner:", error);
-        res.status(500).json({ message: "Error uploading banner", error: error.message });
+  try {
+    const business = await Business.findOne({ placeId });
+    if (!business) {
+      return res.status(404).json({ message: 'Business not found.' });
     }
+
+    const bannerKey = `banners/${placeId}/${uuidv4()}_${fileName}`;
+    const presignedUrl = await generatePresignedUrl(bannerKey);
+
+    // Save the key in the DB immediately or wait for the frontend to confirm the upload was successful
+    business.bannerKey = bannerKey;
+    await business.save();
+
+    res.status(200).json({ presignedUrl, bannerKey });
+  } catch (error) {
+    console.error('Error generating business banner presigned URL:', error);
+    res.status(500).json({ message: 'Error generating presigned URL.', error: error.message });
+  }
 });
 
 // Endpoint to generate a pre-signed URL for uploading a single banner
