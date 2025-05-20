@@ -21,6 +21,7 @@ import { selectIsBusiness, selectUser } from '../../Slices/UserSlice';
 import { useSelector } from "react-redux";
 import { selectUnreadCount } from '../../Slices/NotificationsSlice';
 import { markNotificationsSeen } from '../../utils/notificationsHasSeen';
+import CommentScreen from '../Reviews/CommentScreen';
 import StoryViewer from '../Stories/StoryViewer';
 import CreatePost from '../Reviews/CreatePost';
 import CreateEventPage from '../BusinessEvents/CreateEventPage';
@@ -229,6 +230,7 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
             <Stack.Screen name="CreatePost" component={CreatePost} />
             <Stack.Screen name="CreateEvent" component={CreateEventPage} />
             <Stack.Screen name="CreatePromotion" component={CreatePromotionPage} />
+            <Stack.Screen name="CommentScreen" component={CommentScreen} />
         </Stack.Navigator>
     )
 }

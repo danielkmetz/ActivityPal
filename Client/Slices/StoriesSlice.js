@@ -180,12 +180,19 @@ export const editStory = createAsyncThunk(
 
 // Delete a story
 export const deleteStory = createAsyncThunk('stories/deleteStory', async (storyId, thunkAPI) => {
-    try {
-        await axios.delete(`${BASE_URL}/${storyId}`);
-        return storyId;
-    } catch (err) {
-        return thunkAPI.rejectWithValue(err.response?.data || 'Failed to delete story');
-    }
+  try {
+    const token = await getUserToken();
+
+    const response = await axios.delete(`${BASE_URL}/${storyId}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    return storyId;
+  } catch (err) {
+    return thunkAPI.rejectWithValue(err.response?.data || 'Failed to delete story');
+  }
 });
 
 const storiesSlice = createSlice({

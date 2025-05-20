@@ -12,7 +12,7 @@ import {
 import { useDispatch, useSelector } from 'react-redux';
 import { postStory } from '../../Slices/StoriesSlice';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { selectUser, selectPrivacySettings } from '../../Slices/UserSlice';
+import { selectPrivacySettings } from '../../Slices/UserSlice';
 import { Video } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 
@@ -20,7 +20,6 @@ const StoryPreview = () => {
     const route = useRoute();
     const navigation = useNavigation();
     const dispatch = useDispatch();
-    const user = useSelector(selectUser);
     const privacySettings = useSelector(selectPrivacySettings);
     const contentVisibility = privacySettings?.contentVisibility;
 
@@ -37,15 +36,8 @@ const StoryPreview = () => {
     const handlePost = async () => {
         try {
             setLoading(true);
-            console.log("🚀 Starting story post process...");
-            console.log("🧾 mediaUri:", mediaUri);
-            console.log("🧾 mediaType:", mediaType);
-            console.log("🧾 caption:", caption);
-            console.log("🧾 contentVisibility:", contentVisibility);
-
             const fileName = mediaUri.split('/').pop();
-            console.log("📦 Extracted fileName:", fileName);
-
+            
             // Step 1: Register the story and get presigned URL
             const res = await dispatch(
                 postStory({
@@ -56,20 +48,15 @@ const StoryPreview = () => {
                 })
             );
 
-            console.log("📨 postStory response:", res);
-
             if (!postStory.fulfilled.match(res)) {
-                console.error("❌ postStory rejected:", res);
                 throw new Error(res.payload || 'Failed to create story record.');
             }
 
             const { mediaUploadUrl } = res.payload;
-            console.log("🔗 Received mediaUploadUrl:", mediaUploadUrl);
-
+            
             // Step 2: Upload file directly to S3
             const uploadTargetUri = mediaUri; // Use mediaUri instead of videoUri
-            console.log("📤 Uploading file:", uploadTargetUri);
-
+            
             const uploadRes = await FileSystem.uploadAsync(mediaUploadUrl, uploadTargetUri, {
                 httpMethod: 'PUT',
                 uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
@@ -78,21 +65,16 @@ const StoryPreview = () => {
                 },
             });
 
-            console.log("✅ S3 Upload Response:", uploadRes);
-
             if (uploadRes.status !== 200) {
-                console.error("❌ Upload failed with status:", uploadRes.status);
                 throw new Error('Upload failed. Please try again.');
             }
 
             Alert.alert('Success', 'Your story has been posted!');
             navigation.navigate('TabNavigator', { screen: 'Home' });
         } catch (err) {
-            console.error('❌ Error posting story:', err);
             Alert.alert('Error', err.message || 'Something went wrong.');
         } finally {
             setLoading(false);
-            console.log("🔚 Story post process ended.");
         }
     };
 
