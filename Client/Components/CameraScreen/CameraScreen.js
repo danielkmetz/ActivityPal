@@ -1,25 +1,38 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { View, TouchableOpacity, StyleSheet, Text, Alert } from 'react-native';
-import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { useSharedValue, runOnJS } from 'react-native-reanimated';
 
 const CameraScreen = () => {
-    const cameraPermissionResult = useCameraPermissions();
-    const [permission, requestPermission] = cameraPermissionResult;
+    const [permission, requestPermission] = useCameraPermissions();
     const [facing, setFacing] = useState("back");
     const [isRecording, setIsRecording] = useState(false);
+    const [cameraIsReady, setCameraIsReady] = useState(false);
+    const zoomShared = useSharedValue(0.1);
+    const [zoom, setZoom] = useState(0.1); // still needed to sync with CameraView
+    const wasZoomingRef = useRef(false);
     const cameraRef = useRef(null);
-    const pressTimer = useRef(null);
-    const longPressTriggered = useRef(false);
-    const recordingPromiseRef = useRef(null);
     const navigation = useNavigation();
+    const recordingPromiseRef = useRef(null);
+    const pressStartTime = useRef(null);
+    const isPressingRef = useRef(false);
+    const baseZoom = useSharedValue(0);
+    const buttonRecording = useRef(false);
+    const gestureInProgress = useRef(false);
+    const MIN_RECORD_DURATION = 300; // ms threshold to switch from photo to video
 
-    if (!permission) {
-        return <View />;
-    }
+    useEffect(() => {
+        if (cameraIsReady) {
+            const initialZoom = 0.01;
+            setZoom(initialZoom);
+            zoomShared.value = initialZoom;
+        }
+    }, [cameraIsReady]);
 
-    if (!permission.granted) {
+    if (!permission || !permission.granted) {
         return (
             <View style={styles.container}>
                 <Text style={styles.message}>We need your permission to access the camera</Text>
@@ -34,103 +47,198 @@ const CameraScreen = () => {
         setFacing(prev => (prev === 'back' ? 'front' : 'back'));
     };
 
-    const handleTakePhoto = async () => {
-        try {
-            if (!cameraRef.current) {
-                console.warn('⚠️ cameraRef is null.');
-                return;
-            }
+    const markZooming = () => {
+        wasZoomingRef.current = true;
+    };
 
+    const endZooming = () => {
+        wasZoomingRef.current = false;
+    }
+
+    const pinchGesture = Gesture.Pinch()
+        .onBegin(() => {
+            baseZoom.value = zoom;
+            gestureInProgress.current = true;
+        })
+        .onUpdate((e) => {
+            const ZOOM_SENSITIVITY = 0.4; // try values between 0.5 - 1.5
+            let delta = (e.scale - 1) * ZOOM_SENSITIVITY;
+            let nextZoom = baseZoom.value + delta;
+            nextZoom = Math.max(0, Math.min(nextZoom, 1)); // clamp between 0 and 1
+
+            zoomShared.value = nextZoom;
+            runOnJS(setZoom)(nextZoom);
+        })
+        .onEnd(() => {
+            gestureInProgress.current = false;
+            runOnJS(endZooming)();
+        });
+
+    const panGesture = Gesture.Pan()
+        .onBegin(() => {
+            if (isRecording) {
+                baseZoom.value = zoomShared.value;
+                gestureInProgress.current = true;
+                runOnJS(markZooming)(); // ✅ This is safe and fast
+            }
+        })
+        .onUpdate((e) => {
+            if (isRecording) {
+                const zoomDelta = -e.translationY / 300;
+                let nextZoom = baseZoom.value + zoomDelta;
+                nextZoom = Math.max(0, Math.min(nextZoom, 1));
+
+                zoomShared.value = nextZoom;
+                runOnJS(setZoom)(nextZoom);
+            }
+        })
+        .onEnd(() => {
+            gestureInProgress.current = false;
+            runOnJS(endZooming)();
+        });
+
+    const takePhoto = async () => {
+        try {
+            if (!cameraRef.current) return;
             const photo = await cameraRef.current.takePictureAsync();
             if (photo?.uri) {
-                navigation.navigate('StoryPreview', { file: { ...photo, mediaType: 'image' } });
-            }
-            if (photo?.uri) {
-                navigation.navigate('StoryPreview', { photoUri: photo.uri });
+                navigation.navigate('StoryPreview', { file: { ...photo, mediaType: 'photo' } });
             } else {
-                throw new Error('No photo URI returned');
+                throw new Error("No photo URI returned");
             }
         } catch (err) {
             Alert.alert('Error', 'Failed to take photo');
         }
     };
 
-    const handleRecord = async () => {
-        if (!cameraRef.current) {
-            console.warn('⚠️ cameraRef is null.');
-            return;
-        }
+    const startRecording = () => {
+        if (!cameraIsReady || !cameraRef.current) return;
+
+        setIsRecording(true);
 
         try {
-            setIsRecording(true);
-            recordingPromiseRef.current = cameraRef.current.recordAsync({ maxDuration: 15 });
-            const video = await recordingPromiseRef.current;
-            setIsRecording(false);
+            const promise = cameraRef.current.recordAsync({ maxDuration: 60 });
+            recordingPromiseRef.current = promise;
 
-            if (video?.uri) {
-                navigation.navigate('StoryPreview', { file: { ...video, mediaType: 'video' } });
-            } else {
-                throw new Error('No video URI returned');
-            }
-        } catch (err) {
+            promise
+                .then((video) => {
+                    setIsRecording(false);
+
+                    if (wasZoomingRef.current) return;
+
+                    if (video?.uri) {
+                        navigation.navigate('StoryPreview', {
+                            file: { ...video, mediaType: 'video' },
+                        });
+                    } else {
+                        Alert.alert('Error', 'Recording completed but no video URI returned.');
+                    }
+                })
+                .catch(() => {
+                    setIsRecording(false);
+                    Alert.alert('Error', 'Failed to record video');
+                });
+        } catch {
             setIsRecording(false);
-            Alert.alert('Error', 'Failed to record video');
+            Alert.alert('Error', 'Recording failed unexpectedly');
         }
     };
 
-    const handleStop = () => {
-        if (cameraRef.current && isRecording) {
-            try {
-                cameraRef.current.stopRecording();
-            } catch (err) {
-                console.warn('⚠️ Failed to stop recording:', err);
-            }
+    const stopRecording = () => {
+        if (!cameraRef.current || !isRecording) return;
+
+        try {
+            cameraRef.current.stopRecording();
+        } catch {
+            setIsRecording(false);
         }
     };
+
+    const handlePressIn = () => {
+        wasZoomingRef.current = false;
+        pressStartTime.current = Date.now();
+        isPressingRef.current = true;
+        buttonRecording.current = false;
+
+        setTimeout(() => {
+            const heldTime = Date.now() - pressStartTime.current;
+            if (isPressingRef.current && heldTime >= MIN_RECORD_DURATION) {
+                startRecording();
+                buttonRecording.current = true;
+            }
+        }, MIN_RECORD_DURATION + 10);
+    };
+
+    const handlePressOut = () => {
+        const heldDuration = Date.now() - pressStartTime.current;
+        isPressingRef.current = false;
+
+        if (wasZoomingRef.current) return;
+
+        if (heldDuration < MIN_RECORD_DURATION) {
+            takePhoto();
+        } else if (buttonRecording.current) {
+            stopRecording();
+        }
+    };
+
+    const longPressGesture = Gesture.LongPress()
+        .minDuration(300)
+        .onStart(() => runOnJS(startRecording)())
+        .onEnd(() => runOnJS(stopRecording)());
+
+    const doubleTapGesture = Gesture.Tap()
+        .numberOfTaps(2)
+        .onEnd(() => {
+            runOnJS(toggleCameraFacing)();
+        });
+
+    const combinedGesture = Gesture.Race(
+        doubleTapGesture,
+        Gesture.Simultaneous(
+            Gesture.Simultaneous(longPressGesture, panGesture),
+            pinchGesture
+        )
+    );
 
     return (
-        <View style={styles.container}>
-            <CameraView
-                style={styles.camera}
-                facing={facing}
-                ref={cameraRef}
-                mode={isRecording ? 'video' : 'picture'}
-                enableZoomGesture
-            />
-            <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()}>
-                <Ionicons name="close" size={40} color="#fff" />
-            </TouchableOpacity>
-
-            <View style={styles.controls}>
-                <TouchableOpacity style={styles.flipButton} onPress={toggleCameraFacing}>
-                    <Ionicons name="camera-reverse" size={28} color="#fff" />
+        <GestureDetector gesture={combinedGesture}>
+            <View style={styles.container}>
+                <View style={StyleSheet.absoluteFill}>
+                    <CameraView
+                        style={styles.camera}
+                        facing={facing}
+                        ref={cameraRef}
+                        mode="video"
+                        zoom={zoom}
+                        enableZoomGesture={false} // we're handling zoom ourselves
+                        onCameraReady={() => setCameraIsReady(true)}
+                    />
+                </View>
+                <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()}>
+                    <Ionicons name="close" size={40} color="#fff" />
                 </TouchableOpacity>
 
-                <View style={[styles.captureWrapper, isRecording && styles.recordingBorder]}>
-                    <TouchableOpacity
-                        style={styles.captureButton}
-                        onPressIn={() => {
-                            longPressTriggered.current = false;
-                            pressTimer.current = setTimeout(() => {
-                                longPressTriggered.current = true;
-                                handleRecord(); // call this after delay
-                            }, 300); // wait 300ms to determine it's a long press
-                        }}
-                        onPressOut={() => {
-                            clearTimeout(pressTimer.current);
-
-                            if (longPressTriggered.current) {
-                                handleStop(); // only stop if long press triggered
-                            } else {
-                                handleTakePhoto(); // otherwise take a picture
-                            }
-                        }}
-                    >
-                        <View style={[styles.recordDot, isRecording && styles.recording]} />
+                <View style={styles.controls}>
+                    <TouchableOpacity style={styles.flipButton} onPress={toggleCameraFacing}>
+                        <Ionicons name="camera-reverse" size={28} color="#fff" />
                     </TouchableOpacity>
+
+                    <View
+                        style={[styles.captureWrapper, isRecording && styles.recordingBorder]}
+                    >
+                        <TouchableOpacity
+                            style={styles.captureButton}
+                            onPressIn={handlePressIn}
+                            onPressOut={handlePressOut}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        >
+                            <View style={[styles.recordDot, isRecording && styles.recording]} />
+                        </TouchableOpacity>
+                    </View>
                 </View>
             </View>
-        </View>
+        </GestureDetector>
     );
 };
 
@@ -203,7 +311,6 @@ const styles = StyleSheet.create({
         borderRadius: 50,
         padding: 5,
     },
-
     recordingBorder: {
         borderWidth: 3,
         borderColor: 'red',
@@ -211,8 +318,6 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: 0 },
         shadowOpacity: 0.8,
         shadowRadius: 10,
-        elevation: 10, // For Android glow
+        elevation: 10,
     },
-
-
 });

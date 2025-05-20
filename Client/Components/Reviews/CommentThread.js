@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, StyleSheet } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -47,6 +47,16 @@ export default function CommentThread({ item, review, commentRefs, commentText, 
   const expandedReplies = useSelector(selectExpandedReplies);
   const nestedExpandedReplies = useSelector(selectNestedExpandedReplies);
   const nestedReplyInput = useSelector(selectNestedReplyInput);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (item?._id && containerRef.current) {
+      commentRefs.current[item._id] = containerRef.current;
+    }
+    return () => {
+      delete commentRefs.current[item._id];
+    };
+  }, [item?._id]);
 
   const getTimeSincePosted = (dateString) => dayjs(dateString).fromNow(true);
 
@@ -153,7 +163,7 @@ export default function CommentThread({ item, review, commentRefs, commentText, 
       <TouchableWithoutFeedback
         onLongPress={() => handleLongPress(item)}
       >
-        <View style={styles.commentCard}>
+        <View style={styles.commentCard} ref={containerRef}>
           <CommentBubble
             fullName={item.fullName}
             commentText={item.commentText}

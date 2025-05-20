@@ -1,9 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
     View,
     Text,
     FlatList,
-    Animated,
     TouchableOpacity,
     StyleSheet,
     Image,
@@ -16,20 +15,18 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { approveFollowRequest, setFollowBack, declineFollowRequest, selectFollowers, selectFollowRequests, selectFollowing, followUserImmediately } from '../../Slices/friendsSlice';
 import moment from 'moment';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
-import CommentModal from '../Reviews/CommentModal';
-import { selectUserAndFriendsReviews, fetchPostById, setUserAndFriendsReviews, setSelectedReview, selectSelectedReview } from '../../Slices/ReviewsSlice';
+import { selectUserAndFriendsReviews, fetchPostById, setUserAndFriendsReviews, setSelectedReview, } from '../../Slices/ReviewsSlice';
 import { acceptInvite, rejectInvite, acceptInviteRequest, rejectInviteRequest } from '../../Slices/InvitesSlice';
 import { decrementLastSeenUnreadCount } from '../../utils/notificationsHasSeen';
-import {
-  handleLikeWithAnimation as sharedHandleLikeWithAnimation
-} from '../../utils/LikeHandlers';
+import { useNavigation } from '@react-navigation/native';
+import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from '../../utils/LikeHandlers';
 import SwipeableRow from './SwipeableRow';
 
 export default function Notifications() {
     const dispatch = useDispatch();
+    const navigation = useNavigation();
     const isBusiness = useSelector(selectIsBusiness);
     const user = useSelector(selectUser);
-    const selectedReview = useSelector(selectSelectedReview);
     const notifications = useSelector((state) =>
         isBusiness ? selectBusinessNotifications(state) : selectNotifications(state)
     );
@@ -39,13 +36,11 @@ export default function Notifications() {
     const reviews = useSelector(selectUserAndFriendsReviews);
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const [photoTapped, setPhotoTapped] = useState(null);
-    const [commentsVisible, setCommentsVisible] = useState(null);
-    const [targetId, setTargetId] = useState(null);
     const lastTapRef = useRef({});
     const [likedAnimations, setLikedAnimations] = useState({});
     const userId = user?.id;
     const placeId = user?.businessDetails?.placeId;
-    const fullName = `${user.firstName} ${user.lastName}`;
+    const fullName = `${user?.firstName} ${user?.lastName}`;
 
     const handleNotificationPress = async (notification) => {
         if (!isBusiness) {
@@ -68,12 +63,22 @@ export default function Notifications() {
             if (notification) {
                 const postType = notification.postType;
 
-                await dispatch(fetchPostById({ postType, postId: notification.targetId }));
+                const result = await dispatch(fetchPostById({ postType, postId: notification.targetId }));
 
                 const target = notification.replyId || notification.commentId;
 
-                setTargetId(target);
-                setCommentsVisible(true);
+                if (result) {
+                    navigation.navigate('CommentScreen', {
+                        reviews: userAndFriendsReviews,
+                        setSelectedReview, // optional if needed by the screen
+                        likedAnimations,
+                        handleLikeWithAnimation,
+                        toggleTaggedUsers,
+                        lastTapRef,
+                        photoTapped,
+                        targetId: target,
+                    });
+                }
             } else {
                 console.warn("Comment ID is missing in notification");
             }
@@ -100,8 +105,8 @@ export default function Notifications() {
             await dispatch(createNotification({
                 userId: senderId,
                 type: 'followRequestAccepted',
-                message: `${user.firstName} ${user.lastName} accepted your follow request.`,
-                relatedId: user.id,
+                message: `${user?.firstName} ${user?.lastName} accepted your follow request.`,
+                relatedId: user?.id,
                 typeRef: 'User',
             }));
         } catch (error) {
@@ -156,11 +161,6 @@ export default function Notifications() {
         }
     };
 
-    const handleCloseComments = () => {
-        dispatch(setSelectedReview(null));
-        setCommentsVisible(false);
-    }
-
     const handleRejectInvite = async (inviteId) => {
         try {
             await dispatch(rejectInvite({ recipientId: user.id, inviteId }));
@@ -213,8 +213,8 @@ export default function Notifications() {
             const notifPayload = {
                 userId: relatedId,
                 type: 'activityInviteAccepted',
-                message: `${user.firstName} ${user.lastName} accepted your request to join the event.`,
-                relatedId: user.id,
+                message: `${user?.firstName} ${user?.lastName} accepted your request to join the event.`,
+                relatedId: user?.id,
                 typeRef: 'ActivityInvite',
                 targetId,
                 targetRef: 'ActivityInvite',
@@ -256,8 +256,8 @@ export default function Notifications() {
                 createNotification({
                     userId: relatedId,
                     type: 'activityInviteDeclined',
-                    message: `${user.firstName} ${user.lastName} declined your request to join the event.`,
-                    relatedId: user.id,
+                    message: `${user?.firstName} ${user?.lastName} declined your request to join the event.`,
+                    relatedId: user?.id,
                     typeRef: 'User',
                     targetId,
                     postType: 'invite',
@@ -375,7 +375,6 @@ export default function Notifications() {
                                             </TouchableOpacity>
                                         </View>
                                     )}
-
                                     {item.type === 'activityInvite' && (
                                         <View style={styles.buttonGroup}>
                                             <TouchableOpacity style={styles.acceptButton} onPress={() => handleAcceptInvite(item.targetId)}>
@@ -410,19 +409,6 @@ export default function Notifications() {
                         </SwipeableRow>
                     );
                 }}
-            />
-            <CommentModal
-                visible={commentsVisible}
-                onClose={handleCloseComments}
-                reviews={reviews} // You may need to adjust this
-                setSelectedReview={setSelectedReview}
-                review={selectedReview}
-                targetId={targetId}
-                likedAnimations={likedAnimations}
-                handleLikeWithAnimation={handleLikeWithAnimation}
-                toggleTaggedUsers={toggleTaggedUsers}
-                lastTapRef={lastTapRef}
-                photoTapped={photoTapped}
             />
         </View>
     );

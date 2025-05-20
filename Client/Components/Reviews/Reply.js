@@ -1,4 +1,4 @@
-import React, { useState, } from 'react';
+import React, { useState, useRef, useEffect} from 'react';
 import { View, Text, TouchableOpacity, TextInput, StyleSheet, TouchableWithoutFeedback} from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSelector, useDispatch } from 'react-redux';

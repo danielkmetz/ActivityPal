@@ -7,14 +7,12 @@ import {
   Text,
 } from "react-native";
 import { deleteCheckIn } from "../../Slices/CheckInsSlice";
-import { deleteReview, selectUserAndFriendsReviews, setUserAndFriendsReviews, setProfileReviews, selectProfileReviews } from "../../Slices/ReviewsSlice";
+import { deleteReview, selectUserAndFriendsReviews, setUserAndFriendsReviews, setProfileReviews, selectProfileReviews, setSelectedReview } from "../../Slices/ReviewsSlice";
 import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
-import CommentModal from "./CommentModal";
 import InviteCard from "./InviteCard";
 import ReviewItem from "./ReviewItem";
 import CheckInItem from "./CheckInItem";
-import EditPostModal from "./EditPostModal";
 import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from "../../utils/LikeHandlers";
 import { useNavigation } from "@react-navigation/native";
 
@@ -24,27 +22,27 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
   const dispatch = useDispatch();
   const navigation = useNavigation();
   const user = useSelector(selectUser);
-  const [commentsVisible, setCommentsVisible] = useState(false);
-  const [selectedReview, setSelectedReview] = useState(null);
   const [photoTapped, setPhotoTapped] = useState(null);
   const lastTapRef = useRef({});
   const [likedAnimations, setLikedAnimations] = useState({});
-  const [editingReview, setEditingReview] = useState(null); // holds the review being edited
-  const [showEditModal, setShowEditModal] = useState(false);
   const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
   const profileReviews = useSelector(selectProfileReviews);
 
   const userId = user?.id
-  
+
   const handleOpenComments = (review) => {
     if (!review) return;
-    setCommentsVisible(true);
-    setSelectedReview(review);
-  };
+    dispatch(setSelectedReview(review));
 
-  const handleCloseComments = () => {
-    setCommentsVisible(false);
-    setSelectedReview(null);
+    navigation.navigate('CommentScreen', {
+      reviews,
+      setSelectedReview,
+      handleLikeWithAnimation,
+      toggleTaggedUsers,
+      likedAnimations,
+      lastTapRef,
+      photoTapped,
+    });
   };
 
   const handleLikeWithAnimation = (review, force = false) => {
@@ -200,29 +198,6 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
             />
           );
         }}
-      />
-      <CommentModal
-        visible={commentsVisible}
-        onClose={handleCloseComments}
-        review={selectedReview}
-        reviews={reviews}
-        setSelectedReview={setSelectedReview}
-        likedAnimations={likedAnimations}
-        handleLikeWithAnimation={handleLikeWithAnimation}
-        toggleTaggedUsers={toggleTaggedUsers}
-        lastTapRef={lastTapRef}
-        photoTapped={photoTapped}
-      />
-      <EditPostModal
-        visible={showEditModal}
-        post={editingReview}
-        showEditModal={showEditModal}
-        onClose={() => {
-          setShowEditModal(false);
-          setEditingReview(null);
-        }}
-        setShowEditModal={setShowEditModal}
-        setEditingReview={setEditingReview}
       />
     </>
   )

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
 const verifyToken = require('../middleware/verifyToken');
+const { getPresignedUrl } = require('../utils/cachePresignedUrl');
 const { generatePresignedUrl } = require('../helpers/generatePresignedUrl');
 const { v4: uuidv4 } = require('uuid');
 
@@ -41,14 +42,28 @@ router.post('/', verifyToken, async (req, res) => {
     await user.save();
     const createdStory = user.stories[user.stories.length - 1].toObject();
 
+    // Enrich it here
+    const mediaUrl = await getPresignedUrl(photoKey); // GET presigned URL
+    const profilePicUrl = user.profilePic.photoKey
+      ? await getPresignedUrl(user.profilePic.photoKey)
+      : null;
+
     res.status(201).json({
       message: 'Story created. Upload the file using mediaUploadUrl.',
       story: {
         ...createdStory,
         mediaUploadUrl: uploadUrl,
+        mediaUrl, // so the app can immediately play/display it
+        profilePicUrl,
+        user: {
+          _id: user._id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+        },
+        isViewed: false,
+        viewedBy: [],
       },
     });
-
   } catch (err) {
     res.status(500).json({ error: 'Failed to create story' });
   }
@@ -85,15 +100,19 @@ router.put('/:storyId', verifyToken, async (req, res) => {
 router.delete('/:storyId', verifyToken, async (req, res) => {
   try {
     const { storyId } = req.params;
+    const userId = req.user.id;
 
-    const user = await User.findById(req.user.id);
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
     const story = user.stories.id(storyId);
-
     if (!story) {
       return res.status(404).json({ error: 'Story not found' });
     }
 
-    story.remove(); // Mongoose subdocument removal
+    user.stories.pull(storyId);
     await user.save();
 
     res.json({ message: 'Story deleted successfully' });

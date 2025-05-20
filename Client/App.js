@@ -153,6 +153,7 @@ function MainApp() {
         currentRoute !== "CameraScreen" &&
         currentRoute !== "StoryPreview" &&  
         currentRoute !== "StoryViewer" &&
+        currentRoute !== "CommentScreen" &&
         !(currentRoute === "Activities" && activities.length > 0) &&
       (
         <Animated.View style={[styles.header, { transform: [{ translateY: headerTranslateY }] }]}>
