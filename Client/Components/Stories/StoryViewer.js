@@ -9,21 +9,30 @@ import {
   StyleSheet,
   Dimensions,
   Pressable,
+  Alert,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Video } from 'expo-av';
+import { useSelector } from 'react-redux';
+import { selectUser } from '../../Slices/UserSlice';
+import { deleteStory } from '../../Slices/StoriesSlice';
+import { Ionicons } from '@expo/vector-icons';
+import { useDispatch } from 'react-redux';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export default function StoryViewer() {
+  const dispatch = useDispatch();
   const navigation = useNavigation();
   const route = useRoute();
+  const user = useSelector(selectUser);
+  const userId = user?.id;
   const { stories = [], startIndex = 0 } = route.params;
 
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const [duration, setDuration] = useState(4000);
   const [paused, setPaused] = useState(false);
-  
+
   const story = stories[currentIndex];
   const mediaUrl = story?.mediaUrl || story?.mediaUploadUrl;
 
@@ -35,8 +44,8 @@ export default function StoryViewer() {
   const previousStoryRef = useRef(null);
 
   useEffect(() => {
-  previousStoryRef.current = story;
-}, [currentIndex]);
+    previousStoryRef.current = story;
+  }, [currentIndex]);
 
   const startProgressAnimation = (ms) => {
     console.log(`🚀 Starting animation for index ${currentIndex} with duration ${ms}`);
@@ -79,16 +88,14 @@ export default function StoryViewer() {
   };
 
   useEffect(() => {
-    console.log('📦 currentIndex changed:', currentIndex, 'mediaType:', story.mediaType);
     resetAllBars();
     hasSyncedRef.current = false;
     fadeAnim.setValue(0);
-    
+
     const defaultDuration = story.mediaType === 'video' ? 10000 : 4000;
     setDuration(defaultDuration);
 
     if (!paused && story.mediaType !== 'video') {
-      setIsMediaReady(true); // Images load instantly
       Animated.timing(fadeAnim, {
         toValue: 1,
         duration: 300,
@@ -168,43 +175,75 @@ export default function StoryViewer() {
       </View>
 
       {/* Media */}
-      <Animated.View style={[StyleSheet.absoluteFill, { opacity: fadeAnim }]}>
-        {story.mediaType === 'video' ? (
-          <Video
-            key={mediaUrl}
-            source={{ uri: mediaUrl }}
-            resizeMode="cover"
-            shouldPlay
-            isMuted
-            style={StyleSheet.absoluteFill}
-            onPlaybackStatusUpdate={(status) => {
-              console.log('🎥 Video status:', {
-                isLoaded: status.isLoaded,
-                durationMillis: status.durationMillis,
-                positionMillis: status.positionMillis,
-              });
+      <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+        <Animated.View style={[StyleSheet.absoluteFill, { opacity: fadeAnim }]}>
+          {story.mediaType === 'video' ? (
+            <Video
+              key={mediaUrl}
+              source={{ uri: mediaUrl }}
+              resizeMode="cover"
+              shouldPlay
+              isMuted
+              style={StyleSheet.absoluteFill}
+              onPlaybackStatusUpdate={(status) => {
+                console.log('🎥 Video status:', {
+                  isLoaded: status.isLoaded,
+                  durationMillis: status.durationMillis,
+                  positionMillis: status.positionMillis,
+                });
 
-              if (!status.isLoaded || hasSyncedRef.current) return;
+                if (!status.isLoaded || hasSyncedRef.current) return;
 
-              if (status.durationMillis && status.positionMillis < 500) {
-                console.log('📏 Syncing animation with video duration:', status.durationMillis);
-                hasSyncedRef.current = true;
-                animationRef.current?.stop();
-                startProgressAnimation(status.durationMillis);
+                if (status.durationMillis && status.positionMillis < 500) {
+                  console.log('📏 Syncing animation with video duration:', status.durationMillis);
+                  hasSyncedRef.current = true;
+                  animationRef.current?.stop();
+                  startProgressAnimation(status.durationMillis);
 
-                // Show the video by fading in
-                Animated.timing(fadeAnim, {
-                  toValue: 1,
-                  duration: 300,
-                  useNativeDriver: true,
-                }).start();
-              }
+                  // Show the video by fading in
+                  Animated.timing(fadeAnim, {
+                    toValue: 1,
+                    duration: 300,
+                    useNativeDriver: true,
+                  }).start();
+                }
+              }}
+            />
+          ) : (
+            <Image source={{ uri: mediaUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+          )}
+        </Animated.View>
+
+        {story.user?._id === userId && (
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={() => {
+              Alert.alert(
+                'Delete Story',
+                'Are you sure you want to delete this story? This action cannot be undone.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: async () => {
+                      try {
+                        await dispatch(deleteStory(story._id)).unwrap();
+                        navigation.goBack();
+                      } catch (err) {
+                        console.error('🗑️ Failed to delete story:', err);
+                      }
+                    },
+                  },
+                ]
+              );
             }}
-          />
-        ) : (
-          <Image source={{ uri: mediaUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+          >
+            <Ionicons name="trash" size={26} color="white" />
+          </TouchableOpacity>
         )}
-      </Animated.View>
+      </View>
+
     </Animated.View>
   );
 }
@@ -255,5 +294,14 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: SCREEN_WIDTH * 0.3,
     zIndex: 5,
+  },
+  deleteButton: {
+    position: 'absolute',
+    bottom: 60,
+    right: 20,
+    zIndex: 10,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 20,
+    padding: 10,
   },
 });
