@@ -60,6 +60,36 @@ const STORIES_BY_USER_QUERY = `
   }
 `;
 
+export const getUploadUrls = createAsyncThunk(
+  'stories/getUploadUrls',
+  async ({ fileName, fileNames = [], mediaType = 'photo' }, thunkAPI) => {
+    try {
+      const token = await getUserToken();
+
+      const payload = {};
+      if (fileName) payload.fileName = fileName;
+      if (fileNames.length > 0) payload.fileNames = fileNames;
+      payload.mediaType = mediaType;
+
+      const res = await axios.post(`${BASE_URL}/upload-url`, payload, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      return res.data;
+    } catch (err) {
+      console.error('❌ getUploadUrls failed:', err.message);
+      if (err.response) {
+        console.error('↪️ Status:', err.response.status);
+        console.error('↪️ Data:', err.response.data);
+      }
+
+      return thunkAPI.rejectWithValue(err.response?.data || 'Failed to get upload URL(s)');
+    }
+  }
+);
+
 export const fetchStoriesByUserId = createAsyncThunk(
     'stories/fetchStoriesByUserId',
     async (userId, thunkAPI) => {
@@ -114,45 +144,50 @@ export const fetchStories = createAsyncThunk('stories/fetchStories', async (user
 export const postStory = createAsyncThunk(
   'stories/postStory',
   async (
-    { fileName, mediaType, caption, visibility = 'public', taggedUsers = [] },
+    {
+      fileName,
+      mediaType,
+      caption,
+      visibility = 'public',
+      taggedUsers = [],
+      segments = [],
+    },
     thunkAPI
   ) => {
     try {
-      console.log("📡 Sending POST to /story with payload:", {
+      const token = await getUserToken();
+
+      const payload = {
         fileName,
         mediaType,
         caption,
         visibility,
         taggedUsers,
+      };
+
+      // Only include segments for video posts
+      if (mediaType === 'video' && segments.length > 0) {
+        payload.segments = segments;
+      }
+
+      console.log('📡 POST /story — payload:', payload);
+
+      const res = await axios.post(`${BASE_URL}`, payload, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       });
 
-      const token = await getUserToken();
-
-      const res = await axios.post(
-        `${BASE_URL}`,
-        {
-          fileName,
-          mediaType,
-          caption,
-          visibility,
-          taggedUsers,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      console.log("✅ Server response:", res.data);
+      console.log('✅ Server response:', res.data);
       return res.data.story;
 
     } catch (err) {
-      console.error("❌ Error in postStory thunk:");
-      console.error("↪️ Error message:", err.message);
-      console.error("↪️ Error response status:", err.response?.status);
-      console.error("↪️ Error response data:", err.response?.data);
-      console.error("↪️ Error config:", err.config);
+      console.error('❌ postStory failed');
+      console.error('↪️', err.message);
+      if (err.response) {
+        console.error('↪️ Status:', err.response.status);
+        console.error('↪️ Data:', err.response.data);
+      }
 
       return thunkAPI.rejectWithValue(
         err.response?.data || 'Failed to post story'
