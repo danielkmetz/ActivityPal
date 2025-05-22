@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
     View,
-    Text,
     StyleSheet,
-    TouchableOpacity,
 } from "react-native";
 import WriteReviewModal from "../Reviews/CreatePost";
 import {
@@ -31,8 +29,6 @@ import {
     closeInviteModal,
     contentModalStatus,
     inviteModalStatus,
-    openContentModal,
-    openInviteModal,
 } from "../../Slices/ModalSlice";
 
 const Home = ({ scrollY, onScroll, isAtEnd }) => {
@@ -75,7 +71,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
             dispatch(fetchFollowersAndFollowing(userId));
         }
     }, [userId]);
-
+    
     return (
         <View style={styles.container}>
             <Reviews
