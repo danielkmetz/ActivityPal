@@ -10,7 +10,7 @@ import {
     Image,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
-import { postStory } from '../../Slices/StoriesSlice';
+import { postStory, getUploadUrls } from '../../Slices/StoriesSlice';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { selectPrivacySettings } from '../../Slices/UserSlice';
 import { Video } from 'expo-av';
@@ -23,11 +23,31 @@ const StoryPreview = () => {
     const privacySettings = useSelector(selectPrivacySettings);
     const contentVisibility = privacySettings?.contentVisibility;
 
-    const { file } = route.params;
+    const { file: fileParam } = route.params;
+    const segments = fileParam?.segments;
+    const file = fileParam;
     const mediaUri = file?.uri;
-    const mediaType = file?.mediaType;
+    const mediaType = fileParam?.mediaType;
+    const isMultiSegmentVideo = mediaType === 'video' && Array.isArray(file?.segments);
+    const effectiveUri = isMultiSegmentVideo ? file.segments[0]?.uri : file?.uri;
+    const fileName = effectiveUri
+        ? effectiveUri.split('/').pop()
+        : `story_${Date.now()}.mp4`; // fallback for edge cases
     const [caption, setCaption] = useState('');
     const [loading, setLoading] = useState(false);
+    const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
+    const currentSegment = segments?.[currentSegmentIndex] || file;
+
+    const handlePlaybackStatusUpdate = (status) => {
+        if (status.didJustFinish) {
+            if (segments && currentSegmentIndex < segments.length - 1) {
+                setCurrentSegmentIndex(prev => prev + 1);
+            } else {
+                // Optionally loop
+                setCurrentSegmentIndex(0);
+            }
+        }
+    };
 
     const handleRetake = () => {
         navigation.goBack(); // Return to camera
@@ -36,42 +56,118 @@ const StoryPreview = () => {
     const handlePost = async () => {
         try {
             setLoading(true);
-            const fileName = mediaUri.split('/').pop();
-            
-            // Step 1: Register the story and get presigned URL
-            const res = await dispatch(
-                postStory({
-                    fileName,
+
+            const isMultiPartVideo = mediaType === 'video' && Array.isArray(file?.segments);
+            const isPhoto = mediaType === 'photo';
+
+            console.log('📤 Starting handlePost...');
+            console.log('📝 mediaType:', mediaType);
+            console.log('📝 isPhoto:', isPhoto);
+            console.log('📝 isMultiPartVideo:', isMultiPartVideo);
+
+            // 1️⃣ Generate presigned upload URL(s)
+            console.log('📡 Requesting presigned upload URL(s)...');
+            const uploadRes = await dispatch(
+                getUploadUrls({
                     mediaType,
-                    caption,
-                    visibility: contentVisibility,
+                    fileName: isPhoto ? fileName : undefined,
+                    fileNames: isMultiPartVideo
+                        ? file.segments.map((_, i) => `${fileName}_seg${i}.mp4`)
+                        : undefined,
                 })
             );
 
-            if (!postStory.fulfilled.match(res)) {
-                throw new Error(res.payload || 'Failed to create story record.');
+            console.log('upload response', uploadRes)
+
+            if (!getUploadUrls.fulfilled.match(uploadRes)) {
+                console.error('❌ Failed to get upload URLs:', uploadRes.payload);
+                throw new Error(uploadRes.payload || 'Failed to get upload URL(s)');
             }
 
-            const { mediaUploadUrl } = res.payload;
-            
-            // Step 2: Upload file directly to S3
-            const uploadTargetUri = mediaUri; // Use mediaUri instead of videoUri
-            
-            const uploadRes = await FileSystem.uploadAsync(mediaUploadUrl, uploadTargetUri, {
-                httpMethod: 'PUT',
-                uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-                headers: {
-                    'Content-Type': mediaType === 'video' ? 'video/mp4' : 'image/jpeg',
-                },
-            });
+            const { uploadData, mediaKey } = uploadRes.payload;
 
-            if (uploadRes.status !== 200) {
-                throw new Error('Upload failed. Please try again.');
+            if (isPhoto) {
+                console.log('📤 Uploading photo...');
+                const uploadResult = await FileSystem.uploadAsync(uploadData[0].uploadUrl, mediaUri, {
+                    httpMethod: 'PUT',
+                    uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+                    headers: {
+                        'Content-Type': 'image/jpeg',
+                    },
+                });
+
+                if (uploadResult.status !== 200) {
+                    console.error('❌ Photo upload failed:', uploadResult);
+                    throw new Error('Upload failed. Please try again.');
+                }
+
+                console.log('✅ Photo uploaded successfully.');
             }
 
+            if (isMultiPartVideo) {
+                if (!Array.isArray(uploadData)) {
+                    throw new Error('Upload data for segments is missing or malformed.');
+                }
+
+                console.log(`📤 Uploading ${uploadData.length} video segments...`);
+                for (let i = 0; i < uploadData.length; i++) {
+                    const segment = uploadData[i];
+                    const localSegment = file.segments[i];
+
+                    console.log(`⏫ Uploading segment ${i + 1}: ${localSegment.uri}`);
+                    const uploadResult = await FileSystem.uploadAsync(segment.uploadUrl, localSegment.uri, {
+                        httpMethod: 'PUT',
+                        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+                        headers: {
+                            'Content-Type': 'video/mp4',
+                        },
+                    });
+
+                    if (uploadResult.status !== 200) {
+                        console.error(`❌ Upload failed for segment ${i + 1}:`, uploadResult);
+                        throw new Error(`Upload failed for segment ${i + 1}`);
+                    }
+
+                    console.log(`✅ Segment ${i + 1} uploaded.`);
+
+                    // Replace local uri with mediaKey for submission
+                    file.segments[i] = {
+                        ...localSegment,
+                        mediaKey: segment.mediaKey,
+                    };
+                }
+            }
+
+            // 3️⃣ Submit final metadata to backend
+            const postPayload = {
+                mediaType,
+                caption,
+                visibility: contentVisibility,
+                fileName,
+            };
+
+            if (isPhoto && mediaKey) {
+                postPayload.mediaKey = mediaKey;
+            }
+
+            if (isMultiPartVideo) {
+                postPayload.segments = file.segments.map(({ mediaKey }) => ({ mediaKey }));
+            }
+
+            console.log('📨 Submitting postStory payload:', postPayload);
+            const postRes = await dispatch(postStory(postPayload));
+
+            if (!postStory.fulfilled.match(postRes)) {
+                console.error('❌ postStory failed:', postRes.payload);
+                throw new Error(postRes.payload || 'Failed to post story');
+            }
+
+            console.log('✅ Story posted successfully.');
             Alert.alert('Success', 'Your story has been posted!');
             navigation.navigate('TabNavigator', { screen: 'Home' });
+
         } catch (err) {
+            console.error('❌ Error in handlePost:', err.message);
             Alert.alert('Error', err.message || 'Something went wrong.');
         } finally {
             setLoading(false);
@@ -83,13 +179,14 @@ const StoryPreview = () => {
             <View style={styles.video}>
                 {mediaType === 'video' ? (
                     <Video
-                        source={{ uri: file.uri }}
+                        source={{ uri: currentSegment.uri }}
                         shouldPlay
                         isLooping
                         isMuted
                         resizeMode="cover"
-                        useNativeControls
+                        useNativeControls={false}
                         style={StyleSheet.absoluteFill}
+                        onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
                     />
                 ) : (
                     <Image

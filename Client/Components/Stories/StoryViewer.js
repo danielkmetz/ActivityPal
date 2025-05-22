@@ -32,6 +32,7 @@ export default function StoryViewer() {
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const [duration, setDuration] = useState(4000);
   const [paused, setPaused] = useState(false);
+  const [videoUri, setVideoUri] = useState(null);
 
   const story = stories[currentIndex];
   const mediaUrl = story?.mediaUrl || story?.mediaUploadUrl;
@@ -42,6 +43,14 @@ export default function StoryViewer() {
   const animationRef = useRef(null);
   const hasSyncedRef = useRef(false);
   const previousStoryRef = useRef(null);
+
+  console.log("📌 currentIndex:", currentIndex);
+console.log(story);
+useEffect(() => {
+  if (story?.mediaUrl) {
+    setVideoUri(`${story.mediaUrl}&cacheBuster=${Date.now()}`); // 👈 forces video refresh
+  }
+}, [story?.mediaUrl]);
 
   useEffect(() => {
     previousStoryRef.current = story;

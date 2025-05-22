@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, TouchableOpacity, StyleSheet, Text, Alert } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Text, Alert, PanResponder } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -22,6 +22,9 @@ const CameraScreen = () => {
     const baseZoom = useSharedValue(0);
     const buttonRecording = useRef(false);
     const gestureInProgress = useRef(false);
+    const recordedSegments = useRef([]); // Store multiple segments if flipped during recording
+    const justFlippedRef = useRef(false);
+
     const MIN_RECORD_DURATION = 300; // ms threshold to switch from photo to video
 
     useEffect(() => {
@@ -32,19 +35,34 @@ const CameraScreen = () => {
         }
     }, [cameraIsReady]);
 
-    if (!permission || !permission.granted) {
-        return (
-            <View style={styles.container}>
-                <Text style={styles.message}>We need your permission to access the camera</Text>
-                <TouchableOpacity onPress={requestPermission}>
-                    <Text style={styles.buttonText}>Grant Permission</Text>
-                </TouchableOpacity>
-            </View>
-        );
-    };
+    const toggleCameraFacing = async () => {
+        if (isRecording && cameraRef.current) {
+            try {
+                justFlippedRef.current = true;
 
-    const toggleCameraFacing = () => {
-        setFacing(prev => (prev === 'back' ? 'front' : 'back'));
+                const segmentPromise = recordingPromiseRef.current;
+                await cameraRef.current.stopRecording();
+
+                // Store the resolved video segment
+                segmentPromise.then((video) => {
+                    if (video?.uri) {
+                        recordedSegments.current.push({ uri: video.uri, camera: facing });
+                    }
+                });
+
+                // Flip camera
+                setFacing(prev => (prev === 'back' ? 'front' : 'back'));
+
+                // Restart recording after delay
+                setTimeout(() => {
+                    startRecording();
+                }, 500);
+            } catch (err) {
+                console.log("⚠️ Flip + stopRecording failed:", err);
+            }
+        } else {
+            setFacing(prev => (prev === 'back' ? 'front' : 'back'));
+        }
     };
 
     const markZooming = () => {
@@ -112,8 +130,10 @@ const CameraScreen = () => {
     };
 
     const startRecording = () => {
-        if (!cameraIsReady || !cameraRef.current) return;
-
+        if (!cameraIsReady || !cameraRef.current) {
+            console.log("🚫 startRecording aborted — camera not ready");
+            return;
+        }
         setIsRecording(true);
 
         try {
@@ -122,34 +142,69 @@ const CameraScreen = () => {
 
             promise
                 .then((video) => {
-                    setIsRecording(false);
+                    if (!justFlippedRef.current) {
+                        setIsRecording(false);
+                    } else {
+                        console.log("🔁 Just flipped — keeping isRecording true");
+                    }
 
-                    if (wasZoomingRef.current) return;
+                    if (wasZoomingRef.current) {
+                        return;
+                    }
 
                     if (video?.uri) {
-                        navigation.navigate('StoryPreview', {
-                            file: { ...video, mediaType: 'video' },
-                        });
+                        if (buttonRecording.current || justFlippedRef.current) {
+                            recordedSegments.current.push({ uri: video.uri, camera: facing });
+                        } else {
+                            console.log("🧼 Skipping duplicate push for final segment");
+                        }
+                        if (justFlippedRef.current) {
+                            justFlippedRef.current = false;
+                            return;
+                        }
                     } else {
                         Alert.alert('Error', 'Recording completed but no video URI returned.');
                     }
                 })
-                .catch(() => {
+                .catch((err) => {
                     setIsRecording(false);
                     Alert.alert('Error', 'Failed to record video');
                 });
-        } catch {
+        } catch (err) {
             setIsRecording(false);
             Alert.alert('Error', 'Recording failed unexpectedly');
         }
     };
 
-    const stopRecording = () => {
-        if (!cameraRef.current || !isRecording) return;
+    const stopRecording = async () => {
+        if (!cameraRef.current || !isRecording) {
+            return;
+        }
 
         try {
-            cameraRef.current.stopRecording();
-        } catch {
+            buttonRecording.current = false;
+            const lastSegmentPromise = recordingPromiseRef.current;
+
+            await cameraRef.current.stopRecording();
+            
+            const lastSegment = await lastSegmentPromise;
+            if (lastSegment?.uri) {
+                recordedSegments.current.push({ uri: lastSegment.uri, camera: facing });
+            } else {
+                console.log("⚠️ Final segment missing URI");
+            }
+
+            const allSegments = [...recordedSegments.current];
+            recordedSegments.current = [];
+            setIsRecording(false);
+
+            navigation.navigate('StoryPreview', {
+                file: {
+                    mediaType: 'video',
+                    segments: allSegments,
+                }
+            });
+        } catch (err) {
             setIsRecording(false);
         }
     };
@@ -175,6 +230,12 @@ const CameraScreen = () => {
 
         if (wasZoomingRef.current) return;
 
+        // ⛔ Skip if flip was triggered mid-record
+        if (justFlippedRef.current) {
+            justFlippedRef.current = false;
+            return;
+        }
+
         if (heldDuration < MIN_RECORD_DURATION) {
             takePhoto();
         } else if (buttonRecording.current) {
@@ -193,13 +254,23 @@ const CameraScreen = () => {
             runOnJS(toggleCameraFacing)();
         });
 
-    const combinedGesture = Gesture.Race(
+    const combinedGesture = Gesture.Simultaneous(
+        longPressGesture,
+        panGesture,
+        pinchGesture,
         doubleTapGesture,
-        Gesture.Simultaneous(
-            Gesture.Simultaneous(longPressGesture, panGesture),
-            pinchGesture
-        )
     );
+
+    if (!permission || !permission.granted) {
+        return (
+            <View style={styles.container}>
+                <Text style={styles.message}>We need your permission to access the camera</Text>
+                <TouchableOpacity onPress={requestPermission}>
+                    <Text style={styles.buttonText}>Grant Permission</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    };
 
     return (
         <GestureDetector gesture={combinedGesture}>
