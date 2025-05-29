@@ -147,11 +147,11 @@ export const postStory = createAsyncThunk(
     {
       fileName,
       mediaType,
-      caption,
       visibility = 'public',
       taggedUsers = [],
       segments = [],
       mediaKey,
+      captions = [],
     },
     thunkAPI
   ) => {
@@ -161,7 +161,7 @@ export const postStory = createAsyncThunk(
       const payload = {
         fileName,
         mediaType,
-        caption,
+        captions,
         visibility,
         taggedUsers,
         mediaKey,
