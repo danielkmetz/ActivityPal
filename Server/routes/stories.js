@@ -9,6 +9,7 @@ const { v4: uuidv4 } = require('uuid');
 const cron = require('node-cron');
 const submitMediaConvertJob = require('../helpers/createMediaConvertJob');
 const waitForObjectReady = require('../utils/waitForObjectReady');
+const { processCaptionsToInsertableImages } = require('../utils/processCaptions');
 
 const BUCKET_NAME = process.env.AWS_BUCKET_NAME_LOGOS;
 
@@ -64,30 +65,42 @@ router.post('/', verifyToken, async (req, res) => {
   try {
     const {
       mediaType,
-      caption,
+      captions = [],
       visibility,
       taggedUsers = [],
       segments = [],
       mediaKey,
     } = req.body;
 
+    console.log('📥 Incoming request:', {
+      mediaType,
+      visibility,
+      taggedUsersCount: taggedUsers.length,
+      segmentsCount: segments.length,
+      hasMediaKey: !!mediaKey,
+      captionsCount: captions.length,
+    });
+
     if (!mediaType || !['photo', 'video'].includes(mediaType)) {
+      console.warn('❗ Invalid mediaType:', mediaType);
       return res.status(400).json({ error: 'Invalid or missing mediaType' });
     }
 
     const user = await User.findById(req.user.id);
     if (!user) {
+      console.warn('❗ User not found:', req.user.id);
       return res.status(404).json({ error: 'User not found' });
     }
 
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     if (mediaType === 'photo') {
-      user.stories.push({ mediaKey, mediaType, caption, visibility, taggedUsers, expiresAt });
+      user.stories.push({ mediaKey, mediaType, visibility, taggedUsers, expiresAt });
       await user.save();
 
       const objectReady = await waitForObjectReady(BUCKET_NAME, mediaKey);
       if (!objectReady) {
+        console.warn('❌ S3 object not ready:', mediaKey);
         return res.status(503).json({ error: 'Video not ready yet. Try again shortly.' });
       }
 
@@ -96,6 +109,7 @@ router.post('/', verifyToken, async (req, res) => {
         ? await getPresignedUrl(user.profilePic.photoKey)
         : null;
 
+      console.log('✅ Photo story created for user:', user._id);
       return res.status(201).json({
         message: 'Photo story created.',
         story: {
@@ -120,35 +134,70 @@ router.post('/', verifyToken, async (req, res) => {
 
     let finalMediaKey;
     let job = null;
+    let insertableImages = [];
+
+    if (captions.length > 0) {
+      console.log('🖼️ Processing captions to insertable images...');
+      insertableImages = await processCaptionsToInsertableImages(captions, user._id);
+
+      for (const img of insertableImages) {
+            const s3Uri = img.ImageInserterInput;
+            const key = s3Uri.replace(`s3://${BUCKET_NAME}/`, '');
+
+            const ready = await waitForObjectReady(BUCKET_NAME, key);
+            console.log('image ready', ready);
+            if (!ready) {
+                throw new Error(`Caption image not ready in S3: ${key}`);
+            }
+        }
+
+        
+      console.log('🖼️ Insertable images prepared:', insertableImages.length);
+    }
 
     if (segments.length > 1) {
-      // 🔁 Merge multiple segments using MediaConvert
+      console.log('🔁 Merging multiple segments with MediaConvert...');
       const mediaKeys = segments.map(s => s.mediaKey);
       const mergedFileName = `merged_${uuidv4()}.mp4`;
       const outputKey = `stories/${mergedFileName}`;
       const dbOutputKey = `${outputKey}.mp4`;
 
-      job = await submitMediaConvertJob(mediaKeys, outputKey);
-      
+      job = await submitMediaConvertJob(mediaKeys, outputKey, insertableImages);
       finalMediaKey = dbOutputKey;
+      console.log('✅ Merge job submitted:', job.Id);
+
     } else if (segments.length === 1) {
-      finalMediaKey = segments[0].mediaKey;
+      if (insertableImages.length > 0) {
+        console.log('🖼️ Adding overlay to single segment with MediaConvert...');
+        const outputKey = `stories/processed_${uuidv4()}`;
+        const dbOutputKey = `${outputKey}.mp4`;
+        
+        console.log('segments', segments);
+        job = await submitMediaConvertJob([segments[0].mediaKey], outputKey, insertableImages);
+        finalMediaKey = dbOutputKey;
+        console.log('✅ Processing job submitted:', job.Id);
+      } else {
+        finalMediaKey = segments[0].mediaKey;
+        console.log('✅ No MediaConvert needed. Using raw segment:', finalMediaKey);
+      }
+
     } else if (mediaKey) {
-      // Fallback for single uninterrupted recording without segments[]
-      finalMediaKey = mediaKey;
+        finalMediaKey = mediaKey;
+        console.log('✅ Using original mediaKey without conversion:', finalMediaKey);
     }
 
     user.stories.push({
       mediaKey: finalMediaKey,
       mediaType: 'video',
-      caption,
+      captions,
       visibility,
       taggedUsers,
       expiresAt,
     });
 
     await user.save();
-    
+    console.log('📤 Story saved to user document.');
+
     const createdStory = user.stories[user.stories.length - 1].toObject();
     const profilePicUrl = user.profilePic?.photoKey
       ? await getPresignedUrl(user.profilePic.photoKey)
@@ -156,10 +205,13 @@ router.post('/', verifyToken, async (req, res) => {
 
     const objectReady = await waitForObjectReady(BUCKET_NAME, finalMediaKey);
     if (!objectReady) {
+      console.warn('❌ Final video not yet available in S3:', finalMediaKey);
       return res.status(503).json({ error: 'Video not ready yet. Try again shortly.' });
     }
+
     const mediaUrl = await getPresignedUrl(finalMediaKey);
 
+    console.log('✅ Video story ready:', mediaUrl);
     return res.status(201).json({
       message: 'Video story created. MediaConvert job submitted.',
       story: {
@@ -232,7 +284,7 @@ router.delete('/:storyId', verifyToken, async (req, res) => {
 
     user.stories.pull(storyId);
     await user.save();
-    
+
     if (mediaKey) {
       await deleteS3Objects([mediaKey]);
     }

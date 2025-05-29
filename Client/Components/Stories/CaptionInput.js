@@ -29,7 +29,8 @@ const CaptionInput = ({ caption, onChange, onFocus, onBlur, onDragEnd }) => {
   const gesture = Gesture.Pan()
   .onChange(event => {
     'worklet';
-    y.value += event.changeY;
+    const nextY = y.value + event.changeY;
+    y.value = Math.max(40, Math.min(screenHeight - 100, nextY));
   })
   .onEnd(() => {
     runOnJS(onDragEnd)?.(caption.id, y.value);
