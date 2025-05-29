@@ -9,6 +9,8 @@ import {
     fetchReviewsByUserAndFriends,
     setUserAndFriendsReviews,
     appendUserAndFriendsReviews,
+    selectHasFetchedOnce,
+    setHasFetchedOnce,
 } from "../../Slices/ReviewsSlice";
 import { selectUser } from "../../Slices/UserSlice";
 import {
@@ -41,6 +43,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
     const stories = useSelector(selectStories);
     const [business, setBusiness] = useState(null);
     const [businessName, setBusinessName] = useState(null);
+    const hasFetchedOnce = useSelector(selectHasFetchedOnce);
 
     const userId = user?.id;
     const {
@@ -57,21 +60,17 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
     });
 
     useEffect(() => {
-        if (userId) {
+        if (userId && !hasFetchedOnce) {
             refresh();
             dispatch(fetchFavorites(userId));
             dispatch(fetchStories(userId));
-        }
-    }, [userId]);
-
-    useEffect(() => {
-        if (userId) {
             dispatch(fetchFollowRequests(userId));
             dispatch(fetchMutualFriends(userId));
             dispatch(fetchFollowersAndFollowing(userId));
+            dispatch(setHasFetchedOnce(true));
         }
     }, [userId]);
-    
+
     return (
         <View style={styles.container}>
             <Reviews

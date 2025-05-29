@@ -1050,6 +1050,7 @@ const reviewsSlice = createSlice({
     profileReviews: [],
     otherUserReviews: [],
     userAndFriendsReviews: [],
+    hasFetchedOnce: false,
     selectedReview: null,
     loading: "idle",
     error: null,
@@ -1060,6 +1061,9 @@ const reviewsSlice = createSlice({
       state.loading = "idle";
       state.error = null
     },
+    setHasFetchedOnce: (state, action) => {
+      state.hasFetchedOnce = action.payload;
+    },  
     setLocalReviews: (state, action) => {
       state.localReviews = action.payload;
     },
@@ -1529,9 +1533,11 @@ export const {
   resetBusinessReviews,
   clearSelectedReview,
   resetAllReviews,
+  setHasFetchedOnce,
 } = reviewsSlice.actions;
 
 export const selectProfileReviews = (state) => state.reviews.profileReviews || [];
+export const selectHasFetchedOnce = state => state.reviews.hasFetchedOnce;
 export const selectBusinessReviews = (state) => state.reviews.businessReviews || [];
 export const selectOtherUserReviews = (state) => state.reviews.otherUserReviews || [];
 export const selectLoading = (state) => state.reviews.loading;

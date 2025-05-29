@@ -151,6 +151,7 @@ export const postStory = createAsyncThunk(
       visibility = 'public',
       taggedUsers = [],
       segments = [],
+      mediaKey,
     },
     thunkAPI
   ) => {
@@ -163,6 +164,7 @@ export const postStory = createAsyncThunk(
         caption,
         visibility,
         taggedUsers,
+        mediaKey,
       };
 
       // Only include segments for video posts
@@ -170,20 +172,14 @@ export const postStory = createAsyncThunk(
         payload.segments = segments;
       }
 
-      console.log('📡 POST /story — payload:', payload);
-
       const res = await axios.post(`${BASE_URL}`, payload, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
-
-      console.log('✅ Server response:', res.data);
       return res.data.story;
 
     } catch (err) {
-      console.error('❌ postStory failed');
-      console.error('↪️', err.message);
       if (err.response) {
         console.error('↪️ Status:', err.response.status);
         console.error('↪️ Data:', err.response.data);
