@@ -44,13 +44,11 @@ export default function StoryViewer() {
   const hasSyncedRef = useRef(false);
   const previousStoryRef = useRef(null);
 
-  console.log("📌 currentIndex:", currentIndex);
-console.log(story);
-useEffect(() => {
-  if (story?.mediaUrl) {
-    setVideoUri(`${story.mediaUrl}&cacheBuster=${Date.now()}`); // 👈 forces video refresh
-  }
-}, [story?.mediaUrl]);
+  useEffect(() => {
+    if (story?.mediaUrl) {
+      setVideoUri(`${story.mediaUrl}&cacheBuster=${Date.now()}`); // 👈 forces video refresh
+    }
+  }, [story?.mediaUrl]);
 
   useEffect(() => {
     previousStoryRef.current = story;
