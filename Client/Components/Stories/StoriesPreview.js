@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     View,
     Text,
@@ -8,13 +8,34 @@ import {
     Alert,
     ActivityIndicator,
     Image,
+    Dimensions,
+    TouchableWithoutFeedback,
+    KeyboardAvoidingView,
+    Platform,
+    Keyboard,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useDispatch, useSelector } from 'react-redux';
 import { postStory, getUploadUrls } from '../../Slices/StoriesSlice';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { selectPrivacySettings } from '../../Slices/UserSlice';
 import { Video } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
+import Animated, {
+    useSharedValue,
+    useAnimatedStyle,
+    withTiming,
+    withSpring,
+    runOnJS,
+    Easing,
+} from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import CaptionInput from './CaptionInput';
+import { burnCaptionsToImage } from '../../utils/burnCaptionsToImages';
+import { captureRef } from 'react-native-view-shot';
+
+const screenHeight = Dimensions.get('window').height;
+const TARGET_Y = 300;
 
 const StoryPreview = () => {
     const route = useRoute();
@@ -23,50 +44,48 @@ const StoryPreview = () => {
     const privacySettings = useSelector(selectPrivacySettings);
     const contentVisibility = privacySettings?.contentVisibility;
 
-    const { file: fileParam } = route.params;
+    const { file: fileParam = {} } = route.params || {};
     const segments = fileParam?.segments;
     const file = fileParam;
     const mediaUri = file?.uri;
     const mediaType = fileParam?.mediaType;
     const isMultiSegmentVideo = mediaType === 'video' && Array.isArray(file?.segments);
-    const effectiveUri = isMultiSegmentVideo ? file.segments[0]?.uri : file?.uri;
-    const fileName = effectiveUri
-        ? effectiveUri.split('/').pop()
-        : `story_${Date.now()}.mp4`; // fallback for edge cases
-    const [caption, setCaption] = useState('');
+    const effectiveUri = isMultiSegmentVideo && file.segments.length > 0
+        ? file.segments[0].uri
+        : file?.uri;
+    const fileName = effectiveUri ? effectiveUri.split('/').pop() : `story_${Date.now()}.mp4`;
+
+    const [captions, setCaptions] = useState([]);
+    const [caption, setCaption] = useState();
     const [loading, setLoading] = useState(false);
+    const [keyboardVisible, setKeyboardVisible] = useState(false);
     const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
+    const [focusedCaptionId, setFocusedCaptionId] = useState(null);
     const currentSegment = segments?.[currentSegmentIndex] || file;
+    const imageWithCaptionsRef = useRef();
 
-    const handlePlaybackStatusUpdate = (status) => {
-        if (status.didJustFinish) {
-            if (segments && currentSegmentIndex < segments.length - 1) {
-                setCurrentSegmentIndex(prev => prev + 1);
-            } else {
-                // Optionally loop
-                setCurrentSegmentIndex(0);
-            }
-        }
-    };
+    const createCaption = () => ({ id: `${Date.now()}`, text: '' });
 
-    const handleRetake = () => {
-        navigation.goBack(); // Return to camera
+    const addNewCaption = () => {
+        const hasEmptyCaption = captions.some(c => c.text.trim() === '');
+        if (hasEmptyCaption) return; // Don't add another empty one
+
+        const newCaption = createCaption();
+        setCaptions(prev => [...prev, newCaption]);
+        setFocusedCaptionId(newCaption.id);
     };
 
     const handlePost = async () => {
         try {
+            console.log('🚀 handlePost: started');
             setLoading(true);
 
             const isMultiPartVideo = mediaType === 'video' && Array.isArray(file?.segments);
             const isPhoto = mediaType === 'photo';
 
-            console.log('📤 Starting handlePost...');
-            console.log('📝 mediaType:', mediaType);
-            console.log('📝 isPhoto:', isPhoto);
-            console.log('📝 isMultiPartVideo:', isMultiPartVideo);
+            console.log('🔍 isPhoto:', isPhoto);
+            console.log('🔍 isMultiPartVideo:', isMultiPartVideo);
 
-            // 1️⃣ Generate presigned upload URL(s)
-            console.log('📡 Requesting presigned upload URL(s)...');
             const uploadRes = await dispatch(
                 getUploadUrls({
                     mediaType,
@@ -77,18 +96,29 @@ const StoryPreview = () => {
                 })
             );
 
-            console.log('upload response', uploadRes)
+            console.log('📦 uploadRes:', uploadRes);
 
             if (!getUploadUrls.fulfilled.match(uploadRes)) {
                 console.error('❌ Failed to get upload URLs:', uploadRes.payload);
                 throw new Error(uploadRes.payload || 'Failed to get upload URL(s)');
             }
 
-            const { uploadData, mediaKey } = uploadRes.payload;
+            const { uploadData } = uploadRes.payload;
+            const { mediaKey } = uploadData;
+            console.log('📥 uploadData:', uploadData);
+            console.log('📥 mediaKey:', mediaKey);
 
             if (isPhoto) {
-                console.log('📤 Uploading photo...');
-                const uploadResult = await FileSystem.uploadAsync(uploadData[0].uploadUrl, mediaUri, {
+                let finalUploadUri = mediaUri;
+                console.log('🖼️ mediaUri (before burn):', mediaUri);
+
+                if (captions.length > 0 && imageWithCaptionsRef.current) {
+                    console.log('🖊️ Burning captions into image...');
+                    await new Promise(resolve => setTimeout(resolve, 300)); // Add delay
+                    finalUploadUri = await burnCaptionsToImage(imageWithCaptionsRef.current);
+                }
+
+                const uploadResult = await FileSystem.uploadAsync(uploadData.uploadUrl, finalUploadUri, {
                     httpMethod: 'PUT',
                     uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
                     headers: {
@@ -96,12 +126,11 @@ const StoryPreview = () => {
                     },
                 });
 
+                console.log('📤 uploadResult:', uploadResult);
+
                 if (uploadResult.status !== 200) {
-                    console.error('❌ Photo upload failed:', uploadResult);
                     throw new Error('Upload failed. Please try again.');
                 }
-
-                console.log('✅ Photo uploaded successfully.');
             }
 
             if (isMultiPartVideo) {
@@ -109,12 +138,12 @@ const StoryPreview = () => {
                     throw new Error('Upload data for segments is missing or malformed.');
                 }
 
-                console.log(`📤 Uploading ${uploadData.length} video segments...`);
                 for (let i = 0; i < uploadData.length; i++) {
                     const segment = uploadData[i];
                     const localSegment = file.segments[i];
 
-                    console.log(`⏫ Uploading segment ${i + 1}: ${localSegment.uri}`);
+                    console.log(`📤 Uploading segment ${i}`, { localSegment, segment });
+
                     const uploadResult = await FileSystem.uploadAsync(segment.uploadUrl, localSegment.uri, {
                         httpMethod: 'PUT',
                         uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
@@ -123,22 +152,19 @@ const StoryPreview = () => {
                         },
                     });
 
+                    console.log(`✅ Segment ${i} uploaded`, uploadResult);
+
                     if (uploadResult.status !== 200) {
-                        console.error(`❌ Upload failed for segment ${i + 1}:`, uploadResult);
                         throw new Error(`Upload failed for segment ${i + 1}`);
                     }
 
-                    console.log(`✅ Segment ${i + 1} uploaded.`);
-
-                    // Replace local uri with mediaKey for submission
                     file.segments[i] = {
                         ...localSegment,
                         mediaKey: segment.mediaKey,
                     };
                 }
             }
-
-            // 3️⃣ Submit final metadata to backend
+            console.log('media type', mediaType)
             const postPayload = {
                 mediaType,
                 caption,
@@ -154,70 +180,178 @@ const StoryPreview = () => {
                 postPayload.segments = file.segments.map(({ mediaKey }) => ({ mediaKey }));
             }
 
-            console.log('📨 Submitting postStory payload:', postPayload);
+            console.log('📤 Posting final story:', postPayload);
+
             const postRes = await dispatch(postStory(postPayload));
+            console.log('📥 postRes:', postRes);
 
             if (!postStory.fulfilled.match(postRes)) {
-                console.error('❌ postStory failed:', postRes.payload);
                 throw new Error(postRes.payload || 'Failed to post story');
             }
 
-            console.log('✅ Story posted successfully.');
             Alert.alert('Success', 'Your story has been posted!');
             navigation.navigate('TabNavigator', { screen: 'Home' });
 
         } catch (err) {
-            console.error('❌ Error in handlePost:', err.message);
+            console.error('❌ handlePost error:', err);
             Alert.alert('Error', err.message || 'Something went wrong.');
         } finally {
+            console.log('✅ handlePost: finished');
             setLoading(false);
         }
     };
 
+    useEffect(() => {
+        const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () =>
+            setKeyboardVisible(true)
+        );
+        const keyboardDidHideListener = Keyboard.addListener('keyboardDidHide', () => {
+            setKeyboardVisible(false);
+
+            // If any caption is empty and focused, remove it
+            setCaptions(prev => {
+                const focusedCaption = prev.find(c => c.id === focusedCaptionId);
+                if (focusedCaption && focusedCaption.text.trim() === '') {
+                    setFocusedCaptionId(null);
+                    return prev.filter(c => c.id !== focusedCaptionId);
+                }
+                return prev;
+            });
+        });
+
+        return () => {
+            keyboardDidShowListener.remove();
+            keyboardDidHideListener.remove();
+        };
+    }, [focusedCaptionId]);
+
     return (
-        <View style={styles.container}>
-            <View style={styles.video}>
-                {mediaType === 'video' ? (
-                    <Video
-                        source={{ uri: currentSegment.uri }}
-                        shouldPlay
-                        isLooping
-                        isMuted
-                        resizeMode="cover"
-                        useNativeControls={false}
-                        style={StyleSheet.absoluteFill}
-                        onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-                    />
-                ) : (
-                    <Image
-                        source={{ uri: mediaUri }}
-                        style={StyleSheet.absoluteFill}
-                        resizeMode="cover"
-                    />
-                )}
-            </View>
+        <View style={{ flex: 1 }}>
+            <TouchableWithoutFeedback
+                onPress={() => {
+                    Keyboard.dismiss();
+                    if (!keyboardVisible) {
+                        addNewCaption();
+                    }
+                }}
+            >
+                <View style={styles.container}>
+                    <View style={styles.video}>
+                        {mediaType === 'photo' ? (
+                            <View
+                                ref={imageWithCaptionsRef}
+                                collapsable={false}
+                                style={styles.captureContainer}
+                                onLayout={() => console.log('capture view layout complete')}
+                            >
+                                {mediaUri && (
+                                    <Image
+                                        source={{ uri: mediaUri }}
+                                        style={StyleSheet.absoluteFill}
+                                        resizeMode="cover"
+                                    />
+                                )}
+                                {captions.map(caption => (
+                                    <View
+                                        key={caption.id}
+                                        style={{
+                                            position: 'absolute',
+                                            top: caption.y ?? 100 + 40 * captions.indexOf(caption),
+                                            left: Dimensions.get('window').width / 2,
+                                            transform: [{ translateX: -Dimensions.get('window').width / 2 }],
+                                            width: '100%',
+                                            alignItems: 'center',
+                                        }}
+                                    >
+                                        <Text
+                                            style={{
+                                                color: 'white',
+                                                fontSize: 24,
+                                                width: '100%',
+                                                backgroundColor: 'rgba(0,0,0,0.5)', // optional
+                                                paddingHorizontal: 16,
+                                                paddingVertical: 8,
+                                                textAlign: 'center',
+                                            }}
+                                        >
+                                            {caption.text}
+                                        </Text>
+                                    </View>
+                                ))}
+                            </View>
+                        ) : (
+                            <View style={styles.video}>
+                                {mediaType === 'video' && currentSegment?.uri && (
+                                    <Video
+                                        source={{ uri: currentSegment.uri }}
+                                        shouldPlay
+                                        isLooping
+                                        isMuted
+                                        resizeMode="cover"
+                                        useNativeControls={false}
+                                        style={StyleSheet.absoluteFill}
+                                        onPlaybackStatusUpdate={({ didJustFinish }) => {
+                                            if (
+                                                didJustFinish &&
+                                                Array.isArray(segments) &&
+                                                currentSegmentIndex < segments.length - 1
+                                            ) {
+                                                setCurrentSegmentIndex(prev => prev + 1);
+                                            } else {
+                                                setCurrentSegmentIndex(0);
+                                            }
+                                        }}
+                                    />
+                                )}
+                            </View>
+                        )}
 
-            <TextInput
-                style={styles.captionInput}
-                placeholder="Write a caption..."
-                placeholderTextColor="#999"
-                value={caption}
-                onChangeText={setCaption}
-            />
-
-            <View style={styles.buttonRow}>
-                <TouchableOpacity style={styles.retakeButton} onPress={handleRetake}>
-                    <Text style={styles.buttonText}>Retake</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.postButton} onPress={handlePost} disabled={loading}>
-                    {loading ? (
-                        <ActivityIndicator color="#fff" />
-                    ) : (
-                        <Text style={styles.buttonText}>Post Story</Text>
-                    )}
-                </TouchableOpacity>
-            </View>
+                    </View>
+                    <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()}>
+                        <Ionicons name="close" size={40} color="#fff" />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.captionToggle} onPress={addNewCaption}>
+                        <Text style={styles.captionToggleText}>T</Text>
+                    </TouchableOpacity>
+                    {captions.map((captionObj) => (
+                        <CaptionInput
+                            key={captionObj.id}
+                            caption={captionObj}
+                            onChange={(text) =>
+                                setCaptions((prev) =>
+                                    prev.map((c) => (c.id === captionObj.id ? { ...c, text } : c))
+                                )
+                            }
+                            onFocus={() => setFocusedCaptionId(captionObj.id)}
+                            onBlur={() => {
+                                if (captionObj.text.trim() === '') {
+                                    setCaptions((prev) => prev.filter((c) => c.id !== captionObj.id));
+                                }
+                            }}
+                            onDragEnd={(id, newY) => {
+                                setCaptions(prev =>
+                                    prev.map(c =>
+                                        c.id === id ? { ...c, y: newY } : c
+                                    )
+                                );
+                            }}
+                        />
+                    ))}
+                    <View style={styles.buttonRow}>
+                        <TouchableOpacity
+                            style={styles.snapPostButton}
+                            onPress={handlePost}
+                            disabled={loading}
+                        >
+                            {loading ? (
+                                <ActivityIndicator color="#fff" />
+                            ) : (
+                                <Ionicons name="arrow-forward-circle" size={54} color="#fff" />
+                            )}
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </TouchableWithoutFeedback>
         </View>
     );
 };
@@ -234,35 +368,67 @@ const styles = StyleSheet.create({
     video: {
         ...StyleSheet.absoluteFillObject,
     },
-    captionInput: {
-        backgroundColor: 'rgba(0,0,0,0.6)',
+    closeButton: {
+        position: 'absolute',
+        top: 60,
+        left: 20,
+        zIndex: 10,
+        padding: 8,
+    },
+    captionToggle: {
+        position: 'absolute',
+        top: 70,
+        right: 25,
+        zIndex: 20,
+    },
+    captionToggleText: {
         color: '#fff',
-        padding: 10,
-        margin: 15,
-        borderRadius: 8,
-        fontSize: 16,
+        fontSize: 30,
+        fontWeight: 'bold',
+    },
+    draggableCaption: {
+        position: 'absolute',
+        top: 0,
+        zIndex: 15,
+        width: '100%',
+    },
+    captionInputOverlay: {
+        fontSize: 24,
+        color: '#fff',
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        textAlign: 'center',
+    },
+    captionInputOverlayActive: {
+        fontSize: 24,
+        color: '#fff',
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        textAlign: 'left',
     },
     buttonRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         paddingHorizontal: 20,
     },
-    postButton: {
-        backgroundColor: '#1e90ff',
-        padding: 12,
-        borderRadius: 6,
-        minWidth: 100,
-        alignItems: 'center',
+    snapPostButton: {
+        position: 'absolute',
+        bottom: 40,
+        right: 25,
+        zIndex: 20,
     },
-    retakeButton: {
-        backgroundColor: '#555',
-        padding: 12,
-        borderRadius: 6,
-        minWidth: 100,
-        alignItems: 'center',
-    },
-    buttonText: {
-        color: '#fff',
-        fontWeight: '600',
+    captureContainer: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: Dimensions.get('window').width,
+        height: Dimensions.get('window').height,
+        opacity: 1, // Hidden
+        zIndex: -1,
+        textAlign: 'center',
+        pointerEvents: 'none', // ✅ Ensures it's not intercepting gestures
+        backgroundColor: 'black',
     },
 });

@@ -43,11 +43,15 @@ router.post('/upload-url', verifyToken, async (req, res) => {
     // Handle single upload (photo or video)
     const singleMediaKey = `stories/${uuidv4()}_${fileName}`;
     const singleUploadUrl = await generatePresignedUrl(singleMediaKey);
+    console.log('single upload url', singleUploadUrl);
 
     return res.status(200).json({
       message: 'Presigned upload URL generated.',
-      mediaKey: singleMediaKey,
-      uploadUrl: singleUploadUrl,
+      uploadData: {
+        fileName,
+        uploadUrl: singleUploadUrl,
+        mediaKey: singleMediaKey,
+      }
     });
 
   } catch (err) {
@@ -58,36 +62,34 @@ router.post('/upload-url', verifyToken, async (req, res) => {
 
 router.post('/', verifyToken, async (req, res) => {
   try {
-    console.log('📥 Incoming story request');
     const {
       mediaType,
       caption,
       visibility,
       taggedUsers = [],
       segments = [],
+      mediaKey,
     } = req.body;
 
     if (!mediaType || !['photo', 'video'].includes(mediaType)) {
-      console.warn('⚠️ Invalid or missing mediaType:', mediaType);
       return res.status(400).json({ error: 'Invalid or missing mediaType' });
     }
 
     const user = await User.findById(req.user.id);
     if (!user) {
-      console.error(`❌ User not found: ${req.user.id}`);
       return res.status(404).json({ error: 'User not found' });
     }
 
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     if (mediaType === 'photo') {
-      const fileName = `photo_${uuidv4()}.jpg`;
-      const mediaKey = `stories/${fileName}`;
-
-      console.log(`📸 Creating photo story: ${mediaKey}`);
-
       user.stories.push({ mediaKey, mediaType, caption, visibility, taggedUsers, expiresAt });
       await user.save();
+
+      const objectReady = await waitForObjectReady(BUCKET_NAME, mediaKey);
+      if (!objectReady) {
+        return res.status(503).json({ error: 'Video not ready yet. Try again shortly.' });
+      }
 
       const mediaUrl = await getPresignedUrl(mediaKey);
       const profilePicUrl = user.profilePic?.photoKey
@@ -98,7 +100,6 @@ router.post('/', verifyToken, async (req, res) => {
         message: 'Photo story created.',
         story: {
           ...user.stories[user.stories.length - 1].toObject(),
-          mediaUploadUrl: uploadUrl,
           mediaUrl,
           profilePicUrl,
           user: {
@@ -112,22 +113,33 @@ router.post('/', verifyToken, async (req, res) => {
       });
     }
 
-    if (!Array.isArray(segments) || segments.length === 0) {
-      console.warn('⚠️ No video segments provided');
-      return res.status(400).json({ error: 'Missing or invalid video segments' });
+    if (!segments.length && !mediaKey) {
+      console.warn('⚠️ Missing video mediaKey or segments[]');
+      return res.status(400).json({ error: 'Missing video data' });
     }
 
-    const mediaKeys = segments.map(s => s.mediaKey);
-    const mergedFileName = `merged_${uuidv4()}.mp4`;
-    const outputKey = `stories/${mergedFileName}`;
-    const dbOutputKey = `${outputKey}.mp4`
+    let finalMediaKey;
+    let job = null;
 
-    // 🔁 Submit MediaConvert job to merge
-    const job = await submitMediaConvertJob(mediaKeys, outputKey);
-    console.log('🛰️ MediaConvert job submitted:', job.Id);
+    if (segments.length > 1) {
+      // 🔁 Merge multiple segments using MediaConvert
+      const mediaKeys = segments.map(s => s.mediaKey);
+      const mergedFileName = `merged_${uuidv4()}.mp4`;
+      const outputKey = `stories/${mergedFileName}`;
+      const dbOutputKey = `${outputKey}.mp4`;
+
+      job = await submitMediaConvertJob(mediaKeys, outputKey);
+      
+      finalMediaKey = dbOutputKey;
+    } else if (segments.length === 1) {
+      finalMediaKey = segments[0].mediaKey;
+    } else if (mediaKey) {
+      // Fallback for single uninterrupted recording without segments[]
+      finalMediaKey = mediaKey;
+    }
 
     user.stories.push({
-      mediaKey: dbOutputKey,
+      mediaKey: finalMediaKey,
       mediaType: 'video',
       caption,
       visibility,
@@ -136,21 +148,17 @@ router.post('/', verifyToken, async (req, res) => {
     });
 
     await user.save();
-    console.log('💾 Story saved to user');
-
+    
     const createdStory = user.stories[user.stories.length - 1].toObject();
     const profilePicUrl = user.profilePic?.photoKey
       ? await getPresignedUrl(user.profilePic.photoKey)
       : null;
 
-    const objectReady = await waitForObjectReady(BUCKET_NAME, dbOutputKey);
+    const objectReady = await waitForObjectReady(BUCKET_NAME, finalMediaKey);
     if (!objectReady) {
-      console.warn(`⚠️ Media file not ready in S3: ${dbOutputKey}`);
       return res.status(503).json({ error: 'Video not ready yet. Try again shortly.' });
     }
-    const mediaUrl = await getPresignedUrl(dbOutputKey);
-
-    console.log('✅ Returning merged video URL:', mediaUrl);
+    const mediaUrl = await getPresignedUrl(finalMediaKey);
 
     return res.status(201).json({
       message: 'Video story created. MediaConvert job submitted.',
@@ -165,8 +173,10 @@ router.post('/', verifyToken, async (req, res) => {
         },
         isViewed: false,
         viewedBy: [],
-        jobId: job.Id,
-        jobStatus: job.Status,
+        ...(job && {
+          jobId: job.Id,
+          jobStatus: job.Status,
+        }),
       },
     });
   } catch (err) {
@@ -220,20 +230,15 @@ router.delete('/:storyId', verifyToken, async (req, res) => {
 
     const mediaKey = story.mediaKey;
 
-    console.log('🗑️ Removing story from DB...');
     user.stories.pull(storyId);
     await user.save();
-    console.log('✅ Story removed from user');
-
+    
     if (mediaKey) {
-      console.log('🗑️ Deleting associated media from S3:', mediaKey);
       await deleteS3Objects([mediaKey]);
-      console.log('✅ Media deleted from S3');
     }
 
     res.json({ message: 'Story deleted successfully' });
   } catch (err) {
-    console.error('❌ Failed to delete story:', err);
     res.status(500).json({ error: 'Failed to delete story' });
   }
 });
