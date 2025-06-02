@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet, Pressable } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 
 export default function PostOptionsMenu({
     isSender,
@@ -30,21 +31,35 @@ export default function PostOptionsMenu({
             {dropdownVisible && (
                 <View style={styles.dropdownMenu}>
                     <TouchableOpacity
+                        style={styles.menuItem}
                         onPress={() => {
                             setDropdownVisible(false);
                             handleEdit(postData);
                         }}
                     >
-                        <Text style={styles.dropdownItem}>✏️ Edit</Text>
+                        <MaterialCommunityIcons
+                            name="pencil-outline"
+                            size={18}
+                            color="#fff"
+                            style={styles.icon}
+                        />
+                        <Text style={styles.dropdownItem}>Edit</Text>
                     </TouchableOpacity>
                     <View style={styles.divider} />
                     <TouchableOpacity
+                    style={styles.menuItem}
                         onPress={() => {
                             setDropdownVisible(false);
                             handleDelete(postData);
                         }}
                     >
-                        <Text style={styles.dropdownItem}>🗑️ Delete</Text>
+                        <Ionicons
+                            name="trash-outline"
+                            size={18}
+                            color="#fff"
+                            style={styles.icon}
+                        />
+                        <Text style={styles.dropdownItem}>Delete</Text>
                     </TouchableOpacity>
                 </View>
             )}
@@ -63,27 +78,36 @@ const styles = StyleSheet.create({
         padding: 4,
     },
     dropdownMenu: {
-        position: "absolute",     // <--- this is key
-        top: 25,                  // adjust based on icon size
+        position: "absolute",
+        top: 25,
         right: 0,
-        backgroundColor: "#fff",
-        borderRadius: 5,
+        backgroundColor: "rgba(0, 0, 0, 0.85)",
+        borderRadius: 6,
         padding: 8,
-        elevation: 5,
+        elevation: 6,
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 3,
-        minWidth: 100,
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+        minWidth: 120,
     },
     dropdownItem: {
         fontSize: 16,
         paddingVertical: 6,
+        color: '#fff'
     },
     divider: {
         height: 1,
         backgroundColor: "#ccc",
         marginVertical: 6,
+    },
+    menuItem: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingVertical: 6,
+    },
+    icon: {
+        marginRight: 8,
     },
     overlay: {
         ...StyleSheet.absoluteFillObject,

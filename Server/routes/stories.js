@@ -7,6 +7,7 @@ const deleteS3Objects = require('../utils/deleteS3Objects');
 const { generatePresignedUrl } = require('../helpers/generatePresignedUrl');
 const { v4: uuidv4 } = require('uuid');
 const cron = require('node-cron');
+const { mergeSegmentsWithOverlays } = require('../helpers/ffmpegMergeUpload');
 const submitMediaConvertJob = require('../helpers/createMediaConvertJob');
 const waitForObjectReady = require('../utils/waitForObjectReady');
 const { processCaptionsToInsertableImages } = require('../utils/processCaptions');
@@ -133,57 +134,49 @@ router.post('/', verifyToken, async (req, res) => {
     }
 
     let finalMediaKey;
-    let job = null;
     let insertableImages = [];
 
+    // 1. Process captions into overlay images
     if (captions.length > 0) {
       console.log('🖼️ Processing captions to insertable images...');
       insertableImages = await processCaptionsToInsertableImages(captions, user._id);
 
       for (const img of insertableImages) {
-            const s3Uri = img.ImageInserterInput;
-            const key = s3Uri.replace(`s3://${BUCKET_NAME}/`, '');
-
-            const ready = await waitForObjectReady(BUCKET_NAME, key);
-            console.log('image ready', ready);
-            if (!ready) {
-                throw new Error(`Caption image not ready in S3: ${key}`);
-            }
+        const key = img.s3Key;
+        const ready = await waitForObjectReady(BUCKET_NAME, key);
+        console.log('image ready', ready);
+        if (!ready) {
+          throw new Error(`Caption image not ready in S3: ${key}`);
         }
-
-        
-      console.log('🖼️ Insertable images prepared:', insertableImages.length);
-    }
-
-    if (segments.length > 1) {
-      console.log('🔁 Merging multiple segments with MediaConvert...');
-      const mediaKeys = segments.map(s => s.mediaKey);
-      const mergedFileName = `merged_${uuidv4()}.mp4`;
-      const outputKey = `stories/${mergedFileName}`;
-      const dbOutputKey = `${outputKey}.mp4`;
-
-      job = await submitMediaConvertJob(mediaKeys, outputKey, insertableImages);
-      finalMediaKey = dbOutputKey;
-      console.log('✅ Merge job submitted:', job.Id);
-
-    } else if (segments.length === 1) {
-      if (insertableImages.length > 0) {
-        console.log('🖼️ Adding overlay to single segment with MediaConvert...');
-        const outputKey = `stories/processed_${uuidv4()}`;
-        const dbOutputKey = `${outputKey}.mp4`;
-        
-        console.log('segments', segments);
-        job = await submitMediaConvertJob([segments[0].mediaKey], outputKey, insertableImages);
-        finalMediaKey = dbOutputKey;
-        console.log('✅ Processing job submitted:', job.Id);
-      } else {
-        finalMediaKey = segments[0].mediaKey;
-        console.log('✅ No MediaConvert needed. Using raw segment:', finalMediaKey);
       }
+      console.log('🖼️ Insertable images prepared:', insertableImages.length);
+    };
 
+    console.log('📦 segments payload:', segments);
+    console.log('📦 segmentKeys:', segments.map(s => s.mediaKey));
+
+    // 2. Merge segments and apply overlays via FFmpeg
+    if (segments.length > 0) {
+      const mergedFileName = `ffmpeg_merged_${uuidv4()}.mp4`;
+      const outputKey = `stories/${mergedFileName}`;
+
+      console.log(`🎬 Merging ${segments.length} segment(s) with FFmpeg and overlaying ${insertableImages.length} image(s)...`);
+
+      try {
+        const result = await mergeSegmentsWithOverlays({
+          segments,
+          overlays: insertableImages,
+          outputKey,
+        });
+        console.log('🎉 Story processed and uploaded:', result);
+        finalMediaKey = `${outputKey}`
+      } catch (err) {
+        console.error('❌ Failed to process story:', err);
+        res.status(500).json({ error: 'Story processing failed' });
+      }  
     } else if (mediaKey) {
-        finalMediaKey = mediaKey;
-        console.log('✅ Using original mediaKey without conversion:', finalMediaKey);
+      finalMediaKey = mediaKey;
+      console.log('✅ Using original mediaKey without processing:', finalMediaKey);
     }
 
     user.stories.push({
@@ -225,10 +218,6 @@ router.post('/', verifyToken, async (req, res) => {
         },
         isViewed: false,
         viewedBy: [],
-        ...(job && {
-          jobId: job.Id,
-          jobStatus: job.Status,
-        }),
       },
     });
   } catch (err) {

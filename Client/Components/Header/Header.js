@@ -18,7 +18,7 @@ export default function Header({ currentRoute }) {
             case "Activities":
                 return "Activities";
             case "Home":
-                return "ActivityPal";
+                return "Vybe";
             case "Friends":
                 return "Friends";
             case "Notifications":
@@ -36,7 +36,7 @@ export default function Header({ currentRoute }) {
             case "CreatePromotion":
                 return "Create Promo";
             default:
-                return "ActivityPal";
+                return "Vybe";
         }
     };
 
@@ -122,7 +122,7 @@ const styles = StyleSheet.create({
     locationContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 13,
+        gap: 17,
     },
     pinIcon: {
         width: 18,
