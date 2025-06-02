@@ -21,6 +21,8 @@ import * as FileSystem from 'expo-file-system';
 import CaptionInput from './CaptionInput';
 import { burnCaptionsToImage } from '../../utils/burnCaptionsToImages';
 
+const screenHeight = Dimensions.get('window').height;
+
 const StoryPreview = () => {
     const route = useRoute();
     const navigation = useNavigation();
@@ -48,7 +50,7 @@ const StoryPreview = () => {
     const currentSegment = segments?.[currentSegmentIndex] || file;
     const imageWithCaptionsRef = useRef();
 
-    const createCaption = () => ({ id: `${Date.now()}`, text: '' });
+    const createCaption = () => ({ id: `${Date.now()}`, text: '', y: screenHeight * 0.4 });
 
     const addNewCaption = () => {
         const hasEmptyCaption = captions.some(c => c.text.trim() === '');
@@ -167,7 +169,7 @@ const StoryPreview = () => {
             if (captions.length > 0) {
                 postPayload.captions = captions.map(c => ({
                     text: c.text,
-                    y: c.y ?? 100,
+                    y: c.y,
                     fontSize: 24,
                     backgroundColor: 'rgba(0,0,0,0.5)',
                     color: '#fff',

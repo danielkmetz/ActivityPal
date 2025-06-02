@@ -55,7 +55,6 @@ export default function StoryViewer() {
   }, [currentIndex]);
 
   const startProgressAnimation = (ms) => {
-    console.log(`🚀 Starting animation for index ${currentIndex} with duration ${ms}`);
     progress[currentIndex].setValue(0);
     animationRef.current = Animated.timing(progress[currentIndex], {
       toValue: 1,
@@ -63,31 +62,26 @@ export default function StoryViewer() {
       useNativeDriver: false,
     });
     animationRef.current.start(({ finished }) => {
-      console.log(`🎞️ Animation finished=${finished} for index ${currentIndex}`);
       if (finished) handleNext();
     });
   };
 
   const resetAllBars = () => {
-    console.log('🔁 Resetting progress bars for index', currentIndex);
     progress.forEach((bar, i) => {
       bar.setValue(i < currentIndex ? 1 : 0);
     });
   };
 
   const handleNext = () => {
-    console.log('👉 Next tapped');
     animationRef.current?.stop();
     if (currentIndex < stories.length - 1) {
       setCurrentIndex((prev) => prev + 1);
     } else {
-      console.log('🏁 Reached end of stories, closing');
       navigation.goBack();
     }
   };
 
   const handlePrev = () => {
-    console.log('👈 Previous tapped');
     animationRef.current?.stop();
     if (currentIndex > 0) {
       setCurrentIndex((prev) => prev - 1);
@@ -143,7 +137,11 @@ export default function StoryViewer() {
         <Text style={{ color: 'white' }}>Invalid story data</Text>
       </View>
     );
-  }
+  };
+
+  const goBack = () => {
+    navigation.goBack();
+  };
 
   return (
     <Animated.View
@@ -158,7 +156,7 @@ export default function StoryViewer() {
       <Pressable style={styles.leftTapZone} onPress={handlePrev} />
       <Pressable style={styles.rightTapZone} onPress={handleNext} />
 
-      <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()}>
+      <TouchableOpacity style={styles.closeButton} onPress={goBack}>
         <Text style={styles.closeText}>✕</Text>
       </TouchableOpacity>
 
@@ -193,16 +191,9 @@ export default function StoryViewer() {
               isMuted
               style={StyleSheet.absoluteFill}
               onPlaybackStatusUpdate={(status) => {
-                console.log('🎥 Video status:', {
-                  isLoaded: status.isLoaded,
-                  durationMillis: status.durationMillis,
-                  positionMillis: status.positionMillis,
-                });
-
                 if (!status.isLoaded || hasSyncedRef.current) return;
 
                 if (status.durationMillis && status.positionMillis < 500) {
-                  console.log('📏 Syncing animation with video duration:', status.durationMillis);
                   hasSyncedRef.current = true;
                   animationRef.current?.stop();
                   startProgressAnimation(status.durationMillis);
@@ -236,7 +227,7 @@ export default function StoryViewer() {
                     onPress: async () => {
                       try {
                         await dispatch(deleteStory(story._id)).unwrap();
-                        navigation.goBack();
+                        goBack;
                       } catch (err) {
                         console.error('🗑️ Failed to delete story:', err);
                       }
