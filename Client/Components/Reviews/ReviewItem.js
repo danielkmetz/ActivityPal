@@ -37,7 +37,7 @@ export default function ReviewItem({
     const [dropdownVisible, setDropdownVisible] = useState(false);
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
     const [fullScreenPhoto, setFullScreenPhoto] = useState(null);
-    const [fullScreenIndex, setFullScreenIndex] = useState(0); // 👈 add this
+    const [fullScreenIndex, setFullScreenIndex] = useState(0);
     const [photoModalVisible, setPhotoModalVisible] = useState(false);
     const scrollX = useRef(new Animated.Value(0)).current;
 

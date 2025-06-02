@@ -2,33 +2,40 @@ const fs = require('fs');
 const path = require('path');
 const { createCanvas } = require('canvas');
 const { generatePresignedUrl } = require('../helpers/generatePresignedUrl');
-const waitForObjectReady = require('../utils/waitForObjectReady');
 const axios = require('axios');
 
+const VIDEO_WIDTH = 1080;
+
 async function renderCaptionToPng(caption, localPath) {
-    const { text,  fontSize = 24, backgroundColor = 'rgba(0,0,0,0.5)', color = '#fff' } = caption;
+    const { text, fontSize = 24, backgroundColor = '#000000', color = '#ffffff' } = caption;
+
+    const padding = 40;
     const height = fontSize + 16;
-    const width = 720;
-    const canvas = createCanvas(width, height);
+
+    const tempCanvas = createCanvas(VIDEO_WIDTH, height);
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCtx.font = `${fontSize}px sans-serif`;
+    const textMetrics = tempCtx.measureText(text);
+    const textActualWidth = textMetrics.actualBoundingBoxLeft + textMetrics.actualBoundingBoxRight;
+
+    const finalWidth = Math.ceil(textActualWidth + padding);
+    const canvas = createCanvas(finalWidth, height);
     const ctx = canvas.getContext('2d');
 
-    console.log(`🖼️ Rendering caption to PNG`);
-    console.log(`   Text: "${text}"`);
-    console.log(`   Width: ${width}, Height: ${height}`);
-    console.log(`   Font: ${fontSize}px sans-serif, Background: ${backgroundColor}, Color: ${color}`);
-
     ctx.fillStyle = backgroundColor;
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, finalWidth, height);
 
     ctx.font = `${fontSize}px sans-serif`;
     ctx.fillStyle = color;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, width / 2, height / 2);
+    ctx.fillText(text, finalWidth / 2, height / 2);
 
     fs.writeFileSync(localPath, canvas.toBuffer('image/png'));
+    fs.copyFileSync(localPath, path.join(__dirname, '..', 'debug', path.basename(localPath)));
     console.log(`✅ PNG written to ${localPath}`);
-    return height;
+
+    return { scaledOverlayWidth: finalWidth };
 }
 
 async function uploadOverlayToS3(localPath, s3Key) {
@@ -64,27 +71,32 @@ async function processCaptionsToInsertableImages(captions, storyId) {
             console.log(`🖼️ Generating image for caption ${i}`);
             console.log(`   Caption object:`, caption);
 
-            const height = await renderCaptionToPng(caption, localPath);
-            const s3Uri = await uploadOverlayToS3(localPath, s3Key);
-
+            const {scaledOverlayWidth} = await renderCaptionToPng(caption, localPath);
+            await uploadOverlayToS3(localPath, s3Key);
+            const scaleFactor = VIDEO_WIDTH / caption.width;
+            
             console.log(`🎯 InsertableImage ready:`, {
-                ImageInserterInput: s3Uri,
-                Layer: 1,
-                Opacity: 100,
-                ImageX: 0,
-                ImageY: caption.y ?? 100,
+                s3Key,
+                Layer: 10,
+                Opacity: 70,
+                ImageX: Math.floor((VIDEO_WIDTH - scaledOverlayWidth) / 2),
+                ImageY: caption.y,
                 StartTime: '00:00:00:00',
-                Duration: 3600,
+                FadeIn: 0,
+                FadeOut: 0,
+                Duration: 86400,
             });
 
             return {
-                ImageInserterInput: s3Uri,
-                Layer: 1,
-                Opacity: 100,
-                ImageX: 0,
-                ImageY: 300,
+                s3Key,
+                Layer: 10,
+                Opacity: 70,
+                ImageX:  Math.floor((VIDEO_WIDTH - scaledOverlayWidth) / 2),
+                ImageY: caption.y,
                 StartTime: '00:00:00:00',
-                Duration: 3600,
+                FadeIn: 0,
+                FadeOut: 0,
+                Duration: 86400,
             };
         })
     );
