@@ -345,8 +345,6 @@ const resolvers = {
     },
     getUserPosts: async (_, { userId, limit = 15, after }) => {
       try {
-        console.log('📥 getUserPosts called with:', { userId, limit, after });
-
         const userObjectId = new mongoose.Types.ObjectId(userId);
 
         const user = await User.findById(userObjectId).select(
@@ -363,18 +361,10 @@ const resolvers = {
           ? await getPresignedUrl(photoKey)
           : null;
 
-        console.log('👤 User loaded:', {
-          name: `${user.firstName} ${user.lastName}`,
-          photoKey,
-          profilePicUrl,
-        });
-
         const reviews = await gatherUserReviews(userObjectId, user.profilePic, profilePicUrl);
-        console.log(`📝 Reviews gathered: ${reviews.length}`);
-
+        
         const checkIns = await gatherUserCheckIns(user, profilePicUrl);
-        console.log(`📍 Check-ins gathered: ${checkIns.length}`);
-
+        
         const allPosts = [...reviews, ...checkIns].map(post => ({
           ...post,
           sortDate: post.date,
@@ -387,8 +377,6 @@ const resolvers = {
             new mongoose.Types.ObjectId(a._id).toString()
           );
         });
-
-        console.log(`🧮 Total posts before pagination: ${sorted.length}`);
 
         if (after?.sortDate && after?.id) {
           const afterTime = new Date(after.sortDate).getTime();
@@ -404,11 +392,9 @@ const resolvers = {
             );
           });
 
-          console.log(`🔎 Posts after applying 'after' filter: ${sorted.length}`);
         }
 
         const result = sorted.slice(0, limit);
-        console.log(`✅ Returning ${result.length} posts`);
         return result;
       } catch (error) {
         console.error('[❌ Resolver Error] getUserPosts failed:', error);

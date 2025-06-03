@@ -9,15 +9,15 @@ const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 
 const generateBusinessInviteMessage = (businessName, acceptedCount) => {
     if (acceptedCount >= 20) {
-      return `🚀 A major event is forming at ${businessName} with ${acceptedCount} attendees!`;
+        return `🚀 A major event is forming at ${businessName} with ${acceptedCount} attendees!`;
     } else if (acceptedCount >= 10) {
-      return `🎉 An invite at ${businessName} is now a popular event with ${acceptedCount} attendees!`;
+        return `🎉 An invite at ${businessName} is now a popular event with ${acceptedCount} attendees!`;
     } else if (acceptedCount >= 5) {
-      return `🎉 An invite at ${businessName} has gained traction with ${acceptedCount} attendees!`;
+        return `🎉 An invite at ${businessName} has gained traction with ${acceptedCount} attendees!`;
     } else {
-      return `🎈 An invite at ${businessName} has new activity!`; // fallback, probably won't hit since you check >=5
+        return `🎈 An invite at ${businessName} has new activity!`; // fallback, probably won't hit since you check >=5
     }
-};  
+};
 
 // Get all activity invites for a user
 router.get('/user/:userId/invites', async (req, res) => {
@@ -68,26 +68,26 @@ router.get('/user/:userId/invites', async (req, res) => {
                 // 3️⃣ Enrich requests
                 const requestUserIds = (invite.requests || []).map(r => r.userId);
                 const requestUsers = await User.find({ _id: { $in: requestUserIds } })
-                .select('_id firstName lastName profilePic')
-                .lean();
+                    .select('_id firstName lastName profilePic')
+                    .lean();
 
                 const enrichedRequests = await Promise.all(
-                (invite.requests || []).map(async (r) => {
-                    const user = requestUsers.find(u => u._id.toString() === r.userId.toString());
-                    let profileUrl = null;
-                    if (user?.profilePic?.photoKey) {
-                    profileUrl = await getPresignedUrl(user.profilePic.photoKey);
-                    }
+                    (invite.requests || []).map(async (r) => {
+                        const user = requestUsers.find(u => u._id.toString() === r.userId.toString());
+                        let profileUrl = null;
+                        if (user?.profilePic?.photoKey) {
+                            profileUrl = await getPresignedUrl(user.profilePic.photoKey);
+                        }
 
-                    return {
-                    _id: r._id?.toString(),
-                    userId: r.userId?.toString() || user?._id?.toString(),
-                    status: r.status,
-                    firstName: user?.firstName || '',
-                    lastName: user?.lastName || '',
-                    profilePicUrl: profileUrl,
-                    };
-                })
+                        return {
+                            _id: r._id?.toString(),
+                            userId: r.userId?.toString() || user?._id?.toString(),
+                            status: r.status,
+                            firstName: user?.firstName || '',
+                            lastName: user?.lastName || '',
+                            profilePicUrl: profileUrl,
+                        };
+                    })
                 );
 
                 // 4️⃣ Enrich sender
@@ -143,7 +143,11 @@ router.post('/send', async (req, res) => {
             const newBusiness = new Business({
                 placeId,
                 businessName: businessName || "Unknown Business",
-                location: "N/A", // make sure `location` exists in req.body if needed
+                location: {
+                    type: "Point",
+                    coordinates: [0, 0], // fallback coords
+                    formattedAddress: location?.formattedAddress || "Unknown Address",
+                },
                 firstName: "N/A",
                 lastName: "N/A",
                 email: "N/A",

@@ -1,8 +1,24 @@
 const express = require("express");
 const axios = require("axios");
 const router = express.Router();
+const Business = require('../models/Business');
+const { enrichBusinessWithPromosAndEvents } = require("../utils/enrichBusinesses");
 
 const googleApiKey = process.env.GOOGLE_PLACES2;
+
+const EARTH_RADIUS_M = 6371000; // Earth's radius in meters
+const MAX_DISTANCE_METERS = 8046.72; // 5 miles
+const toRad = deg => (deg * Math.PI) / 180;
+
+const haversineDistance = (lat1, lon1, lat2, lon2) => {
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return EARTH_RADIUS_M * c;
+};
 
 const quickFilters = {
     dateNight: [
@@ -72,6 +88,100 @@ const activityTypeKeywords = {
     Family: ["zoo", "aquarium", "museum", "park", "amusement_park", "playground", "amusement_center"],
 };
 
+async function fetchNearbyPlaces({ lat, lng, radius = 8046.72 }) {
+  const allResults = new Map();
+  const includedType = "establishment";
+  const includeUnpriced = true;
+  const budget = null;
+
+  console.log("📍 fetchNearbyPlaces called with:", { lat, lng, radius });
+
+  try {
+    const response = await axios.post(
+      "https://places.googleapis.com/v1/places:searchNearby",
+      {
+        includedTypes: [includedType],
+        maxResultCount: 100,
+        locationRestriction: {
+          circle: {
+            center: { latitude: lat, longitude: lng },
+            radius: parseInt(radius, 10),
+          },
+        },
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": googleApiKey,
+          "X-Goog-FieldMask": [
+            "places.id",
+            "places.displayName",
+            "places.types",
+            "places.location",
+            "places.shortFormattedAddress",
+            "places.photos",
+            "places.priceLevel",
+          ].join(","),
+        },
+      }
+    );
+
+    const results = response.data.places || [];
+    console.log(`✅ Received ${results.length} places from Google Places API`);
+
+    results.forEach(place => {
+      if (!allResults.has(place.id)) {
+        allResults.set(place.id, place);
+      }
+    });
+
+  } catch (err) {
+    console.error("❌ Error fetching from Google Places:", err.response?.data || err.message);
+    return [];
+  }
+
+  const filtered = Array.from(allResults.values()).filter(place => {
+    const distance = haversineDistance(lat, lng, place.location.latitude, place.location.longitude);
+
+    const excluded =
+      distance > radius ||
+      place.types?.includes("school") ||
+      place.types?.includes("doctor") ||
+      place.types?.includes("hospital") ||
+      place.types?.includes("lodging") ||
+      place.types?.includes("airport") ||
+      place.types?.includes("store") ||
+      place.types?.includes("storage") ||
+      place.types?.includes("golf_course") ||
+      place.types?.includes("meal_takeaway") ||
+      place.types?.includes("casino") ||
+      /Country Club|Golf Course|Golf Club|Links/i.test(place.displayName?.text || "") ||
+      (
+        !includeUnpriced && !place.priceLevel
+      ) ||
+      (
+        budget === "$" && place.priceLevel > 1
+      ) ||
+      (
+        budget === "$$" && place.priceLevel > 2
+      ) ||
+      (
+        budget === "$$$" && place.priceLevel > 3
+      );
+
+    if (excluded) {
+      console.log(`⛔ Excluded: "${place.displayName?.text}" — Types: ${place.types?.join(", ")}, Price: ${place.priceLevel}, Distance: ${distance.toFixed(2)}m`);
+      return false;
+    }
+
+    return true;
+  });
+
+  console.log(`🎯 Returning ${filtered.length} filtered places within radius`);
+
+  return filtered;
+}
+
 router.post("/places-nearby", async (req, res) => {
     const { activityType, quickFilter, lat, lng, radius = 10000, budget } = req.body;
   
@@ -81,61 +191,7 @@ router.post("/places-nearby", async (req, res) => {
       : (activityTypeKeywords[activityType] || []).map(type => ({ type }));
   
     const allResults = new Map();
-    console.log(allResults);
-  
-    const toRad = (val) => (val * Math.PI) / 180;
-    const haversineDistance = (lat1, lon1, lat2, lon2) => {
-      const R = 6371;
-      const dLat = toRad(lat2 - lat1);
-      const dLon = toRad(lon2 - lon1);
-      const a = Math.sin(dLat / 2) ** 2 +
-        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    };
-  
-    const fetchNearbyPlaces = async (type, keyword = '') => {
-      try {
-        const response = await axios.post(
-          'https://places.googleapis.com/v1/places:searchNearby',
-          {
-            includedTypes: [type],
-            keyword: keyword || undefined,
-            maxResultCount: 20,
-            locationRestriction: {
-              circle: {
-                center: { latitude: lat, longitude: lng },
-                radius: parseInt(radius, 10)
-              }
-            }
-          },
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Goog-Api-Key': googleApiKey,
-              'X-Goog-FieldMask': [
-                'places.id',
-                'places.displayName',
-                'places.types',
-                'places.location',
-                'places.shortFormattedAddress',
-                'places.photos',
-                'places.priceLevel'
-              ].join(',')
-            }
-          }
-        );
-  
-        const results = response.data.places || [];
-        results.forEach(place => {
-          if (!allResults.has(place.id)) {
-            allResults.set(place.id, place);
-          }
-        });
-      } catch (err) {
-        console.error(`❌ Error fetching nearby places for type="${type}" keyword="${keyword}":`, err.response?.data || err.message);
-      }
-    };
-  
+    
     try {
       await Promise.all(
         searchCombos.map(({ type, keyword }) => fetchNearbyPlaces(type, keyword))
@@ -193,5 +249,56 @@ router.post("/places-nearby", async (req, res) => {
       res.status(500).json({ error: "Something went wrong with the nearby search." });
     }
 });
-  
+
+router.post("/events-and-promos-nearby", async (req, res) => {
+  const { lat, lng } = req.body;
+
+  console.log("📍 Incoming request to /events-and-promos-nearby with coords:", { lat, lng });
+
+  if (typeof lat !== "number" || typeof lng !== "number") {
+    console.warn("❗ Invalid or missing lat/lng in request body.");
+    return res.status(400).json({ error: "Missing or invalid lat/lng" });
+  }
+
+  try {
+    // Step 1: Geospatial query to find nearby businesses
+    const nearbyBusinesses = await Business.find({
+      location: {
+        $near: {
+          $geometry: {
+            type: "Point",
+            coordinates: [lng, lat],
+          },
+          $maxDistance: MAX_DISTANCE_METERS,
+        },
+      },
+    });
+
+    console.log(`✅ Found ${nearbyBusinesses.length} nearby businesses within ${MAX_DISTANCE_METERS} miles.`);
+
+    // Step 2: Filter for businesses with active promos or events
+    const enriched = [];
+
+    for (const biz of nearbyBusinesses) {
+      try {
+        const enrichedBiz = enrichBusinessWithPromosAndEvents(biz, lat, lng);
+        if (enrichedBiz) {
+          enriched.push(enrichedBiz);
+        } else {
+          console.log(`⚠️ Skipped business "${biz.businessName}" – no active promo/event.`);
+        }
+      } catch (e) {
+        console.error(`❌ Error enriching business "${biz.businessName}":`, e);
+      }
+    }
+
+    console.log(`🎯 Returning ${enriched.length} enriched businesses with active promos/events.`);
+    res.json({ businessesWithPromosOrEvents: enriched });
+
+  } catch (err) {
+    console.error("🔥 Error in /events-and-promos-nearby:", err.stack || err);
+    res.status(500).json({ error: "Failed to fetch active promos/events nearby." });
+  }
+});
+
 module.exports = router;

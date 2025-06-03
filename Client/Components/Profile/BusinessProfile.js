@@ -45,7 +45,7 @@ export default function BusinessProfile() {
   const placeId = user?.placeId;
   const likes = 120;
   const avgRating = 4.2;
-  const location = user?.location;
+  const location = user?.location?.formattedAddress;
   const phone = user?.phone || "Enter a phone number";
   const description = user?.description || "Enter a description of your business";
   const [isFavorited, setIsFavorited] = useState(mainUserFavorites?.includes(placeId));

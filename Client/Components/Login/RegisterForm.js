@@ -10,6 +10,8 @@ const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 export default function RegisterForm({ form, setForm, isBusiness, onSuccess }) {
   const dispatch = useDispatch();
 
+  console.log(form)
+
   const handleRegister = () => {
     const {
       email,
@@ -20,6 +22,8 @@ export default function RegisterForm({ form, setForm, isBusiness, onSuccess }) {
       businessName,
       location,
       placeId,
+      lat,
+      lng,
     } = form;
 
     if (!email || !password || !confirmPassword || !firstName || !lastName) {
@@ -47,6 +51,8 @@ export default function RegisterForm({ form, setForm, isBusiness, onSuccess }) {
         businessName,
         location,
         placeId,
+        lat,
+        lng,
       })
     )
       .unwrap()
@@ -108,6 +114,8 @@ export default function RegisterForm({ form, setForm, isBusiness, onSuccess }) {
                 businessName: details.name,
                 location: details.formatted_address,
                 placeId: details.place_id,
+                lat: details.geometry.location.lat,
+                lng: details.geometry.location.lng,
               }));
             }
           }}

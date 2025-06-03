@@ -167,7 +167,11 @@ router.post("/:placeId", async (req, res) => {
       business = new Business({
         placeId,
         businessName: businessName || "Unknown Business",
-        location: location || "Unknown Location",
+        location: {
+          type: "Point",
+          coordinates: [0, 0], // fallback coords
+          formattedAddress: location?.formattedAddress || "Unknown Address",
+        },
         firstName: "N/A",
         lastName: "N/A",
         email: "N/A",
