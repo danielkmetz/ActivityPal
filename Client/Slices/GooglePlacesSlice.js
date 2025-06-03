@@ -48,7 +48,8 @@ export const fetchNearbyPromosAndEvents = createAsyncThunk(
   async ({ lat, lng }, { rejectWithValue }) => {
     try {
       const response = await axios.post(`${BASE_URL}/places2/events-and-promos-nearby`, { lat, lng });
-      return response.data.businessesWithPromosOrEvents;
+      
+      return response.data.suggestions;
     } catch (error) {
       console.error('Error fetching promos/events:', error);
       return rejectWithValue(error.response?.data || 'Unknown error');

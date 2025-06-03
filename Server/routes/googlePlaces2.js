@@ -21,71 +21,71 @@ const haversineDistance = (lat1, lon1, lat2, lon2) => {
 };
 
 const quickFilters = {
-    dateNight: [
-      { type: 'amusement_center' },
-      { type: 'movie_theater' },
-      { type: 'restaurant' },
-      { type: 'bar' },
-      { type: 'bowling_alley' },
-      { type: 'escape_room' } // fallback included separately
-    ],
-  
-    drinksAndDining: [
-      { type: 'restaurant' },
-      { type: 'bar' },
-      { type: 'cafe' }
-    ],
-  
-    outdoor: [
-      { type: 'park' },
-      { type: 'natural_feature' },
-      { type: 'campground' },
-      { type: 'tourist_attraction' }
-    ],
-  
-    movieNight: [
-      { type: 'movie_theater' }
-    ],
-  
-    gaming: [
-      { type: 'amusement_center' },
-      { type: 'bowling_alley' }
-    ],
-  
-    artAndCulture: [
-      { type: 'museum' },
-      { type: 'art_gallery' }
-    ],
-  
-    familyFun: [
-      { type: 'amusement_park' },
-      { type: 'zoo' },
-      { type: 'aquarium' },
-      { type: 'amusement_center' },
-      { type: 'museum' },
-      { type: 'playground' }
-    ],
-  
-    petFriendly: [
-      { type: 'park' } // filter for pet friendliness in logic
-    ],
-  
-    liveMusic: [
-      { type: 'bar' },
-      { type: 'night_club' }
-    ],
-  
-    whatsClose: [
-      { type: 'establishment' }
-    ]
+  dateNight: [
+    { type: 'amusement_center' },
+    { type: 'movie_theater' },
+    { type: 'restaurant' },
+    { type: 'bar' },
+    { type: 'bowling_alley' },
+    { type: 'escape_room' } // fallback included separately
+  ],
+
+  drinksAndDining: [
+    { type: 'restaurant' },
+    { type: 'bar' },
+    { type: 'cafe' }
+  ],
+
+  outdoor: [
+    { type: 'park' },
+    { type: 'natural_feature' },
+    { type: 'campground' },
+    { type: 'tourist_attraction' }
+  ],
+
+  movieNight: [
+    { type: 'movie_theater' }
+  ],
+
+  gaming: [
+    { type: 'amusement_center' },
+    { type: 'bowling_alley' }
+  ],
+
+  artAndCulture: [
+    { type: 'museum' },
+    { type: 'art_gallery' }
+  ],
+
+  familyFun: [
+    { type: 'amusement_park' },
+    { type: 'zoo' },
+    { type: 'aquarium' },
+    { type: 'amusement_center' },
+    { type: 'museum' },
+    { type: 'playground' }
+  ],
+
+  petFriendly: [
+    { type: 'park' } // filter for pet friendliness in logic
+  ],
+
+  liveMusic: [
+    { type: 'bar' },
+    { type: 'night_club' }
+  ],
+
+  whatsClose: [
+    { type: 'establishment' }
+  ]
 };
-  
+
 const activityTypeKeywords = {
-    Dining: ["restaurant", "bar", "meal_delivery", "meal_takeaway", "cafe"],
-    Entertainment: ["movie_theater", "bowling_alley", "amusement_center", "topgolf", 'amusement_center'],
-    Outdoor: ["park", "tourist_attraction", "campground", "zoo", "natural_feature"],
-    Indoor: ["bowling_alley", "museum", "aquarium", "art_gallery", "movie_theater", "amusement_center"],
-    Family: ["zoo", "aquarium", "museum", "park", "amusement_park", "playground", "amusement_center"],
+  Dining: ["restaurant", "bar", "meal_delivery", "meal_takeaway", "cafe"],
+  Entertainment: ["movie_theater", "bowling_alley", "amusement_center", "topgolf", 'amusement_center'],
+  Outdoor: ["park", "tourist_attraction", "campground", "zoo", "natural_feature"],
+  Indoor: ["bowling_alley", "museum", "aquarium", "art_gallery", "movie_theater", "amusement_center"],
+  Family: ["zoo", "aquarium", "museum", "park", "amusement_park", "playground", "amusement_center"],
 };
 
 async function fetchNearbyPlaces({ lat, lng, radius = 8046.72 }) {
@@ -183,71 +183,71 @@ async function fetchNearbyPlaces({ lat, lng, radius = 8046.72 }) {
 }
 
 router.post("/places-nearby", async (req, res) => {
-    const { activityType, quickFilter, lat, lng, radius = 10000, budget } = req.body;
-  
-    // Fallback to activityTypeKeywords if quickFilter is not provided
-    const searchCombos = quickFilter
-      ? quickFilters[quickFilter] || []
-      : (activityTypeKeywords[activityType] || []).map(type => ({ type }));
-  
-    const allResults = new Map();
-    
-    try {
-      await Promise.all(
-        searchCombos.map(({ type, keyword }) => fetchNearbyPlaces(type, keyword))
+  const { activityType, quickFilter, lat, lng, radius = 10000, budget } = req.body;
+
+  // Fallback to activityTypeKeywords if quickFilter is not provided
+  const searchCombos = quickFilter
+    ? quickFilters[quickFilter] || []
+    : (activityTypeKeywords[activityType] || []).map(type => ({ type }));
+
+  const allResults = new Map();
+
+  try {
+    await Promise.all(
+      searchCombos.map(({ type, keyword }) => fetchNearbyPlaces(type, keyword))
+    );
+
+    const includeUnpriced = true;
+
+    const filtered = Array.from(allResults.values()).filter(place => {
+      const distance = haversineDistance(lat, lng, place.location.latitude, place.location.longitude);
+      return (
+        distance <= radius / 1609.34 &&
+        !place.types?.includes("school") &&
+        !place.types?.includes("doctor") &&
+        !place.types?.includes("hospital") &&
+        !place.types?.includes("lodging") &&
+        !place.types?.includes("airport") &&
+        !place.types?.includes("store") &&
+        !place.types?.includes("storage") &&
+        !place.types?.includes("golf_course") &&
+        !place.types?.includes("meal_takeaway") &&
+        !place.types?.includes("casino") &&
+        !/Country Club|Golf Course|Golf Club|Links/i.test(place.displayName?.text || "") &&
+        (
+          (includeUnpriced && !place.priceLevel) ||
+          (budget === "$" && place.priceLevel <= 1) ||
+          (budget === "$$" && place.priceLevel <= 2) ||
+          (budget === "$$$" && place.priceLevel <= 3) ||
+          (budget === "$$$$")
+        )
       );
-  
-      const includeUnpriced = true;
-  
-      const filtered = Array.from(allResults.values()).filter(place => {
-        const distance = haversineDistance(lat, lng, place.location.latitude, place.location.longitude);
-        return (
-          distance <= radius / 1609.34 &&
-          !place.types?.includes("school") &&
-          !place.types?.includes("doctor") &&
-          !place.types?.includes("hospital") &&
-          !place.types?.includes("lodging") &&
-          !place.types?.includes("airport") &&
-          !place.types?.includes("store") &&
-          !place.types?.includes("storage") &&
-          !place.types?.includes("golf_course") &&
-          !place.types?.includes("meal_takeaway") &&
-          !place.types?.includes("casino") &&
-          !/Country Club|Golf Course|Golf Club|Links/i.test(place.displayName?.text || "") &&
-          (
-            (includeUnpriced && !place.priceLevel) ||
-            (budget === "$" && place.priceLevel <= 1) ||
-            (budget === "$$" && place.priceLevel <= 2) ||
-            (budget === "$$$" && place.priceLevel <= 3) ||
-            (budget === "$$$$")
-          )
-        );
-      });
-  
-      const curatedPlaces = filtered.map(place => {
-        const distance = haversineDistance(lat, lng, place.location.latitude, place.location.longitude);
-        return {
-          name: place.displayName?.text,
-          types: place.types,
-          address: place.shortFormattedAddress,
-          place_id: place.id,
-          photoUrl: place.photos?.[0]?.name
-            ? `https://places.googleapis.com/v1/${place.photos[0].name}/media?maxHeightPx=400&key=${googleApiKey}`
-            : null,
-          distance,
-          location: {
-            lat: place.location.latitude,
-            lng: place.location.longitude,
-          },
-        };
-      }).sort((a, b) => a.distance - b.distance);
-  
-      res.json({ curatedPlaces });
-  
-    } catch (error) {
-      console.error("🔥 Error in /places-nearby:", error.message);
-      res.status(500).json({ error: "Something went wrong with the nearby search." });
-    }
+    });
+
+    const curatedPlaces = filtered.map(place => {
+      const distance = haversineDistance(lat, lng, place.location.latitude, place.location.longitude);
+      return {
+        name: place.displayName?.text,
+        types: place.types,
+        address: place.shortFormattedAddress,
+        place_id: place.id,
+        photoUrl: place.photos?.[0]?.name
+          ? `https://places.googleapis.com/v1/${place.photos[0].name}/media?maxHeightPx=400&key=${googleApiKey}`
+          : null,
+        distance,
+        location: {
+          lat: place.location.latitude,
+          lng: place.location.longitude,
+        },
+      };
+    }).sort((a, b) => a.distance - b.distance);
+
+    res.json({ curatedPlaces });
+
+  } catch (error) {
+    console.error("🔥 Error in /places-nearby:", error.message);
+    res.status(500).json({ error: "Something went wrong with the nearby search." });
+  }
 });
 
 router.post("/events-and-promos-nearby", async (req, res) => {
@@ -277,24 +277,44 @@ router.post("/events-and-promos-nearby", async (req, res) => {
     console.log(`✅ Found ${nearbyBusinesses.length} nearby businesses within ${MAX_DISTANCE_METERS} miles.`);
 
     // Step 2: Filter for businesses with active promos or events
-    const enriched = [];
+    const flattenedSuggestions = [];
 
     for (const biz of nearbyBusinesses) {
       try {
-        const enrichedBiz = enrichBusinessWithPromosAndEvents(biz, lat, lng);
-        if (enrichedBiz) {
-          enriched.push(enrichedBiz);
-        } else {
-          console.log(`⚠️ Skipped business "${biz.businessName}" – no active promo/event.`);
-        }
+        const enrichedBiz = await enrichBusinessWithPromosAndEvents(biz, lat, lng);
+        if (!enrichedBiz) continue;
+
+        const {
+          businessName,
+          placeId,
+          location,
+          logoUrl,
+          bannerUrl,
+          distance,
+          activePromo,
+          upcomingPromo,
+          activeEvent,
+          upcomingEvent,
+        } = enrichedBiz;
+
+        const shared = { type: 'suggestion', businessName, placeId, location, logoUrl, bannerUrl, distance };
+
+        const pushIfExists = (entry, kind) => {
+          if (entry) flattenedSuggestions.push({ ...shared, ...entry, kind });
+        };
+
+        pushIfExists(activePromo, 'activePromo');
+        pushIfExists(upcomingPromo, 'upcomingPromo');
+        pushIfExists(activeEvent, 'activeEvent');
+        pushIfExists(upcomingEvent, 'upcomingEvent');
+
       } catch (e) {
         console.error(`❌ Error enriching business "${biz.businessName}":`, e);
       }
     }
 
-    console.log(`🎯 Returning ${enriched.length} enriched businesses with active promos/events.`);
-    res.json({ businessesWithPromosOrEvents: enriched });
-
+    console.log(`🎯 Returning ${flattenedSuggestions.length} flattened suggestions.`);
+    res.json({ suggestions: flattenedSuggestions });
   } catch (err) {
     console.error("🔥 Error in /events-and-promos-nearby:", err.stack || err);
     res.status(500).json({ error: "Failed to fetch active promos/events nearby." });

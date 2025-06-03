@@ -40,6 +40,7 @@ const InviteModal = ({
     initialInvite,
     setIsEditing,
     setInviteToEdit,
+    suggestedPlace,
 }) => {
     const dispatch = useDispatch();
     const user = useSelector(selectUser);
@@ -76,6 +77,27 @@ const InviteModal = ({
             setSelectedFriends(normalizedIds);
         }
     }, [isEditing, initialInvite, visible]);
+
+    useEffect(() => {
+        if (!isEditing && suggestedPlace && visible) {
+            setSelectedPlace({
+                placeId: suggestedPlace.placeId,
+                name: suggestedPlace.name,
+            });
+
+            // Populate the GooglePlaces input field
+            googleRef.current?.setAddressText(suggestedPlace.name);
+
+            const suggestionTime = new Date(suggestedPlace.startTime);
+            const now = new Date();
+
+            if (suggestionTime > now) {
+                setDateTime(suggestionTime);
+            }
+
+            setNote(suggestedPlace.note);
+        }
+    }, [suggestedPlace, isEditing, visible]);
 
     useEffect(() => {
         if (visible) {
@@ -151,7 +173,9 @@ const InviteModal = ({
                 };
 
                 finalFeed = updateFeedWithItem(userAndFriendReviews, enrichedInvite);
-
+                setInviteToEdit(null);
+                setIsEditing(false);
+            
                 alert('Invite updated!');
             } else {
                 const { payload: newInvite } = await dispatch(sendInvite(invitePayload));
@@ -176,8 +200,6 @@ const InviteModal = ({
             setNote('');
             setSelectedPlace(null);
             setDateTime(null);
-            setInviteToEdit(null);
-            setIsEditing(false);
             setSelectedFriends([]);
             onClose();
         } catch (err) {
@@ -225,7 +247,7 @@ const InviteModal = ({
                         >
                             <Animated.View style={[styles.modalContainer, animatedStyle]}>
                                 <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-                                    <View style={{flex: 1}}>
+                                    <View style={{ flex: 1 }}>
                                         <Notch />
                                         <Text style={styles.title}>Create Vybe Invite</Text>
 
@@ -271,7 +293,7 @@ const InviteModal = ({
                                             fetchDetails
                                             {...googlePlacesDefaultProps}
                                         />
-                                        
+
                                         <View style={styles.switchContainer}>
                                             <Text style={styles.label}>
                                                 {isPublic ? 'Public Invite 🌍' : 'Private Invite 🔒'}

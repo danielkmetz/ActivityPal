@@ -50,7 +50,6 @@ export const createReview = createAsyncThunk(
   }
 );
 
-
 export const toggleLike = createAsyncThunk(
   'posts/toggleLike',
   async ({ postType, placeId, postId, userId, fullName }, { rejectWithValue }) => {

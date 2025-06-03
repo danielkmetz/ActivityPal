@@ -57,7 +57,7 @@ export default function EditProfileModal({
   const fullName = `${user?.firstName} ${user?.lastName}`;
   const bannerUrl = typeof banner === 'string'
     ? banner
-    : banner?.url || banner?.presignedUrl;
+    : banner?.presignedUrl || banner?.url;
 
   // Update photoList whenever photos prop changes
   useEffect(() => {
@@ -65,6 +65,8 @@ export default function EditProfileModal({
       setPhotoList(selectedPhotos);
     }
   }, [selectedPhotos]);
+
+  console.log(banner)
 
   const handleOpenEditAboutModal = () => {
     Animated.timing(translateX, {
@@ -237,7 +239,7 @@ export default function EditProfileModal({
             <Text style={styles.sectionTitle}>Current Banner Image</Text>
             {isBusiness ?
               <Image
-                source={banner ? { uri: bannerUrl } : bannerPlaceholder}
+                source={bannerUrl ? { uri: bannerUrl } : bannerPlaceholder}
                 style={styles.previewImage}
               /> : (
                 banner?.url ? (
