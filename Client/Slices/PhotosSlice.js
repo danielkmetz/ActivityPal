@@ -93,17 +93,32 @@ export const uploadBanner = createAsyncThunk(
 
       // Upload the logo
       const response = await axios.post(`${BASE_URL}/banners/upload-business-banner/${placeId}`, 
-        {fileName: file.name},
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        });
+        {fileName: file.name});
+      
+      const { presignedUrl, photoKey } = response.data;
+      
+      // Ensure correct MIME type
+      file = {
+        ...file,
+        type: getMimeType(file.name), // Function to get correct MIME type (e.g., image/png)
+      };
 
-      // Dispatch fetchLogo to retrieve the logo object
+      // Step 2: Upload the file to S3
+      const fileBlob = await (await fetch(file.uri)).blob(); // Fetch the file as a Blob
+
+      const uploadResponse = await fetch(presignedUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': file.type, // Use the correct MIME type
+        },
+        body: fileBlob, // Raw binary content
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(`Failed to upload the file. Status: ${uploadResponse.status}`);
+      }
+
       await dispatch(fetchBanner(placeId));
-
-      return response.data; // Return the uploaded logo URL
     } catch (error) {
       return rejectWithValue(error.response?.data || error.message);
     }
@@ -115,18 +130,9 @@ export const fetchBanner = createAsyncThunk(
   'photos/fetchBanner',
   async (placeId, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${BASE_URL}/banners/${placeId}/banner-business`, {
-        responseType: 'blob', // Fetch the logo as a blob
-      });
+      const response = await axios.get(`${BASE_URL}/banners/${placeId}/banner-business`);
 
-      const blob = response.data;
-
-      // Convert blob to base64
-      const base64Data = await blobToBase64(blob);
-
-      // Return the base64 image in the correct format
-      const mimeType = blob.type || 'image/jpeg'; // Use blob type or fallback to jpeg
-      return `data:${mimeType};base64,${base64Data}`;
+      return response.data;
     } catch (error) {
       // Ensure the error is serializable
       const errorMessage = error.response?.data?.message || error.message || 'Unknown error';
@@ -503,7 +509,6 @@ const photoSlice = createSlice({
       })
       .addCase(uploadBanner.fulfilled, (state, action) => {
         state.uploadLoading = false;
-        state.banner = action.payload;
       })
       .addCase(uploadBanner.rejected, (state, action) => {
         state.uploadLoading = false;

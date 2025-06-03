@@ -109,7 +109,7 @@ export default function BusinessProfile() {
           <Ionicons name="chevron-back" size={24} color="gray" />
         </TouchableOpacity>
       )}
-      <Image source={banner?.url ? { uri: banner?.url } : bannerPlaceholder} style={styles.banner} />
+      <Image source={banner?.presignedUrl ? { uri: banner?.presignedUrl } : bannerPlaceholder} style={styles.banner} />
       <View style={styles.profileContainer}>
         <Image source={logo ? { uri: logo } : logoPlaceholder} style={styles.profilePicture} resizeMode="contain" />
         <View style={styles.nameSettings}>
