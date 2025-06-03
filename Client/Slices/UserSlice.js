@@ -31,14 +31,14 @@ export const loginUser = createAsyncThunk(
 
 export const registerUser = createAsyncThunk(
   "user/registerUser",
-  async ({ email, password, firstName, lastName, isBusiness, placeId, businessName, location }, { rejectWithValue }) => {
+  async ({ email, password, firstName, lastName, isBusiness, placeId, businessName, location, lat, lng }, { rejectWithValue }) => {
     try {
       const response = await fetch(`${BASE_URL}/auth/register`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email, password, firstName, lastName, isBusiness, placeId, businessName, location }),
+        body: JSON.stringify({ email, password, firstName, lastName, isBusiness, placeId, businessName, location, lat, lng }),
       });
 
       const data = await response.json();

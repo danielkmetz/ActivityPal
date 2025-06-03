@@ -22,7 +22,11 @@ router.post("/post", async (req, res) => {
       business = new Business({
         placeId,
         businessName: businessName || "Unknown Business",
-        location: location || "Unknown Location",
+        location: {
+          type: "Point",
+          coordinates: [0, 0], // fallback coords
+          formattedAddress: location?.formattedAddress || "Unknown Address",
+        },
         firstName: "N/A",
         lastName: "N/A",
         email: "N/A",
@@ -38,10 +42,10 @@ router.post("/post", async (req, res) => {
       photos.map(async (photo) => {
         const formattedTagged = Array.isArray(photo.taggedUsers)
           ? photo.taggedUsers.map(tag => ({
-              userId: tag.userId,
-              x: tag.x,
-              y: tag.y,
-            }))
+            userId: tag.userId,
+            x: tag.x,
+            y: tag.y,
+          }))
           : [];
 
         return {
@@ -159,13 +163,13 @@ router.put("/:userId/:checkInId", async (req, res) => {
         photos.map(async (photo) => {
           const formattedTagged = Array.isArray(photo.taggedUsers)
             ? photo.taggedUsers.map(tag => {
-                newPhotoTaggedUserIds.push(tag.userId?.toString());
-                return {
-                  userId: tag.userId,
-                  x: tag.x,
-                  y: tag.y,
-                };
-              })
+              newPhotoTaggedUserIds.push(tag.userId?.toString());
+              return {
+                userId: tag.userId,
+                x: tag.x,
+                y: tag.y,
+              };
+            })
             : [];
 
           newPhotosByKey.set(photo.photoKey, photo);

@@ -111,6 +111,8 @@ router.post('/register', async (req, res) => {
     placeId,
     businessName,
     location,
+    lat,
+    lng,
   } = req.body;
 
   const session = await mongoose.startSession();
@@ -164,7 +166,11 @@ router.post('/register', async (req, res) => {
         existingBusinessByPlaceId.email = email;
         existingBusinessByPlaceId.password = hashedPassword;
         existingBusinessByPlaceId.businessName = businessName;
-        existingBusinessByPlaceId.location = location;
+        existingBusinessByPlaceId.location = {
+          type: 'Point',
+          coordinates: [lng, lat],
+          formattedAddress: location,
+        };
 
         await existingBusinessByPlaceId.save({ session });
         console.log(`✅ Upgraded placeholder business for placeId: ${placeId}`);
@@ -177,7 +183,11 @@ router.post('/register', async (req, res) => {
           password: hashedPassword,
           placeId,
           businessName,
-          location,
+          location: {
+            type: 'Point',
+            coordinates: [lng, lat],
+            formattedAddress: location,
+          },
         });
 
         await newBusiness.save({ session });

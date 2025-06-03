@@ -30,6 +30,8 @@ export default function LoginPage() {
     businessName: "",
     location: "",
     placeId: "",
+    lat: null,
+    lng: null,
   });
 
   const error = useSelector(selectError);

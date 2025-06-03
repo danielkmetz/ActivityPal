@@ -94,21 +94,21 @@ const EventSchema = new mongoose.Schema({
   recurring: { type: Boolean, default: false },
   recurringDays: [{ type: String, enum: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] }],
   allDay: { type: Boolean, default: true },
-  startTime: { type: String, default: null},
-  endTime: { type: String, default: null},
+  startTime: { type: String, default: null },
+  endTime: { type: String, default: null },
 });
 
 const NotificationSchema = new mongoose.Schema({
   type: {
     type: String,
     enum: [
-      'friendRequest', 
-      'friendRequestAccepted', 
-      'like', 
-      'comment', 
-      'reply', 
-      'event', 
-      'tag', 
+      'friendRequest',
+      'friendRequestAccepted',
+      'like',
+      'comment',
+      'reply',
+      'event',
+      'tag',
       'photoTag',
       'activityInvite',
       'activityInviteAccepted',
@@ -125,7 +125,7 @@ const NotificationSchema = new mongoose.Schema({
   targetId: { type: mongoose.Schema.Types.ObjectId, refPath: 'targetRef' },
   targetRef: { type: String, enum: ['Review', 'ActivityInvite', null] },
   read: { type: Boolean, default: false },
-  postType: {type: String, default: null},
+  postType: { type: String, default: null },
   createdAt: { type: Date, default: Date.now },
 });
 
@@ -156,8 +156,19 @@ const BusinessSchema = new mongoose.Schema({
     required: true,
   },
   location: {
-    type: String,
-    required: true,
+    type: {
+      type: String,
+      enum: ["Point"],
+      default: "Point",
+    },
+    coordinates: {
+      type: [Number], // [lng, lat]
+      required: true,
+    },
+    formattedAddress: {
+      type: String,
+      required: true,
+    }
   },
   phone: {
     type: String,
