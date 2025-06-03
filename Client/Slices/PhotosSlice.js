@@ -87,15 +87,18 @@ export const uploadBanner = createAsyncThunk(
   'photos/uploadBanner',
   async ({ placeId, file }, { rejectWithValue, dispatch }) => {
     try {
+      console.log(file)
       const formData = new FormData();
       formData.append('banner', file);
 
       // Upload the logo
-      const response = await axios.post(`${BASE_URL}/banners/upload-business/${placeId}`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      const response = await axios.post(`${BASE_URL}/banners/upload-business-banner/${placeId}`, 
+        {fileName: file.name},
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
 
       // Dispatch fetchLogo to retrieve the logo object
       await dispatch(fetchBanner(placeId));

@@ -25,6 +25,7 @@ const upload = multer({ storage });
 router.post('/upload-business-banner/:placeId', async (req, res) => {
   const { placeId } = req.params;
   const { fileName } = req.body;
+  console.log(fileName)
 
   if (!fileName) {
     return res.status(400).json({ message: 'No file name provided.' });

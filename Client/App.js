@@ -49,7 +49,7 @@ function MainApp() {
   const [shouldFetch, setShouldFetch] = useState(true);
   const [newUnreadCount, setNewUnreadCount] = useState(0);
   const previousUnreadCount = useRef(null);
-
+  
   const { 
     scrollY, 
     headerTranslateY, 

@@ -12,7 +12,7 @@ import {
     selectHasFetchedOnce,
     setHasFetchedOnce,
 } from "../../Slices/ReviewsSlice";
-import { selectUser } from "../../Slices/UserSlice";
+import { selectIsBusiness, selectUser } from "../../Slices/UserSlice";
 import {
     fetchFollowRequests,
     fetchMutualFriends,
@@ -32,20 +32,27 @@ import {
     contentModalStatus,
     inviteModalStatus,
 } from "../../Slices/ModalSlice";
+import { selectCoordinates } from "../../Slices/LocationSlice";
+import { fetchNearbyPromosAndEvents, selectNearbySuggestions } from "../../Slices/GooglePlacesSlice";
 
 const Home = ({ scrollY, onScroll, isAtEnd }) => {
     const dispatch = useDispatch();
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const friends = useSelector(selectFriends);
     const user = useSelector(selectUser);
+    const coordinates = useSelector(selectCoordinates);
+    const nearbySuggestions = useSelector(selectNearbySuggestions);
     const contentModal = useSelector(contentModalStatus);
     const inviteModal = useSelector(inviteModalStatus);
     const stories = useSelector(selectStories);
     const [business, setBusiness] = useState(null);
     const [businessName, setBusinessName] = useState(null);
     const hasFetchedOnce = useSelector(selectHasFetchedOnce);
+    const isBusiness = useSelector(selectIsBusiness);
 
     const userId = user?.id;
+    const { lat, lng } = coordinates || {};
+
     const {
         loadMore,
         refresh,
@@ -70,6 +77,14 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
             dispatch(setHasFetchedOnce(true));
         }
     }, [userId]);
+
+    useEffect(() => {
+        if ( lat && lng && !isBusiness ) {
+            dispatch(fetchNearbyPromosAndEvents({lat, lng}));
+        }
+    }, [lat, lng]);
+
+    console.log(nearbySuggestions);
 
     return (
         <View style={styles.container}>
