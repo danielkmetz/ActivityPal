@@ -50,10 +50,14 @@ export default function usePaginatedFetch({
           return new Date(item.sortDate) < new Date(latest.sortDate) ? item : latest;
         }, payload[0]);
 
-        if (oldestItem?.sortDate && oldestItem?._id) {
+        const lastRealItem = [...newItems].reverse().find(item =>
+          ['review', 'check-in', 'invite'].includes(item.type)
+        );
+
+        if (lastRealItem?.sortDate && lastRealItem?._id) {
           lastCursorRef.current = {
-            sortDate: oldestItem.sortDate,
-            id: oldestItem._id,
+            sortDate: lastRealItem.sortDate,
+            id: lastRealItem._id,
           };
         }
 

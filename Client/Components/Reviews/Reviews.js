@@ -13,6 +13,7 @@ import { selectUser } from "../../Slices/UserSlice";
 import InviteCard from "./InviteCard";
 import ReviewItem from "./ReviewItem";
 import CheckInItem from "./CheckInItem";
+import SuggestionItem from "./SuggestionItem";
 import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from "../../utils/LikeHandlers";
 import { useNavigation } from "@react-navigation/native";
 
@@ -28,7 +29,7 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
   const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
   const profileReviews = useSelector(selectProfileReviews);
 
-  const userId = user?.id
+  const userId = user?.id;
 
   const handleOpenComments = (review) => {
     if (!review) return;
@@ -125,9 +126,10 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
       <AnimatedFlatList
         data={reviews}
         extraData={reviews ?? []}
-        keyExtractor={(item, index) =>
-          `${item.type}-${item._id || item.id || index}`
-        }
+        keyExtractor={(item, index) => {
+          const id = item._id || item.id || index;
+          return item.type === 'suggestion' ? `suggestion-${index}` : `${item.type}-${id}`;
+        }}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={ListHeaderComponent}
         onEndReached={() => {
@@ -184,6 +186,15 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
               />
             );
           }
+
+          if (item.type === "suggestion") {
+            return (
+              <SuggestionItem
+                suggestion={item}
+              />
+            );
+          }
+
           return (
             <ReviewItem
               item={item}

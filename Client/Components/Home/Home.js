@@ -1,8 +1,5 @@
 import React, { useEffect, useState } from "react";
-import {
-    View,
-    StyleSheet,
-} from "react-native";
+import { View, StyleSheet } from "react-native";
 import WriteReviewModal from "../Reviews/CreatePost";
 import {
     selectUserAndFriendsReviews,
@@ -12,13 +9,8 @@ import {
     selectHasFetchedOnce,
     setHasFetchedOnce,
 } from "../../Slices/ReviewsSlice";
-import { selectIsBusiness, selectUser } from "../../Slices/UserSlice";
-import {
-    fetchFollowRequests,
-    fetchMutualFriends,
-    fetchFollowersAndFollowing,
-    selectFriends,
-} from "../../Slices/friendsSlice";
+import { selectUser } from "../../Slices/UserSlice";
+import { fetchFollowRequests, fetchMutualFriends, fetchFollowersAndFollowing, selectFriends } from "../../Slices/friendsSlice";
 import { fetchFavorites } from "../../Slices/FavoritesSlice";
 import { useSelector, useDispatch } from "react-redux";
 import Reviews from "../Reviews/Reviews";
@@ -26,32 +18,24 @@ import usePaginatedFetch from '../../utils/usePaginatedFetch';
 import InviteModal from "../ActivityInvites/InviteModal";
 import { selectStories, fetchStories } from "../../Slices/StoriesSlice";
 import Stories from "../Stories/Stories";
-import {
-    closeContentModal,
-    closeInviteModal,
-    contentModalStatus,
-    inviteModalStatus,
-} from "../../Slices/ModalSlice";
-import { selectCoordinates } from "../../Slices/LocationSlice";
-import { fetchNearbyPromosAndEvents, selectNearbySuggestions } from "../../Slices/GooglePlacesSlice";
+import { closeContentModal, closeInviteModal, contentModalStatus, inviteModalStatus } from "../../Slices/ModalSlice";
+import { selectNearbySuggestions } from "../../Slices/GooglePlacesSlice";
+import { fetchInvites } from "../../Slices/InvitesSlice";
 
 const Home = ({ scrollY, onScroll, isAtEnd }) => {
     const dispatch = useDispatch();
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const friends = useSelector(selectFriends);
     const user = useSelector(selectUser);
-    const coordinates = useSelector(selectCoordinates);
     const nearbySuggestions = useSelector(selectNearbySuggestions);
     const contentModal = useSelector(contentModalStatus);
     const inviteModal = useSelector(inviteModalStatus);
     const stories = useSelector(selectStories);
     const [business, setBusiness] = useState(null);
     const [businessName, setBusinessName] = useState(null);
+    const [updatedFeed, setUpdatedFeed] = useState([]);
     const hasFetchedOnce = useSelector(selectHasFetchedOnce);
-    const isBusiness = useSelector(selectIsBusiness);
-
     const userId = user?.id;
-    const { lat, lng } = coordinates || {};
 
     const {
         loadMore,
@@ -74,17 +58,46 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
             dispatch(fetchFollowRequests(userId));
             dispatch(fetchMutualFriends(userId));
             dispatch(fetchFollowersAndFollowing(userId));
+            dispatch(fetchInvites(userId));
             dispatch(setHasFetchedOnce(true));
         }
     }, [userId]);
 
-    useEffect(() => {
-        if ( lat && lng && !isBusiness ) {
-            dispatch(fetchNearbyPromosAndEvents({lat, lng}));
-        }
-    }, [lat, lng]);
+    function injectSuggestions(reviews, suggestions, interval = 3) {
+        const result = [];
+        let reviewCount = 0;
+        let suggestionIndex = 0;
 
-    console.log(nearbySuggestions);
+        for (let i = 0; i < reviews.length; i++) {
+            result.push({ ...reviews[i], __wrapped: false });
+            reviewCount++;
+
+            if (reviewCount % interval === 0 && suggestionIndex < suggestions.length) {
+                result.push({
+                    ...suggestions[suggestionIndex],
+                    type: 'suggestion',
+                    __wrapped: true,
+                });
+                suggestionIndex++;
+            }
+        }
+
+        while (suggestionIndex < suggestions.length) {
+            result.push({
+                ...suggestions[suggestionIndex],
+                type: 'suggestion',
+                __wrapped: true,
+            });
+            suggestionIndex++;
+        }
+
+        return result;
+    }
+
+    useEffect(() => {
+        const merged = injectSuggestions(userAndFriendsReviews, nearbySuggestions, 1);
+        setUpdatedFeed(merged);
+    }, [userAndFriendsReviews, nearbySuggestions]);
 
     return (
         <View style={styles.container}>
@@ -94,7 +107,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
                 onLoadMore={loadMore}
                 isLoadingMore={isLoading}
                 hasMore={hasMore}
-                reviews={userAndFriendsReviews}
+                reviews={updatedFeed}
                 ListHeaderComponent={
                     <View style={styles.storiesWrapper}>
                         <Stories stories={stories} />

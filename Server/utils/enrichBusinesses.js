@@ -1,16 +1,50 @@
 const haversineDistance = require('./haversineDistance');
+const { getPresignedUrl } = require('../utils/cachePresignedUrl');
 
 /**
- * Parses a time string (e.g., "13:30") into minutes since midnight.
+ * Cache to avoid redundant URL generations per request context.
  */
-const parseTimeToMinutes = (timeStr) => {
-  const [hour, minute] = timeStr.split(':').map(Number);
-  return hour * 60 + minute;
+const logoUrlCache = new Map();
+const bannerUrlCache = new Map();
+
+const parseTimeToMinutes = (isoStr) => {
+  const local = new Date(isoStr);
+  return local.getHours() * 60 + local.getMinutes();
 };
 
-/**
- * Determines if a promo is currently active.
- */
+const isPromoLaterToday = (promo, nowMinutes, now) => {
+  const inDateRange = now >= promo.startDate && now <= promo.endDate;
+  if (!inDateRange) return false;
+  if (promo.allDay) return false; // Already handled by isPromoActive
+  if (!promo.startTime || !promo.endTime) return false;
+
+  const startMin = parseTimeToMinutes(promo.startTime);
+  return startMin > nowMinutes;
+};
+
+const isEventLaterToday = (event, nowMinutes, now) => {
+  const weekday = now.toLocaleString('en-US', { weekday: 'long' });
+  const todayStr = now.toDateString();
+
+  const isRecurringToday =
+    event.recurring &&
+    Array.isArray(event.recurringDays) &&
+    event.recurringDays.includes(weekday);
+
+  const isSingleDateToday =
+    !event.recurring &&
+    event.date &&
+    new Date(event.date).toDateString() === todayStr;
+
+  if (!isRecurringToday && !isSingleDateToday) return false;
+
+  if (event.allDay) return false;
+  if (!event.startTime) return false;
+
+  const startMin = parseTimeToMinutes(event.startTime);
+  return startMin > nowMinutes;
+};
+
 const isPromoActive = (promo, nowMinutes, now) => {
   const inDateRange = now >= promo.startDate && now <= promo.endDate;
   if (!inDateRange) return false;
@@ -22,9 +56,6 @@ const isPromoActive = (promo, nowMinutes, now) => {
   return nowMinutes >= startMin && nowMinutes <= endMin;
 };
 
-/**
- * Determines if an event is currently active.
- */
 const isEventActive = (event, nowMinutes, now) => {
   const todayStr = now.toDateString();
   const weekday = now.toLocaleString('en-US', { weekday: 'long' });
@@ -33,7 +64,6 @@ const isEventActive = (event, nowMinutes, now) => {
   const isDateMatch = event.date && new Date(event.date).toDateString() === todayStr;
 
   if (!isTodayRecurring && !isDateMatch) return false;
-
   if (event.allDay) return true;
   if (!event.startTime || !event.endTime) return false;
 
@@ -42,32 +72,74 @@ const isEventActive = (event, nowMinutes, now) => {
   return nowMinutes >= startMin && nowMinutes <= endMin;
 };
 
-/**
- * Enriches a business with active promo/event and distance, or returns null.
- */
-function enrichBusinessWithPromosAndEvents(biz, userLat, userLng, now = new Date()) {
+async function enrichPhotosWithUrls(photos = []) {
+  return Promise.all(
+    photos.map(async (photo) => {
+      const lean = photo?.toObject?.() ?? photo;
+      return {
+        photoKey: lean.photoKey,
+        uploadedBy: lean.uploadedBy,
+        description: lean.description,
+        taggedUsers: lean.taggedUsers,
+        uploadDate: lean.uploadDate,
+        url: await getPresignedUrl(lean.photoKey),
+      };
+    })
+  );
+}
+
+async function getCachedUrl(cache, key) {
+  if (!key) return null;
+  if (cache.has(key)) return cache.get(key);
+  const url = await getPresignedUrl(key);
+  cache.set(key, url);
+  return url;
+}
+
+function leanObject(obj) {
+  return obj?.toObject?.() ?? obj;
+}
+
+async function enrichBusinessWithPromosAndEvents(biz, userLat, userLng, now = new Date()) {
   if (!biz?.location) return null;
 
-  const [bizLat, bizLng] = biz.location.split(',').map(Number);
+  const [bizLat, bizLng] = biz.location.coordinates;
   if (isNaN(bizLat) || isNaN(bizLng)) return null;
 
   const distance = haversineDistance(userLat, userLng, bizLat, bizLng);
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
 
-  const promo = (biz.promotions || []).find(p => isPromoActive(p, nowMinutes, now));
-  const event = (biz.events || []).find(e => isEventActive(e, nowMinutes, now));
+  const activePromo = (biz.promotions || []).find(p => isPromoActive(p, nowMinutes, now));
+  const upcomingPromo = (biz.promotions || []).find(p => isPromoLaterToday(p, nowMinutes, now));
 
-  if (!promo && !event) return null;
+  const activeEvent = (biz.events || []).find(e => isEventActive(e, nowMinutes, now));
+  const upcomingEvent = (biz.events || []).find(e => isEventLaterToday(e, nowMinutes, now));
+
+  if (!activePromo && !activeEvent && !upcomingPromo && !upcomingEvent) return null;
+
+  const { businessName, placeId, location, logoKey, bannerKey } = biz;
+
+  const logoUrl = await getCachedUrl(logoUrlCache, biz.logoKey);
+  const bannerUrl = await getCachedUrl(bannerUrlCache, biz.bannerKey);
+
+  const cleanAndEnrich = async (entry) =>
+    entry ? {
+      ...leanObject(entry),
+      photos: await enrichPhotosWithUrls(entry.photos || []),
+      type: "suggestion",
+    } : null;
 
   return {
-    businessName: biz.businessName,
-    placeId: biz.placeId,
-    location: biz.location,
-    logoKey: biz.logoKey,
-    bannerKey: biz.bannerKey,
+    businessName,
+    placeId,
+    location,
+    logoUrl,
+    bannerUrl,
     distance,
-    activePromo: promo || null,
-    activeEvent: event || null,
+    activePromo: await cleanAndEnrich(activePromo),
+    upcomingPromo: await cleanAndEnrich(upcomingPromo),
+    activeEvent: await cleanAndEnrich(activeEvent),
+    upcomingEvent: await cleanAndEnrich(upcomingEvent),
   };
 }
 

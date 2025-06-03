@@ -62,6 +62,8 @@ export default function Friends() {
         }
     }, [user]);
 
+    console.log('friends', friends)
+
     const handleAcceptRequest = async (senderId) => {
         try {
             // Optimistic UI update first
@@ -355,7 +357,7 @@ export default function Friends() {
     return (
         <>
             <View style={styles.container}>
-                {status === 'loading' && <Text>Loading...</Text>}
+                {/* {status === 'loading' && <Text>Loading...</Text>} */}
                 {status === 'failed' && <Text style={styles.errorText}>Error: {error}</Text>}
 
                 <View style={styles.tabContainer}>

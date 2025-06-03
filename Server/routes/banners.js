@@ -138,10 +138,10 @@ router.get('/:placeId/banner-business', async (req, res) => {
       return res.status(404).json({ message: 'Banner not found.' });
     }
 
-    const url = await getPresignedUrl(bannerKey);
+    const presignedUrl = await getPresignedUrl(bannerKey);
 
     res.status(200).json({
-      url, // Include pre-signed URL in the response
+      presignedUrl, // Include pre-signed URL in the response
     });
   } catch (error) {
     console.error('Error fetching banner:', error);

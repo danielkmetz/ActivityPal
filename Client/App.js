@@ -26,6 +26,7 @@ import useScrollTracking from './utils/useScrollTracking';
 import { selectIsBusiness } from './Slices/UserSlice';
 import { fetchBusinessNotifications } from './Slices/BusNotificationsSlice';
 import { navigationRef } from './utils/NavigationService';
+import { fetchNearbyPromosAndEvents } from './Slices/GooglePlacesSlice';
 
 const fetchFonts = async () => {
   return await Font.loadAsync({
@@ -49,6 +50,7 @@ function MainApp() {
   const [shouldFetch, setShouldFetch] = useState(true);
   const [newUnreadCount, setNewUnreadCount] = useState(0);
   const previousUnreadCount = useRef(null);
+  const { lat, lng } = coordinates || {};
   
   const { 
     scrollY, 
@@ -142,6 +144,12 @@ function MainApp() {
 
     return stackRoute.name;
   });
+
+  useEffect(() => {
+    if (lat && lng && !isBusiness) {
+      dispatch(fetchNearbyPromosAndEvents({ lat, lng }));
+    }
+  }, [lat, lng])
 
   return (
     <View style={styles.container}>

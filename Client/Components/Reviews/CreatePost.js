@@ -60,6 +60,8 @@ export default function CreatePost() {
   const fullName = `${user.firstName} ${user?.lastName}`;
   const userId = user.id;
 
+  console.log(initialPost)
+
   useEffect(() => {
     if (isEditing && initialPost) {
       setPostType(initialPost.type); // "review" or "check-in"
