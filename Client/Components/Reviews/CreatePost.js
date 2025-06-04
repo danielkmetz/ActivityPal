@@ -42,7 +42,7 @@ export default function CreatePost() {
   const route = useRoute();
   const dispatch = useDispatch();
   const user = useSelector(selectUser);
-  const [postType, setPostType] = useState(route.params?.postType);
+  //const [postType, setPostType] = useState("");
   const [business, setBusiness] = useState(null);
   const [rating, setRating] = useState(3);
   const [review, setReview] = useState("");
@@ -60,11 +60,14 @@ export default function CreatePost() {
   const fullName = `${user.firstName} ${user?.lastName}`;
   const userId = user.id;
 
-  console.log(initialPost)
+  const initialType = route.params?.isEditing
+    ? route.params?.initialPost?.type
+    : route.params?.postType;
+  const [postType, setPostType] = useState(initialType);
 
   useEffect(() => {
     if (isEditing && initialPost) {
-      setPostType(initialPost.type); // "review" or "check-in"
+      //setPostType(initialPost.type); // "review" or "check-in"
       setReview(initialPost.reviewText || "");
       setCheckInMessage(initialPost.message || "");
       setTaggedUsers(initialPost.taggedUsers || []);
@@ -289,7 +292,7 @@ export default function CreatePost() {
   if (!postType) {
     return null;
   };
-  
+
   return (
     <View style={{ flex: 1, backgroundColor: 'white', marginTop: 10, }}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
@@ -327,9 +330,11 @@ export default function CreatePost() {
                   </>
                 )}
                 {postType === "invite" && (
-                  <InviteForm isEditing={isEditing} initialInvite={initialPost} />
+                  <InviteForm
+                    isEditing={isEditing}
+                    initialInvite={initialPost}
+                  />
                 )}
-
                 {selectedPhotos.length > 0 && (
                   <>
                     <Text style={styles.label}>Media</Text>

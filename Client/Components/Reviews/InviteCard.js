@@ -37,11 +37,13 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments }) => 
     const isSender = userId === senderId;
 
     const handleEdit = () => {
-        navigation.navigate("CreatePost", {
-            postType: "invite",
-            isEditing: true,
-            initialInvite: invite,
-        });
+        if (invite) {
+            navigation.navigate("CreatePost", {
+                postType: "invite",
+                isEditing: true,
+                initialPost: invite,
+            });
+        }
     };
 
     const handleDelete = (invite) => {

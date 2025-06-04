@@ -3,8 +3,6 @@ import { useVideoPlayer } from "expo-video";
 export function useSmartVideoPlayer(file) {
   const uri = file?.uri || file?.url || file.mediaUrl || file.mediaUploadUrl || "";
 
-  //console.log(file)
-  
   const isVideo =
     typeof file === "object" &&
     (file?.type?.startsWith("video/") ||
@@ -18,7 +16,9 @@ export function useSmartVideoPlayer(file) {
     if (isVideo && uri) {
       player.loop = true;
       player.muted = true;
+      player.volume = 0;
       player.play();
+      player.audioMixingMode = 'mixWithOthers'; 
     }
   });
 }
