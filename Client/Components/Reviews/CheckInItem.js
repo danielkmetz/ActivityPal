@@ -71,7 +71,6 @@ export default function CheckInItem({
                             containerStyle={{ backgroundColor: "#ccc" }}
                         />
                     </View>
-
                     <View style={{ flexShrink: 1, flexDirection: 'row', flexWrap: 'wrap' }}>
                         <Text style={styles.userEmailText}>
                             <Text style={styles.name}>{item.fullName}</Text>
@@ -102,9 +101,7 @@ export default function CheckInItem({
                         </Text>
                     </View>
                 </View>
-
                 <Text style={styles.message}>{item.message || null}</Text>
-
                 {item.photos?.length === 0 && (
                     <Image
                         source={{
@@ -114,7 +111,6 @@ export default function CheckInItem({
                     />
                 )}
             </View>
-
             {item.photos?.length > 0 && (
                 <View>
                     <FlatList
@@ -152,14 +148,12 @@ export default function CheckInItem({
                     <PhotoPaginationDots photos={item.photos} scrollX={scrollX} />
                 </View>
             )}
-
             <Text style={styles.date}>
                 Posted:{" "}
                 {item.date
                     ? new Date(item.date).toISOString().split("T")[0]
                     : "Now"}
             </Text>
-
             <PostActions
                 item={item}
                 handleLikeWithAnimation={handleLikeWithAnimation}
@@ -167,7 +161,6 @@ export default function CheckInItem({
                 toggleTaggedUsers={toggleTaggedUsers}
                 photo={currentPhoto}
             />
-
             <FullScreenPhotoModal
                 visible={photoModalVisible}
                 initialIndex={fullScreenIndex}

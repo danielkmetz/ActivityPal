@@ -154,7 +154,6 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
         fetchDetails
         {...googlePlacesDefaultProps}
       />
-
       <View style={styles.switchContainer}>
         <View style={styles.switchLabelContainer}>
           {isPublic ? (
@@ -171,7 +170,6 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
           thumbColor={Platform.OS === 'android' ? '#fff' : undefined}
         />
       </View>
-
       <Text style={styles.label}>Date & Time</Text>
       <DateTimePicker
         value={dateTime || new Date()}

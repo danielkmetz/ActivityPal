@@ -9,7 +9,7 @@ import {
     TouchableOpacity,
 } from "react-native";
 import { Avatar } from "@rneui/themed";
-import PhotoItem from "./PhotoItem"; // reuse this
+import PhotoItem from "./PhotoItem";
 import PhotoPaginationDots from "./PhotoPaginationDots";
 import InviteModal from "../ActivityInvites/InviteModal";
 import { selectInvites } from "../../Slices/InvitesSlice";
@@ -22,15 +22,13 @@ export default function SuggestionItem({ suggestion }) {
     const navigation = useNavigation();
     const [currentIndex, setCurrentIndex] = useState(0);
     const [inviteModalVisible, setInviteModalVisible] = useState(false);
-    const [isEditing, setIsEditing] = useState(false);
-    const [initialInvite, setInitialInvite] = useState(null);
     const invites = useSelector(selectInvites);
     const scrollX = useRef(new Animated.Value(0)).current;
 
     const { businessName, logoUrl, distance, title } = suggestion;
     const photos = suggestion?.photos || [];
 
-    const existingInvite = invites.find(invite => {
+    const rawInvite = invites.find(invite => {
         if (!invite.placeId || !invite.dateTime) return false;
 
         const inviteTime = new Date(invite.dateTime).getTime();
@@ -46,10 +44,12 @@ export default function SuggestionItem({ suggestion }) {
 
         const isUpcoming =
             (suggestion.kind === "upcomingPromo" || suggestion.kind === "upcomingEvent") &&
-            Math.abs(inviteTime - startTime) <= 60 * 60 * 1000; // within 1 hour
+            Math.abs(inviteTime - startTime) <= 60 * 60 * 1000;
 
         return isSamePlace && (isActive || isUpcoming);
     });
+
+    const existingInvite = rawInvite ? { ...rawInvite, type: 'invite' } : null;
 
     const formatTime = (isoString) => {
         const date = new Date(isoString);
@@ -66,17 +66,13 @@ export default function SuggestionItem({ suggestion }) {
         note: `Lets go to ${businessName} for ${title}`
     };
 
-    const handleEdit = () => {
-        navigation.navigate("CreatePost", {
-            postType: "invite",
-            isEditing: true,
-            initialInvite: existingInvite,
-        });
-    };
-
     const inviteCreationEditing = () => {
         if (existingInvite) {
-            handleEdit();
+            navigation.navigate('CreatePost', {
+                postType: 'invite',
+                isEditing: true,
+                initialPost: existingInvite,
+            });
         } else {
             setInviteModalVisible(true);
         }
@@ -112,7 +108,6 @@ export default function SuggestionItem({ suggestion }) {
                     </Text>
                 </View>
             </View>
-
             {(suggestion.kind === 'activePromo' || suggestion.kind === 'activeEvent') && (
                 <Text style={styles.timeLabel}>
                     {suggestion.allDay
@@ -122,7 +117,6 @@ export default function SuggestionItem({ suggestion }) {
                             : null}
                 </Text>
             )}
-
             {(suggestion.kind === 'upcomingPromo' || suggestion.kind === 'upcomingEvent') && (
                 <Text style={styles.timeLabel}>
                     {suggestion.allDay
@@ -132,11 +126,9 @@ export default function SuggestionItem({ suggestion }) {
                             : null}
                 </Text>
             )}
-
             {suggestion?.description && (
                 <Text style={styles.description}>{suggestion.description}</Text>
             )}
-
             {photos.length > 0 && (
                 <View>
                     <FlatList
@@ -164,7 +156,6 @@ export default function SuggestionItem({ suggestion }) {
                     <PhotoPaginationDots photos={photos} scrollX={scrollX} />
                 </View>
             )}
-
             <TouchableOpacity
                 style={styles.inviteButton}
                 onPress={inviteCreationEditing}
