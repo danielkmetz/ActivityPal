@@ -1,6 +1,7 @@
 import { Animated } from 'react-native';
 import { toggleLike } from '../Slices/ReviewsSlice';
 import { createNotification } from '../Slices/NotificationsSlice';
+import { useDispatch } from 'react-redux';
 
 export const handleLike = async ({
   postType,
@@ -54,12 +55,12 @@ export const handleLikeWithAnimation = async ({
   postId,
   review,
   user,
-  dispatch,
   lastTapRef,
   likedAnimations,
   setLikedAnimations,
   force = false,
 }) => {
+  const dispatch = useDispatch();
   const now = Date.now();
   if (!lastTapRef.current) lastTapRef.current = {};
   if (!lastTapRef.current[postId]) lastTapRef.current[postId] = 0;

@@ -26,6 +26,7 @@ import StoryViewer from '../Stories/StoryViewer';
 import CreatePost from '../Reviews/CreatePost';
 import CreateEventPage from '../BusinessEvents/CreateEventPage';
 import CreatePromotionPage from '../BusinessEvents/CreatePromotionPage';
+import FullScreenPhoto from '../Reviews/FullScreenPhoto';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -231,6 +232,7 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
             <Stack.Screen name="CreateEvent" component={CreateEventPage} />
             <Stack.Screen name="CreatePromotion" component={CreatePromotionPage} />
             <Stack.Screen name="CommentScreen" component={CommentScreen} />
+            <Stack.Screen name="FullScreenPhoto" component={FullScreenPhoto} />
         </Stack.Navigator>
     )
 }

@@ -45,7 +45,10 @@ const PhotoItem = ({
     };
 
     return (
-        <View style={styles.photoContainer}>
+        <View 
+            style={styles.photoContainer}
+            pointerEvents={isInteractive ? "auto" : "none"}
+        >
             <TouchableWithoutFeedback onPress={handleTap}>
                 <View style={styles.videoWrapper}>
                     {isVideo(photo) ? (
@@ -57,7 +60,7 @@ const PhotoItem = ({
                             contentFit="cover"
                         />
                     ) : (
-                        <Image source={{ uri: photo.url || photo.uri }} style={styles.photo} />
+                        <Image source={{ uri: photo.url || photo.uri || photo.bannerUrl }} style={styles.photo} />
                     )}
 
                     {isInteractive && (

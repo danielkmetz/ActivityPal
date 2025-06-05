@@ -8,15 +8,14 @@ import {
     StyleSheet,
     Dimensions,
 } from "react-native";
-import { Avatar } from "@rneui/themed";
 import PhotoItem from "./PhotoItem";
 import PhotoPaginationDots from "./PhotoPaginationDots";
-import profilePicPlaceholder from "../../assets/pics/profile-pic-placeholder.jpg";
 import PostActions from './PostActions';
 import { selectUser } from "../../Slices/UserSlice";
 import { useSelector } from "react-redux";
+import { useNavigation } from "@react-navigation/native";
 import PostOptionsMenu from "./PostOptionsMenu";
-import FullScreenPhotoModal from "./FullScreenPhotoModal";
+import StoryAvatar from "../Stories/StoryAvatar";
 
 const pinPic = "https://cdn-icons-png.flaticon.com/512/684/684908.png";
 
@@ -33,21 +32,23 @@ export default function CheckInItem({
     handleDelete,
     handleEdit,
 }) {
+    const navigation = useNavigation();
     const user = useSelector(selectUser);
     const isSender = item.userId === user?.id;
     const [dropdownVisible, setDropdownVisible] = useState(false);
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
-    const [fullScreenPhoto, setFullScreenPhoto] = useState(null);
-    const [fullScreenIndex, setFullScreenIndex] = useState(0);
-    const [photoModalVisible, setPhotoModalVisible] = useState(false);
     const scrollX = useRef(new Animated.Value(0)).current;
-
     const currentPhoto = item.photos?.[currentPhotoIndex];
 
     const handleOpenFullScreen = (photo, index) => {
-        setFullScreenPhoto(photo);
-        setPhotoModalVisible(true);
-        setFullScreenIndex(index);
+        navigation.navigate('FullScreenPhoto', {
+            review: item,
+            initialIndex: index,
+            lastTapRef,
+            likedAnimations,
+            taggedUsersByPhotoKey: item.taggedUsersByPhotoKey || {}, // or however you pass it
+            handleLikeWithAnimation,
+        });
     };
 
     return (
@@ -62,15 +63,7 @@ export default function CheckInItem({
             />
             <View style={styles.section}>
                 <View style={styles.userPicAndName}>
-                    <View style={styles.profilePic}>
-                        <Avatar
-                            size={45}
-                            rounded
-                            source={item?.profilePicUrl ? { uri: item.profilePicUrl } : profilePicPlaceholder}
-                            icon={!item?.profilePicUrl ? { name: "person", type: "material", color: "#fff" } : null}
-                            containerStyle={{ backgroundColor: "#ccc" }}
-                        />
-                    </View>
+                    <StoryAvatar userId={item?.userId} profilePicUrl={item.profilePicUrl} />
                     <View style={{ flexShrink: 1, flexDirection: 'row', flexWrap: 'wrap' }}>
                         <Text style={styles.userEmailText}>
                             <Text style={styles.name}>{item.fullName}</Text>
@@ -161,22 +154,6 @@ export default function CheckInItem({
                 toggleTaggedUsers={toggleTaggedUsers}
                 photo={currentPhoto}
             />
-            <FullScreenPhotoModal
-                visible={photoModalVisible}
-                initialIndex={fullScreenIndex}
-                photo={fullScreenPhoto}
-                setPhotoModalVisible={setPhotoModalVisible}
-                review={item}
-                likedAnimations={likedAnimations}
-                lastTapRef={lastTapRef}
-                photoTapped={photoTapped}
-                toggleTaggedUsers={toggleTaggedUsers}
-                handleLikeWithAnimation={handleLikeWithAnimation}
-                onClose={() => {
-                    setFullScreenPhoto(null);
-                    setPhotoModalVisible(false);
-                }}
-            />
         </View>
     );
 }
@@ -203,7 +180,6 @@ const styles = StyleSheet.create({
     },
     userEmailText: {
         fontSize: 18,
-        //fontWeight: "bold",
     },
     name: {
         fontSize: 18,

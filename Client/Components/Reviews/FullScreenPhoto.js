@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import {
-  Modal, View, FlatList, Image, TouchableOpacity,
+  View, FlatList, Image, TouchableOpacity,
   StyleSheet, Dimensions, Text, Animated, TouchableWithoutFeedback,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -8,37 +8,49 @@ import { useSelector } from 'react-redux';
 import { selectUser } from '../../Slices/UserSlice';
 import BottomCommentsModal from './BottomCommentsModal';
 import { isVideo } from '../../utils/isVideo';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import VideoThumbnail from './VideoThumbnail';
+import { handleLikeWithAnimation } from '../../utils/LikeHandlers';
 
 const { width, height } = Dimensions.get('window');
 
-const FullScreenPhotoModal = ({
-  visible,
-  onClose,
-  review,
-  initialIndex = 0,
-  lastTapRef,
-  likedAnimations,
-  toggleTaggedUsers,
-  taggedUsersByPhotoKey,
-  handleLikeWithAnimation,
-}) => {
+const FullScreenPhoto = () => {
+  const route = useRoute();
+  const navigation = useNavigation();
+  const {
+    review,
+    initialIndex = 0,
+    lastTapRef,
+    likedAnimations,
+    taggedUsersByPhotoKey,
+  } = route?.params;
   const user = useSelector(selectUser);
   const userId = user?.id;
   const flatListRef = useRef();
-  const scrollX = useRef(new Animated.Value(initialIndex * width)).current;
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [showTags, setShowTags] = useState(false);
-  const [imageLayout, setImageLayout] = useState({ width, height });
   const [originalSize, setOriginalSize] = useState({ width: 1, height: 1 });
   const [renderedSize, setRenderedSize] = useState({ width, height });
-
+  const [likedAnimationsState, setLikedAnimations] = useState(likedAnimations || {});
   const photos = review?.photos || [];
   const currentPhoto = photos[currentIndex];
-  const animation = likedAnimations?.[review._id] || new Animated.Value(0);
+  const animation = likedAnimationsState?.[review._id] || new Animated.Value(0);
   const hasLiked = Array.isArray(review.likes) && review.likes.some(like => like.userId === userId);
   const taggedUsers = taggedUsersByPhotoKey?.[currentPhoto?.photoKey] || [];
+
+  const likeWithAnimation = (review, force = false) => {
+    return handleLikeWithAnimation({
+      postType: review.type,
+      postId: review._id,
+      review,
+      user,
+      lastTapRef,
+      likedAnimations: likedAnimationsState,
+      setLikedAnimations,
+      force,
+    });
+  };
 
   const handleTap = () => {
     const now = Date.now();
@@ -47,7 +59,7 @@ const FullScreenPhotoModal = ({
     if (!lastTapRef.current[postId]) lastTapRef.current[postId] = 0;
 
     if (now - lastTapRef.current[postId] < 300) {
-      handleLikeWithAnimation(review);
+      likeWithAnimation(review);
       lastTapRef.current[postId] = 0;
     } else {
       lastTapRef.current[postId] = now;
@@ -61,21 +73,16 @@ const FullScreenPhotoModal = ({
   };
 
   const handleLike = () => {
-    handleLikeWithAnimation(review, true);
+    likeWithAnimation(review, true);
   };
 
-  const handleScroll = (e) => {
-    const index = Math.round(e.nativeEvent.contentOffset.x / width);
-    setCurrentIndex(index);
-  };
-
-  if (!visible || photos.length === 0) return null;
+  if (!review || photos.length === 0) return null;
 
   return (
-    <Modal visible={visible} transparent animationType="fade">
+    <View style={{flex: 1}}>
       <View style={styles.overlay}>
         {/* Close Button */}
-        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.closeButton}>
           <MaterialCommunityIcons name="close" size={30} color="white" />
         </TouchableOpacity>
 
@@ -107,27 +114,27 @@ const FullScreenPhotoModal = ({
           renderItem={({ item }) => (
             <View style={styles.imageWrapper}>
               {isVideo(item) ? (
-                <VideoThumbnail 
+                <VideoThumbnail
                   file={item}
                   width={width}
                   height={height}
                 />
               ) : (
                 <TouchableWithoutFeedback onPress={handleTap}>
-                <Image
-                  source={{ uri: item.url || item.uri }}
-                  style={styles.fullImage}
-                  onLayout={(e) => {
-                    const { width: renderedWidth, height: renderedHeight } = e.nativeEvent.layout;
-                    setRenderedSize({ width: renderedWidth, height: renderedHeight });
-                  }}
-                  onLoad={() => {
-                    Image.getSize(item.url || item.uri, (w, h) => {
-                      setOriginalSize({ width: w, height: h });
-                    });
-                  }}
-                />
-              </TouchableWithoutFeedback>
+                  <Image
+                    source={{ uri: item.url || item.uri }}
+                    style={styles.fullImage}
+                    onLayout={(e) => {
+                      const { width: renderedWidth, height: renderedHeight } = e.nativeEvent.layout;
+                      setRenderedSize({ width: renderedWidth, height: renderedHeight });
+                    }}
+                    onLoad={() => {
+                      Image.getSize(item.url || item.uri, (w, h) => {
+                        setOriginalSize({ width: w, height: h });
+                      });
+                    }}
+                  />
+                </TouchableWithoutFeedback>
               )}
               {showTags && taggedUsers.map((user, i) => (
                 <View
@@ -175,7 +182,7 @@ const FullScreenPhotoModal = ({
         onClose={() => setCommentsVisible(false)}
         review={review}
       />
-    </Modal>
+    </View>
   );
 };
 
@@ -242,4 +249,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default FullScreenPhotoModal;
+export default FullScreenPhoto;

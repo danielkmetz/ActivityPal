@@ -1,5 +1,6 @@
 const haversineDistance = require('./haversineDistance');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl');
+const { DateTime } = require("luxon");
 
 /**
  * Cache to avoid redundant URL generations per request context.
@@ -8,15 +9,22 @@ const logoUrlCache = new Map();
 const bannerUrlCache = new Map();
 
 const parseTimeToMinutes = (isoStr) => {
-  const local = new Date(isoStr);
-  return local.getHours() * 60 + local.getMinutes();
+  const localTime = DateTime.fromISO(isoStr, { zone: 'utc' }).toLocal(); // ✅ converts 1:00 AM UTC to 8:00 PM CDT
+  return localTime.hour * 60 + localTime.minute; // = 1200
 };
 
 const isPromoLaterToday = (promo, nowMinutes, now) => {
   const inDateRange = now >= promo.startDate && now <= promo.endDate;
   if (!inDateRange) return false;
-  if (promo.allDay) return false; // Already handled by isPromoActive
+  if (promo.allDay) return false;
   if (!promo.startTime || !promo.endTime) return false;
+
+  const weekday = now.toLocaleString('en-US', { weekday: 'long' });
+
+  if (promo.recurring) {
+    const isRecurringToday = Array.isArray(promo.recurringDays) && promo.recurringDays.includes(weekday);
+    if (!isRecurringToday) return false;
+  }
 
   const startMin = parseTimeToMinutes(promo.startTime);
   return startMin > nowMinutes;
@@ -37,7 +45,6 @@ const isEventLaterToday = (event, nowMinutes, now) => {
     new Date(event.date).toDateString() === todayStr;
 
   if (!isRecurringToday && !isSingleDateToday) return false;
-
   if (event.allDay) return false;
   if (!event.startTime) return false;
 
@@ -48,7 +55,16 @@ const isEventLaterToday = (event, nowMinutes, now) => {
 const isPromoActive = (promo, nowMinutes, now) => {
   const inDateRange = now >= promo.startDate && now <= promo.endDate;
   if (!inDateRange) return false;
+
+  const weekday = now.toLocaleString('en-US', { weekday: 'long' });
+
+  if (promo.recurring) {
+    const isRecurringToday = Array.isArray(promo.recurringDays) && promo.recurringDays.includes(weekday);
+    if (!isRecurringToday) return false;
+  }
+
   if (promo.allDay) return true;
+
   if (!promo.startTime || !promo.endTime) return false;
 
   const startMin = parseTimeToMinutes(promo.startTime);
@@ -103,11 +119,12 @@ function leanObject(obj) {
 async function enrichBusinessWithPromosAndEvents(biz, userLat, userLng, now = new Date()) {
   if (!biz?.location) return null;
 
-  const [bizLat, bizLng] = biz.location.coordinates;
+  const [bizLng, bizLat] = biz.location.coordinates;
   if (isNaN(bizLat) || isNaN(bizLng)) return null;
 
   const distance = haversineDistance(userLat, userLng, bizLat, bizLng);
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const nowLocal = DateTime.fromJSDate(now).toLocal();
+  const nowMinutes = nowLocal.hour * 60 + nowLocal.minute;
 
   const activePromo = (biz.promotions || []).find(p => isPromoActive(p, nowMinutes, now));
   const upcomingPromo = (biz.promotions || []).find(p => isPromoLaterToday(p, nowMinutes, now));

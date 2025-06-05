@@ -15,12 +15,14 @@ import InviteModal from "../ActivityInvites/InviteModal";
 import { selectInvites } from "../../Slices/InvitesSlice";
 import { useSelector } from "react-redux";
 import { useNavigation } from "@react-navigation/native";
+import SuggestionDetailsModal from "../SuggestionDetails/SuggestionDetailsModal";
 
 const screenWidth = Dimensions.get("window").width;
 
 export default function SuggestionItem({ suggestion }) {
     const navigation = useNavigation();
     const [currentIndex, setCurrentIndex] = useState(0);
+    const [detailsModalVisible, setDetailsModalVisible] = useState(false);
     const [inviteModalVisible, setInviteModalVisible] = useState(false);
     const invites = useSelector(selectInvites);
     const scrollX = useRef(new Animated.Value(0)).current;
@@ -51,14 +53,6 @@ export default function SuggestionItem({ suggestion }) {
 
     const existingInvite = rawInvite ? { ...rawInvite, type: 'invite' } : null;
 
-    const formatTime = (isoString) => {
-        const date = new Date(isoString);
-        return date.toLocaleTimeString([], {
-            hour: 'numeric',
-            minute: '2-digit',
-        });
-    };
-
     const suggestedPlace = {
         placeId: suggestion.placeId,
         name: suggestion.businessName,
@@ -86,51 +80,16 @@ export default function SuggestionItem({ suggestion }) {
                     suggestion.kind.includes("active") ? styles.activeBanner : styles.upcomingBanner
                 ]}>
                     <Text style={styles.statusText}>
-                        {suggestion.kind === "activePromo" ? "🔥 ACTIVE PROMOTION NEARBY"
-                            : suggestion.kind === "upcomingPromo" ? "📅 UPCOMING PROMOTION NEARBY"
-                                : suggestion.kind === "activeEvent" ? "🎉 ACTIVE EVENT NEARBY"
-                                    : suggestion.kind === "upcomingEvent" ? "📌 UPCOMING EVENT NEARBY"
+                        {suggestion.kind === "activePromo" ? "ACTIVE PROMOTION NEARBY"
+                            : suggestion.kind === "upcomingPromo" ? "UPCOMING PROMOTION NEARBY"
+                                : suggestion.kind === "activeEvent" ? "ACTIVE EVENT NEARBY"
+                                    : suggestion.kind === "upcomingEvent" ? "UPCOMING EVENT NEARBY"
                                         : ""}
                     </Text>
                 </View>
             )}
-            <View style={styles.header}>
-                <Avatar
-                    size={45}
-                    rounded
-                    source={logoUrl ? { uri: logoUrl } : require("../../assets/pics/profile-pic-placeholder.jpg")}
-                    containerStyle={{ backgroundColor: "#ccc", marginRight: 10 }}
-                />
-                <View style={{ flexShrink: 1 }}>
-                    <Text style={styles.businessName}>{businessName}</Text>
-                    <Text style={styles.distance}>
-                        {distance ? `${(distance / 1609).toFixed(1)} mi away` : null}
-                    </Text>
-                </View>
-            </View>
-            {(suggestion.kind === 'activePromo' || suggestion.kind === 'activeEvent') && (
-                <Text style={styles.timeLabel}>
-                    {suggestion.allDay
-                        ? 'Happening All Day'
-                        : suggestion.endTime
-                            ? `Ends at ${formatTime(suggestion.endTime)}`
-                            : null}
-                </Text>
-            )}
-            {(suggestion.kind === 'upcomingPromo' || suggestion.kind === 'upcomingEvent') && (
-                <Text style={styles.timeLabel}>
-                    {suggestion.allDay
-                        ? 'Happening All Day'
-                        : suggestion.startTime
-                            ? `Starts at ${formatTime(suggestion.startTime)}`
-                            : null}
-                </Text>
-            )}
-            {suggestion?.description && (
-                <Text style={styles.description}>{suggestion.description}</Text>
-            )}
-            {photos.length > 0 && (
-                <View>
+            {photos.length > 0 ? (
+                <View style={styles.photoWrapper}>
                     <FlatList
                         data={photos}
                         horizontal
@@ -150,10 +109,48 @@ export default function SuggestionItem({ suggestion }) {
                         )}
                         scrollEventThrottle={16}
                         renderItem={({ item }) => (
-                            <PhotoItem photo={item} />
+                            <View>
+                                <TouchableOpacity activeOpacity={0.85} onPress={() => setDetailsModalVisible(true)}>
+                                    <PhotoItem photo={item} isInteractive={false} />
+                                </TouchableOpacity>
+                            </View>
                         )}
                     />
                     <PhotoPaginationDots photos={photos} scrollX={scrollX} />
+                    <View style={styles.overlayTopText}>
+                        <Avatar
+                            size={45}
+                            rounded
+                            source={logoUrl ? { uri: logoUrl } : require("../../assets/pics/profile-pic-placeholder.jpg")}
+                            containerStyle={styles.overlayAvatar}
+                        />
+                        <View style={styles.overlayTextContainer}>
+                            <Text style={styles.overlayText}>{businessName}</Text>
+                            <Text style={styles.overlaySubText}>
+                                {distance ? `${(distance / 1609).toFixed(1)} mi away` : null}
+                            </Text>
+                        </View>
+                    </View>
+                </View>
+            ) : (
+                <View>
+                    <TouchableOpacity activeOpacity={.85} onPress={() => setDetailsModalVisible(true)}>
+                        <PhotoItem photo={suggestion} isInteractive={false} />
+                    </TouchableOpacity>
+                    <View style={styles.overlayTopText}>
+                        <Avatar
+                            size={45}
+                            rounded
+                            source={logoUrl ? { uri: logoUrl } : require("../../assets/pics/profile-pic-placeholder.jpg")}
+                            containerStyle={styles.overlayAvatar}
+                        />
+                        <View style={styles.overlayTextContainer}>
+                            <Text style={styles.overlayText}>{businessName}</Text>
+                            <Text style={styles.overlaySubText}>
+                                {distance ? `${(distance / 1609).toFixed(1)} mi away` : null}
+                            </Text>
+                        </View>
+                    </View>
                 </View>
             )}
             <TouchableOpacity
@@ -164,12 +161,16 @@ export default function SuggestionItem({ suggestion }) {
                     {existingInvite ? "Edit Invite" : "Invite"}
                 </Text>
             </TouchableOpacity>
-
             <InviteModal
                 visible={inviteModalVisible}
                 onClose={() => setInviteModalVisible(false)}
                 isEditing={false}
                 suggestedPlace={suggestedPlace}
+            />
+            <SuggestionDetailsModal
+                visible={detailsModalVisible}
+                onClose={() => setDetailsModalVisible(false)}
+                suggestion={suggestion}
             />
         </View>
     );
@@ -269,5 +270,34 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         fontSize: 14,
     },
-
+    photoWrapper: {
+        position: 'relative',
+    },
+    overlayTopText: {
+        position: 'absolute',
+        bottom: 15,
+        left: 0,
+        right: 0,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        padding: 8,
+        zIndex: 2,
+    },
+    overlayAvatar: {
+        backgroundColor: "#ccc",
+        marginRight: 10,
+    },
+    overlayTextContainer: {
+        flexShrink: 1,
+    },
+    overlayText: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: 'bold',
+    },
+    overlaySubText: {
+        color: 'white',
+        fontSize: 13,
+    },
 });
