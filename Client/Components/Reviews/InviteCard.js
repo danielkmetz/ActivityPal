@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, Alert } from 'react-native';
-import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import InviteeModal from '../ActivityInvites/InviteeModal';
 import { formatEventDate, getTimeLeft } from '../../functions';
 import { requestInvite } from '../../Slices/InvitesSlice';
@@ -13,6 +12,7 @@ import { deleteInvite } from '../../Slices/InvitesSlice';
 import PostActions from './PostActions';
 import PostOptionsMenu from './PostOptionsMenu';
 import { useNavigation } from '@react-navigation/native';
+import StoryAvatar from '../Stories/StoryAvatar';
 
 const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments }) => {
     const dispatch = useDispatch();
@@ -35,7 +35,7 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments }) => 
     const hasRequested = requested || invite.requests?.some(r => r.userId === user.id);
     const isRecipient = userId !== senderId && !invite.recipients?.some(r => r.userId?.toString() === user.id?.toString());
     const isSender = userId === senderId;
-
+    
     const handleEdit = () => {
         if (invite) {
             navigation.navigate("CreatePost", {
@@ -154,10 +154,10 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments }) => 
     }, [invite.dateTime]);
 
     useEffect(() => {
-        if (invite.requests?.some(r => r.userId === user.id)) {
+        if (invite.requests?.some(r => r.userId === userId)) {
             setRequested(true);
         }
-    }, [invite, user.id]);
+    }, [invite, userId]);
 
     return (
         <>
@@ -171,10 +171,7 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments }) => 
                     postData={invite}
                 />
                 <View style={styles.header}>
-                    <Image
-                        source={invite.sender?.profilePicUrl ? { uri: invite.sender.profilePicUrl } : profilePicPlaceholder}
-                        style={styles.profilePic}
-                    />
+                    <StoryAvatar userId={invite.sender.id} profilePicUrl={invite.sender?.profilePicUrl}/>
                     <View style={styles.headerText}>
                         <Text style={styles.senderName}>
                             {invite.sender?.firstName} {invite.sender?.lastName} invited {totalInvited} friend
@@ -229,7 +226,6 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments }) => 
                 isSender={isSender}
                 invite={invite}
             />
-
             <InviteModal
                 visible={editInviteModal}
                 onClose={() => setEditInviteModal(false)}

@@ -89,12 +89,8 @@ const InviteModal = ({
             googleRef.current?.setAddressText(suggestedPlace.name);
 
             const suggestionTime = new Date(suggestedPlace.startTime);
-            const now = new Date();
-
-            if (suggestionTime > now) {
-                setDateTime(suggestionTime);
-            }
-
+            
+            setDateTime(suggestionTime);
             setNote(suggestedPlace.note);
         }
     }, [suggestedPlace, isEditing, visible]);

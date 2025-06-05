@@ -7,9 +7,7 @@ import {
     Animated,
     Dimensions,
 } from "react-native";
-import { Avatar } from "@rneui/themed";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import profilePicPlaceholder from "../../assets/pics/profile-pic-placeholder.jpg";
 import PhotoItem from "./PhotoItem";
 import PhotoPaginationDots from "./PhotoPaginationDots";
 import PostActions from "./PostActions";
@@ -17,7 +15,8 @@ import PostOptionsMenu from "./PostOptionsMenu";
 import ExpandableText from "./ExpandableText";
 import { selectUser } from '../../Slices/UserSlice';
 import { useSelector } from "react-redux";
-import FullScreenPhotoModal from "./FullScreenPhotoModal";
+import StoryAvatar from "../Stories/StoryAvatar";
+import { useNavigation } from "@react-navigation/native";
 
 const screenWidth = Dimensions.get("window").width;
 
@@ -32,29 +31,31 @@ export default function ReviewItem({
     handleEdit,
     handleDelete,
 }) {
+    const navigation = useNavigation();
     const user = useSelector(selectUser);
     const isSender = item.userId === user?.id;
     const [dropdownVisible, setDropdownVisible] = useState(false);
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
-    const [fullScreenPhoto, setFullScreenPhoto] = useState(null);
-    const [fullScreenIndex, setFullScreenIndex] = useState(0);
-    const [photoModalVisible, setPhotoModalVisible] = useState(false);
     const scrollX = useRef(new Animated.Value(0)).current;
-
     const currentPhoto = item.photos?.[currentPhotoIndex];
-
-    const handleOpenFullScreen = (photo, index) => {
-        setFullScreenPhoto(photo);
-        setPhotoModalVisible(true);
-        setFullScreenIndex(index);
-    };
-
+    
     const taggedUsersByPhotoKey = Object.fromEntries(
         (item.photos || []).map((photo) => [
-          photo.photoKey,
-          photo.taggedUsers || [],
+            photo.photoKey,
+            photo.taggedUsers || [],
         ])
-    );  
+    );
+
+    const handleOpenFullScreen = (photo, index) => {
+        navigation.navigate('FullScreenPhoto', {
+            review: item,
+            initialIndex: index,
+            lastTapRef,
+            likedAnimations,
+            taggedUsersByPhotoKey: taggedUsersByPhotoKey || {}, // or however you pass it
+            handleLikeWithAnimation,
+        });
+    };
 
     return (
         <View style={styles.reviewCard}>
@@ -68,16 +69,7 @@ export default function ReviewItem({
             />
             <View style={styles.section}>
                 <View style={styles.userPicAndName}>
-                    <View style={styles.profilePic}>
-                        <Avatar
-                            size={45}
-                            rounded
-                            source={item?.profilePicUrl ? { uri: item.profilePicUrl } : profilePicPlaceholder}
-                            icon={!item?.profilePicUrl ? { name: "person", type: "material", color: "#fff" } : null}
-                            containerStyle={{ backgroundColor: "#ccc" }}
-                        />
-                    </View>
-
+                    <StoryAvatar userId={item?.userId} profilePicUrl={item.profilePicUrl}/>
                     <View style={{ flexShrink: 1 }}>
                         <Text style={styles.userEmailText}>
                             {item.fullName}
@@ -95,7 +87,6 @@ export default function ReviewItem({
                         </Text>
                     </View>
                 </View>
-
                 <Text style={styles.business}>{item.businessName}</Text>
                 <View style={styles.rating}>
                     {Array.from({ length: item.rating }).map((_, index) => (
@@ -151,35 +142,15 @@ export default function ReviewItem({
                     <PhotoPaginationDots photos={item.photos} scrollX={scrollX} />
                 </View>
             )}
-
             <Text style={styles.date}>
                 Posted: {item.date ? new Date(item.date).toISOString().split("T")[0] : "Now"}
             </Text>
-
             <PostActions
                 item={item}
                 handleLikeWithAnimation={handleLikeWithAnimation}
                 handleOpenComments={handleOpenComments}
                 toggleTaggedUsers={toggleTaggedUsers}
                 photo={currentPhoto}
-            />
-
-            <FullScreenPhotoModal
-                visible={photoModalVisible}
-                photo={fullScreenPhoto}
-                setPhotoModalVisible={setPhotoModalVisible}
-                initialIndex={fullScreenIndex}
-                review={item}
-                likedAnimations={likedAnimations}
-                lastTapRef={lastTapRef}
-                photoTapped={photoTapped}
-                toggleTaggedUsers={toggleTaggedUsers}
-                taggedUsersByPhotoKey={taggedUsersByPhotoKey}
-                handleLikeWithAnimation={handleLikeWithAnimation}
-                onClose={() => {
-                    setFullScreenPhoto(null);
-                    setPhotoModalVisible(false);
-                }}
             />
         </View>
     );
@@ -261,5 +232,10 @@ const styles = StyleSheet.create({
         color: '#007AFF',
         fontSize: 14,
         marginTop: 5,
-    }
+    },
+    storyBorder: {
+        borderWidth: 3,
+        borderColor: '#1e90ff',
+        borderRadius: 999,
+    },
 });
