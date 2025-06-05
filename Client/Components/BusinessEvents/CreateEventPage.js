@@ -24,6 +24,7 @@ import RecurringDaysModal from "./RecurringDaysModal";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { normalizePhoto } from "../../functions";
 import { useNavigation, useRoute } from "@react-navigation/native";
+import { toLocalISOString } from "../../functions";
 
 const CreateEventPage = () => {
   const dispatch = useDispatch();
@@ -145,9 +146,9 @@ const CreateEventPage = () => {
             allDay,
             recurring: isRecurring,
             recurringDays: selectedDays,
-            startTime,
-            endTime,
-            startDate,
+            startTime: startTime,
+            endTime: endTime,
+            startDate: startDate,
           })
         ).unwrap();
         Alert.alert("Success", "Event created successfully!");

@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const Business = require("../models/Business");
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
+const { extractTimeOnly } = require('../utils/extractTimeOnly.js');
 
 // 📌 GET all promotions for a business using placeId
 router.get("/:placeId", async (req, res) => {
@@ -82,6 +83,9 @@ router.post("/", async (req, res) => {
       })
     );
 
+    const strippedStartTime = extractTimeOnly(startTime);
+    const strippedEndTime = extractTimeOnly(endTime);
+
     // Create promotion object with all schema-supported fields
     const newPromotion = {
       title,
@@ -90,8 +94,8 @@ router.post("/", async (req, res) => {
       endDate,
       isSingleDay: isSingleDay ?? true,
       allDay: allDay ?? true,
-      startTime: allDay ? null : startTime ?? null,
-      endTime: allDay ? null : endTime ?? null,
+      startTime: allDay ? null : strippedStartTime ?? null,
+      endTime: allDay ? null : strippedEndTime ?? null,
       recurring: recurring ?? false,
       recurringDays: recurring ? recurringDays || [] : [],
       photos: photoObjects,
