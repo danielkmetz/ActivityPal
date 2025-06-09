@@ -3,7 +3,6 @@ import { View, Text, FlatList, ScrollView, Button, StyleSheet, TouchableOpacity,
 import {
     fetchUserSuggestions,
     selectUserSuggestions,
-    fetchSuggestedFriends,
     approveFollowRequest,
     declineFollowRequest,
     selectFollowRequests,
@@ -55,14 +54,11 @@ export default function Friends() {
     const fullName = `${user?.firstName} ${user?.lastName}`;
 
     useEffect(() => {
-        if (user) {
-            dispatch(fetchInvites(user?.id));
-            dispatch(fetchSuggestedFriends(user?.id));
-            dispatch(fetchFollowersAndFollowing(user?.id));
+        if (userId) {
+            dispatch(fetchInvites(userId));
+            dispatch(fetchFollowersAndFollowing(userId));
         }
-    }, [user]);
-
-    console.log('friends', friends)
+    }, [userId]);
 
     const handleAcceptRequest = async (senderId) => {
         try {
@@ -191,8 +187,8 @@ export default function Friends() {
         );
     };
 
-    const navigateToOtherUserProfile = (user) => {
-        navigation.navigate('OtherUserProfile', { user }); // Pass user data to the new screen
+    const navigateToOtherUserProfile = (userId) => {
+        navigation.navigate('OtherUserProfile', { userId }); // Pass user data to the new screen
     };
 
     const renderFriendRequests = () => (
@@ -254,7 +250,7 @@ export default function Friends() {
                     friends={friends}
                     friendsDetails={friends}
                     onSearchPress={() => setShowFriendSearchModal(true)}
-                    onFriendPress={(user) => navigateToOtherUserProfile(user)}
+                    onFriendPress={(user) => navigateToOtherUserProfile(user._id)}
                 />
             </ScrollView>
         </View>
@@ -344,12 +340,14 @@ export default function Friends() {
             if (query.trim()) dispatch(fetchUserSuggestions(query));
         };
 
+        console.log(userSuggestions)
+
         return (
             <UserSearchCard
                 query={searchQuery}
                 onChangeQuery={handleSearchChange}
                 results={userSuggestions}
-                onUserSelect={navigateToOtherUserProfile}
+                onUserSelect={(selectedUser) => navigateToOtherUserProfile(selectedUser?._id)}
             />
         );
     };
@@ -417,7 +415,7 @@ export default function Friends() {
                 visible={showFriendSearchModal}
                 onClose={() => setShowFriendSearchModal(false)}
                 friends={friends}
-                onSelectFriend={(user) => navigateToOtherUserProfile(user)}
+                onSelectFriend={(user) => navigateToOtherUserProfile(user._id)}
             />
         </>
     );

@@ -19,7 +19,7 @@ export default function UserSearchCard({ query, onChangeQuery, results, onUserSe
                     results?.length > 0 ? (
                         <FlatList
                             data={results}
-                            keyExtractor={(item) => item.id}
+                            keyExtractor={(item) => item._id}
                             renderItem={({ item }) => (
                                 <TouchableOpacity style={styles.suggestionContainer} onPress={() => onUserSelect(item)}>
                                     <View style={styles.suggestionRow}>

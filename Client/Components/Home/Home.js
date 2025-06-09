@@ -8,9 +8,12 @@ import {
     appendUserAndFriendsReviews,
     selectHasFetchedOnce,
     setHasFetchedOnce,
+    setSuggestedPosts,
+    selectSuggestedPosts,
 } from "../../Slices/ReviewsSlice";
+import { selectSuggestedUsers } from "../../Slices/friendsSlice";
 import { selectUser } from "../../Slices/UserSlice";
-import { fetchFollowRequests, fetchMutualFriends, fetchFollowersAndFollowing, selectFriends } from "../../Slices/friendsSlice";
+import { fetchFollowRequests, fetchMutualFriends, fetchFollowersAndFollowing, selectFriends, } from "../../Slices/friendsSlice";
 import { fetchFavorites } from "../../Slices/FavoritesSlice";
 import { useSelector, useDispatch } from "react-redux";
 import Reviews from "../Reviews/Reviews";
@@ -27,6 +30,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const friends = useSelector(selectFriends);
     const user = useSelector(selectUser);
+    const suggestedFollows = useSelector(selectSuggestedUsers);
     const nearbySuggestions = useSelector(selectNearbySuggestions);
     const contentModal = useSelector(contentModalStatus);
     const inviteModal = useSelector(inviteModalStatus);
@@ -35,6 +39,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
     const [businessName, setBusinessName] = useState(null);
     const [updatedFeed, setUpdatedFeed] = useState([]);
     const hasFetchedOnce = useSelector(selectHasFetchedOnce);
+    const suggestedPosts = useSelector(selectSuggestedPosts);
     const userId = user?.id;
 
     const {
@@ -73,9 +78,10 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
             reviewCount++;
 
             if (reviewCount % interval === 0 && suggestionIndex < suggestions.length) {
+                const suggestion = suggestions[suggestionIndex];
                 result.push({
-                    ...suggestions[suggestionIndex],
-                    type: 'suggestion',
+                    ...suggestion,
+                    type: suggestion.type ?? 'suggestion', // only add 'suggestion' if not already set
                     __wrapped: true,
                 });
                 suggestionIndex++;
@@ -83,9 +89,10 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
         }
 
         while (suggestionIndex < suggestions.length) {
+            const suggestion = suggestions[suggestionIndex];
             result.push({
-                ...suggestions[suggestionIndex],
-                type: 'suggestion',
+                ...suggestion,
+                type: suggestion.type ?? 'suggestion',
                 __wrapped: true,
             });
             suggestionIndex++;
@@ -94,10 +101,41 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
         return result;
     }
 
+    function flattenSuggestedFollows(suggestedFollows) {
+        const posts = [];
+
+        suggestedFollows.forEach(user => {
+            (user.reviews || []).forEach(review => {
+                posts.push({
+                    ...review,
+                    isSuggestedFollowPost: true,
+                });
+            });
+
+            (user.checkIns || []).forEach(checkIn => {
+                posts.push({
+                    ...checkIn,
+                    isSuggestedFollowPost: true,
+                });
+            });
+        });
+
+        return posts;
+    };
+
     useEffect(() => {
-        const merged = injectSuggestions(userAndFriendsReviews, nearbySuggestions, 1);
+        if (suggestedFollows.length > 0) {
+            const followPosts = flattenSuggestedFollows(suggestedFollows);
+            dispatch(setSuggestedPosts(followPosts));
+        }
+    }, [suggestedFollows]);
+    
+    useEffect(() => {
+        const suggestionCards = nearbySuggestions.map(s => ({ ...s, type: 'suggestion' }));
+        const allSuggestions = [...suggestionCards, ...suggestedPosts];
+        const merged = injectSuggestions(userAndFriendsReviews, allSuggestions, 3);
         setUpdatedFeed(merged);
-    }, [userAndFriendsReviews, nearbySuggestions]);
+    }, [userAndFriendsReviews, nearbySuggestions, suggestedPosts]);
 
     return (
         <View style={styles.container}>

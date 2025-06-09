@@ -101,4 +101,23 @@ router.put('/privacy-settings/:userId', verifyToken, async (req, res) => {
     }
 });  
 
+// Get user's full name by ID
+router.get('/fullname/:userId', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findById(userId).select('firstName lastName');
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    const fullName = `${user.firstName} ${user.lastName}`;
+    return res.status(200).json({ fullName });
+  } catch (error) {
+    console.error('Error fetching user full name:', error);
+    res.status(500).json({ message: 'Server error.' });
+  }
+});
+
 module.exports = router;

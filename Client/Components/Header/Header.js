@@ -4,13 +4,17 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useDispatch } from 'react-redux';
 import { openSearchModal } from '../../Slices/ModalSlice';
 import { navigate } from '../../utils/NavigationService';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation  } from '@react-navigation/native';
+import { useSelector } from 'react-redux';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { selectUserToMessage } from '../../Slices/DirectMessagingSlice';
 import SearchModal from '../Home/SearchModal';
 
 export default function Header({ currentRoute }) {
     const dispatch = useDispatch();
     const navigation = useNavigation();
+    const userToMessage = useSelector(selectUserToMessage);
+    console.log(userToMessage);
 
     // Determine dynamic title based on the current route
     const getTitle = () => {
@@ -35,6 +39,10 @@ export default function Header({ currentRoute }) {
                 return "Create Event";
             case "CreatePromotion":
                 return "Create Promo";
+            case "DirectMessages":
+                return "Messages";
+            case "SearchFollowing":
+                return "New Message";
             default:
                 return "Vybe";
         }
@@ -46,9 +54,17 @@ export default function Header({ currentRoute }) {
         dispatch(openSearchModal());
     };
 
+    const handleOpenFollowingModal = () => {
+        navigation.navigate("SearchFollowing");
+    };
+
     const handleOpenNotifications = () => {
         navigate("Notifications");
     };
+
+    const handleOpenDMs = () => {
+        navigation.navigate("DirectMessages");
+    }
 
     const goBack = () => {
         navigation.goBack();
@@ -61,36 +77,50 @@ export default function Header({ currentRoute }) {
                 <View style={styles.headerContent}>
                     {
                         (
-                        currentRoute === "Notifications" || 
-                        currentRoute === "CreatePost" ||
-                        currentRoute === "CreateEvent" ||
-                        currentRoute === "CreatePromotion" 
+                            currentRoute === "Notifications" ||
+                            currentRoute === "CreatePost" ||
+                            currentRoute === "CreateEvent" ||
+                            currentRoute === "CreatePromotion" ||
+                            currentRoute === "DirectMessages" ||
+                            currentRoute === "SearchFollowing"
                         ) && (
-                        <TouchableOpacity onPress={goBack} style={{marginRight: 10}}>
-                            <MaterialCommunityIcons name="chevron-left" size={35} color="black" />
-                        </TouchableOpacity>
-                    )}
+                            <TouchableOpacity onPress={goBack} style={{ marginRight: 10 }}>
+                                <MaterialCommunityIcons name="chevron-left" size={35} color="black" />
+                            </TouchableOpacity>
+                        )}
                     <Text style={styles.title}>{route}</Text>
                     <View style={styles.indicators}>
                         {/* Location Display */}
                         <View style={styles.locationContainer}>
-                            <TouchableOpacity onPress={handleOpenSearch}>
-                                <FontAwesome name="search" size={20} color="white" />
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={handleOpenNotifications}>
-                                <FontAwesome name="bell" size={20} color="white" />
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={handleOpenSearch}>
-                                <Image
-                                    source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }} // Pin icon
-                                    style={styles.pinIcon}
-                                />
-                            </TouchableOpacity>
+                            {currentRoute !== 'SearchFollowing' && (
+                                currentRoute !== 'DirectMessages' ? (
+                                    <>
+                                        <TouchableOpacity onPress={handleOpenSearch}>
+                                            <FontAwesome name="search" size={20} color="white" />
+                                        </TouchableOpacity>
+                                        <TouchableOpacity onPress={handleOpenNotifications}>
+                                            <FontAwesome name="bell" size={20} color="white" />
+                                        </TouchableOpacity>
+                                        <TouchableOpacity onPress={handleOpenDMs}>
+                                            <MaterialCommunityIcons name="message-text-outline" size={22} color="white" />
+                                        </TouchableOpacity>
+                                        <TouchableOpacity onPress={handleOpenSearch}>
+                                            <Image
+                                                source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }}
+                                                style={styles.pinIcon}
+                                            />
+                                        </TouchableOpacity>
+                                    </>
+                                ) : (
+                                    <TouchableOpacity onPress={handleOpenFollowingModal}>
+                                        <FontAwesome name="plus" size={22} color="white" />
+                                    </TouchableOpacity>
+                                )
+                            )}
                         </View>
                     </View>
                 </View>
             </View>
-
             <SearchModal />
         </>
     );

@@ -1,6 +1,7 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
 import { getUserToken } from '../functions';
+import { GET_SUGGESTED_FOLLOWS_QUERY } from './GraphqlQueries/Queries/suggestedFollowQuery';
 
 const BASE_URL = `${process.env.EXPO_PUBLIC_SERVER_URL}/connections`;
 const GRAPH_QL = `${process.env.EXPO_PUBLIC_SERVER_URL}/graphql`
@@ -22,10 +23,10 @@ export const sendFollowRequest = createAsyncThunk(
 
 export const followUserImmediately = createAsyncThunk(
   'follows/followUserImmediately',
-  async ({targetUserId, isFollowBack = false}, { rejectWithValue }) => {
+  async ({ targetUserId, isFollowBack = false }, { rejectWithValue }) => {
     try {
       const token = await getUserToken();
-      
+
       const response = await axios.post(
         `${BASE_URL}/follow/${targetUserId}`,
         { isFollowBack }, // ✅ send as body
@@ -37,7 +38,7 @@ export const followUserImmediately = createAsyncThunk(
         }
       );
 
-      return {...response.data, isFollowBack};
+      return { ...response.data, isFollowBack };
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || 'Failed to follow user.');
     }
@@ -131,45 +132,12 @@ export const fetchSuggestedFriends = createAsyncThunk(
     try {
       const token = await getUserToken();
 
-      const query = `
-        query GetSuggestedFollows($userId: ID!) {
-          getSuggestedFollows(userId: $userId) {
-            _id
-            firstName
-            lastName
-            fullName
-            profilePicUrl
-            profilePic {
-              _id
-              photoKey
-              uploadedBy
-              description
-              tags
-              uploadDate
-            }
-            mutualConnections {
-              _id
-              firstName
-              lastName
-              profilePic {
-                _id
-                photoKey
-                uploadedBy
-                description
-                tags
-                uploadDate
-              }
-              profilePicUrl
-            }
-            profileVisibility
-          }
-        }
-      `;
+      console.log('📤 Sending fetchSuggestedFriends request for userId:', userId);
 
       const response = await axios.post(
         GRAPH_QL,
         {
-          query,
+          query: GET_SUGGESTED_FOLLOWS_QUERY,
           variables: { userId },
         },
         {
@@ -183,11 +151,20 @@ export const fetchSuggestedFriends = createAsyncThunk(
       const data = response.data;
 
       if (data.errors) {
+        console.error('❌ GraphQL errors:', data.errors);
         return rejectWithValue(data.errors[0]?.message || 'Failed to fetch suggested users');
       }
 
+      console.log(`✅ fetchSuggestedFriends success: received ${data.data.getSuggestedFollows.length} suggestions`);
       return data.data.getSuggestedFollows;
+
     } catch (error) {
+      console.error('❗ fetchSuggestedFriends Axios error:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
+
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch suggested users');
     }
   }
@@ -276,6 +253,7 @@ const initialState = {
   },
   suggestedUsers: [],
   userSuggestions: [],
+  hasFetchedSuggestions: false,
   followBack: false,
   status: 'idle',
   error: null,
@@ -305,24 +283,27 @@ const followsSlice = createSlice({
       state.otherUserFollowing = [];
     },
     resetFriends: () => initialState,
+    setHasFetchedSuggestions: (state, action) => {
+      state.hasFetchedOnce = action.payload;
+    },
   },
   extraReducers: (builder) => {
     builder
       .addCase(sendFollowRequest.fulfilled, (state, action) => {
         const { follower } = action.payload;
-      
+
         if (follower && !state.followRequests.sent.find(u => u._id === follower._id)) {
           state.followRequests.sent.push(follower);
         }
 
         state.suggestedUsers = state.suggestedUsers.filter(u => u._id !== follower._id);
-      })    
+      })
       .addCase(cancelFollowRequest.fulfilled, (state, action) => {
         const { recipientId } = action.payload;
         state.followRequests.sent = state.followRequests.sent.filter(
           user => user._id !== recipientId
         );
-      })      
+      })
       .addCase(approveFollowRequest.fulfilled, (state, action) => {
         const { follower } = action.payload;
         const id = follower._id;
@@ -337,17 +318,17 @@ const followsSlice = createSlice({
         state.followRequests.received = state.followRequests.received.filter(
           user => user._id !== requesterId
         );
-      })      
+      })
       .addCase(unfollowUser.fulfilled, (state, action) => {
         const { targetUserId } = action.payload;
-      
+
         state.following = state.following.filter(
           user => user._id !== targetUserId
         );
         state.friends = state.friends?.filter(
           user => user._id !== targetUserId
         );
-      })      
+      })
       // Reuse existing logic for userSuggestions & suggestedUsers
       .addCase(fetchUserSuggestions.pending, (state) => {
         state.status = 'loading';
@@ -366,7 +347,7 @@ const followsSlice = createSlice({
       })
       .addCase(followUserImmediately.fulfilled, (state, action) => {
         const { targetUser, isFollowBack } = action.payload;
-        
+
         const alreadyFollowing = state.following.some(user => user._id === targetUser._id);
         if (!alreadyFollowing) {
           state.following.push(targetUser);
@@ -381,7 +362,7 @@ const followsSlice = createSlice({
           }
         }
         state.suggestedUsers = state.suggestedUsers.filter(u => u._id !== targetUser._id);
-      })           
+      })
       .addCase(followUserImmediately.rejected, (state, action) => {
         state.error = action.payload;
       })
@@ -443,8 +424,8 @@ export const selectSuggestedUsers = state => state.follows.suggestedUsers || [];
 export const selectUserSuggestions = state => state.follows.userSuggestions || [];
 export const selectFriends = (state) => state.follows.friends || [];
 export const selectFollowBack = (state) => state.follows.followBack;
-
+export const selectHasFetchedSuggestions = (state) => state.follows.hasFetchedSuggested;
 export const selectStatus = (state) => state.follows.status;
 export const selectError = (state) => state.follows.error;
 
-export const { setFollowers, resetOtherUserConnections, setFollowing, setFollowRequests, resetFriends, followBack, setFollowBack } = followsSlice.actions;
+export const { setFollowers, setHasFetchedSuggestions, resetOtherUserConnections, setFollowing, setFollowRequests, resetFriends, followBack, setFollowBack } = followsSlice.actions;

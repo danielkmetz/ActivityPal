@@ -80,6 +80,15 @@ export default function useScrollTracking() {
     }
   };
 
+  const resetHeaderAndTab = () => {
+    Animated.timing(headerTranslateY, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+    isHeaderVisible.current = true;
+  };
+
   return {
     scrollY,
     headerTranslateY,
@@ -87,5 +96,6 @@ export default function useScrollTracking() {
     customNavTranslateY,
     customHeaderTranslateY,
     handleScroll,
+    resetHeaderAndTab,
   };
 }

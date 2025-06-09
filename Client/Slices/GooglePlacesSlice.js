@@ -27,7 +27,6 @@ export const fetchDining = createAsyncThunk(
   'GooglePlaces/fetchDining',
   async ({ lat, lng, activityType, radius, budget, isCustom }, { rejectWithValue }) => {
     try {
-      console.log(activityType)
       const response = await axios.post(`${BASE_URL}/google/places`, {
         lat,
         lng,

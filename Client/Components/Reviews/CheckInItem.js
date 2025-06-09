@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
     View,
     Text,
@@ -7,6 +7,8 @@ import {
     Animated,
     StyleSheet,
     Dimensions,
+    TouchableWithoutFeedback,
+    TouchableOpacity,
 } from "react-native";
 import PhotoItem from "./PhotoItem";
 import PhotoPaginationDots from "./PhotoPaginationDots";
@@ -16,6 +18,9 @@ import { useSelector } from "react-redux";
 import { useNavigation } from "@react-navigation/native";
 import PostOptionsMenu from "./PostOptionsMenu";
 import StoryAvatar from "../Stories/StoryAvatar";
+import { createNotification } from "../../Slices/NotificationsSlice";
+import { declineFollowRequest, cancelFollowRequest, approveFollowRequest } from "../../Slices/friendsSlice";
+import { handleFollowUserHelper } from "../../utils/followHelper";
 
 const pinPic = "https://cdn-icons-png.flaticon.com/512/684/684908.png";
 
@@ -24,6 +29,7 @@ const screenWidth = Dimensions.get("window").width;
 export default function CheckInItem({
     item,
     likedAnimations,
+    setLikedAnimations,
     photoTapped,
     toggleTaggedUsers,
     handleLikeWithAnimation,
@@ -31,24 +37,124 @@ export default function CheckInItem({
     lastTapRef,
     handleDelete,
     handleEdit,
+    following,
+    followRequests,
 }) {
     const navigation = useNavigation();
     const user = useSelector(selectUser);
     const isSender = item.userId === user?.id;
     const [dropdownVisible, setDropdownVisible] = useState(false);
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+    const [isFollowing, setIsFollowing] = useState(false);
+    const [isRequestSent, setIsRequestSent] = useState(false);
+    const [isRequestReceived, setIsRequestReceived] = useState(false);
     const scrollX = useRef(new Animated.Value(0)).current;
     const currentPhoto = item.photos?.[currentPhotoIndex];
+    const postOwnerId = item?.userId;
+    const fullName = `${user.firstName} ${user.lastName}`;
+    const { isSuggestedFollowPost } = item;
 
     const handleOpenFullScreen = (photo, index) => {
         navigation.navigate('FullScreenPhoto', {
-            review: item,
+            reviewId: item._id,
             initialIndex: index,
             lastTapRef,
             likedAnimations,
+            setLikedAnimations,
             taggedUsersByPhotoKey: item.taggedUsersByPhotoKey || {}, // or however you pass it
-            handleLikeWithAnimation,
+            isSuggestedPost: isSuggestedFollowPost
         });
+    };
+
+    const navigateToOtherUserProfile = (userId) => {
+        if (userId !== user?.id) {
+            navigation.navigate('OtherUserProfile', { userId }); // Pass user data to the new screen
+        } else {
+            navigation.navigate('Profile');
+        }
+    };
+
+    const handleFollowUser = () => {
+        handleFollowUserHelper({
+            isPrivate,
+            userId: item.userId,
+            mainUser: user,
+            dispatch,
+            setIsFollowing,
+            setIsRequestSent,
+        });
+    };
+
+    const handleAcceptRequest = async () => {
+        await dispatch(approveFollowRequest(item.userId));
+
+        // ✅ Create a notification for the original sender
+        await dispatch(createNotification({
+            userId: item.userId,
+            type: 'followAccepted',
+            message: `${fullName} accepted your follow request!`,
+            relatedId: item.userId,
+            typeRef: 'User'
+        }));
+    };
+
+    const handleDenyRequest = () => dispatch(declineFollowRequest({ requesterId: item.userId }));
+
+    const handleCancelRequest = async () => {
+        await dispatch(cancelFollowRequest({ recipientId: item.userId }));
+        // ✅ Explicitly update the state to ensure UI reflects the change
+        setIsRequestSent(false);
+    };
+
+    useEffect(() => {
+        if (!user || !followRequests || !following) return;
+
+        const followingIds = following.map(u => u._id);
+        const sentRequestIds = (followRequests?.sent || []).map(u => u._id || u);
+        const receivedRequestIds = (followRequests?.received || []).map(u => u._id || u);
+
+        setIsRequestSent(sentRequestIds.includes(postOwnerId));
+        setIsRequestReceived(receivedRequestIds.includes(postOwnerId));
+        setIsFollowing(followingIds.includes(postOwnerId));
+    }, [user, following, followRequests]);
+
+    const renderFollowButton = () => {
+        if (isSuggestedFollowPost) {
+            if (isFollowing) {
+                return (
+                    <TouchableOpacity
+                        style={styles.followButton}
+                        onPress={() => navigateToOtherUserProfile(item.userId)}
+                    >
+                        <Text style={styles.friendsText}>Following</Text>
+                    </TouchableOpacity>
+                );
+            }
+            if (isRequestReceived) {
+                return (
+                    <View style={styles.requestButtonsContainer}>
+                        <TouchableOpacity style={styles.acceptRequestButton} onPress={handleAcceptRequest}>
+                            <Text style={styles.acceptRequestText}>Accept Request</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.followButton} onPress={handleDenyRequest}>
+                            <Text style={styles.followButtonText}>Deny Request</Text>
+                        </TouchableOpacity>
+                    </View>
+                );
+            }
+            if (isRequestSent) {
+                return (
+                    <TouchableOpacity style={styles.followButton} onPress={handleCancelRequest}>
+                        <Text style={styles.followButtonText}>Cancel Request</Text>
+                    </TouchableOpacity>
+                );
+            }
+            return (
+                <TouchableOpacity style={styles.followButton} onPress={handleFollowUser}>
+                    <Text style={styles.followButtonText}>Follow</Text>
+                </TouchableOpacity>
+            );
+        }
     };
 
     return (
@@ -62,37 +168,51 @@ export default function CheckInItem({
                 postData={item}
             />
             <View style={styles.section}>
-                <View style={styles.userPicAndName}>
-                    <StoryAvatar userId={item?.userId} profilePicUrl={item.profilePicUrl} />
-                    <View style={{ flexShrink: 1, flexDirection: 'row', flexWrap: 'wrap' }}>
-                        <Text style={styles.userEmailText}>
-                            <Text style={styles.name}>{item.fullName}</Text>
-                            {item.taggedUsers?.length > 0 ? (
-                                <>
-                                    <Text style={styles.business}> is with </Text>
-                                    {item.taggedUsers.map((user, index) => (
-                                        <Text key={user._id || index} style={styles.name}>
-                                            {user.fullName}
-                                            {index < item.taggedUsers.length - 1 ? ", " : ""}
-                                        </Text>
-                                    ))}
-                                    <Text style={styles.business}> at </Text>
-                                    <Text style={styles.business}>{item.businessName}</Text>
-                                </>
-                            ) : (
-                                <>
-                                    <Text style={styles.business}> is at </Text>
-                                    <Text style={styles.business}>{item.businessName}</Text>
-                                </>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={styles.userPicAndName}>
+                        <StoryAvatar userId={item?.userId} profilePicUrl={item.profilePicUrl} />
+                        <View style={{ flexShrink: 1 }}>
+                            <Text style={styles.userEmailText}>
+                                <TouchableWithoutFeedback onPress={() => navigateToOtherUserProfile(item.userId)}>
+                                    <Text style={styles.name}>{item.fullName}</Text>
+                                </TouchableWithoutFeedback>
+                                {item.taggedUsers?.length > 0 ? (
+                                    <>
+                                        <Text style={styles.business}> is with </Text>
+                                        {item.taggedUsers.map((user, index) => (
+                                            <TouchableWithoutFeedback
+                                                key={user._id || index}
+                                                style={styles.name}
+                                                onPress={() => navigateToOtherUserProfile(user._id)}
+                                            >
+                                                <Text>
+                                                    {user.fullName}
+                                                    {index < item.taggedUsers.length - 1 ? ", " : ""}
+                                                </Text>
+                                            </TouchableWithoutFeedback>
+                                        ))}
+                                        <Text style={styles.business}> at </Text>
+                                        <Text style={styles.business}>{item.businessName}</Text>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Text style={styles.business}> is at </Text>
+                                        <Text style={styles.business}>{item.businessName}</Text>
+                                    </>
+                                )}
+                                {item.photos.length > 0 && (
+                                    <Image
+                                        source={{ uri: pinPic }}
+                                        style={styles.smallPinIcon}
+                                    />
+                                )}
+                            </Text>
+                            {isSuggestedFollowPost && (
+                                <Text style={styles.subText}>Suggested user for you</Text>
                             )}
-                            {item.photos.length > 0 && (
-                                <Image
-                                    source={{ uri: pinPic }}
-                                    style={styles.smallPinIcon}
-                                />
-                            )}
-                        </Text>
+                        </View>
                     </View>
+                    {renderFollowButton()}
                 </View>
                 <Text style={styles.message}>{item.message || null}</Text>
                 {item.photos?.length === 0 && (
@@ -135,6 +255,7 @@ export default function CheckInItem({
                                 handleLikeWithAnimation={handleLikeWithAnimation}
                                 lastTapRef={lastTapRef}
                                 onOpenFullScreen={handleOpenFullScreen}
+                                isSuggestedPost={isSuggestedFollowPost}
                             />
                         )}
                     />
@@ -174,6 +295,7 @@ const styles = StyleSheet.create({
         marginBottom: 15,
         padding: 6,
         paddingRight: 30,
+        flexShrink: 1,
     },
     profilePic: {
         marginRight: 10,
@@ -232,5 +354,20 @@ const styles = StyleSheet.create({
     },
     commentCount: {
         marginLeft: 5,
+    },
+    subText: {
+        color: "#555",
+        marginTop: 4,
+    },
+    followButton: {
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        borderRadius: 10,
+        backgroundColor: '#b3b3b3',
+    },
+    followButtonText: {
+        fontSize: 15,
+        fontWeight: 'bold',
+        color: '#fff',
     },
 });

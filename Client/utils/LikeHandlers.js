@@ -1,7 +1,6 @@
 import { Animated } from 'react-native';
 import { toggleLike } from '../Slices/ReviewsSlice';
 import { createNotification } from '../Slices/NotificationsSlice';
-import { useDispatch } from 'react-redux';
 
 export const handleLike = async ({
   postType,
@@ -50,6 +49,22 @@ export const handleLike = async ({
   }
 };
 
+const runLikeAnimation = (animation) => {
+  Animated.timing(animation, {
+    toValue: 1,
+    duration: 50,
+    useNativeDriver: true,
+  }).start(() => {
+    setTimeout(() => {
+      Animated.timing(animation, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }).start();
+    }, 500);
+  });
+};
+
 export const handleLikeWithAnimation = async ({
   postType,
   postId,
@@ -58,53 +73,43 @@ export const handleLikeWithAnimation = async ({
   lastTapRef,
   likedAnimations,
   setLikedAnimations,
+  dispatch,
   force = false,
 }) => {
-  const dispatch = useDispatch();
   const now = Date.now();
-  if (!lastTapRef.current) lastTapRef.current = {};
-  if (!lastTapRef.current[postId]) lastTapRef.current[postId] = 0;
+
+  lastTapRef.current ||= {};
+  lastTapRef.current[postId] ||= 0;
 
   const wasLikedBefore = review?.likes?.some(like => like.userId === user?.id);
   const shouldAnimate = force || (now - lastTapRef.current[postId] < 300);
 
-  if (shouldAnimate) {
-    await handleLike({
-      postType,
-      postId,
-      review,
-      userId: user?.id,
-      fullName: `${user?.firstName} ${user?.lastName}`,
-      dispatch,
-    });
+  if (!shouldAnimate) {
+    lastTapRef.current[postId] = now;
+    return;
+  }
 
-    if (!wasLikedBefore) {
-      if (!likedAnimations[postId]) {
-        likedAnimations[postId] = new Animated.Value(0);
-        setLikedAnimations({ ...likedAnimations });
-      }
+  await handleLike({
+    postType,
+    postId,
+    review,
+    userId: user?.id,
+    fullName: `${user?.firstName} ${user?.lastName}`,
+    dispatch,
+  });
 
-      const animation = likedAnimations[postId];
+  if (!wasLikedBefore) {
+    let animation = likedAnimations[postId];
 
-      Animated.timing(animation, {
-        toValue: 1,
-        duration: 50,
-        useNativeDriver: true,
-      }).start(() => {
-        setTimeout(() => {
-          Animated.timing(animation, {
-            toValue: 0,
-            duration: 500,
-            useNativeDriver: true,
-          }).start();
-        }, 500);
-      });
-
+    if (!(animation instanceof Animated.Value)) {
+      animation = new Animated.Value(0);
       setLikedAnimations(prev => ({
         ...prev,
         [postId]: animation,
       }));
     }
+
+    runLikeAnimation(animation);
   }
 
   lastTapRef.current[postId] = now;

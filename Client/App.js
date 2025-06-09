@@ -12,10 +12,10 @@ import Header from './Components/Header/Header';
 import store from './store';
 import * as Font from 'expo-font';
 import { useDispatch, useSelector } from 'react-redux';
-import { 
-  getCurrentCoordinates, 
-  selectCoordinates, 
-  getCityStateCountry, 
+import {
+  getCurrentCoordinates,
+  selectCoordinates,
+  getCityStateCountry,
 } from './Slices/LocationSlice';
 import { loadToken } from './Slices/UserSlice';
 import { PaperProvider } from 'react-native-paper';
@@ -27,6 +27,7 @@ import { selectIsBusiness } from './Slices/UserSlice';
 import { fetchBusinessNotifications } from './Slices/BusNotificationsSlice';
 import { navigationRef } from './utils/NavigationService';
 import { fetchNearbyPromosAndEvents } from './Slices/GooglePlacesSlice';
+import { fetchSuggestedFriends, setHasFetchedSuggestions, selectHasFetchedSuggestions } from './Slices/friendsSlice';
 
 const fetchFonts = async () => {
   return await Font.loadAsync({
@@ -41,6 +42,7 @@ function MainApp() {
   const coordinates = useSelector(selectCoordinates);
   const isBusiness = useSelector(selectIsBusiness);
   const user = useSelector(selectUser);
+  const hasFetchSuggested = useSelector(selectHasFetchedSuggestions)
   const placeId = user?.businessDetails?.placeId;
   const unreadCount = useSelector(selectUnreadCount);
   const [isAtEnd, setIsAtEnd] = useState(false);
@@ -50,21 +52,31 @@ function MainApp() {
   const [shouldFetch, setShouldFetch] = useState(true);
   const [newUnreadCount, setNewUnreadCount] = useState(0);
   const previousUnreadCount = useRef(null);
+  const userId = user?.id;
   const { lat, lng } = coordinates || {};
-  
-  const { 
-    scrollY, 
-    headerTranslateY, 
-    tabBarTranslateY, 
-    customNavTranslateY, 
-    customHeaderTranslateY, 
-    handleScroll 
+
+  const {
+    scrollY,
+    headerTranslateY,
+    tabBarTranslateY,
+    customNavTranslateY,
+    customHeaderTranslateY,
+    resetHeaderAndTab,
+    handleScroll
   } = useScrollTracking();
-  
+
   useEffect(() => {
     dispatch(getCurrentCoordinates());
     dispatch(loadToken());
   }, [dispatch]);
+
+  //fetch suggested follows
+  useEffect(() => {
+    if (userId && !hasFetchSuggested) {
+      dispatch(fetchSuggestedFriends(userId));
+      dispatch(setHasFetchedSuggestions(true));
+    }
+  }, [userId])
 
   useEffect(() => {
     const initNotifications = async () => {
@@ -72,20 +84,20 @@ function MainApp() {
         // Step 1: Load AsyncStorage values FIRST
         const seenVal = await AsyncStorage.getItem('@hasSeenNotifications');
         const lastSeenCountVal = await AsyncStorage.getItem('@lastSeenUnreadCount');
-  
+
         const seen = seenVal === 'true';
         const lastSeenCount = parseInt(lastSeenCountVal, 10) || 0;
-  
+
         setNotificationsSeen(seen);
         previousUnreadCount.current = lastSeenCount;
-  
+
         // Step 2: Fetch notifications AFTER that
         if (!isBusiness) {
-        await dispatch(fetchNotifications(user.id)); // wait for unreadCount to be updated
+          await dispatch(fetchNotifications(user.id)); // wait for unreadCount to be updated
         } else {
           await dispatch(fetchBusinessNotifications(placeId));
         }
-  
+
         // Step 3: Now safe to trigger the comparison effect
         setNotificationsInitialized(true);
       } catch (e) {
@@ -93,14 +105,14 @@ function MainApp() {
         previousUnreadCount.current = 0;
         setNotificationsInitialized(true);
       }
-  
+
       setLoadingSeenState(false);
     };
-  
+
     if (user?.id) {
       initNotifications();
     }
-  }, [user, isBusiness, placeId]);  
+  }, [user, isBusiness, placeId]);
 
   useEffect(() => {
     if (
@@ -115,23 +127,17 @@ function MainApp() {
         setNotificationsSeen(false);
       } else {
         setNewUnreadCount(0); // no new notifications
-      }      
-  
+      }
+
       previousUnreadCount.current = unreadCount;
       setShouldFetch(false);
     }
   }, [unreadCount, notificationsInitialized, loadingSeenState, shouldFetch]);
-  
-  // useEffect(() => {
-  //   if (coordinates) {
-  //     dispatch(getCityStateCountry(coordinates));
-  //   }
-  // }, [coordinates, dispatch]);
 
   // Get current route name using navigation state
   const currentRoute = useNavigationState((state) => {
     if (!state || !state.routes || state.index === undefined) return null;
-    
+
     // Get top-level active screen (likely "TabNavigator")
     const stackRoute = state.routes[state.index];
 
@@ -145,33 +151,56 @@ function MainApp() {
     return stackRoute.name;
   });
 
+  //fetch suggested promos and events
   useEffect(() => {
     if (lat && lng && !isBusiness) {
       dispatch(fetchNearbyPromosAndEvents({ lat, lng }));
     }
-  }, [lat, lng])
+  }, [lat, lng]);
+
+  //header and tab bar management during navigation
+  useEffect(() => {
+    const excludedRoutes = [
+      "Profile",
+      "OtherUserProfile",
+      "BusinessProfile",
+      "CameraScreen",
+      "StoryPreview",
+      "StoryViewer",
+      "CommentScreen",
+      "FullScreenPhoto",
+    ];
+
+    const shouldResetHeader = !excludedRoutes.includes(currentRoute) &&
+      !(currentRoute === "Activities" && activities.length > 0);
+
+    if (shouldResetHeader) {
+      resetHeaderAndTab(); // ✅ Reset visibility
+    }
+  }, [currentRoute, activities]);
 
   return (
     <View style={styles.container}>
       {/* Conditionally render Header based on the current route */}
       {
-        currentRoute !== "Profile" && 
-        currentRoute !== "OtherUserProfile" && 
-        currentRoute !== "BusinessProfile"&& 
+        currentRoute !== "Profile" &&
+        currentRoute !== "OtherUserProfile" &&
+        currentRoute !== "BusinessProfile" &&
         currentRoute !== "CameraScreen" &&
-        currentRoute !== "StoryPreview" &&  
+        currentRoute !== "StoryPreview" &&
         currentRoute !== "StoryViewer" &&
         currentRoute !== "CommentScreen" &&
+        currentRoute !== "FullScreenPhoto" &&
         !(currentRoute === "Activities" && activities.length > 0) &&
-      (
-        <Animated.View style={[styles.header, { transform: [{ translateY: headerTranslateY }] }]}>
-          <Header currentRoute={currentRoute}/>
-        </Animated.View>
-      )}
-      <AppNavigator 
-        scrollY={scrollY} 
-        onScroll={(e) => handleScroll(e, setIsAtEnd)} 
-        tabBarTranslateY={tabBarTranslateY} 
+        (
+          <Animated.View style={[styles.header, { transform: [{ translateY: headerTranslateY }] }]}>
+            <Header currentRoute={currentRoute} />
+          </Animated.View>
+        )}
+      <AppNavigator
+        scrollY={scrollY}
+        onScroll={(e) => handleScroll(e, setIsAtEnd)}
+        tabBarTranslateY={tabBarTranslateY}
         headerTranslateY={headerTranslateY}
         customNavTranslateY={customNavTranslateY}
         customHeaderTranslateY={customHeaderTranslateY}
@@ -194,13 +223,13 @@ export default function App() {
     <Provider store={store}>
       <PaperProvider>
         <GestureHandlerRootView style={{ flex: 1 }}>
-        <SafeAreaProvider>
-        <NavigationContainer ref={(ref) => {
-          navigationRef.current = ref;
-        }}>
-          <MainApp />
-        </NavigationContainer>
-        </SafeAreaProvider>
+          <SafeAreaProvider>
+            <NavigationContainer ref={(ref) => {
+              navigationRef.current = ref;
+            }}>
+              <MainApp />
+            </NavigationContainer>
+          </SafeAreaProvider>
         </GestureHandlerRootView>
       </PaperProvider>
     </Provider>

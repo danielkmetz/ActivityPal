@@ -1,0 +1,90 @@
+export const REVIEW_FRAGMENT = `
+  fragment ReviewFields on Review {
+    _id
+    businessName
+    placeId
+    rating
+    reviewText
+    date
+    likes {
+      userId
+      fullName
+    }
+    comments {
+      _id
+      commentText
+      userId
+      fullName
+      likes
+      date
+      replies {
+        _id
+        commentText
+        userId
+        fullName
+        likes
+        date
+        replies {
+          _id
+          commentText
+          userId
+          fullName
+          likes
+          date
+          replies {
+            _id
+            commentText
+            userId
+            fullName
+            likes
+            date
+            replies {
+              _id
+              commentText
+              userId
+              fullName
+              likes
+              date
+              replies {
+                _id
+                commentText
+                userId
+                fullName
+                likes
+                date
+                replies {
+                  _id
+                  commentText
+                  userId
+                  fullName
+                  likes
+                  date
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    userId
+    fullName
+    profilePicUrl
+    type
+    sortDate
+    photos {
+      _id
+      photoKey
+      url
+      taggedUsers {
+        userId
+        fullName
+        x
+        y
+      }
+    }
+    taggedUsers {
+      userId
+      fullName
+    }
+  }
+`;

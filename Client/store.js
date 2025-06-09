@@ -19,6 +19,7 @@ import commentThreadReducer from './Slices/CommentThreadSlice';
 import modalReducer from './Slices/ModalSlice';
 import recentSearchesReducer from './Slices/RecentSearchesSlice'; 
 import storiesReducer from './Slices/StoriesSlice';
+import directMessagesReducer from './Slices/DirectMessagingSlice';
 
 const store = configureStore({
     reducer: combineReducers({
@@ -42,6 +43,7 @@ const store = configureStore({
        recentSearches: recentSearchesReducer,
        modals: modalReducer,
        stories: storiesReducer,
+       directMessages: directMessagesReducer,
     })
 });
 

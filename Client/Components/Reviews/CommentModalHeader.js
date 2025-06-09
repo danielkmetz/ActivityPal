@@ -168,7 +168,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     headerText: {
-        padding: 15,
+        padding: 10,
     },
     userInfo: {
         flexDirection: 'row',
@@ -227,7 +227,7 @@ const styles = StyleSheet.create({
     reviewText: {
         fontSize: 15,
         color: '#333',
-        marginTop: 10,
+        marginBottom: 10,
     },
     smallPinIcon: {
         width: 20,
@@ -252,10 +252,8 @@ const styles = StyleSheet.create({
         backgroundColor: '#fff',
         zIndex: 1,
     },
-
     backButton: {
         padding: 5,
     },
-
 });
 

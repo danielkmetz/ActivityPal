@@ -13,6 +13,7 @@ import PostActions from './PostActions';
 import PostOptionsMenu from './PostOptionsMenu';
 import { useNavigation } from '@react-navigation/native';
 import StoryAvatar from '../Stories/StoryAvatar';
+import { TouchableWithoutFeedback } from 'react-native-web';
 
 const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments }) => {
     const dispatch = useDispatch();
@@ -35,7 +36,7 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments }) => 
     const hasRequested = requested || invite.requests?.some(r => r.userId === user.id);
     const isRecipient = userId !== senderId && !invite.recipients?.some(r => r.userId?.toString() === user.id?.toString());
     const isSender = userId === senderId;
-    
+
     const handleEdit = () => {
         if (invite) {
             navigation.navigate("CreatePost", {
@@ -93,12 +94,6 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments }) => 
 
     const handleRequest = async () => {
         try {
-            console.log('📨 Submitting invite request...');
-            console.log('➡️ Payload being sent to requestInvite:', {
-                userId: user.id,
-                inviteId: invite._id,
-            });
-
             const { payload: result } = await dispatch(requestInvite({
                 userId: user.id,
                 inviteId: invite._id,
@@ -123,7 +118,6 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments }) => 
                 targetRef: 'ActivityInvite',
             };
 
-            console.log('📨 Sending notification with payload:', notificationPayload);
             await dispatch(createNotification(notificationPayload)).unwrap();
 
             // ✅ Replace the invite in the feed
@@ -142,6 +136,14 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments }) => 
         } catch (err) {
             console.error('❌ Failed to request invite or send notification:', err);
             alert(`Something went wrong. ${err?.message || ''}`);
+        }
+    };
+
+    const navigateToOtherUserProfile = (userId) => {
+        if (userId !== user?.id) {
+            navigation.navigate('OtherUserProfile', { userId }); // Pass user data to the new screen
+        } else {
+            navigation.navigate('Profile');
         }
     };
 
@@ -171,11 +173,13 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments }) => 
                     postData={invite}
                 />
                 <View style={styles.header}>
-                    <StoryAvatar userId={invite.sender.id} profilePicUrl={invite.sender?.profilePicUrl}/>
+                    <StoryAvatar userId={invite.sender.id} profilePicUrl={invite.sender?.profilePicUrl} />
                     <View style={styles.headerText}>
                         <Text style={styles.senderName}>
-                            {invite.sender?.firstName} {invite.sender?.lastName} invited {totalInvited} friend
-                            {totalInvited.length === 1 ? '' : 's'} to a Vybe
+                            <Text onPress={() => navigateToOtherUserProfile(invite.senderId)} style={styles.senderName}>
+                                {invite.sender?.firstName} {invite.sender?.lastName}
+                            </Text>
+                            {` invited ${totalInvited} friend${totalInvited === 1 ? '' : 's'} to a Vybe`}
                         </Text>
                     </View>
                 </View>

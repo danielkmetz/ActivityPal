@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
     View,
     Text,
@@ -6,6 +6,8 @@ import {
     StyleSheet,
     Animated,
     Dimensions,
+    TouchableWithoutFeedback,
+    TouchableOpacity,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import PhotoItem from "./PhotoItem";
@@ -14,9 +16,12 @@ import PostActions from "./PostActions";
 import PostOptionsMenu from "./PostOptionsMenu";
 import ExpandableText from "./ExpandableText";
 import { selectUser } from '../../Slices/UserSlice';
-import { useSelector } from "react-redux";
+import { useSelector, useDispatch } from "react-redux";
 import StoryAvatar from "../Stories/StoryAvatar";
 import { useNavigation } from "@react-navigation/native";
+import { handleFollowUserHelper } from "../../utils/followHelper";
+import { createNotification } from "../../Slices/NotificationsSlice";
+import { declineFollowRequest, cancelFollowRequest, approveFollowRequest } from "../../Slices/friendsSlice";
 
 const screenWidth = Dimensions.get("window").width;
 
@@ -30,15 +35,27 @@ export default function ReviewItem({
     lastTapRef,
     handleEdit,
     handleDelete,
+    setLikedAnimations,
+    following,
+    followRequests,
 }) {
+    const dispatch = useDispatch();
     const navigation = useNavigation();
     const user = useSelector(selectUser);
     const isSender = item.userId === user?.id;
     const [dropdownVisible, setDropdownVisible] = useState(false);
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+    const [isFollowing, setIsFollowing] = useState(false);
+    const [isRequestSent, setIsRequestSent] = useState(false);
+    const [isRequestReceived, setIsRequestReceived] = useState(false);
+
     const scrollX = useRef(new Animated.Value(0)).current;
     const currentPhoto = item.photos?.[currentPhotoIndex];
-    
+    const { isSuggestedFollowPost } = item;
+    const isPrivate = item?.profileVisibility === 'private';
+    const postOwnerId = item?.userId;
+    const fullName = `${user.firstName} ${user.lastName}`;
+
     const taggedUsersByPhotoKey = Object.fromEntries(
         (item.photos || []).map((photo) => [
             photo.photoKey,
@@ -48,13 +65,105 @@ export default function ReviewItem({
 
     const handleOpenFullScreen = (photo, index) => {
         navigation.navigate('FullScreenPhoto', {
-            review: item,
+            reviewId: item._id,
             initialIndex: index,
             lastTapRef,
             likedAnimations,
+            setLikedAnimations,
             taggedUsersByPhotoKey: taggedUsersByPhotoKey || {}, // or however you pass it
-            handleLikeWithAnimation,
+            isSuggestedPost: isSuggestedFollowPost,
         });
+    };
+
+    const navigateToOtherUserProfile = (userId) => {
+        if (userId !== user?.id) {
+            navigation.navigate('OtherUserProfile', { userId }); // Pass user data to the new screen
+        } else {
+            navigation.navigate('Profile');
+        }
+    };
+
+    const handleFollowUser = () => {
+        handleFollowUserHelper({
+            isPrivate,
+            userId: item.userId,
+            mainUser: user,
+            dispatch,
+            setIsFollowing,
+            setIsRequestSent,
+        });
+    };
+
+    const handleAcceptRequest = async () => {
+        await dispatch(approveFollowRequest(item.userId));
+
+        // ✅ Create a notification for the original sender
+        await dispatch(createNotification({
+            userId: item.userId,
+            type: 'followAccepted',
+            message: `${fullName} accepted your follow request!`,
+            relatedId: item.userId,
+            typeRef: 'User'
+        }));
+    };
+
+    const handleDenyRequest = () => dispatch(declineFollowRequest({ requesterId: item.userId }));
+
+    const handleCancelRequest = async () => {
+        await dispatch(cancelFollowRequest({ recipientId: item.userId }));
+        // ✅ Explicitly update the state to ensure UI reflects the change
+        setIsRequestSent(false);
+    };
+
+    useEffect(() => {
+        if (!user || !followRequests || !following) return;
+
+        const followingIds = following.map(u => u._id);
+        const sentRequestIds = (followRequests?.sent || []).map(u => u._id || u);
+        const receivedRequestIds = (followRequests?.received || []).map(u => u._id || u);
+
+        setIsRequestSent(sentRequestIds.includes(postOwnerId));
+        setIsRequestReceived(receivedRequestIds.includes(postOwnerId));
+        setIsFollowing(followingIds.includes(postOwnerId));
+    }, [user, following, followRequests]);
+
+    const renderFollowButton = () => {
+        if (isSuggestedFollowPost) {
+            if (isFollowing) {
+                return (
+                    <TouchableOpacity
+                        style={styles.followButton}
+                        onPress={() => navigateToOtherUserProfile(item.userId)}
+                    >
+                        <Text style={styles.friendsText}>Following</Text>
+                    </TouchableOpacity>
+                );
+            }
+            if (isRequestReceived) {
+                return (
+                    <View style={styles.requestButtonsContainer}>
+                        <TouchableOpacity style={styles.acceptRequestButton} onPress={handleAcceptRequest}>
+                            <Text style={styles.acceptRequestText}>Accept Request</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.followButton} onPress={handleDenyRequest}>
+                            <Text style={styles.followButtonText}>Deny Request</Text>
+                        </TouchableOpacity>
+                    </View>
+                );
+            }
+            if (isRequestSent) {
+                return (
+                    <TouchableOpacity style={styles.followButton} onPress={handleCancelRequest}>
+                        <Text style={styles.followButtonText}>Cancel Request</Text>
+                    </TouchableOpacity>
+                );
+            }
+            return (
+                <TouchableOpacity style={styles.followButton} onPress={handleFollowUser}>
+                    <Text style={styles.followButtonText}>Follow</Text>
+                </TouchableOpacity>
+            );
+        }
     };
 
     return (
@@ -68,23 +177,38 @@ export default function ReviewItem({
                 postData={item}
             />
             <View style={styles.section}>
-                <View style={styles.userPicAndName}>
-                    <StoryAvatar userId={item?.userId} profilePicUrl={item.profilePicUrl}/>
-                    <View style={{ flexShrink: 1 }}>
-                        <Text style={styles.userEmailText}>
-                            {item.fullName}
-                            {item.taggedUsers?.length > 0 && (
-                                <>
-                                    <Text style={styles.business}> is with </Text>
-                                    {item.taggedUsers.map((user, index) => (
-                                        <Text key={user._id || index} style={styles.userEmailText}>
-                                            {user.fullName}
-                                            {index < item.taggedUsers.length - 1 ? ", " : ""}
-                                        </Text>
-                                    ))}
-                                </>
-                            )}
-                        </Text>
+                <View >
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <View style={styles.userPicAndName}>
+                            <StoryAvatar userId={item?.userId} profilePicUrl={item.profilePicUrl} />
+                            <View style={{ flexShrink: 1 }}>
+                                <View>
+                                    <TouchableWithoutFeedback onPress={() => navigateToOtherUserProfile(item.userId)}>
+                                        <Text style={styles.userEmailText}>{item.fullName}</Text>
+                                    </TouchableWithoutFeedback>
+                                    {item.taggedUsers?.length > 0 && (
+                                        <>
+                                            <Text style={styles.business}> is with </Text>
+                                            {item.taggedUsers.map((user, index) => (
+                                                <TouchableWithoutFeedback
+                                                    key={user._id || index}
+                                                    style={styles.userEmailText}
+                                                >
+                                                    <Text>
+                                                        {user.fullName}
+                                                        {index < item.taggedUsers.length - 1 ? ", " : ""}
+                                                    </Text>
+                                                </TouchableWithoutFeedback>
+                                            ))}
+                                        </>
+                                    )}
+                                </View>
+                                {isSuggestedFollowPost && (
+                                    <Text style={styles.subText}>Suggested user for you</Text>
+                                )}
+                            </View>
+                        </View>
+                        {renderFollowButton()}
                     </View>
                 </View>
                 <Text style={styles.business}>{item.businessName}</Text>
@@ -237,5 +361,19 @@ const styles = StyleSheet.create({
         borderWidth: 3,
         borderColor: '#1e90ff',
         borderRadius: 999,
+    },
+    subText: {
+        color: "#555",
+    },
+    followButton: {
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        borderRadius: 10,
+        backgroundColor: '#b3b3b3',
+    },
+    followButtonText: {
+        fontSize: 15,
+        fontWeight: 'bold',
+        color: '#fff',
     },
 });

@@ -27,7 +27,6 @@ const quickFilters = {
     { type: 'restaurant' },
     { type: 'bar' },
     { type: 'bowling_alley' },
-    { type: 'escape_room' } // fallback included separately
   ],
 
   drinksAndDining: [
@@ -88,20 +87,17 @@ const activityTypeKeywords = {
   Family: ["zoo", "aquarium", "museum", "park", "amusement_park", "playground", "amusement_center"],
 };
 
-async function fetchNearbyPlaces({ lat, lng, radius = 8046.72 }) {
+async function fetchNearbyPlaces({ lat, lng, radius = 8046.72, type }) {
   const allResults = new Map();
-  const includedType = "establishment";
-  const includeUnpriced = true;
-  const budget = null;
 
-  console.log("📍 fetchNearbyPlaces called with:", { lat, lng, radius });
+  console.log("📍 fetchNearbyPlaces called with:", { lat, lng, radius, type });
 
   try {
     const response = await axios.post(
       "https://places.googleapis.com/v1/places:searchNearby",
       {
-        includedTypes: [includedType],
-        maxResultCount: 100,
+        includedTypes: [type],
+        maxResultCount: 20,
         locationRestriction: {
           circle: {
             center: { latitude: lat, longitude: lng },
@@ -135,93 +131,57 @@ async function fetchNearbyPlaces({ lat, lng, radius = 8046.72 }) {
       }
     });
 
+    return Array.from(allResults.values());
+
   } catch (err) {
     console.error("❌ Error fetching from Google Places:", err.response?.data || err.message);
     return [];
   }
-
-  const filtered = Array.from(allResults.values()).filter(place => {
-    const distance = haversineDistance(lat, lng, place.location.latitude, place.location.longitude);
-
-    const excluded =
-      distance > radius ||
-      place.types?.includes("school") ||
-      place.types?.includes("doctor") ||
-      place.types?.includes("hospital") ||
-      place.types?.includes("lodging") ||
-      place.types?.includes("airport") ||
-      place.types?.includes("store") ||
-      place.types?.includes("storage") ||
-      place.types?.includes("golf_course") ||
-      place.types?.includes("meal_takeaway") ||
-      place.types?.includes("casino") ||
-      /Country Club|Golf Course|Golf Club|Links/i.test(place.displayName?.text || "") ||
-      (
-        !includeUnpriced && !place.priceLevel
-      ) ||
-      (
-        budget === "$" && place.priceLevel > 1
-      ) ||
-      (
-        budget === "$$" && place.priceLevel > 2
-      ) ||
-      (
-        budget === "$$$" && place.priceLevel > 3
-      );
-
-    if (excluded) {
-      console.log(`⛔ Excluded: "${place.displayName?.text}" — Types: ${place.types?.join(", ")}, Price: ${place.priceLevel}, Distance: ${distance.toFixed(2)}m`);
-      return false;
-    }
-
-    return true;
-  });
-
-  console.log(`🎯 Returning ${filtered.length} filtered places within radius`);
-
-  return filtered;
 }
 
 router.post("/places-nearby", async (req, res) => {
   const { activityType, quickFilter, lat, lng, radius = 10000, budget } = req.body;
 
-  // Fallback to activityTypeKeywords if quickFilter is not provided
   const searchCombos = quickFilter
     ? quickFilters[quickFilter] || []
     : (activityTypeKeywords[activityType] || []).map(type => ({ type }));
 
+  const includeUnpriced = true;
   const allResults = new Map();
 
   try {
     await Promise.all(
-      searchCombos.map(({ type, keyword }) => fetchNearbyPlaces(type, keyword))
-    );
+      searchCombos.map(async ({ type, keyword }) => {
+        const results = await fetchNearbyPlaces({ type, keyword, lat, lng, radius });
 
-    const includeUnpriced = true;
+        results.forEach(place => {
+          if (!allResults.has(place.id)) {
+            allResults.set(place.id, place);
+          }
+        });
+      })
+    );
 
     const filtered = Array.from(allResults.values()).filter(place => {
       const distance = haversineDistance(lat, lng, place.location.latitude, place.location.longitude);
-      return (
-        distance <= radius / 1609.34 &&
-        !place.types?.includes("school") &&
-        !place.types?.includes("doctor") &&
-        !place.types?.includes("hospital") &&
-        !place.types?.includes("lodging") &&
-        !place.types?.includes("airport") &&
-        !place.types?.includes("store") &&
-        !place.types?.includes("storage") &&
-        !place.types?.includes("golf_course") &&
-        !place.types?.includes("meal_takeaway") &&
-        !place.types?.includes("casino") &&
-        !/Country Club|Golf Course|Golf Club|Links/i.test(place.displayName?.text || "") &&
-        (
-          (includeUnpriced && !place.priceLevel) ||
-          (budget === "$" && place.priceLevel <= 1) ||
-          (budget === "$$" && place.priceLevel <= 2) ||
-          (budget === "$$$" && place.priceLevel <= 3) ||
-          (budget === "$$$$")
-        )
-      );
+
+      const isExcludedType = [
+        "school", "doctor", "hospital", "lodging", "airport", "store", "storage",
+        "golf_course", "meal_takeaway", "casino"
+      ].some(type => place.types?.includes(type));
+
+      const isExcludedByName = /Country Club|Golf Course|Golf Club|Links/i.test(place.displayName?.text || "");
+
+      const priceOk =
+        (includeUnpriced && place.priceLevel == null) ||
+        (budget === "$" && place.priceLevel <= 1) ||
+        (budget === "$$" && place.priceLevel <= 2) ||
+        (budget === "$$$" && place.priceLevel <= 3) ||
+        (budget === "$$$$");
+
+      const withinDistance = distance <= radius;
+
+      return !(isExcludedType || isExcludedByName || !priceOk || !withinDistance);
     });
 
     const curatedPlaces = filtered.map(place => {
@@ -234,7 +194,7 @@ router.post("/places-nearby", async (req, res) => {
         photoUrl: place.photos?.[0]?.name
           ? `https://places.googleapis.com/v1/${place.photos[0].name}/media?maxHeightPx=400&key=${googleApiKey}`
           : null,
-        distance,
+        distance: +(distance / 1609.34).toFixed(2),
         location: {
           lat: place.location.latitude,
           lng: place.location.longitude,
@@ -245,7 +205,6 @@ router.post("/places-nearby", async (req, res) => {
     res.json({ curatedPlaces });
 
   } catch (error) {
-    console.error("🔥 Error in /places-nearby:", error.message);
     res.status(500).json({ error: "Something went wrong with the nearby search." });
   }
 });

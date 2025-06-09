@@ -1,10 +1,10 @@
 const { ApolloServer } = require('@apollo/server');
-const { gql } = require('graphql-tag');
 const mongoose = require('mongoose');
 const User = require('../models/User'); // Import User Model
 const Business = require('../models/Business'); // Import Review Model
 const ActivityInvite = require('../models/ActivityInvites.js');
 const depthLimit = require('graphql-depth-limit');
+const typeDefs = require('./typeDefs.js');
 const { GraphQLScalarType, Kind } = require('graphql');
 const { getCheckInsByPlaceId } = require('../utils/getCheckInsByPlaceId.js');
 const { getUserFromToken } = require('../utils/auth.js');
@@ -29,248 +29,6 @@ const DateScalar = new GraphQLScalarType({
     return null;
   }
 });
-
-// Define GraphQL Schema
-const typeDefs = gql`
-  scalar Date
-
-  # ✅ Unified User Activity Type (Includes Reviews & Check-ins)
-  type UserActivity {
-    _id: ID!
-    userId: ID!
-    fullName: String!
-    placeId: String!
-    businessName: String
-    message: String
-    reviewText: String
-    rating: Int
-    date: String
-    photos: [Photo!]
-    likes: [Like!]
-    comments: [Comment!]
-    profilePicUrl: String
-    profilePic: ProfilePic
-    taggedUsers: [TaggedUser!]
-    type: String! # ✅ Used to distinguish reviews from check-ins
-  }
-
-  type User {
-    id: ID!
-    firstName: String
-    lastName: String
-    fullName: String
-    profilePicUrl: String
-    profilePic: ProfilePic
-  }
-
-  # ✅ Review Type
-  type Review {
-    _id: ID!
-    businessName: String! 
-    placeId: String! 
-    rating: Int!
-    reviewText: String!
-    date: Date!
-    likes: [Like]
-    comments: [Comment]
-    userId: ID!
-    fullName: String!
-    profilePic: ProfilePic
-    profilePicUrl: String
-    taggedUsers: [TaggedUser]
-    photos: [Photo!]
-    type: String!
-    sortDate: String
-  }
-
-  # ✅ Check-In Type
-  type CheckIn {
-    _id: ID!
-    date: Date!
-    userId: ID!
-    fullName: String!
-    placeId: String!
-    businessName: String!
-    message: String
-    photos: [Photo!]
-    profilePic: ProfilePic
-    profilePicUrl: String
-    comments: [Comment]
-    likes: [Like]
-    taggedUsers: [TaggedUser]
-    type: String! # ✅ Used to distinguish between reviews and check-ins in frontend
-    sortDate: String
-  }
-
-  type ActivityInvite {
-    _id: ID!
-    sender: InviteUser!
-    recipients: [InviteRecipient!]!
-    placeId: String!
-    businessName: String!
-    businessLogoUrl: String
-    note: String
-    dateTime: String!
-    message: String
-    isPublic: Boolean!
-    status: String!
-    createdAt: String!
-    likes: [Like]
-    comments: [Comment]
-    type: String!
-    requests: [Request]
-    sortDate: String
-  }
-
-  input ActivityCursor {
-    sortDate: String!
-    id: ID!
-  }
-
-  type Request {
-    _id: ID!
-    userId: ID!
-    status: String!
-    firstName: String
-    lastName: String
-    profilePicUrl: String
-  }
-
-  type InviteUser {
-    id: ID!
-    firstName: String
-    lastName: String
-    profilePicUrl: String
-  }
-    
-  type InviteRecipient {
-    user: InviteUser!
-    status: String!
-  }
-
-  # ✅ Photo Type
-  type Photo {
-    _id: ID!
-    photoKey: String!
-    uploadedBy: String!
-    description: String
-    taggedUsers: [TaggedUser]
-    uploadDate: Date!
-    url: String # ✅ Added field for pre-signed URL
-  }
-
-  # ✅ Profile Picture Type
-  type ProfilePic {
-    _id: ID!
-    photoKey: String!
-    uploadedBy: String!
-    description: String
-    tags: [String]
-    uploadDate: String!
-  }
-
-  type TaggedUser {
-    userId: ID!
-    fullName: String
-    x: Float
-    y: Float
-  }
-
-  # ✅ Likes
-  type Like {
-    userId: ID!
-    fullName: String!
-  }
-
-  # ✅ Comments & Replies (Nested)
-  type Comment {
-    _id: ID!
-    commentText: String!
-    userId: ID!
-    fullName: String!
-    replies: [Reply!]
-    likes: [ID]
-    date: Date!
-  }
-
-  type Reply {
-    _id: ID!
-    commentText: String!
-    userId: ID!
-    fullName: String!
-    replies: [Reply!]
-    likes: [ID]
-    date: Date!
-  }
-
-  type FollowersAndFollowing {
-    followers: [User!]!
-    following: [User!]!
-  }
-
-  type MutualUser {
-    _id: ID!
-    firstName: String
-    lastName: String
-    profilePic: ProfilePic
-    profilePicUrl: String
-  }
-
-  type SuggestedUser {
-    _id: ID!
-    firstName: String
-    lastName: String
-    fullName: String
-    profilePicUrl: String
-    profilePic: ProfilePic
-    mutualConnections: [MutualUser!]!
-    profileVisibility: String!
-  }
-
-  type Story {
-    _id: ID!
-    mediaKey: String!
-    mediaType: String!
-    caption: String
-    visibility: String
-    expiresAt: String
-    taggedUsers: [TaggedUser]
-    mediaUrl: String
-    profilePicUrl: String
-    user: UserSummary!
-    viewedBy: [UserSummary!]           # Array of user IDs who have viewed the story
-    isViewed: Boolean         # Derived field, based on current user context
-  }
-
-  type UserSummary {
-    _id: ID!
-    firstName: String!
-    lastName: String!
-    profilePicUrl: String
-  }
-
-  type UserAndFriendsInvites {
-    user: User!
-    userInvites: [ActivityInvite!]!
-    friendPublicInvites: [ActivityInvite!]!
-  }
-
-  union UserActivity = Review | CheckIn | ActivityInvite
-  union UserPost = Review | CheckIn
-
-  # ✅ Queries
-  type Query {
-    getUserAndFollowingReviews(userId: String!): [Review!]
-    getUserPosts(userId: ID!, limit: Int, after: ActivityCursor): [UserPost!]
-    getBusinessReviews(placeId: String!, limit: Int, after: ActivityCursor): [UserPost!]
-    getUserAndFollowingCheckIns(userId: String!): [CheckIn!]
-    getUserAndFollowingInvites(userId: ID!): UserAndFriendsInvites
-    getUserActivity(userId: ID!, limit: Int, after: ActivityCursor): [UserActivity!]
-    getSuggestedFollows(userId: ID!): [SuggestedUser!]!
-    userAndFollowingStories(userId: ID!): [Story]
-    storiesByUser(userId: ID!): [Story]
-  }
-`;
 
 const populateRepliesRecursively = async (comments, depth = 0, maxDepth = 5) => {
   if (!comments || comments.length === 0) return [];
@@ -362,9 +120,9 @@ const resolvers = {
           : null;
 
         const reviews = await gatherUserReviews(userObjectId, user.profilePic, profilePicUrl);
-        
+
         const checkIns = await gatherUserCheckIns(user, profilePicUrl);
-        
+
         const allPosts = [...reviews, ...checkIns].map(post => ({
           ...post,
           sortDate: post.date,
@@ -686,12 +444,15 @@ const resolvers = {
     },
     getSuggestedFollows: async (_, { userId }, { user }) => {
       const currentUser = await User.findById(userId).select('following');
-      if (!currentUser) throw new Error('User not found');
+      if (!currentUser) {
+        throw new Error('User not found');
+      }
 
       const followingIds = currentUser.following.map(id => id.toString());
-
-      // Step 1: Get second-degree connections with mutual tracking
+      
+      // Step 1: Find second-degree connections and mutuals
       const followedUsers = await User.find({ _id: { $in: followingIds } }).select('following');
+      
       const secondDegreeFollows = {};
 
       followedUsers.forEach(fu => {
@@ -700,54 +461,73 @@ const resolvers = {
           const idStr = followedId.toString();
           if (idStr !== userId && !followingIds.includes(idStr)) {
             if (!secondDegreeFollows[idStr]) secondDegreeFollows[idStr] = new Set();
-            secondDegreeFollows[idStr].add(fu._id.toString()); // Track mutuals
+            secondDegreeFollows[idStr].add(fu._id.toString());
           }
         });
       });
 
       const suggestionIds = Object.keys(secondDegreeFollows);
+      
+      if (suggestionIds.length === 0) {
+        return [];
+      }
 
-      // Step 2: Get full user and mutual data
+      // Step 2: Get suggested users and mutuals
       const [suggestedUsers, mutualUsers] = await Promise.all([
-        User.find({ _id: { $in: suggestionIds } }).select('firstName lastName profilePic privacySettings'),
-        User.find({ _id: { $in: followingIds } }).select('firstName lastName profilePic'),
+        User.find({ _id: { $in: suggestionIds } }).lean(),
+        User.find({ _id: { $in: followingIds } }).lean()
       ]);
-
+      
       const mutualMap = new Map(mutualUsers.map(u => [u._id.toString(), u]));
 
-      // Step 4: Enrich and format suggestions
+      // Step 3: Resolve profile pics
+      const allUserIdsNeedingPics = [
+        ...suggestedUsers.map(u => u._id.toString()),
+        ...mutualUsers.map(u => u._id.toString())
+      ];
+      const picMap = await resolveUserProfilePics(allUserIdsNeedingPics);
+      
+      // Step 4: Enrich suggestions
       const enriched = await Promise.all(
         suggestedUsers.map(async u => {
-          const profilePicUrl = await getPresignedUrl(u.profilePic?.photoKey);
-
-          const mutualConnections = Array.from(secondDegreeFollows[u._id.toString()] || []).map(id => {
-            const mutualUser = mutualMap.get(id);
-            return mutualUser
-              ? {
-                _id: mutualUser._id,
-                firstName: mutualUser.firstName,
-                lastName: mutualUser.lastName,
-                profilePic: mutualUser.profilePic || null,
-              }
-              : null;
+          const userIdStr = u._id.toString();
+          const mutualConnections = Array.from(secondDegreeFollows[userIdStr] || []).map(mid => {
+            const mu = mutualMap.get(mid);
+            return mu ? {
+              _id: mu._id,
+              firstName: mu.firstName,
+              lastName: mu.lastName,
+              profilePic: mu.profilePic || null,
+              profilePicUrl: picMap[mid]?.profilePicUrl || null,
+            } : null;
           }).filter(Boolean);
 
-          const mutualConnectionUrls = await Promise.all(
-            mutualConnections.map(async (m) => ({
-              ...m,
-              profilePicUrl: await getPresignedUrl(m.profilePic?.photoKey),
-            }))
-          );
+          const userProfilePic = picMap[userIdStr]?.profilePic || null;
+          const userProfilePicUrl = picMap[userIdStr]?.profilePicUrl || null;
+
+          let reviews = [];
+          let checkIns = [];
+
+          try {
+            [reviews, checkIns] = await Promise.all([
+              gatherUserReviews(u._id, userProfilePic, userProfilePicUrl),
+              gatherUserCheckIns(u, userProfilePicUrl)
+            ]);
+          } catch (err) {
+            console.error(`❗ Failed to gather posts for user ${userIdStr}:`, err.message);
+          }
 
           return {
-            _id: u._id.toString(),
+            _id: userIdStr,
             firstName: u.firstName,
             lastName: u.lastName,
             fullName: `${u.firstName} ${u.lastName}`,
-            profilePic: u.profilePic || null,
-            profilePicUrl,
-            mutualConnections: mutualConnectionUrls,
+            profilePic: userProfilePic,
+            profilePicUrl: userProfilePicUrl,
+            mutualConnections,
             profileVisibility: u.privacySettings?.profileVisibility || 'public',
+            reviews,
+            checkIns,
           };
         })
       );

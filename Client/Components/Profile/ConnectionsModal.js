@@ -30,8 +30,8 @@ export default function ConnectionsModal({ visible, initialTab, onClose, followe
         setActiveTab(initialTab || "followers");
     }, [initialTab, visible]);
 
-    const navigateToOtherUserProfile = (user) => {
-        navigation.navigate('OtherUserProfile', { user }); // Pass user data to the new screen
+    const navigateToOtherUserProfile = (userId) => {
+        navigation.navigate('OtherUserProfile', { userId }); // Pass user data to the new screen
         onClose();
     };
 
@@ -64,8 +64,8 @@ export default function ConnectionsModal({ visible, initialTab, onClose, followe
                             </View>
                             <UserSearchList
                                 users={activeTab === "followers" ? followers : following}
-                                onUserPress={(user) => {
-                                    navigateToOtherUserProfile(user);
+                                onUserPress={(userId) => {
+                                    navigateToOtherUserProfile(userId);
                                 }}
                             />
                         </Animated.View>

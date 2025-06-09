@@ -1,30 +1,46 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, } from 'react';
 import {
   View, FlatList, Image, TouchableOpacity,
   StyleSheet, Dimensions, Text, Animated, TouchableWithoutFeedback,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useSelector } from 'react-redux';
+import { useSelector, useDispatch } from 'react-redux';
 import { selectUser } from '../../Slices/UserSlice';
 import BottomCommentsModal from './BottomCommentsModal';
 import { isVideo } from '../../utils/isVideo';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import VideoThumbnail from './VideoThumbnail';
 import { handleLikeWithAnimation } from '../../utils/LikeHandlers';
+import { selectUserAndFriendsReviews, selectBusinessReviews, selectOtherUserReviews, selectSuggestedPosts } from '../../Slices/ReviewsSlice';
 
 const { width, height } = Dimensions.get('window');
 
 const FullScreenPhoto = () => {
+  const dispatch = useDispatch();
   const route = useRoute();
   const navigation = useNavigation();
   const {
-    review,
+    reviewId,
     initialIndex = 0,
     lastTapRef,
     likedAnimations,
+    setLikedAnimations,
     taggedUsersByPhotoKey,
+    isBusinessReview = false,
+    isOtherUserReview = false,
+    isSuggestedPost = false,
   } = route?.params;
   const user = useSelector(selectUser);
+  const reviews = useSelector(
+    isBusinessReview
+      ? selectBusinessReviews
+      : isOtherUserReview
+        ? selectOtherUserReviews
+        : isSuggestedPost
+          ? selectSuggestedPosts
+          : selectUserAndFriendsReviews
+  );
+  const review = reviews.find((r) => r._id === reviewId);
   const userId = user?.id;
   const flatListRef = useRef();
   const [commentsVisible, setCommentsVisible] = useState(false);
@@ -32,23 +48,23 @@ const FullScreenPhoto = () => {
   const [showTags, setShowTags] = useState(false);
   const [originalSize, setOriginalSize] = useState({ width: 1, height: 1 });
   const [renderedSize, setRenderedSize] = useState({ width, height });
-  const [likedAnimationsState, setLikedAnimations] = useState(likedAnimations || {});
   const photos = review?.photos || [];
   const currentPhoto = photos[currentIndex];
-  const animation = likedAnimationsState?.[review._id] || new Animated.Value(0);
+  const animation = useRef(likedAnimations?.[review._id] || new Animated.Value(0)).current;
   const hasLiked = Array.isArray(review.likes) && review.likes.some(like => like.userId === userId);
   const taggedUsers = taggedUsersByPhotoKey?.[currentPhoto?.photoKey] || [];
-
-  const likeWithAnimation = (review, force = false) => {
+  const likeCount = review?.likes?.length;
+  
+  const likeWithAnimation = (review) => {
     return handleLikeWithAnimation({
       postType: review.type,
       postId: review._id,
       review,
       user,
       lastTapRef,
-      likedAnimations: likedAnimationsState,
+      likedAnimations,
       setLikedAnimations,
-      force,
+      dispatch,
     });
   };
 
@@ -73,86 +89,89 @@ const FullScreenPhoto = () => {
   };
 
   const handleLike = () => {
-    likeWithAnimation(review, true);
+    likeWithAnimation(review);
   };
 
-  if (!review || photos.length === 0) return null;
+  if (!review || !Array.isArray(review.photos) || review.photos.length === 0) {
+    return null;
+  }
 
   return (
-    <View style={{flex: 1}}>
+    <View style={{ flex: 1 }}>
       <View style={styles.overlay}>
         {/* Close Button */}
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.closeButton}>
           <MaterialCommunityIcons name="close" size={30} color="white" />
         </TouchableOpacity>
-
         {/* Photos */}
-        <FlatList
-          ref={flatListRef}
-          horizontal
-          pagingEnabled
-          scrollEnabled={photos.length > 1}
-          initialScrollIndex={initialIndex}
-          getItemLayout={(data, index) => ({
-            length: width,
-            offset: width * index,
-            index,
-          })}
-          onScrollToIndexFailed={({ index }) => {
-            setTimeout(() => {
-              flatListRef.current?.scrollToIndex({ index, animated: false });
-            }, 100);
-          }}
-          showsHorizontalScrollIndicator={false}
-          data={photos}
-          keyExtractor={(item, index) => index.toString()}
-          onMomentumScrollEnd={(e) => {
-            const index = Math.round(e.nativeEvent.contentOffset.x / width);
-            setCurrentIndex(index);
-          }}
+        {photos.length > 0 && (
+          <FlatList
+            ref={flatListRef}
+            horizontal
+            pagingEnabled
+            scrollEnabled={photos.length > 1}
+            initialScrollIndex={initialIndex}
+            getItemLayout={(data, index) => ({
+              length: width,
+              offset: width * index,
+              index,
+            })}
+            onScrollToIndexFailed={({ index }) => {
+              setTimeout(() => {
+                flatListRef.current?.scrollToIndex({ index, animated: false });
+              }, 100);
+            }}
+            showsHorizontalScrollIndicator={false}
+            data={photos}
+            keyExtractor={(item, index) => index.toString()}
+            onMomentumScrollEnd={(e) => {
+              const index = Math.round(e.nativeEvent.contentOffset.x / width);
+              setCurrentIndex(index);
+            }}
 
-          renderItem={({ item }) => (
-            <View style={styles.imageWrapper}>
-              {isVideo(item) ? (
-                <VideoThumbnail
-                  file={item}
-                  width={width}
-                  height={height}
-                />
-              ) : (
-                <TouchableWithoutFeedback onPress={handleTap}>
-                  <Image
-                    source={{ uri: item.url || item.uri }}
-                    style={styles.fullImage}
-                    onLayout={(e) => {
-                      const { width: renderedWidth, height: renderedHeight } = e.nativeEvent.layout;
-                      setRenderedSize({ width: renderedWidth, height: renderedHeight });
-                    }}
-                    onLoad={() => {
-                      Image.getSize(item.url || item.uri, (w, h) => {
-                        setOriginalSize({ width: w, height: h });
-                      });
-                    }}
+            renderItem={({ item }) => (
+              <View style={styles.imageWrapper}>
+                {isVideo(item) ? (
+                  <VideoThumbnail
+                    file={item}
+                    width={width}
+                    height={height}
                   />
-                </TouchableWithoutFeedback>
-              )}
-              {showTags && taggedUsers.map((user, i) => (
-                <View
-                  key={user.userId || i}
-                  style={[
-                    styles.tagBubble,
-                    {
-                      top: user.y * (renderedSize.height / originalSize.height),
-                      left: user.x * (renderedSize.width / originalSize.width),
-                    },
-                  ]}
-                >
-                  <Text style={styles.tagText}>{user.fullName}</Text>
-                </View>
-              ))}
-            </View>
-          )}
-        />
+                ) : (
+                  <TouchableWithoutFeedback onPress={handleTap}>
+                    <Image
+                      source={{ uri: item.url || item.uri }}
+                      style={styles.fullImage}
+                      onLayout={(e) => {
+                        const { width: renderedWidth, height: renderedHeight } = e.nativeEvent.layout;
+                        setRenderedSize({ width: renderedWidth, height: renderedHeight });
+                      }}
+                      onLoad={() => {
+                        Image.getSize(item.url || item.uri, (w, h) => {
+                          setOriginalSize({ width: w, height: h });
+                        });
+                      }}
+                    />
+                  </TouchableWithoutFeedback>
+                )}
+                {showTags && taggedUsers.map((user, i) => (
+                  <View
+                    key={user.userId || i}
+                    style={[
+                      styles.tagBubble,
+                      {
+                        top: user.y * (renderedSize.height / originalSize.height),
+                        left: user.x * (renderedSize.width / originalSize.width),
+                      },
+                    ]}
+                  >
+                    <Text style={styles.tagText}>{user.fullName}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          />
+        )}
 
         {/* Like / Comment Buttons */}
         <View style={styles.actionsContainer}>
@@ -166,7 +185,7 @@ const FullScreenPhoto = () => {
               size={28}
               color={hasLiked ? "#009999" : "white"}
             />
-            <Text style={styles.countText}>{review?.likes?.length}</Text>
+            <Text style={styles.countText}>{likeCount}</Text>
           </TouchableOpacity>
         </View>
 

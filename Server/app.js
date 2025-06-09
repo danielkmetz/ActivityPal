@@ -1,11 +1,14 @@
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
+const http = require('http');
+const { Server } = require('socket.io');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const morgan = require('morgan');
 const { expressMiddleware } = require('@apollo/server/express4');
 const createApolloServer = require('./graphql/schema'); // Import GraphQL setup
+const setupDirectMessagingSocket = require('./socket/messagingSocket');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -29,11 +32,21 @@ const googlePlaces2 = require('./routes/googlePlaces2');
 const businessNotifications = require('./routes/businessNotifications');
 const recentSearches = require('./routes/searchHistory');
 const stories = require('./routes/stories');
+const directMessages = require('./routes/directMessages');
 
 // Initialize app
 const app = express();
+const server = http.createServer(app); // 👈 Wrap express in HTTP server
+const io = new Server(server, {
+  cors: { origin: '*' }, // Adjust CORS as needed
+});
+
+// Make io available in routes via app.set
+app.set('io', io);
 
 // Middleware
+app.use(cors());
+app.use(express.json());
 app.use(morgan('dev'));
 app.use(cors());
 app.use(bodyParser.json());
@@ -75,9 +88,12 @@ app.use('/api/places2', googlePlaces2);
 app.use('/api/business-notifications', businessNotifications);
 app.use('/api/recent-searches', recentSearches);
 app.use('/api/stories', stories);
+app.use('/api/directMessages', directMessages);
+
+setupDirectMessagingSocket(io);
 
 // Start server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
