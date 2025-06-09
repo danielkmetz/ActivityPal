@@ -13,41 +13,34 @@ const SearchFollowingScreen = () => {
     const dispatch = useDispatch();
     const navigation = useNavigation();
     const following = useSelector(selectFollowing) || [];
+    const conversations = useSelector(state => state.directMessages.conversations || []);
     const [searchQuery, setSearchQuery] = useState('');
     const user = useSelector(selectUser);
-    const userId = user?.id;
 
     const filteredUsers = following.filter(user => {
         const fullName = `${user.firstName} ${user.lastName}`.toLowerCase();
         return fullName.includes(searchQuery.toLowerCase());
     });
 
-    const onSelectUser = async (item) => {
-    console.log('👤 User selected:', item);
+    const handleSelectUser = (item) => {
+        const conversationWithUser = conversations.find(
+            conv => conv.otherUser?._id === item._id
+        );
 
-    try {
-        const result = dispatch(chooseUserToMessage(item));
-        console.log('✅ Dispatched chooseUserToMessage:', result);
-    } catch (err) {
-        console.error('❌ Error dispatching chooseUserToMessage:', err);
-    }
+        dispatch(chooseUserToMessage(item));
 
-    const loggedInUserId = userId;
-    const otherUserId = item._id;
-    const ids = [loggedInUserId, otherUserId].sort();
-    const conversationId = `${ids[0]}_${ids[1]}`;
-
-    console.log('💬 Preparing to navigate with conversationId:', conversationId);
-    console.log('📨 Navigating to MessageThread with:', {
-        conversationId,
-        otherUser: item,
-    });
-
-    navigation.navigate('MessageThread', {
-        conversationId,
-        otherUser: item,
-    });
-};
+        if (conversationWithUser) {
+            navigation.navigate('MessageThread', {
+                conversationId: conversationWithUser._id,
+                otherUser: conversationWithUser.otherUser,
+            });
+        } else {
+            navigation.navigate('MessageThread', {
+                conversationId: null,
+                otherUser: item,
+            });
+        }
+    };
 
     return (
         <View style={styles.container}>
@@ -68,7 +61,7 @@ const SearchFollowingScreen = () => {
                 data={filteredUsers}
                 keyExtractor={item => item._id}
                 renderItem={({ item }) => (
-                    <TouchableOpacity style={styles.userRow} onPress={() => onSelectUser(item)}>
+                    <TouchableOpacity style={styles.userRow} onPress={() => handleSelectUser(item)}>
                         <Image
                             source={item.profilePicUrl ? { uri: item.profilePicUrl } : profilePicPlaceholder}
                             style={styles.avatar}

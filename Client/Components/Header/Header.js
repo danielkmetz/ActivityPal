@@ -4,18 +4,19 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useDispatch } from 'react-redux';
 import { openSearchModal } from '../../Slices/ModalSlice';
 import { navigate } from '../../utils/NavigationService';
-import { useNavigation  } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { useSelector } from 'react-redux';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { selectUserToMessage } from '../../Slices/DirectMessagingSlice';
 import SearchModal from '../Home/SearchModal';
+import StoryAvatar from '../Stories/StoryAvatar';
 
 export default function Header({ currentRoute }) {
     const dispatch = useDispatch();
     const navigation = useNavigation();
     const userToMessage = useSelector(selectUserToMessage);
-    console.log(userToMessage);
-
+    const userToMessageFullName = `${userToMessage?.firstName} ${userToMessage?.lastName}`
+    
     // Determine dynamic title based on the current route
     const getTitle = () => {
         switch (currentRoute) {
@@ -43,6 +44,13 @@ export default function Header({ currentRoute }) {
                 return "Messages";
             case "SearchFollowing":
                 return "New Message";
+            case "MessageThread":
+                return (
+                    <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                        <StoryAvatar userId={userToMessage?._id} profilePicUrl={userToMessage?.profilePicUrl} />
+                        <Text style={styles.userText}>{userToMessageFullName}</Text>
+                    </View>
+                );
             default:
                 return "Vybe";
         }
@@ -82,7 +90,8 @@ export default function Header({ currentRoute }) {
                             currentRoute === "CreateEvent" ||
                             currentRoute === "CreatePromotion" ||
                             currentRoute === "DirectMessages" ||
-                            currentRoute === "SearchFollowing"
+                            currentRoute === "SearchFollowing" || 
+                            currentRoute === "MessageThread" 
                         ) && (
                             <TouchableOpacity onPress={goBack} style={{ marginRight: 10 }}>
                                 <MaterialCommunityIcons name="chevron-left" size={35} color="black" />
@@ -92,7 +101,8 @@ export default function Header({ currentRoute }) {
                     <View style={styles.indicators}>
                         {/* Location Display */}
                         <View style={styles.locationContainer}>
-                            {currentRoute !== 'SearchFollowing' && (
+                            {currentRoute !== 'SearchFollowing' &&
+                             currentRoute !== "MessageThread" && (
                                 currentRoute !== 'DirectMessages' ? (
                                     <>
                                         <TouchableOpacity onPress={handleOpenSearch}>
@@ -197,6 +207,11 @@ const styles = StyleSheet.create({
         paddingVertical: 6,
         color: 'white',
     },
+    userText: {
+        fontWeight: 'bold',
+        fontSize: 24,
+        marginLeft: 5,
+    }
 });
 
 

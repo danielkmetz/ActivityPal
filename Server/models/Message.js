@@ -27,7 +27,16 @@ const MessageSchema = new mongoose.Schema({
   },
   media: {
     url: { type: String, default: null },
-    mediaType: { type: String, enum: ['image', 'video'], default: null },
+    mediaType: {
+      type: String,
+      default: null,
+      validate: {
+        validator: function (v) {
+          return v === null || ['image', 'video'].includes(v);
+        },
+        message: props => `${props.value} is not a valid mediaType`,
+      },
+    },
   },
   isRead: {
     type: Boolean,

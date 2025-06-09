@@ -182,7 +182,7 @@ export default function ReviewItem({
                         <View style={styles.userPicAndName}>
                             <StoryAvatar userId={item?.userId} profilePicUrl={item.profilePicUrl} />
                             <View style={{ flexShrink: 1 }}>
-                                <View>
+                                <View style={{flexDirection: 'row', flexWrap: 'wrap'}}>
                                     <TouchableWithoutFeedback onPress={() => navigateToOtherUserProfile(item.userId)}>
                                         <Text style={styles.userEmailText}>{item.fullName}</Text>
                                     </TouchableWithoutFeedback>
@@ -192,9 +192,8 @@ export default function ReviewItem({
                                             {item.taggedUsers.map((user, index) => (
                                                 <TouchableWithoutFeedback
                                                     key={user._id || index}
-                                                    style={styles.userEmailText}
                                                 >
-                                                    <Text>
+                                                    <Text style={styles.userEmailText}>
                                                         {user.fullName}
                                                         {index < item.taggedUsers.length - 1 ? ", " : ""}
                                                     </Text>

@@ -19,7 +19,7 @@ import {
 } from '../../Slices/CommentThreadSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { formatEventDate, getTimeLeft } from '../../functions';
-import { selectBusinessReviews, selectOtherUserReviews, selectUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
+import { selectBusinessReviews, selectOtherUserReviews, selectUserAndFriendsReviews, selectSuggestedPosts } from '../../Slices/ReviewsSlice';
 
 dayjs.extend(relativeTime);
 
@@ -36,6 +36,7 @@ export default function CommentScreen() {
         photoTapped,
         isBusinessReview = false,
         isOtherUserReview = false, 
+        isSuggestedFollowPost = false,
     } = route.params;
     const dispatch = useDispatch();
     const reviews = useSelector(
@@ -43,6 +44,8 @@ export default function CommentScreen() {
             selectBusinessReviews :
             isOtherUserReview ?
             selectOtherUserReviews :
+            isSuggestedFollowPost ?
+            selectSuggestedPosts :
             selectUserAndFriendsReviews
     );
     const review = reviews.find((r) => r._id === reviewId);
