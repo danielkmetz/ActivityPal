@@ -1049,6 +1049,7 @@ const reviewsSlice = createSlice({
     profileReviews: [],
     otherUserReviews: [],
     userAndFriendsReviews: [],
+    suggestedPosts: [],
     hasFetchedOnce: false,
     selectedReview: null,
     loading: "idle",
@@ -1059,6 +1060,9 @@ const reviewsSlice = createSlice({
       state.profileReviews = [];
       state.loading = "idle";
       state.error = null
+    },
+    setSuggestedPosts: (state, action) => {
+      state.suggestedPosts = action.payload;
     },
     setHasFetchedOnce: (state, action) => {
       state.hasFetchedOnce = action.payload;
@@ -1226,26 +1230,16 @@ const reviewsSlice = createSlice({
         state.error = action.payload;
       })
       .addCase(toggleLike.fulfilled, (state, action) => {
-        const { postId, likes, } = action.payload; // Ensure correct payload structure
+        const { postId, likes } = action.payload;
 
-        // ✅ Update `profileReviews` state
-        state.profileReviews = state.profileReviews.map((review) =>
-          review._id === postId ? { ...review, likes: [...likes] } : review
-        );
+        const updateLikes = (arr) =>
+          arr.map((review) => (review._id === postId ? { ...review, likes: [...likes] } : review));
 
-        // ✅ Update `userAndFriendsReviews` state
-        state.userAndFriendsReviews = state.userAndFriendsReviews.map((review) =>
-          review._id === postId ? { ...review, likes: [...likes] } : review
-        );
-
-        // ✅ Update `otherUserReviews` state
-        state.otherUserReviews = state.otherUserReviews.map((review) =>
-          review._id === postId ? { ...review, likes: [...likes] } : review
-        );
-
-        state.businessReviews = state.businessReviews.map((review) =>
-          review._id === postId ? { ...review, likes: [...likes] } : review
-        );
+        state.profileReviews = updateLikes(state.profileReviews);
+        state.userAndFriendsReviews = updateLikes(state.userAndFriendsReviews);
+        state.otherUserReviews = updateLikes(state.otherUserReviews);
+        state.businessReviews = updateLikes(state.businessReviews);
+        state.suggestedPosts = updateLikes(state.suggestedPosts);
       })
       .addCase(addComment.fulfilled, (state, action) => {
         const { postId, comments } = action.payload;
@@ -1263,6 +1257,7 @@ const reviewsSlice = createSlice({
         updateComments(state.userAndFriendsReviews?.find((r) => r._id === postId));
         updateComments(state.profileReviews?.find((r) => r._id === postId));
         updateComments(state.businessReviews?.find((r) => r._id === postId));
+        updateComments(state.suggestedPosts?.find((r) => r._id === postId));
         updateComments(state.selectedReview?._id === postId ? state.selectedReview : null);
       })
       .addCase(addReply.pending, (state) => {
@@ -1304,6 +1299,7 @@ const reviewsSlice = createSlice({
         updateReview(state.otherUserReviews);
         updateReview(state.profileReviews);
         updateReview(state.businessReviews);
+        updateReview(state.suggestedPosts);
 
         if (state.selectedReview?._id === postId) {
           state.selectedReview = {
@@ -1372,7 +1368,7 @@ const reviewsSlice = createSlice({
           });
         };
 
-        ["businessReviews", "profileReviews", "otherUserReviews", "userAndFriendsReviews"].forEach((category) => {
+        ["businessReviews", "profileReviews", "otherUserReviews", "userAndFriendsReviews", "suggestedPosts"].forEach((category) => {
           state[category].forEach((review) => {
             if (review._id === postId) {
               removeCommentOrReply(review);
@@ -1425,7 +1421,7 @@ const reviewsSlice = createSlice({
         };
 
         // ✅ Apply the update across all relevant review categories
-        ["businessReviews", "profileReviews", "otherUserReviews", "userAndFriendsReviews"].forEach((category) => {
+        ["businessReviews", "suggestedPosts", "profileReviews", "otherUserReviews", "userAndFriendsReviews"].forEach((category) => {
           state[category].forEach((review) => {
             if (review._id === postId) {
               updateCommentOrReply(review);
@@ -1467,6 +1463,7 @@ const reviewsSlice = createSlice({
           "profileReviews",
           "otherUserReviews",
           "userAndFriendsReviews",
+          "suggestedPosts",
         ];
 
         categories.forEach((category) => {
@@ -1504,6 +1501,7 @@ const reviewsSlice = createSlice({
         updateReviewArray(state.profileReviews);
         updateReviewArray(state.otherUserReviews);
         updateReviewArray(state.businessReviews);
+        updateReviewArray(state.suggestedPosts);
       })
       .addCase(editReview.rejected, (state, action) => {
         state.loading = "failed";
@@ -1533,6 +1531,7 @@ export const {
   clearSelectedReview,
   resetAllReviews,
   setHasFetchedOnce,
+  setSuggestedPosts,
 } = reviewsSlice.actions;
 
 export const selectProfileReviews = (state) => state.reviews.profileReviews || [];
@@ -1544,3 +1543,4 @@ export const selectError = (state) => state.reviews.error;
 export const selectLocalReviews = (state) => state.reviews.localReviews || [];
 export const selectUserAndFriendsReviews = (state) => state.reviews.userAndFriendsReviews || [];
 export const selectSelectedReview = (state) => state.reviews.selectedReview;
+export const selectSuggestedPosts = state => state.reviews.suggestedPosts;

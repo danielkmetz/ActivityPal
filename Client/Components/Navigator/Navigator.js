@@ -27,6 +27,9 @@ import CreatePost from '../Reviews/CreatePost';
 import CreateEventPage from '../BusinessEvents/CreateEventPage';
 import CreatePromotionPage from '../BusinessEvents/CreatePromotionPage';
 import FullScreenPhoto from '../Reviews/FullScreenPhoto';
+import DirectMessagesScreen from '../DirectMessages/DirectMessagesScreen';
+import MessageThreadScreen from '../DirectMessages/MessageThreadScreen';
+import SearchFollowingScreen from '../SearchFollowingUsers/SearchFollowingScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -233,6 +236,9 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
             <Stack.Screen name="CreatePromotion" component={CreatePromotionPage} />
             <Stack.Screen name="CommentScreen" component={CommentScreen} />
             <Stack.Screen name="FullScreenPhoto" component={FullScreenPhoto} />
+            <Stack.Screen name="DirectMessages" component={DirectMessagesScreen} />
+            <Stack.Screen name="MessageThread" component={MessageThreadScreen} />
+            <Stack.Screen name="SearchFollowing" component={SearchFollowingScreen} />
         </Stack.Navigator>
     )
 }

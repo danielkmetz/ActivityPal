@@ -85,16 +85,18 @@ export default function SearchModal() {
         try {
             const alreadyExists = recentSearches.some(entry => entry.userId === user._id);
 
+            const otherUserId = user?._id ? user._id : user.userId;
+
             // Only add if it doesn't exist
             if (!alreadyExists) {
                 await dispatch(addRecentSearch({
                     userId: userId,
-                    query: user._id
+                    query: otherUserId
                 }));
             }
 
             // Navigate first
-            navigation.navigate('OtherUserProfile', { user });
+            navigation.navigate('OtherUserProfile', { userId : otherUserId });
 
             // Close modal slightly after navigation to prevent race condition
             setTimeout(() => dispatch(closeSearchModal()), 100);

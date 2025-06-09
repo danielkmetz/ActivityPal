@@ -1,13 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import {
-    FlatList,
-    StyleSheet,
-    Animated,
-    Easing,
-    Keyboard,
-    PanResponder,
-    InteractionManager,
-} from 'react-native';
+import { FlatList, StyleSheet, Animated, Easing, Keyboard, PanResponder, InteractionManager, } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import dayjs from 'dayjs';
@@ -27,22 +19,38 @@ import {
 } from '../../Slices/CommentThreadSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { formatEventDate, getTimeLeft } from '../../functions';
-import { selectSelectedReview } from '../../Slices/ReviewsSlice';
+import { selectBusinessReviews, selectOtherUserReviews, selectUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
 
 dayjs.extend(relativeTime);
 
 export default function CommentScreen() {
     const navigation = useNavigation();
     const route = useRoute();
-    const { reviews, setSelectedReview, handleLikeWithAnimation, toggleTaggedUsers, likedAnimations, lastTapRef, targetId, photoTapped } = route.params;
-
+    const { 
+        reviewId,
+        handleLikeWithAnimation, 
+        toggleTaggedUsers, 
+        likedAnimations, 
+        lastTapRef, 
+        targetId, 
+        photoTapped,
+        isBusinessReview = false,
+        isOtherUserReview = false, 
+    } = route.params;
     const dispatch = useDispatch();
+    const reviews = useSelector(
+        isBusinessReview ?
+            selectBusinessReviews :
+            isOtherUserReview ?
+            selectOtherUserReviews :
+            selectUserAndFriendsReviews
+    );
+    const review = reviews.find((r) => r._id === reviewId);
     const replyingTo = useSelector(selectReplyingTo);
     const nestedExpandedReplies = useSelector(selectNestedExpandedReplies);
     const isEditing = useSelector(selectIsEditing);
     const nestedReplyInput = useSelector(selectNestedReplyInput);
     const user = useSelector(selectUser);
-    const review = useSelector(selectSelectedReview)
     const fullName = `${user?.firstName} ${user?.lastName}` || null;
     const userId = user?.id;
     const dateTime = review?.dateTime || review?.date;
@@ -68,8 +76,6 @@ export default function CommentScreen() {
     const flatListRef = useRef(null);
     const commentRefs = useRef({});
     const hasScrolledToTarget = useRef(false);
-
-    let reviewOwner = isInvite ? review?.sender?.id || review?.userId : review?.userId;
 
     useEffect(() => {
         const showSub = Keyboard.addListener('keyboardWillShow', (e) => {
@@ -100,11 +106,6 @@ export default function CommentScreen() {
             hideSub.remove();
         };
     }, []);
-
-    useEffect(() => {
-        const updated = reviews?.find(r => r?._id === review?._id);
-        if (updated) setSelectedReview(updated);
-    }, [reviews]);
 
     useEffect(() => {
         if (review && isInvite && dateTime) {

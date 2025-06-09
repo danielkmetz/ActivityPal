@@ -3,7 +3,6 @@ import {
     Modal,
     View,
     Text,
-    TouchableOpacity,
     StyleSheet,
     TouchableWithoutFeedback,
 } from 'react-native';
@@ -58,8 +57,6 @@ const SuggestionDetailsModal = ({ visible, onClose, suggestion }) => {
         return null;
     };
 
-    console.log(visible)
-
     return (
         <Modal
             transparent={true}
@@ -81,7 +78,7 @@ const SuggestionDetailsModal = ({ visible, onClose, suggestion }) => {
                                     />
                                     <View style={{ flexShrink: 1 }}>
                                         <Text style={styles.businessName}>{businessName}</Text>
-                                        <Text style={[styles.distance, { marginTop: 5,}]}>{suggestion.location.formattedAddress}</Text>
+                                        <Text style={[styles.distance, { marginTop: 5,}]}>{suggestion?.location?.formattedAddress}</Text>
                                         <Text style={styles.distance}>
                                             {distance ? `${(distance / 1609).toFixed(1)} mi away` : null}
                                         </Text>

@@ -22,7 +22,7 @@ export default function UserSearchList({ users = [], onUserPress }) {
         data={filteredUsers}
         keyExtractor={(item) => item._id}
         renderItem={({ item }) => (
-          <TouchableOpacity onPress={() => onUserPress?.(item)} style={styles.userRow}>
+          <TouchableOpacity onPress={() => onUserPress?.(item._id)} style={styles.userRow}>
             <Image
               source={item.profilePicUrl ? { uri: item.profilePicUrl } : profilePicPlaceholder}
               style={styles.avatar}
