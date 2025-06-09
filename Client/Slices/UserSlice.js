@@ -171,6 +171,25 @@ export const updatePrivacySettings = createAsyncThunk(
   }
 );
 
+export const fetchUserFullName = createAsyncThunk(
+  'user/fetchUserFullName',
+  async (userId, thunkAPI) => {
+    try {
+      const token = await getUserToken();
+
+      const response = await axios.get(`${BASE_URL}/users/fullname/${userId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`, // if using token auth
+        },
+      });
+      return response.data.fullName;
+    } catch (error) {
+      console.error('Failed to fetch full name:', error);
+      return thunkAPI.rejectWithValue(error.response?.data || { message: 'Unknown error' });
+    }
+  }
+);
+
 // User slice
 const userSlice = createSlice({
   name: "user",
@@ -187,6 +206,7 @@ const userSlice = createSlice({
       invites: 'friendsOnly',
       contentVisibility: 'public',
     },
+    otherUserName: null,
     token: null, // JWT token (if applicable)
     isBusiness: false, // User type
     loading: false, // Loading state
@@ -271,8 +291,13 @@ const userSlice = createSlice({
       })
       .addCase(updatePrivacySettings.rejected, (state, action) => {
         state.error = action.payload || 'Failed to update privacy settings';
-      })      
-      
+      })
+      .addCase(fetchUserFullName.fulfilled, (state, action) => {
+        state.otherUserName = action.payload;
+      })
+      .addCase(fetchUserFullName.rejected, (state, action) => {
+        state.error = action.payload || 'Failed to fetch other user name';
+      })       
   },
 });
 
@@ -285,6 +310,7 @@ export const selectIsBusiness = (state) => state.user.isBusiness;
 export const selectOtherUserData = (state) => state.user.otherUserData || [];
 export const selectOtherUserSettings = (state) => state.user.otherUserSettings;
 export const selectPrivacySettings = (state) => state.user.privacySettings;
+export const selectOtherUserName = state => state.user.otherUserName;
 
 export default userSlice.reducer;
 

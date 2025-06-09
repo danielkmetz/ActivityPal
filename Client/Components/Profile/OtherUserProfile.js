@@ -2,16 +2,14 @@ import React, { useEffect, useState } from "react";
 import { View, Text, Image, StyleSheet, TouchableOpacity, FlatList } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useDispatch, useSelector } from "react-redux";
-import { selectUser, fetchOtherUserSettings, selectOtherUserSettings } from "../../Slices/UserSlice";
+import { selectUser, fetchOtherUserSettings, selectOtherUserSettings, selectOtherUserName, fetchUserFullName } from "../../Slices/UserSlice";
 import {
   selectFollowRequests,
   selectFollowing,
-  acceptFollowRequest,
-  sendFollowRequest,
+  approveFollowRequest,
   cancelFollowRequest,
   declineFollowRequest,
   unfollowUser,
-  followUserImmediately,
   selectOtherUserFollowers,
   selectOtherUserFollowing,
   fetchOtherUserFollowersAndFollowing,
@@ -39,10 +37,10 @@ import Favorites from "./Favorites";
 import { fetchOtherUserFavorites, selectOtherUserFavorites } from "../../Slices/FavoritesSlice";
 import usePaginatedFetch from "../../utils/usePaginatedFetch";
 import ConnectionsModal from "./ConnectionsModal";
+import { handleFollowUserHelper } from "../../utils/followHelper";
 
 export default function OtherUserProfile({ route, navigation }) {
-  const { user } = route.params;
-  //const userId = user?._id;
+  const { userId } = route.params;
   const mainUser = useSelector(selectUser);
   const dispatch = useDispatch();
   const followRequests = useSelector(selectFollowRequests);
@@ -54,6 +52,7 @@ export default function OtherUserProfile({ route, navigation }) {
   const profileReviews = useSelector(selectOtherUserReviews);
   const otherUserProfilePic = useSelector(selectOtherUserProfilePic);
   const otherUserPrivacy = useSelector(selectOtherUserSettings);
+  const fullName = useSelector(selectOtherUserName);
   const isPrivate = otherUserPrivacy?.profileVisibility === 'private';
   const [isRequestSent, setIsRequestSent] = useState(false);
   const [isRequestReceived, setIsRequestReceived] = useState(false);
@@ -62,9 +61,7 @@ export default function OtherUserProfile({ route, navigation }) {
   const [activeSection, setActiveSection] = useState("reviews");
   const [connectionsModalVisible, setConnectionsModalVisible] = useState(false);
   const [activeConnectionsTab, setActiveConnectionsTab] = useState("followers");
-  const userId = user?._id ? user?._id : user?.userId;
-  const fullName = user?.fullName ? user?.fullName : `${user?.firstName} ${user?.lastName}`;
-  
+
   const {
     loadMore,
     refresh,
@@ -79,17 +76,20 @@ export default function OtherUserProfile({ route, navigation }) {
   });
 
   useEffect(() => {
-    if (user) {
+    if (userId) {
       dispatch(fetchOtherUserBanner(userId));
+      dispatch(fetchUserFullName(userId));
       refresh();
       dispatch(fetchOtherUserProfilePic(userId));
       dispatch(fetchOtherUserFavorites(userId));
       dispatch(fetchOtherUserSettings(userId));
       dispatch(fetchOtherUserFollowersAndFollowing(userId));
     }
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => {
+    if (!mainUser || !followRequests || !following || !userId) return;
+
     const followingIds = following.map(u => u._id);
     const sentRequestIds = (followRequests?.sent || []).map(u => u._id || u);
     const receivedRequestIds = (followRequests?.received || []).map(u => u._id || u);
@@ -97,59 +97,41 @@ export default function OtherUserProfile({ route, navigation }) {
     setIsRequestSent(sentRequestIds.includes(userId));
     setIsRequestReceived(receivedRequestIds.includes(userId));
     setIsFollowing(followingIds.includes(userId));
-  }, [mainUser, following, user, followRequests]);
+  }, [mainUser, following, followRequests, userId]);
 
   const handleCancelRequest = async () => {
-    await dispatch(cancelFollowRequest({recipientId: userId}));
+    await dispatch(cancelFollowRequest({ recipientId: userId }));
     // ✅ Explicitly update the state to ensure UI reflects the change
     setIsRequestSent(false);
   };
 
-  const handleDenyRequest = () => dispatch(declineFollowRequest({requesterId: userId}));
+  const handleDenyRequest = () => dispatch(declineFollowRequest({ requesterId: userId }));
+
   const handleUnfollow = () => {
     dispatch(unfollowUser(userId));
     setDropdownVisible(false);
     setIsFollowing(false);
   };
 
-  const handleFollowUser = async () => {
-    try {
-      if (isPrivate) {
-        await dispatch(sendFollowRequest({targetUserId: userId}));
-        setIsRequestSent(true);
-
-        await dispatch(createNotification({
-          userId,
-          type: 'followRequest',
-          message: `${mainUser.firstName} ${mainUser.lastName} wants to follow you.`,
-          relatedId: mainUser.id,
-          typeRef: 'User',
-        }));
-      } else {
-        await dispatch(followUserImmediately({targetUserId: userId}));
-        setIsFollowing(true);
-
-        await dispatch(createNotification({
-          userId,
-          type: 'follow',
-          message: `${mainUser.firstName} ${mainUser.lastName} started following you.`,
-          relatedId: mainUser.id,
-          typeRef: 'User',
-        }));
-      }
-    } catch (err) {
-      console.error("Failed to follow user:", err);
-    }
+  const handleFollowUser = () => {
+    handleFollowUserHelper({
+      isPrivate,
+      userId,
+      mainUser,
+      dispatch,
+      setIsFollowing,
+      setIsRequestSent,
+    });
   };
 
   const handleAcceptRequest = async () => {
-    await dispatch(acceptFollowRequest(user._id));
+    await dispatch(approveFollowRequest(userId));
 
     // ✅ Create a notification for the original sender
     await dispatch(createNotification({
       userId,
       type: 'followAccepted',
-      message: `${user.firstName} accepted your follow request!`,
+      message: `${fullName} accepted your follow request!`,
       relatedId: userId,
       typeRef: 'User'
     }));
@@ -245,19 +227,19 @@ export default function OtherUserProfile({ route, navigation }) {
       )}
       <View style={styles.divider} />
       <View style={styles.navButtonsContainer}>
-  {["reviews", "photos", "favorites"].map((section) => (
-    <TouchableOpacity
-      key={section}
-      style={styles.navTab}
-      onPress={() => setActiveSection(section)}
-    >
-      <Text style={[styles.navTabText, activeSection === section && styles.activeTabText]}>
-        {section === "reviews" ? "Posts" : section.charAt(0).toUpperCase() + section.slice(1)}
-      </Text>
-      {activeSection === section && <View style={styles.navUnderline} />}
-    </TouchableOpacity>
-  ))}
-</View>
+        {["reviews", "photos", "favorites"].map((section) => (
+          <TouchableOpacity
+            key={section}
+            style={styles.navTab}
+            onPress={() => setActiveSection(section)}
+          >
+            <Text style={[styles.navTabText, activeSection === section && styles.activeTabText]}>
+              {section === "reviews" ? "Posts" : section.charAt(0).toUpperCase() + section.slice(1)}
+            </Text>
+            {activeSection === section && <View style={styles.navUnderline} />}
+          </TouchableOpacity>
+        ))}
+      </View>
       {activeSection === "reviews" && <Reviews reviews={profileReviews} onLoadMore={loadMore} isLoadingMore={isLoading} hasMore={hasMore} />}
       {activeSection === "photos" && <Photos photos={photos} />}
       {activeSection === "favorites" && <Favorites favorites={favorites} />}
@@ -453,7 +435,7 @@ const styles = StyleSheet.create({
   },
   navTab: {
     alignItems: "center",
-    
+
   },
   navTabText: {
     fontSize: 16,
@@ -470,7 +452,7 @@ const styles = StyleSheet.create({
     width: "100%",
     marginTop: 4,
     borderRadius: 2,
-  },  
+  },
   reviews: {
     marginTop: 10,
   }

@@ -24,19 +24,6 @@ export const launchImagePickerAndFormat = async () => {
   }
 };
 
-export function toLocalISOString(date) {
-  const pad = (n) => String(n).padStart(2, '0');
-
-  const year = date.getFullYear();
-  const month = pad(date.getMonth() + 1); // months are zero-based
-  const day = pad(date.getDate());
-  const hours = pad(date.getHours());
-  const minutes = pad(date.getMinutes());
-  const seconds = pad(date.getSeconds());
-
-  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
-};
-
 export const milesToMeters = (miles) => {
   return miles * 1609.34;
 };

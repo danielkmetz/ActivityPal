@@ -69,7 +69,7 @@ export default function Notifications() {
 
                 if (result) {
                     navigation.navigate('CommentScreen', {
-                        reviews: userAndFriendsReviews,
+                        reviewId: notification.targetId,
                         setSelectedReview, // optional if needed by the screen
                         likedAnimations,
                         handleLikeWithAnimation,

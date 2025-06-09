@@ -59,7 +59,7 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
 
     const lat = coordinates?.lat;
     const lng = coordinates?.lng;
-    const manualDistance = milesToMeters(10);
+    const manualDistance = milesToMeters(7);
     const manualDistanceDining = milesToMeters(5);
     const closeDistance = milesToMeters(3);
     const eventDistance = 50;

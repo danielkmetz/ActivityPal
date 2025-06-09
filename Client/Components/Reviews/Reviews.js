@@ -16,6 +16,7 @@ import CheckInItem from "./CheckInItem";
 import SuggestionItem from "./SuggestionItem";
 import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from "../../utils/LikeHandlers";
 import { useNavigation } from "@react-navigation/native";
+import { selectFollowing, selectFollowRequests } from "../../Slices/friendsSlice";
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
@@ -23,6 +24,8 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
   const dispatch = useDispatch();
   const navigation = useNavigation();
   const user = useSelector(selectUser);
+  const following = useSelector(selectFollowing);
+  const followRequests = useSelector(selectFollowRequests);
   const [photoTapped, setPhotoTapped] = useState(null);
   const lastTapRef = useRef({});
   const [likedAnimations, setLikedAnimations] = useState({});
@@ -33,10 +36,9 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
 
   const handleOpenComments = (review) => {
     if (!review) return;
-    dispatch(setSelectedReview(review));
-
+    
     navigation.navigate('CommentScreen', {
-      reviews,
+      reviewId: review._id,
       setSelectedReview,
       handleLikeWithAnimation,
       toggleTaggedUsers,
@@ -175,6 +177,7 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
               <CheckInItem
                 item={item}
                 likedAnimations={likedAnimations}
+                setLikedAnimations={setLikedAnimations}
                 photoTapped={photoTapped}
                 toggleTaggedUsers={toggleTaggedUsers}
                 handleLikeWithAnimation={handleLikeWithAnimation}
@@ -183,6 +186,8 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
                 lastTapRef={lastTapRef}
                 handleDelete={handleDeletePost}
                 handleEdit={handleEditPost}
+                following={following}
+                followRequests={followRequests}
               />
             );
           }
@@ -199,6 +204,7 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
             <ReviewItem
               item={item}
               likedAnimations={likedAnimations}
+              setLikedAnimations={setLikedAnimations}
               photoTapped={photoTapped}
               toggleTaggedUsers={toggleTaggedUsers}
               handleLikeWithAnimation={handleLikeWithAnimation}
@@ -206,6 +212,8 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
               lastTapRef={lastTapRef}
               handleDelete={handleDeletePost}
               handleEdit={handleEditPost}
+              following={following}
+              followRequests={followRequests}
             />
           );
         }}
