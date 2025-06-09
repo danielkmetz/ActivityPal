@@ -1,16 +1,18 @@
 import React, { useEffect } from 'react';
 import { View, FlatList, StyleSheet, ActivityIndicator } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
-import { fetchConversations } from '../../Slices/DirectMessagingSlice';
+import { chooseUserToMessage, fetchConversations } from '../../Slices/DirectMessagingSlice';
 import ConversationCard from './ConversationCard';
 import { useNavigation } from '@react-navigation/native';
 import { Text } from 'react-native-paper';
+import { selectUser } from '../../Slices/UserSlice';
 
 const DirectMessagesScreen = () => {
   const dispatch = useDispatch();
   const navigation = useNavigation();
   const { conversations, loading, error } = useSelector(state => state.directMessages);
-  const currentUserId = useSelector(state => state.user.userId);
+  const user = useSelector(selectUser);
+  const currentUserId = user?.id;
   
   useEffect(() => {
     dispatch(fetchConversations());
@@ -26,6 +28,15 @@ const DirectMessagesScreen = () => {
     return (
       <View style={styles.centered}><Text>No Messages</Text></View>
     );
+  };
+
+  const handleNavigation = (item) => {
+    dispatch(chooseUserToMessage(item.otherUser));
+
+    navigation.navigate("MessageThread", {
+      conversationId: item._id,
+      otherUser: item.otherUser,
+    })
   }
 
   return (
@@ -36,14 +47,11 @@ const DirectMessagesScreen = () => {
       renderItem={({ item }) => (
         <ConversationCard
           conversation={item}
-          onPress={() => navigation.navigate('MessageThreadScreen', {
-            conversationId: item._id,
-            otherUser: item.otherUser,
-          })}
+          onPress={() => handleNavigation(item)}
           currentUserId={currentUserId}
         />
       )}
-      contentContainerStyle={conversations.length === 0 && styles.centered}
+      contentContainerStyle={styles.container}
       ListEmptyComponent={<Text>No conversations yet.</Text>}
     />
     </>
@@ -56,6 +64,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     fontWeight: 'bold',
+  },
+  container: {
+    flex: 1,
+    marginTop: 125,
   },
 });
 

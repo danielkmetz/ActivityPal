@@ -45,6 +45,7 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
       likedAnimations,
       lastTapRef,
       photoTapped,
+      isSuggestedFollowPost: review.isSuggestedFollowPost ? true : false,
     });
   };
 

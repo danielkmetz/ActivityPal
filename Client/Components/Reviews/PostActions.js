@@ -3,7 +3,6 @@ import { View, Text, TouchableOpacity, StyleSheet, TouchableWithoutFeedback } fr
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 export default function PostActions({ item, handleLikeWithAnimation, handleOpenComments, toggleTaggedUsers, photo }) {
-
   return (
     <View style={styles.actionsContainer}>
       <TouchableOpacity
