@@ -21,6 +21,7 @@ import StoryAvatar from "../Stories/StoryAvatar";
 import { useNavigation } from "@react-navigation/native";
 import { handleFollowUserHelper } from "../../utils/followHelper";
 import { createNotification } from "../../Slices/NotificationsSlice";
+import RatingsBreakdownModal from "./metricRatings/RatingsBreakdownModal";
 import { declineFollowRequest, cancelFollowRequest, approveFollowRequest } from "../../Slices/friendsSlice";
 
 const screenWidth = Dimensions.get("window").width;
@@ -46,6 +47,7 @@ export default function ReviewItem({
     const [dropdownVisible, setDropdownVisible] = useState(false);
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
     const [isFollowing, setIsFollowing] = useState(false);
+    const [ratingsOpen, setRatingsOpen] = useState(false);
     const [isRequestSent, setIsRequestSent] = useState(false);
     const [isRequestReceived, setIsRequestReceived] = useState(false);
 
@@ -167,115 +169,132 @@ export default function ReviewItem({
     };
 
     return (
-        <View style={styles.reviewCard}>
-            <PostOptionsMenu
-                isSender={isSender}
-                dropdownVisible={dropdownVisible}
-                setDropdownVisible={setDropdownVisible}
-                handleEdit={handleEdit}
-                handleDelete={handleDelete}
-                postData={item}
-            />
-            <View style={styles.section}>
-                <View >
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <View style={styles.userPicAndName}>
-                            <StoryAvatar userId={item?.userId} profilePicUrl={item.profilePicUrl} />
-                            <View style={{ flexShrink: 1 }}>
-                                <View style={{flexDirection: 'row', flexWrap: 'wrap'}}>
-                                    <TouchableWithoutFeedback onPress={() => navigateToOtherUserProfile(item.userId)}>
-                                        <Text style={styles.userEmailText}>{item.fullName}</Text>
-                                    </TouchableWithoutFeedback>
-                                    {item.taggedUsers?.length > 0 && (
-                                        <>
-                                            <Text style={styles.business}> is with </Text>
-                                            {item.taggedUsers.map((user, index) => (
-                                                <TouchableWithoutFeedback
-                                                    key={user._id || index}
-                                                >
-                                                    <Text style={styles.userEmailText}>
-                                                        {user.fullName}
-                                                        {index < item.taggedUsers.length - 1 ? ", " : ""}
-                                                    </Text>
-                                                </TouchableWithoutFeedback>
-                                            ))}
-                                        </>
+        <>
+            <View style={styles.reviewCard}>
+                <PostOptionsMenu
+                    isSender={isSender}
+                    dropdownVisible={dropdownVisible}
+                    setDropdownVisible={setDropdownVisible}
+                    handleEdit={handleEdit}
+                    handleDelete={handleDelete}
+                    postData={item}
+                />
+                <View style={styles.section}>
+                    <View >
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <View style={styles.userPicAndName}>
+                                <StoryAvatar userId={item?.userId} profilePicUrl={item.profilePicUrl} />
+                                <View style={{ flexShrink: 1 }}>
+                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                                        <TouchableWithoutFeedback onPress={() => navigateToOtherUserProfile(item.userId)}>
+                                            <Text style={styles.userEmailText}>{item.fullName}</Text>
+                                        </TouchableWithoutFeedback>
+                                        {item.taggedUsers?.length > 0 && (
+                                            <>
+                                                <Text style={styles.business}> is with </Text>
+                                                {item.taggedUsers.map((user, index) => (
+                                                    <TouchableWithoutFeedback
+                                                        key={user._id || index}
+                                                    >
+                                                        <Text style={styles.userEmailText}>
+                                                            {user.fullName}
+                                                            {index < item.taggedUsers.length - 1 ? ", " : ""}
+                                                        </Text>
+                                                    </TouchableWithoutFeedback>
+                                                ))}
+                                            </>
+                                        )}
+                                    </View>
+                                    {isSuggestedFollowPost && (
+                                        <Text style={styles.subText}>Suggested user for you</Text>
                                     )}
                                 </View>
-                                {isSuggestedFollowPost && (
-                                    <Text style={styles.subText}>Suggested user for you</Text>
-                                )}
+                            </View>
+                            {renderFollowButton()}
+                        </View>
+                    </View>
+                    <Text style={styles.business}>{item.businessName}</Text>
+                    <TouchableOpacity onPress={() => setRatingsOpen(true)} activeOpacity={0.7}>
+                        <View style={styles.ratingButton}>
+                            <View style={styles.ratingStars}>
+                                {Array.from({ length: item.rating }).map((_, index) => (
+                                    <MaterialCommunityIcons
+                                        key={index}
+                                        name="star"
+                                        size={18}
+                                        color="gold"
+                                    />
+                                ))}
                             </View>
                         </View>
-                        {renderFollowButton()}
-                    </View>
+                    </TouchableOpacity>
+                    <ExpandableText
+                        text={item.reviewText}
+                        maxLines={4}
+                        textStyle={styles.review}
+                    />
                 </View>
-                <Text style={styles.business}>{item.businessName}</Text>
-                <View style={styles.rating}>
-                    {Array.from({ length: item.rating }).map((_, index) => (
-                        <MaterialCommunityIcons
-                            key={index}
-                            name="star"
-                            size={20}
-                            color="gold"
+                {/* ✅ Photos */}
+                {item.photos?.length > 0 && (
+                    <View>
+                        <FlatList
+                            data={item.photos}
+                            horizontal
+                            pagingEnabled
+                            showsHorizontalScrollIndicator={false}
+                            keyExtractor={(photo, index) => index.toString()}
+                            scrollEnabled={item.photos.length > 1}
+                            onScroll={Animated.event(
+                                [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+                                {
+                                    useNativeDriver: false,
+                                    listener: (e) => {
+                                        const index = Math.round(e.nativeEvent.contentOffset.x / screenWidth);
+                                        setCurrentPhotoIndex(index);
+                                    },
+                                }
+                            )}
+                            scrollEventThrottle={16}
+                            renderItem={({ item: photo, index }) => (
+                                <PhotoItem
+                                    photo={photo}
+                                    index={index}
+                                    reviewItem={item}
+                                    likedAnimations={likedAnimations}
+                                    photoTapped={photoTapped}
+                                    toggleTaggedUsers={toggleTaggedUsers}
+                                    handleLikeWithAnimation={handleLikeWithAnimation}
+                                    lastTapRef={lastTapRef}
+                                    onOpenFullScreen={handleOpenFullScreen}
+                                />
+                            )}
                         />
-                    ))}
-                </View>
-                <ExpandableText
-                    text={item.reviewText}
-                    maxLines={4}
-                    textStyle={styles.review}
+                        <PhotoPaginationDots photos={item.photos} scrollX={scrollX} />
+                    </View>
+                )}
+                <Text style={styles.date}>
+                    Posted: {item.date ? new Date(item.date).toISOString().split("T")[0] : "Now"}
+                </Text>
+                <PostActions
+                    item={item}
+                    handleLikeWithAnimation={handleLikeWithAnimation}
+                    handleOpenComments={handleOpenComments}
+                    toggleTaggedUsers={toggleTaggedUsers}
+                    photo={currentPhoto}
                 />
             </View>
-            {/* ✅ Photos */}
-            {item.photos?.length > 0 && (
-                <View>
-                    <FlatList
-                        data={item.photos}
-                        horizontal
-                        pagingEnabled
-                        showsHorizontalScrollIndicator={false}
-                        keyExtractor={(photo, index) => index.toString()}
-                        scrollEnabled={item.photos.length > 1}
-                        onScroll={Animated.event(
-                            [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-                            {
-                                useNativeDriver: false,
-                                listener: (e) => {
-                                    const index = Math.round(e.nativeEvent.contentOffset.x / screenWidth);
-                                    setCurrentPhotoIndex(index);
-                                },
-                            }
-                        )}
-                        scrollEventThrottle={16}
-                        renderItem={({ item: photo, index }) => (
-                            <PhotoItem
-                                photo={photo}
-                                index={index}
-                                reviewItem={item}
-                                likedAnimations={likedAnimations}
-                                photoTapped={photoTapped}
-                                toggleTaggedUsers={toggleTaggedUsers}
-                                handleLikeWithAnimation={handleLikeWithAnimation}
-                                lastTapRef={lastTapRef}
-                                onOpenFullScreen={handleOpenFullScreen}
-                            />
-                        )}
-                    />
-                    <PhotoPaginationDots photos={item.photos} scrollX={scrollX} />
-                </View>
-            )}
-            <Text style={styles.date}>
-                Posted: {item.date ? new Date(item.date).toISOString().split("T")[0] : "Now"}
-            </Text>
-            <PostActions
-                item={item}
-                handleLikeWithAnimation={handleLikeWithAnimation}
-                handleOpenComments={handleOpenComments}
-                toggleTaggedUsers={toggleTaggedUsers}
-                photo={currentPhoto}
+            <RatingsBreakdownModal
+                visible={ratingsOpen}
+                onClose={() => setRatingsOpen(false)}
+                ratings={{
+                    rating: item.rating,
+                    priceRating: item.priceRating,
+                    serviceRating: item.serviceRating,
+                    atmosphereRating: item.atmosphereRating,
+                    wouldRecommend: item.wouldRecommend,
+                }}
             />
-        </View>
+        </>
     );
 }
 
@@ -374,5 +393,30 @@ const styles = StyleSheet.create({
         fontSize: 15,
         fontWeight: 'bold',
         color: '#fff',
+    },
+    ratingButtonContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 4,
+        marginBottom: 4,
+    },
+    ratingButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'flex-start',
+        backgroundColor: '#999',
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        borderRadius: 5,
+        elevation: 2, // Android
+        shadowColor: '#000', // iOS
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.3,
+        shadowRadius: 2,
+        marginTop: 6,
+        marginBottom: 4,
+    },
+    ratingStars: {
+        flexDirection: 'row',
     },
 });

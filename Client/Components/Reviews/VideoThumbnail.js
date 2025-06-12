@@ -3,10 +3,10 @@ import { StyleSheet } from 'react-native';
 import { VideoView } from 'expo-video';
 import { useSmartVideoPlayer } from '../../utils/useSmartVideoPlayer';
 
-export default function VideoThumbnail({ file, width, height }) {
+export default function VideoThumbnail({ file, width, height, shouldPlay = true }) {
   if (!file) return null;
-
-  const player = useSmartVideoPlayer(file);
+  
+  const player = useSmartVideoPlayer(file, shouldPlay);
   
   if (!player) return null;
 

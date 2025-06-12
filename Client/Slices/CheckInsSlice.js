@@ -1,6 +1,6 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
-import { addCheckInUserAndFriendsReviews, addCheckInProfileReviews } from './ReviewsSlice';
+import { addCheckInUserAndFriendsReviews, addCheckInProfileReviews, updatePostInReviewState } from './ReviewsSlice';
 
 const API_URL = `${process.env.EXPO_PUBLIC_SERVER_URL}/checkIns`;
 
@@ -39,9 +39,12 @@ export const createCheckIn = createAsyncThunk(
 // Edit an existing check-in
 export const editCheckIn = createAsyncThunk(
   'checkIns/editCheckIn',
-  async ({ userId, checkInId, updatedData }, { rejectWithValue }) => {
+  async ({ userId, checkInId, updatedData }, { rejectWithValue, dispatch }) => {
     try {
       const response = await axios.put(`${API_URL}/${userId}/${checkInId}`, updatedData);
+
+      dispatch(updatePostInReviewState(response.data.checkIn));
+
       return response.data;
     } catch (error) {
       return rejectWithValue(error.response.data);
@@ -111,6 +114,7 @@ const checkInsSlice = createSlice({
       })
       .addCase(editCheckIn.fulfilled, (state, action) => {
         state.loading = false;
+        
         const index = state.checkIns.findIndex(
           (checkIn) => checkIn.id === action.payload.id
         );
