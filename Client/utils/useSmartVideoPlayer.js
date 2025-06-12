@@ -1,6 +1,6 @@
 import { useVideoPlayer } from "expo-video";
 
-export function useSmartVideoPlayer(file) {
+export function useSmartVideoPlayer(file, shouldPlay = true) {
   const uri = file?.uri || file?.url || file.mediaUrl || file.mediaUploadUrl || "";
 
   const isVideo =
@@ -17,8 +17,13 @@ export function useSmartVideoPlayer(file) {
       player.loop = true;
       player.muted = true;
       player.volume = 0;
-      player.play();
       player.audioMixingMode = 'mixWithOthers'; 
+
+      if (shouldPlay) {
+        player.play();
+      } else {
+        player.pause(); // explicitly prevent autoplay
+      }
     }
   });
 }

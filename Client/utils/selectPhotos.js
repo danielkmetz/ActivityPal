@@ -10,7 +10,7 @@ export const selectMediaFromGallery = async () => {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All, // Includes images & videos
+      mediaTypes: ['images', 'videos'], // Includes images & videos
       allowsMultipleSelection: true,
       quality: 1,
     });

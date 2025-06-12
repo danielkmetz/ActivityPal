@@ -24,6 +24,7 @@ import Stories from "../Stories/Stories";
 import { closeContentModal, closeInviteModal, contentModalStatus, inviteModalStatus } from "../../Slices/ModalSlice";
 import { selectNearbySuggestions } from "../../Slices/GooglePlacesSlice";
 import { fetchInvites } from "../../Slices/InvitesSlice";
+import { fetchConversations } from "../../Slices/DirectMessagingSlice";
 
 const Home = ({ scrollY, onScroll, isAtEnd }) => {
     const dispatch = useDispatch();
@@ -54,6 +55,12 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
         params: { userId },
         limit: 5,
     });
+
+    useEffect(() => {
+        if (userId) {
+            dispatch(fetchConversations());
+        }
+    }, [dispatch, userId]);
 
     useEffect(() => {
         if (userId && !hasFetchedOnce) {

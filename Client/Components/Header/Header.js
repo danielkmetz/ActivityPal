@@ -7,16 +7,20 @@ import { navigate } from '../../utils/NavigationService';
 import { useNavigation } from '@react-navigation/native';
 import { useSelector } from 'react-redux';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { selectUserToMessage } from '../../Slices/DirectMessagingSlice';
+import { selectConversations, selectMessagesByConversation, selectUserToMessage } from '../../Slices/DirectMessagingSlice';
 import SearchModal from '../Home/SearchModal';
-import StoryAvatar from '../Stories/StoryAvatar';
+import MessageThreadTitle from './MessageThreadTitle';
 
-export default function Header({ currentRoute }) {
+export default function Header({ currentRoute, notificationsSeen, setNotificationsSeen, newUnreadCount }) {
     const dispatch = useDispatch();
     const navigation = useNavigation();
     const userToMessage = useSelector(selectUserToMessage);
-    const userToMessageFullName = `${userToMessage?.firstName} ${userToMessage?.lastName}`
+    const conversations = useSelector(selectConversations) || [];
     
+    const hasUnreadMessages = conversations.some(
+        convo => convo.lastMessage && convo.lastMessage.isRead === false
+    );
+
     // Determine dynamic title based on the current route
     const getTitle = () => {
         switch (currentRoute) {
@@ -45,12 +49,7 @@ export default function Header({ currentRoute }) {
             case "SearchFollowing":
                 return "New Message";
             case "MessageThread":
-                return (
-                    <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                        <StoryAvatar userId={userToMessage?._id} profilePicUrl={userToMessage?.profilePicUrl} />
-                        <Text style={styles.userText}>{userToMessageFullName}</Text>
-                    </View>
-                );
+                return <MessageThreadTitle users={userToMessage || []} />;
             default:
                 return "Vybe";
         }
@@ -81,7 +80,6 @@ export default function Header({ currentRoute }) {
     return (
         <>
             <View style={styles.header}>
-                {/* Title */}
                 <View style={styles.headerContent}>
                     {
                         (
@@ -93,13 +91,12 @@ export default function Header({ currentRoute }) {
                             currentRoute === "SearchFollowing" || 
                             currentRoute === "MessageThread" 
                         ) && (
-                            <TouchableOpacity onPress={goBack} style={{ marginRight: 10 }}>
+                            <TouchableOpacity onPress={goBack} style={{ marginLeft: -10 }}>
                                 <MaterialCommunityIcons name="chevron-left" size={35} color="black" />
                             </TouchableOpacity>
                         )}
                     <Text style={styles.title}>{route}</Text>
                     <View style={styles.indicators}>
-                        {/* Location Display */}
                         <View style={styles.locationContainer}>
                             {currentRoute !== 'SearchFollowing' &&
                              currentRoute !== "MessageThread" && (
@@ -108,11 +105,22 @@ export default function Header({ currentRoute }) {
                                         <TouchableOpacity onPress={handleOpenSearch}>
                                             <FontAwesome name="search" size={20} color="white" />
                                         </TouchableOpacity>
-                                        <TouchableOpacity onPress={handleOpenNotifications}>
+                                        <TouchableOpacity 
+                                            onPress={() => {
+                                                setNotificationsSeen(true);
+                                                handleOpenNotifications();
+                                            }}
+                                        >
                                             <FontAwesome name="bell" size={20} color="white" />
+                                            {!notificationsSeen && newUnreadCount > 0 && (
+                                                <View style={styles.redDot} />
+                                            )}
                                         </TouchableOpacity>
                                         <TouchableOpacity onPress={handleOpenDMs}>
                                             <MaterialCommunityIcons name="message-text-outline" size={22} color="white" />
+                                            {hasUnreadMessages && (
+                                                <View style={styles.redDot}/>
+                                            )}
                                         </TouchableOpacity>
                                         <TouchableOpacity onPress={handleOpenSearch}>
                                             <Image
@@ -162,7 +170,7 @@ const styles = StyleSheet.create({
     locationContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 17,
+        gap: 14,
     },
     pinIcon: {
         width: 18,
@@ -211,7 +219,17 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         fontSize: 24,
         marginLeft: 5,
-    }
+    },
+    redDot: {
+        position: 'absolute',
+        top: -2,
+        right: -2,
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+        backgroundColor: 'red',
+        zIndex: 2,
+    },
 });
 
 

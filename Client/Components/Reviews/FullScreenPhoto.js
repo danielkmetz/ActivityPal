@@ -11,7 +11,7 @@ import { isVideo } from '../../utils/isVideo';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import VideoThumbnail from './VideoThumbnail';
 import { handleLikeWithAnimation } from '../../utils/LikeHandlers';
-import { selectUserAndFriendsReviews, selectBusinessReviews, selectOtherUserReviews, selectSuggestedPosts } from '../../Slices/ReviewsSlice';
+import { selectReviewById } from '../../utils/reviewSelectors';
 
 const { width, height } = Dimensions.get('window');
 
@@ -31,16 +31,7 @@ const FullScreenPhoto = () => {
     isSuggestedPost = false,
   } = route?.params;
   const user = useSelector(selectUser);
-  const reviews = useSelector(
-    isBusinessReview
-      ? selectBusinessReviews
-      : isOtherUserReview
-        ? selectOtherUserReviews
-        : isSuggestedPost
-          ? selectSuggestedPosts
-          : selectUserAndFriendsReviews
-  );
-  const review = reviews.find((r) => r._id === reviewId);
+  const review = useSelector(selectReviewById(reviewId));
   const userId = user?.id;
   const flatListRef = useRef();
   const [commentsVisible, setCommentsVisible] = useState(false);
