@@ -11,14 +11,9 @@ const MessageSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
-  receiverId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
-  },
   messageType: {
     type: String,
-    enum: ['text', 'photo', 'video', 'story', 'checkIn'],
+    enum: ['text', 'photo', 'video', 'story', 'checkIn', 'image', 'post'],
     default: 'text',
   },
   content: {
@@ -26,7 +21,7 @@ const MessageSchema = new mongoose.Schema({
     required: true,
   },
   media: {
-    url: { type: String, default: null },
+    photoKey: { type: String, default: null },
     mediaType: {
       type: String,
       default: null,
@@ -36,6 +31,14 @@ const MessageSchema = new mongoose.Schema({
         },
         message: props => `${props.value} is not a valid mediaType`,
       },
+    },
+  },
+  post: {
+    postId: { type: mongoose.Schema.Types.ObjectId },
+    postType: {
+      type: String,
+      enum: ['review', 'check-in', 'invite'],
+      
     },
   },
   isRead: {

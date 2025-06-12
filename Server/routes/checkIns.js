@@ -238,10 +238,10 @@ router.put("/:userId/:checkInId", async (req, res) => {
         User.findByIdAndUpdate(userId, {
           $push: {
             notifications: {
-              type: "tagged",
+              type: "tag",
               message: `${user.firstName} ${user.lastName} tagged you in a check-in.`,
               targetId: checkIn._id,
-              typeRef: "check-in",
+              typeRef: "checkIn",
               senderId: user._id,
               date: new Date(),
               read: false,
@@ -253,10 +253,10 @@ router.put("/:userId/:checkInId", async (req, res) => {
         User.findByIdAndUpdate(userId, {
           $push: {
             notifications: {
-              type: "tagged-photo",
+              type: "photoTag",
               message: `${user.firstName} ${user.lastName} tagged you in a photo.`,
               targetId: checkIn._id,
-              typeRef: "check-in",
+              typeRef: "checkIn",
               senderId: user._id,
               date: new Date(),
               read: false,

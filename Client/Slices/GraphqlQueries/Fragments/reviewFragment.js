@@ -4,6 +4,10 @@ export const REVIEW_FRAGMENT = `
     businessName
     placeId
     rating
+    priceRating,
+    serviceRating,
+    atmosphereRating,
+    wouldRecommend,
     reviewText
     date
     likes {
@@ -59,6 +63,14 @@ export const REVIEW_FRAGMENT = `
                   fullName
                   likes
                   date
+                  replies {
+                    _id
+                    commentText
+                    userId
+                    fullName
+                    likes
+                    date
+                  }
                 }
               }
             }

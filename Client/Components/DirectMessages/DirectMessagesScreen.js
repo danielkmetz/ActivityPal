@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { View, FlatList, StyleSheet, ActivityIndicator } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
-import { chooseUserToMessage, fetchConversations } from '../../Slices/DirectMessagingSlice';
+import { chooseUserToMessage, fetchConversations, markMessagesAsRead } from '../../Slices/DirectMessagingSlice';
 import ConversationCard from './ConversationCard';
 import { useNavigation } from '@react-navigation/native';
 import { Text } from 'react-native-paper';
@@ -13,7 +13,7 @@ const DirectMessagesScreen = () => {
   const { conversations, loading, error } = useSelector(state => state.directMessages);
   const user = useSelector(selectUser);
   const currentUserId = user?.id;
-  
+
   useEffect(() => {
     dispatch(fetchConversations());
   }, [dispatch]);
@@ -31,29 +31,37 @@ const DirectMessagesScreen = () => {
   };
 
   const handleNavigation = (item) => {
-    dispatch(chooseUserToMessage(item.otherUser));
+    const conversationId = item._id;
+    const lastMessage = item.lastMessage;
+    const hasUnread = lastMessage?.isRead === false && lastMessage?.senderId !== currentUserId;
+
+    if (hasUnread) {
+      dispatch(markMessagesAsRead(conversationId));
+    }
+
+    dispatch(chooseUserToMessage(item.otherUsers));
 
     navigation.navigate("MessageThread", {
-      conversationId: item._id,
-      otherUser: item.otherUser,
+      conversationId,
+      participants: item.otherUsers,
     })
   }
 
   return (
     <>
-    <FlatList
-      data={conversations}
-      keyExtractor={item => item._id}
-      renderItem={({ item }) => (
-        <ConversationCard
-          conversation={item}
-          onPress={() => handleNavigation(item)}
-          currentUserId={currentUserId}
-        />
-      )}
-      contentContainerStyle={styles.container}
-      ListEmptyComponent={<Text>No conversations yet.</Text>}
-    />
+      <FlatList
+        data={conversations}
+        keyExtractor={item => item._id}
+        renderItem={({ item }) => (
+          <ConversationCard
+            conversation={item}
+            onPress={() => handleNavigation(item)}
+            currentUserId={currentUserId}
+          />
+        )}
+        contentContainerStyle={styles.container}
+        ListEmptyComponent={<Text>No conversations yet.</Text>}
+      />
     </>
   );
 };

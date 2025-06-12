@@ -45,9 +45,14 @@ export const sendMessage = createAsyncThunk(
         try {
             const token = await getUserToken();
 
+            console.log('📦 Sending message with payload:', payload);
+            console.log('🔐 Using token:', token);
+
             const res = await axios.post(`${API_URL}/message`, payload, {
                 headers: { Authorization: `Bearer ${token}` },
             });
+
+            console.log('✅ Response from /message:', res.data);
 
             return {
                 message: res.data.message,
@@ -55,6 +60,7 @@ export const sendMessage = createAsyncThunk(
                 conversation: res.data.conversation || null,
             };
         } catch (err) {
+            console.error('❌ Error sending message:', err.response?.data || err.message);
             return rejectWithValue(err.response?.data || 'Error sending message');
         }
     }
@@ -75,6 +81,60 @@ export const getOrCreateConversation = createAsyncThunk(
             };
         } catch (err) {
             return rejectWithValue(err.response?.data || 'Error fetching/creating conversation');
+        }
+    }
+);
+
+export const deleteMessage = createAsyncThunk(
+    'directMessages/deleteMessage',
+    async ({ conversationId, messageId }, { rejectWithValue }) => {
+        try {
+            const token = await getUserToken();
+
+            await axios.delete(`${API_URL}/message/${messageId}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+
+            return { conversationId, messageId };
+        } catch (err) {
+            return rejectWithValue(err.response?.data || 'Error deleting message');
+        }
+    }
+);
+
+export const editMessage = createAsyncThunk(
+    'directMessages/editMessage',
+    async ({ messageId, content, media }, { rejectWithValue }) => {
+        try {
+            const token = await getUserToken();
+
+            const res = await axios.put(
+                `${API_URL}/message/${messageId}`,
+                { content, media },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+
+            return res.data.message;
+        } catch (err) {
+            return rejectWithValue(err.response?.data || 'Error editing message');
+        }
+    }
+);
+
+export const markMessagesAsRead = createAsyncThunk(
+    'messages/markAsRead',
+    async (conversationId, { rejectWithValue }) => {
+        try {
+            const token = await getUserToken();
+
+            const res = await axios.put(`${API_URL}/messages/read/${conversationId}`, null, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                }
+            });
+            return { conversationId, updated: res.data.updated };
+        } catch (err) {
+            return rejectWithValue(err.response?.data || { error: 'Failed to mark messages as read' });
         }
     }
 );
@@ -196,6 +256,56 @@ const directMessagesSlice = createSlice({
             .addCase(getOrCreateConversation.rejected, (state, action) => {
                 state.loading = false;
                 state.error = action.payload;
+            })
+            .addCase(deleteMessage.fulfilled, (state, action) => {
+                const { conversationId, messageId } = action.payload;
+                const messages = state.messagesByConversation[conversationId];
+
+                if (messages) {
+                    state.messagesByConversation[conversationId] = messages.filter(
+                        (msg) => msg._id !== messageId
+                    );
+                }
+
+                // Optionally update lastMessage in conversation if needed
+                const conv = state.conversations.find((c) => c._id === conversationId);
+                if (conv && conv.lastMessage?._id === messageId) {
+                    const updatedMessages = state.messagesByConversation[conversationId];
+                    conv.lastMessage = updatedMessages?.[updatedMessages.length - 1] || null;
+                }
+            })
+            .addCase(deleteMessage.rejected, (state, action) => {
+                state.error = action.payload;
+            })
+            .addCase(editMessage.fulfilled, (state, action) => {
+                const updatedMessage = action.payload;
+                const convId = updatedMessage.conversationId;
+
+                if (state.messagesByConversation[convId]) {
+                    const index = state.messagesByConversation[convId].findIndex(
+                        (msg) => msg._id === updatedMessage._id
+                    );
+
+                    if (index !== -1) {
+                        state.messagesByConversation[convId][index] = updatedMessage;
+                    }
+                }
+            })
+            .addCase(markMessagesAsRead.pending, (state) => {
+                state.status = 'loading';
+            })
+            .addCase(markMessagesAsRead.fulfilled, (state, action) => {
+                const { conversationId } = action.payload;
+                
+                const conversation = state.conversations.find(conv => conv._id === conversationId);
+                if (conversation?.lastMessage) {
+                    conversation.lastMessage.isRead = true; // ✅ Update for immediate UI sync
+                }
+                state.status = 'succeeded';
+            })
+            .addCase(markMessagesAsRead.rejected, (state, action) => {
+                state.status = 'failed';
+                state.error = action.payload?.error || 'Something went wrong';
             })
     },
 });

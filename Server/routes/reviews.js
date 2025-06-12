@@ -121,6 +121,10 @@ router.get('/:postType/:postId', async (req, res) => {
           ? `${sender?.firstName || ''} ${sender?.lastName || ''}`.trim()
           : post.fullName || `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
       rating: postType === 'review' ? post.rating : null,
+      priceRating: postType === 'review' ? post.priceRating : null,
+      atmosphereRating: postType === 'review' ? post.atmosphereRating : null,
+      serviceRating: postType === 'review' ? post.serviceRating : null,
+      wouldRecommend: postType === 'review' ? post.wouldRecommend : null,
       reviewText: postType === 'review' ? post.reviewText : null,
       message: postType === 'invite' ? post.message : postType === 'check-in' ? post.message : null,
       date: post.timestamp || post.date || post.dateTime,
@@ -151,6 +155,10 @@ router.post("/:placeId", async (req, res) => {
   const {
     userId,
     rating,
+    priceRating,
+    atmosphereRating,
+    serviceRating,
+    wouldRecommend,
     reviewText,
     businessName,
     location,
@@ -212,6 +220,10 @@ router.post("/:placeId", async (req, res) => {
       userId,
       fullName,
       rating,
+      priceRating,
+      serviceRating,
+      atmosphereRating,
+      wouldRecommend,
       reviewText,
       taggedUsers: taggedUserIds,
       photos: photoObjects,
@@ -243,6 +255,10 @@ router.post("/:placeId", async (req, res) => {
       userId,
       fullName,
       rating,
+      priceRating,
+      serviceRating,
+      atmosphereRating,
+      wouldRecommend,
       reviewText,
       businessName,
       profilePic: profileData.profilePic,
@@ -263,7 +279,7 @@ router.post("/:placeId", async (req, res) => {
 //edit reviews
 router.put("/:placeId/:reviewId", async (req, res) => {
   const { placeId, reviewId } = req.params;
-  const { rating, reviewText, photos, taggedUsers } = req.body;
+  const { rating, priceRating, serviceRating, atmosphereRating, wouldRecommend, reviewText, photos, taggedUsers } = req.body;
 
   try {
     const business = await Business.findOne({ placeId });
@@ -290,6 +306,11 @@ router.put("/:placeId/:reviewId", async (req, res) => {
 
     // 2. Update basic fields
     if (rating !== undefined) review.rating = rating;
+    if (priceRating !== undefined) review.priceRating = priceRating;
+    if (serviceRating !== undefined) review.serviceRating = serviceRating;
+    if (atmosphereRating !== undefined) review.atmosphereRating = atmosphereRating;
+    if (wouldRecommend !== undefined) review.wouldRecommend = wouldRecommend;
+    
     if (reviewText !== undefined) review.reviewText = reviewText;
 
     // 3. Update tagged users
@@ -379,10 +400,10 @@ router.put("/:placeId/:reviewId", async (req, res) => {
         User.findByIdAndUpdate(userId, {
           $push: {
             notifications: {
-              type: "tagged",
+              type: "tag",
               message: `${review.fullName} tagged you in a review.`,
               targetId: review._id,
-              typeRef: "review",
+              typeRef: "Review",
               senderId: review.userId,
               date: new Date(),
               read: false,
@@ -394,10 +415,10 @@ router.put("/:placeId/:reviewId", async (req, res) => {
         User.findByIdAndUpdate(userId, {
           $push: {
             notifications: {
-              type: "tagged-photo",
+              type: "photoTag",
               message: `${review.fullName} tagged you in a photo.`,
               targetId: review._id,
-              typeRef: "review",
+              typeRef: "Review",
               senderId: review.userId,
               date: new Date(),
               read: false,
@@ -432,6 +453,10 @@ router.put("/:placeId/:reviewId", async (req, res) => {
         profilePic: profileData.profilePic,
         profilePicUrl: profileData.profilePicUrl,
         rating: review.rating,
+        priceRating: review.priceRating,
+        serviceRating: review.serviceRating,
+        atmosphereRating: review.atmosphereRating,
+        wouldRecommend: review.wouldRecommend,
         reviewText: review.reviewText,
         taggedUsers: populatedTaggedUsers,
         date: review.date,
@@ -677,7 +702,7 @@ router.post('/:postType/:placeId/:postId/like', async (req, res) => {
   }
 });
 
-// Add a comment to a review invite ro check-in
+// Add a comment to a review invite or check-in
 router.post('/:postType/:placeId/:reviewId/comment', async (req, res) => {
   const { postType, placeId, reviewId } = req.params;
   const { userId, commentText, fullName } = req.body;

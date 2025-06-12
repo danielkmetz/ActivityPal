@@ -182,10 +182,9 @@ export default function CheckInItem({
                                         {item.taggedUsers.map((user, index) => (
                                             <TouchableWithoutFeedback
                                                 key={user._id || index}
-                                                style={styles.name}
-                                                onPress={() => navigateToOtherUserProfile(user._id)}
+                                                onPress={() => navigateToOtherUserProfile(user.userId)}
                                             >
-                                                <Text>
+                                                <Text style={styles.name}>
                                                     {user.fullName}
                                                     {index < item.taggedUsers.length - 1 ? ", " : ""}
                                                 </Text>

@@ -25,13 +25,17 @@ import VideoThumbnail from "./VideoThumbnail";
 import { selectUser } from "../../Slices/UserSlice";
 import { editReview } from "../../Slices/ReviewsSlice";
 import { createReview } from "../../Slices/ReviewsSlice";
-import { createCheckIn } from "../../Slices/CheckInsSlice";
+import { createCheckIn, editCheckIn } from "../../Slices/CheckInsSlice";
 import { createNotification } from "../../Slices/NotificationsSlice";
 import { createBusinessNotification } from "../../Slices/BusNotificationsSlice";
 import { selectMediaFromGallery } from "../../utils/selectPhotos";
 import { googlePlacesDefaultProps } from "../../utils/googleplacesDefaults";
 import { handlePhotoUpload } from "../../utils/photoUploadHelper";
 import { isVideo } from "../../utils/isVideo";
+import PriceRating from "./metricRatings/PriceRating";
+import AtmosphereRating from "./metricRatings/AtmosphereRating";
+import ServiceSlider from "./metricRatings/ServiceSlider";
+import WouldRecommend from "./metricRatings/WouldRecommend";
 import InviteForm from "../ActivityInvites/InviteForm";
 import FriendPills from './FriendPills';
 
@@ -42,7 +46,6 @@ export default function CreatePost() {
   const route = useRoute();
   const dispatch = useDispatch();
   const user = useSelector(selectUser);
-  //const [postType, setPostType] = useState("");
   const [business, setBusiness] = useState(null);
   const [rating, setRating] = useState(3);
   const [review, setReview] = useState("");
@@ -54,6 +57,11 @@ export default function CreatePost() {
   const [editPhotosModalVisible, setEditPhotosModalVisible] = useState(false);
   const [photoDetailsEditing, setPhotoDetailsEditing] = useState(false);
   const [tagFriendsModalVisible, setTagFriendsModalVisible] = useState(false);
+  const [priceRating, setPriceRating] = useState(null); // 1–4
+  const [atmosphereRating, setAtmosphereRating] = useState(3); // 1–5
+  const [serviceRating, setServiceRating] = useState(3); // 1–5
+  const [wouldRecommend, setWouldRecommend] = useState(true);
+
   const isEditing = route.params?.isEditing || false;
   const initialPost = route.params?.initialPost || null;
   const googlePlacesRef = useRef(null);
@@ -73,6 +81,10 @@ export default function CreatePost() {
       setTaggedUsers(initialPost.taggedUsers || []);
       setSelectedPhotos(initialPost.photos || []);
       setPhotoList(initialPost.photos || []);
+      setPriceRating(initialPost.priceRating || null);
+      setServiceRating(initialPost.serviceRating || 3);
+      setAtmosphereRating(initialPost.atmosphereRating || 3);
+      setWouldRecommend(initialPost.wouldRecommend || true);
       setBusiness({
         place_id: initialPost.placeId,
         name: initialPost.businessName,
@@ -176,6 +188,10 @@ export default function CreatePost() {
               placeId: business.place_id,
               reviewId: initialPost._id,
               rating,
+              priceRating,
+              serviceRating,
+              atmosphereRating,
+              wouldRecommend,
               reviewText: review.trim(),
               taggedUsers,
               photos: uploadedPhotos,
@@ -212,6 +228,10 @@ export default function CreatePost() {
             userId,
             fullName,
             rating,
+            priceRating,
+            serviceRating,
+            atmosphereRating,
+            wouldRecommend,
             reviewText: review.trim(),
             photos: uploadedPhotos,
             taggedUsers,
@@ -295,7 +315,7 @@ export default function CreatePost() {
 
   return (
     <View style={{ flex: 1, backgroundColor: 'white', marginTop: 10, }}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <FlatList
             data={[{}]} // dummy item to drive the layout
@@ -305,9 +325,18 @@ export default function CreatePost() {
                 {/* Main body content here */}
                 {postType === "review" && (
                   <>
-                    <Text style={styles.label}>Rating</Text>
-                    <View style={{ alignItems: 'flex-start' }}>
-                      <Rating count={5} startingValue={rating} onFinishRating={setRating} />
+                    <View style={styles.ratings}>
+                      <View style={{ alignItems: 'flex-start', marginBottom: 5, }}>
+                        <Text style={[styles.label, {marginRight: 5}]}>Overall</Text>
+                        <Rating count={5} startingValue={rating} onFinishRating={setRating} imageSize={30} />
+                      </View>
+                      <View style={styles.metricCard}>
+                        <Text style={styles.metricTitle}>Rate Specifics</Text>
+                        <PriceRating value={priceRating} onChange={setPriceRating} />
+                        <ServiceSlider value={serviceRating} onChange={setServiceRating} />
+                        <AtmosphereRating value={atmosphereRating} onChange={setAtmosphereRating} />
+                        <WouldRecommend value={wouldRecommend} onChange={setWouldRecommend} />
+                      </View>
                     </View>
                     <Text style={styles.label}>Your Review</Text>
                     <TextInput
@@ -540,4 +569,17 @@ const styles = StyleSheet.create({
   },
   submitButtonText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
   media: { width: 80, height: 80, marginRight: 10, borderRadius: 8 },
+  metricCard: {
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#f9f9f9',
+    marginBottom: 16,
+    marginTop: 10,
+  },
+  metricTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 10,
+    color: '#333',
+  },
 });

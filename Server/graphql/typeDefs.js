@@ -39,6 +39,10 @@ const typeDefs = gql`
     businessName: String! 
     placeId: String! 
     rating: Int!
+    priceRating: Int         
+    atmosphereRating: Int    
+    serviceRating: Int       
+    wouldRecommend: Boolean
     reviewText: String!
     date: Date!
     likes: [Like]

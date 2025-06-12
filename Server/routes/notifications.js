@@ -52,18 +52,20 @@ router.post('/:userId/notifications', async (req, res) => {
 
         const user = await User.findById(userId);
         if (!user) {
+            console.warn('⚠️ User not found:', userId);
             return res.status(404).json({ error: 'User not found' });
         }
 
         const existingNotification = user.notifications.find(n =>
             n.type === type &&
-            n.relatedId.toString() === relatedId.toString() &&
+            n.relatedId?.toString() === relatedId?.toString() &&
             (n.targetId?.toString() === targetId?.toString() || (!n.targetId && !targetId)) &&
             (n.commentId?.toString() === commentId?.toString() || (!n.commentId && !commentId)) &&
             (n.replyId?.toString() === replyId?.toString() || (!n.replyId && !replyId))
         );
 
         if (existingNotification) {
+            console.log('🔁 Duplicate notification found:', existingNotification);
             return res.status(409).json({ error: 'Duplicate, notification already exists' });
         }
 
@@ -87,6 +89,7 @@ router.post('/:userId/notifications', async (req, res) => {
 
         res.status(201).json({ message: 'Notification added', notification: newNotification });
     } catch (error) {
+        console.error('❌ Server error:', error);
         res.status(500).json({ error: 'Server error', details: error.message });
     }
 });

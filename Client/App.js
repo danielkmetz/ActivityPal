@@ -194,7 +194,12 @@ function MainApp() {
         !(currentRoute === "Activities" && activities.length > 0) &&
         (
           <Animated.View style={[styles.header, { transform: [{ translateY: headerTranslateY }] }]}>
-            <Header currentRoute={currentRoute} />
+            <Header 
+              currentRoute={currentRoute} 
+              notificationsSeen={notificationsSeen} 
+              setNotificationsSeen={setNotificationsSeen}
+              newUnreadCount={newUnreadCount} 
+            />
           </Animated.View>
         )}
       <AppNavigator

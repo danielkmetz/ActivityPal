@@ -10,39 +10,39 @@ import {
   Pressable,
 } from "react-native";
 import { useSelector } from "react-redux";
-import { selectFriends } from "../../Slices/friendsSlice";
+import { selectFriends, selectFollowing } from "../../Slices/friendsSlice";
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 
 const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isEventInvite, initialSelectedFriends = [] }) => {
-  const [selectedFriends, setSelectedFriends] = useState([]);
-  const friends = useSelector(selectFriends);
+  const [selectedUsers, setSelectedUsers] = useState([]);
+  const following = useSelector(selectFollowing);
 
   // **Reset selection if the modal is for photo tagging**
   useEffect(() => {
     if (visible) {
       if (isPhotoTagging) {
-        setSelectedFriends([]);
+        setSelectedUsers([]);
       } else if (Array.isArray(initialSelectedFriends)) {
-        const matched = friends.filter(f =>
+        const matched = following.filter(f =>
           initialSelectedFriends.some(tagged =>
             tagged.userId === f._id || tagged._id === f._id
           )
         );
   
-        setSelectedFriends(matched);
+        setSelectedUsers(matched);
       }
     }
-  }, [visible, friends]);  
+  }, [visible, following]);  
   
   // Toggle selection of friends (store full object instead of just the ID)
-  const toggleFriendSelection = (friend) => {
-    setSelectedFriends((prevSelected) => {
-      const isAlreadySelected = prevSelected.some((f) => f._id === friend._id);
+  const toggleUserSelection = (user) => {
+    setSelectedUsers((prevSelected) => {
+      const isAlreadySelected = prevSelected.some((f) => f._id === user._id);
 
       if (isAlreadySelected) {
-        return prevSelected.filter((f) => f._id !== friend._id); // Remove if already selected
+        return prevSelected.filter((f) => f._id !== user._id); // Remove if already selected
       } else {
-        return [...prevSelected, friend]; // Add full object if not selected
+        return [...prevSelected, user]; // Add full object if not selected
       }
     });
   };
@@ -54,36 +54,32 @@ const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isE
           <Text style={styles.modalTitle}>
             {!isEventInvite ? '🏷️ Tag Friends' : '📅 Invite Friends'}
           </Text>
-
-
           {/* Friend List with Profile Picture & Custom Checkboxes */}
           <FlatList
-            data={friends}
+            data={following}
             keyExtractor={(item) => item._id.toString()} // Ensure unique key
             renderItem={({ item }) => {
-              const isSelected = selectedFriends.some((f) => f._id === item._id);
+              const isSelected = selectedUsers.some((f) => f._id === item._id);
 
               return (
                 <TouchableOpacity
                   style={styles.friendItem}
                   activeOpacity={0.7}
-                  onPress={() => toggleFriendSelection(item)}
+                  onPress={() => toggleUserSelection(item)}
                 >
                   {/* Profile Picture */}
                   <Image source={item.profilePicUrl ? { uri: item.profilePicUrl } : profilePicPlaceholder} style={styles.profilePic} />
-
                   {/* Friend Name */}
                   <Text style={styles.friendName}>
                     {item.firstName} {item.lastName}
                   </Text>
-
                   {/* Custom Checkbox with Bigger Clickable Area */}
                   <Pressable
                     style={[
                       styles.checkboxContainer,
                       isSelected && styles.checkedBoxContainer,
                     ]}
-                    onPress={() => toggleFriendSelection(item)}
+                    onPress={() => toggleUserSelection(item)}
                   >
                     <View style={[styles.checkbox, isSelected && styles.checkedBox]}>
                       {isSelected && <Text style={styles.checkmark}>✔️</Text>}
@@ -93,7 +89,6 @@ const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isE
               );
             }}
           />
-
           {/* Buttons */}
           <View style={styles.buttonContainer}>
             <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
@@ -103,7 +98,7 @@ const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isE
             <TouchableOpacity
               style={styles.saveButton}
               onPress={() => {
-                onSave(selectedFriends); // Pass full friend objects
+                onSave(selectedUsers); // Pass full friend objects
                 onClose();
               }}
             >
