@@ -1,12 +1,13 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
 import { getUserToken } from '../functions';
+import client from '../apolloClient';
+import { gql } from '@apollo/client';
 
 // BASE URL
 const BASE_URL = `${process.env.EXPO_PUBLIC_SERVER_URL}/stories`;
-const GRAPH_QL = `${process.env.EXPO_PUBLIC_SERVER_URL}/graphql`;
 
-const STORIES_QUERY = `
+const STORIES_QUERY = gql`
   query UserAndFollowingStories($userId: ID!) {
     userAndFollowingStories(userId: $userId) {
       _id
@@ -33,7 +34,7 @@ const STORIES_QUERY = `
   }
 `;
 
-const STORIES_BY_USER_QUERY = `
+const STORIES_BY_USER_QUERY = gql`
   query StoriesByUser($userId: ID!) {
     storiesByUser(userId: $userId) {
       _id
@@ -91,54 +92,61 @@ export const getUploadUrls = createAsyncThunk(
 );
 
 export const fetchStoriesByUserId = createAsyncThunk(
-    'stories/fetchStoriesByUserId',
-    async (userId, thunkAPI) => {
-        try {
-            const token = await getUserToken();
+  'stories/fetchStoriesByUserId',
+  async (userId, thunkAPI) => {
+    try {
+      const { data, errors } = await client.query({
+        query: STORIES_BY_USER_QUERY,
+        variables: { userId },
+        fetchPolicy: 'network-only', // ensures it fetches fresh data
+      });
 
-            const res = await axios.post(GRAPH_QL, {
-                query: STORIES_BY_USER_QUERY,
-                variables: { userId },
-            },
-            {
-                headers: {
-                    Authorization: `Bearer ${token}`
-                }
-            }
-        );
+      if (errors) {
+        console.error('❌ GraphQL errors in fetchStoriesByUserId:', errors);
+        return thunkAPI.rejectWithValue(errors[0]?.message || 'GraphQL error fetching stories');
+      }
 
-            const data = res.data?.data?.storiesByUser;
-            return { userId, stories: data };
-        } catch (err) {
-            console.error('GraphQL fetchStoriesByUserId error:', err);
-            return thunkAPI.rejectWithValue(err.response?.data || 'Failed to fetch user stories');
-        }
+      if (!data?.getStoriesByUserId) {
+        return thunkAPI.rejectWithValue('No stories found for user');
+      }
+
+      return { userId, stories: data.getStoriesByUserId };
+    } catch (err) {
+      console.error('❗ Apollo Client error in fetchStoriesByUserId:', err);
+      return thunkAPI.rejectWithValue(
+        err.message || 'Failed to fetch user stories'
+      );
     }
+  }
 );
 
 // Fetch all active stories
-export const fetchStories = createAsyncThunk('stories/fetchStories', async (userId, thunkAPI) => {
+export const fetchStories = createAsyncThunk(
+  'stories/fetchStories',
+  async (userId, thunkAPI) => {
     try {
-        const token = await getUserToken();
+      const { data, errors } = await client.query({
+        query: STORIES_QUERY,
+        variables: { userId },
+        fetchPolicy: 'network-only', // optional but recommended for real-time content like stories
+      });
 
-        const res = await axios.post(GRAPH_QL, {
-            query: STORIES_QUERY,
-            variables: { userId },
-        },
-        {
-            headers: {
-                Authorization: `Bearer ${token}`
-            }
-        }
-    );
+      if (errors) {
+        console.error('❌ GraphQL errors in fetchStories:', errors);
+        return thunkAPI.rejectWithValue(errors[0]?.message || 'GraphQL error fetching stories');
+      }
 
-        const data = res.data?.data?.userAndFollowingStories;
-        return data;
+      if (!data?.getStories) {
+        return thunkAPI.rejectWithValue('No stories returned');
+      }
+
+      return data.getStories;
     } catch (err) {
-        console.error('GraphQL fetchStories error:', err);
-        return thunkAPI.rejectWithValue(err.response?.data || 'Failed to fetch stories');
+      console.error('❗ Apollo Client error in fetchStories:', err);
+      return thunkAPI.rejectWithValue(err.message || 'Failed to fetch stories');
     }
-});
+  }
+);
 
 // Post a new story and receive the presigned upload URL
 export const postStory = createAsyncThunk(
@@ -194,19 +202,19 @@ export const postStory = createAsyncThunk(
 
 // Edit an existing story
 export const editStory = createAsyncThunk(
-    'stories/editStory',
-    async ({ storyId, caption, visibility, taggedUsers }, thunkAPI) => {
-        try {
-            const res = await axios.put(`${BASE_URL}/${storyId}`, {
-                caption,
-                visibility,
-                taggedUsers,
-            });
-            return res.data.story;
-        } catch (err) {
-            return thunkAPI.rejectWithValue(err.response?.data || 'Failed to edit story');
-        }
+  'stories/editStory',
+  async ({ storyId, caption, visibility, taggedUsers }, thunkAPI) => {
+    try {
+      const res = await axios.put(`${BASE_URL}/${storyId}`, {
+        caption,
+        visibility,
+        taggedUsers,
+      });
+      return res.data.story;
+    } catch (err) {
+      return thunkAPI.rejectWithValue(err.response?.data || 'Failed to edit story');
     }
+  }
 );
 
 // Delete a story
@@ -227,69 +235,69 @@ export const deleteStory = createAsyncThunk('stories/deleteStory', async (storyI
 });
 
 const storiesSlice = createSlice({
-    name: 'stories',
-    initialState: {
-        stories: [],
-        storiesByUser: {},
-        loading: false,
-        error: null,
+  name: 'stories',
+  initialState: {
+    stories: [],
+    storiesByUser: {},
+    loading: false,
+    error: null,
+  },
+  reducers: {
+    clearStories: (state) => {
+      state.stories = [];
+      state.error = null;
     },
-    reducers: {
-        clearStories: (state) => {
-            state.stories = [];
-            state.error = null;
-        },
-    },
-    extraReducers: (builder) => {
-        builder
-            // Fetch
-            .addCase(fetchStories.pending, (state) => {
-                state.loading = true;
-                state.error = null;
-            })
-            .addCase(fetchStories.fulfilled, (state, action) => {
-                state.loading = false;
-                state.stories = action.payload;
-            })
-            .addCase(fetchStories.rejected, (state, action) => {
-                state.loading = false;
-                state.error = action.payload;
-            })
+  },
+  extraReducers: (builder) => {
+    builder
+      // Fetch
+      .addCase(fetchStories.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchStories.fulfilled, (state, action) => {
+        state.loading = false;
+        state.stories = action.payload;
+      })
+      .addCase(fetchStories.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
 
-            // Post
-            .addCase(postStory.fulfilled, (state, action) => {
-                state.stories.unshift(action.payload);
-            })
-            .addCase(postStory.rejected, (state, action) => {
-                state.error = action.payload;
-            })
+      // Post
+      .addCase(postStory.fulfilled, (state, action) => {
+        state.stories.unshift(action.payload);
+      })
+      .addCase(postStory.rejected, (state, action) => {
+        state.error = action.payload;
+      })
 
-            // Edit
-            .addCase(editStory.fulfilled, (state, action) => {
-                const index = state.stories.findIndex((s) => s._id === action.payload._id);
-                if (index !== -1) {
-                    state.stories[index] = action.payload;
-                }
-            })
-            .addCase(editStory.rejected, (state, action) => {
-                state.error = action.payload;
-            })
+      // Edit
+      .addCase(editStory.fulfilled, (state, action) => {
+        const index = state.stories.findIndex((s) => s._id === action.payload._id);
+        if (index !== -1) {
+          state.stories[index] = action.payload;
+        }
+      })
+      .addCase(editStory.rejected, (state, action) => {
+        state.error = action.payload;
+      })
 
-            // Delete
-            .addCase(deleteStory.fulfilled, (state, action) => {
-                state.stories = state.stories.filter((story) => story._id !== action.payload);
-            })
-            .addCase(deleteStory.rejected, (state, action) => {
-                state.error = action.payload;
-            })
-            .addCase(fetchStoriesByUserId.fulfilled, (state, action) => {
-                const { userId, stories } = action.payload;
-                state.storiesByUser[userId] = stories;
-            })
-            .addCase(fetchStoriesByUserId.rejected, (state, action) => {
-                state.error = action.payload;
-            })
-    },
+      // Delete
+      .addCase(deleteStory.fulfilled, (state, action) => {
+        state.stories = state.stories.filter((story) => story._id !== action.payload);
+      })
+      .addCase(deleteStory.rejected, (state, action) => {
+        state.error = action.payload;
+      })
+      .addCase(fetchStoriesByUserId.fulfilled, (state, action) => {
+        const { userId, stories } = action.payload;
+        state.storiesByUser[userId] = stories;
+      })
+      .addCase(fetchStoriesByUserId.rejected, (state, action) => {
+        state.error = action.payload;
+      })
+  },
 });
 
 export const { clearStories } = storiesSlice.actions;

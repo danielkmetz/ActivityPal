@@ -3,7 +3,6 @@ import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
 import VideoThumbnail from '../Reviews/VideoThumbnail';
 
 const PostPreview = ({ postPreview, onPress, onLongPress }) => {
-    console.log('post preview', postPreview);
     if (!postPreview) return null;
     
     return (
