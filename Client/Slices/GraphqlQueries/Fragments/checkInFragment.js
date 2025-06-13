@@ -1,4 +1,6 @@
-export const CHECKIN_FRAGMENT = `
+import { gql } from "@apollo/client";
+
+export const CHECKIN_FRAGMENT = gql`
   fragment CheckInFields on CheckIn {
     _id
     businessName

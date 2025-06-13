@@ -172,6 +172,16 @@ const UserSchema = new mongoose.Schema({
       enum: ['public', 'friendsOnly'],
       default: 'public',
     },
+    tagPermissions: {
+      type: String,
+      enum: ['everyone', 'peopleIFollow', 'noTags'],
+      default: 'everyone',
+    },
+    messagePermissions: {
+      type: String,
+      enum: ['everyone', 'peopleIFollow'],
+      default: 'everyone',
+    }
   },
   notifications: [NotificationSchema],
   checkIns: [CheckInSchema],

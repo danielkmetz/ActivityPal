@@ -2,10 +2,10 @@ import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import { GET_USER_ACTIVITY_QUERY } from "./GraphqlQueries/Queries/getUserActivity";
 import { GET_USER_POSTS_QUERY } from "./GraphqlQueries/Queries/getUserPosts";
 import { GET_BUSINESS_REVIEWS_QUERY } from "./GraphqlQueries/Queries/getBusinessReviews";
+import client from "../apolloClient";
 import axios from "axios";
 
 const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
-const GRAPHQL_ENDPOINT = `${BASE_URL}/graphql`;
 
 // Thunk to delete a review by user email and object ID
 export const deleteReview = createAsyncThunk(
@@ -28,8 +28,6 @@ export const createReview = createAsyncThunk(
   "reviews/createReview",
   async ({ placeId, businessName, userId, rating, priceRating, serviceRating, atmosphereRating, wouldRecommend, reviewText, date, fullName, photos, taggedUsers, location }, { rejectWithValue }) => {
     try {
-      console.log("📸 [Step 4] Photos passed to createReview:", photos.map(p => p.photoKey));
-
       const response = await axios.post(`${BASE_URL}/reviews/${placeId}`, {
         businessName,
         fullName,
@@ -45,8 +43,6 @@ export const createReview = createAsyncThunk(
         taggedUsers,
         location,
       });
-
-      console.log("📸 [Step 7] Review response photos:", response.data.review.photos.map(p => p.photoKey));
 
       return response.data.review;
     } catch (error) {
@@ -66,7 +62,6 @@ export const toggleLike = createAsyncThunk(
         { userId, fullName }
       );
 
-      console.log(`Likes count for ${postType} ${postId}:`, response.data.likes.length);
       return { postType, postId, likes: response.data.likes };
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || 'Failed to toggle like');
@@ -78,15 +73,6 @@ export const addComment = createAsyncThunk(
   'comments/addComment',
   async ({ postType, placeId, postId, userId, fullName, commentText }, { rejectWithValue }) => {
     try {
-      console.log("📤 Sending API request to add comment...", {
-        postType,
-        placeId,
-        postId,
-        userId,
-        fullName,
-        commentText
-      });
-
       // Updated API request to include postType in the URL
       const response = await axios.post(
         `${BASE_URL}/reviews/${postType}/${placeId}/${postId}/comment`,
@@ -141,41 +127,40 @@ export const fetchReviewsByUserId = createAsyncThunk(
   'reviews/fetchReviewsByUserId',
   async ({ userId, limit = 15, after }, { rejectWithValue }) => {
     try {
-      const variables = {
-        userId,
-        limit,
-        after,
-      };
+      const variables = { userId, limit, after };
 
-      const response = await axios.post(GRAPHQL_ENDPOINT, {
+      const { data, errors } = await client.query({
         query: GET_USER_POSTS_QUERY,
         variables,
+        fetchPolicy: 'network-only', // optional, use if you want fresh data every time
       });
 
-      if (response.data.errors) {
-        throw new Error(response.data.errors[0].message);
+      if (errors?.length) {
+        console.error('❌ GraphQL errors:', errors);
+        return rejectWithValue(errors.map(err => err.message).join('; '));
       }
 
-      const posts = response.data?.data?.getUserPosts;
+      const posts = data?.getUserPosts;
 
       if (!Array.isArray(posts)) {
         return [];
       }
 
       return posts;
+
     } catch (error) {
-      if (error.response) {
-        return rejectWithValue(
-          `GraphQL Request Failed - Status: ${error.response.status}, Message: ${error.response.data?.errors?.[0]?.message ||
-          error.response.data?.message ||
-          "Unknown Error"
-          }`
-        );
-      } else if (error.request) {
-        return rejectWithValue("No response from GraphQL server. Please check your network connection.");
-      } else {
-        return rejectWithValue(error.message || "Failed to fetch posts via GraphQL");
-      }
+      console.error('❗ Apollo Client error:', {
+        message: error.message,
+        graphQLErrors: error.graphQLErrors,
+        networkError: error.networkError,
+      });
+
+      return rejectWithValue(
+        error.graphQLErrors?.map(e => e.message).join('; ') ||
+        error.networkError?.message ||
+        error.message ||
+        'Failed to fetch posts via GraphQL'
+      );
     }
   }
 );
@@ -186,38 +171,33 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
     try {
       const variables = { userId, limit, after };
 
-      const response = await axios.post(GRAPHQL_ENDPOINT, {
+      const { data, errors } = await client.query({
         query: GET_USER_POSTS_QUERY,
         variables,
+        fetchPolicy: 'network-only', // Optional: avoids stale cache
       });
 
-      console.log('📥 GraphQL response:', response.data);
-
-      if (response.data.errors) {
-        console.error('❌ GraphQL errors:', response.data.errors);
-        throw new Error(response.data.errors[0].message);
+      if (errors?.length) {
+        console.error('❌ GraphQL errors:', errors);
+        return rejectWithValue(errors.map(err => err.message).join('; '));
       }
 
-      const posts = response.data.data.getUserPosts || [];
-      console.log(`✅ Retrieved ${posts.length} posts for user ${userId}`);
-
+      const posts = data?.getUserPosts || [];
       return posts;
-    } catch (error) {
-      console.error('🔥 fetchPostsByOtherUserId error:', error);
 
-      if (error.response) {
-        return rejectWithValue(
-          `GraphQL Request Failed - Status: ${error.response.status}, Message: ${
-            error.response.data?.errors?.[0]?.message ||
-            error.response.data?.message ||
-            "Unknown Error"
-          }`
-        );
-      } else if (error.request) {
-        return rejectWithValue("No response from GraphQL server. Please check your network connection.");
-      } else {
-        return rejectWithValue(error.message || "Failed to fetch posts via GraphQL");
-      }
+    } catch (error) {
+      console.error('❗ Apollo client error:', {
+        message: error.message,
+        graphQLErrors: error.graphQLErrors,
+        networkError: error.networkError,
+      });
+
+      return rejectWithValue(
+        error.graphQLErrors?.map(e => e.message).join('; ') ||
+        error.networkError?.message ||
+        error.message ||
+        'Failed to fetch posts via GraphQL'
+      );
     }
   }
 );
@@ -226,28 +206,29 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
   "reviews/fetchUserActivity",
   async ({ userId, limit = 15, after }, { rejectWithValue }) => {
     try {
-      const response = await axios.post(GRAPHQL_ENDPOINT, {
+      const { data, errors } = await client.query({
         query: GET_USER_ACTIVITY_QUERY,
         variables: { userId, limit, after },
+        fetchPolicy: 'network-only', // optional: avoids caching issues
       });
 
-      if (response.data.errors) {
-        throw new Error(response.data.errors[0].message);
+      if (errors?.length) {
+        console.error("❌ GraphQL errors:", errors);
+        throw new Error(errors.map(err => err.message).join("; "));
       }
 
-      if (!response.data.data || !response.data.data.getUserActivity) {
+      if (!data?.getUserActivity) {
         throw new Error("GraphQL response did not return expected data.");
       }
 
-      return response.data.data.getUserActivity;
+      return data.getUserActivity;
     } catch (error) {
-      if (error.response) {
-        return rejectWithValue(
-          error.response.data.errors
-            ? error.response.data.errors.map(err => err.message).join("; ")
-            : `Request failed with status code ${error.response.status}`
-        );
-      }
+      console.error("❗ Apollo client error:", {
+        message: error.message,
+        name: error.name,
+        networkError: error.networkError,
+        graphQLErrors: error.graphQLErrors,
+      });
 
       return rejectWithValue(error.message || "Failed to fetch user activity via GraphQL");
     }
@@ -335,17 +316,16 @@ export const fetchReviewsByPlaceId = createAsyncThunk(
   'reviews/fetchReviewsByPlaceId',
   async ({ placeId, limit = 10, after = null }, { rejectWithValue }) => {
     try {
-      const response = await axios.post(GRAPHQL_ENDPOINT, {
+      const { data, errors } = await client.query({
         query: GET_BUSINESS_REVIEWS_QUERY,
         variables: { placeId, limit, after },
       });
 
-      if (response.data.errors) {
-        throw new Error(response.data.errors[0].message);
+      if (errors) {
+        throw new Error(errors[0].message);
       }
 
-      return response.data.data.getBusinessReviews;
-
+      return data.getBusinessReviews;
     } catch (error) {
       return rejectWithValue(error.message || "Failed to fetch reviews via GraphQL");
     }
@@ -354,10 +334,14 @@ export const fetchReviewsByPlaceId = createAsyncThunk(
 
 export const editReview = createAsyncThunk(
   'reviews/editReview',
-  async ({ placeId, reviewId, rating, reviewText, taggedUsers, photos }, thunkAPI) => {
+  async ({ placeId, reviewId, rating, priceRating, serviceRating, atmosphereRating, wouldRecommend, reviewText, taggedUsers, photos }, thunkAPI) => {
     try {
       const response = await axios.put(`${BASE_URL}/reviews/${placeId}/${reviewId}`, {
         rating,
+        priceRating,
+        serviceRating,
+        atmosphereRating,
+        wouldRecommend,
         reviewText,
         taggedUsers,
         photos,

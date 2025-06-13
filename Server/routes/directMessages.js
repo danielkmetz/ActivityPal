@@ -258,6 +258,7 @@ router.get('/conversations', verifyToken, async (req, res) => {
 // 💬 Get all messages in a conversation
 router.get('/messages/:conversationId', verifyToken, async (req, res) => {
   const { conversationId } = req.params;
+  const currentUserId = req.user.id; // Assuming verifyToken adds `user` to `req`
 
   try {
     const messages = await Message.find({ conversationId }).sort('sentAt').lean();
@@ -278,10 +279,21 @@ router.get('/messages/:conversationId', verifyToken, async (req, res) => {
       postPreviews.map(p => [`${p.postType}-${p.postId}`, p])
     );
 
-    // 4️⃣ Enrich messages with media URL and post preview
+    // 4️⃣ Collect unique sender IDs that are not the current user
+    const otherSenderIds = [...new Set(
+      messages
+        .filter(msg => msg.senderId !== currentUserId)
+        .map(msg => msg.senderId)
+    )];
+
+    // 5️⃣ Resolve profile picture URLs for these sender IDs
+    const profilePicMap = await resolveUserProfilePics(otherSenderIds); 
+    // Should return: { userId1: url1, userId2: url2, ... }
+
+    // 6️⃣ Enrich messages with media URL, post preview, and profile pic
     const enrichedMessages = await Promise.all(
       messages.map(async (msg) => {
-        // 🖼️ Add media presigned URL if applicable
+        // 🖼️ Media presigned URL
         if (msg.media?.photoKey) {
           try {
             msg.media.url = await getPresignedUrl(msg.media.photoKey);
@@ -290,10 +302,15 @@ router.get('/messages/:conversationId', verifyToken, async (req, res) => {
           }
         }
 
-        // 🧩 Add post preview if it's a post-type message
+        // 🧩 Post preview
         if (msg.messageType === 'post') {
           const key = `${msg.post.postType}-${msg.post.postId}`;
           msg.postPreview = previewMap.get(key) || null;
+        }
+
+        // 🧑 Profile picture if sender ≠ current user
+        if (msg.senderId !== currentUserId) {
+          msg.senderProfilePic = profilePicMap[msg.senderId] || null;
         }
 
         return msg;

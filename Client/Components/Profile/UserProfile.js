@@ -50,7 +50,6 @@ export default function UserProfile() {
 
   useEffect(() => {
     if (userId && shouldFetch) {
-      dispatch(fetchProfilePic(userId));
       dispatch(fetchUserBanner(userId));
       dispatch(fetchFavorites(userId));
       refresh();

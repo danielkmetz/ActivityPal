@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   FlatList,
 } from "react-native";
-import { Ionicons, FontAwesome } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import SettingsModal from "./SettingsModal";
 import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
@@ -22,19 +22,17 @@ import Photos from "./Photos";
 import { selectFavorites, addFavorite, removeFavorite } from "../../Slices/FavoritesSlice";
 import usePaginatedFetch from "../../utils/usePaginatedFetch";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { fetchBusinessRatingSummaries, selectRatingByPlaceId } from "../../Slices/PlacesSlice";
 import ModalBox from 'react-native-modal';
+import RatingsData from "../Reviews/metricRatings/RatingsData";
 
 export default function BusinessProfile() {
   const dispatch = useDispatch();
   const navigation = useNavigation();
   const route = useRoute();
   const business = route?.params?.business;
-
   const conditionalSection = business ? "reviews" : "about";
-  const [activeSection, setActiveSection] = useState(conditionalSection);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [editModalVisible, setEditModalVisible] = useState(false);
-  const user = business ? business : useSelector(selectUser).businessDetails;
+  const user = business ? business : useSelector(selectUser)?.businessDetails;
   const mainUser = useSelector(selectUser);
   const mainUserFavorites = useSelector(selectFavorites);
   const reviews = useSelector(selectBusinessReviews);
@@ -43,14 +41,17 @@ export default function BusinessProfile() {
   const photos = useSelector(selectAlbum);
   const businessName = user?.businessName;
   const placeId = user?.placeId;
-  const likes = 120;
-  const avgRating = 4.2;
   const location = user?.location?.formattedAddress;
   const phone = user?.phone || "Enter a phone number";
   const description = user?.description || "Enter a description of your business";
   const [isFavorited, setIsFavorited] = useState(mainUserFavorites?.includes(placeId));
   const [favoriteModalVisible, setFavoriteModalVisible] = useState(false);
-
+  const [activeSection, setActiveSection] = useState(conditionalSection);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const placeIds = [placeId];
+  const ratingData = useSelector(selectRatingByPlaceId(placeId)) || {};
+  
   const {
     loadMore,
     refresh,
@@ -66,16 +67,16 @@ export default function BusinessProfile() {
 
   const handleFavoritePress = () => {
     if (isFavorited) {
-      setFavoriteModalVisible(true); // Show the modal for removal confirmation
+      setFavoriteModalVisible(true);
     } else {
       dispatch(addFavorite({ userId: mainUser.id, placeId }));
-      setIsFavorited(true); // ✅ Update local state immediately
+      setIsFavorited(true);
     }
   };
 
   const handleRemoveFavorite = () => {
     dispatch(removeFavorite({ userId: mainUser.id, placeId }));
-    setIsFavorited(false); // ✅ Update local state immediately
+    setIsFavorited(false);
     setFavoriteModalVisible(false);
   };
 
@@ -84,23 +85,10 @@ export default function BusinessProfile() {
       dispatch(fetchLogo(placeId));
       dispatch(fetchBusinessBanner(placeId));
       dispatch(fetchPhotos(placeId));
+      dispatch(fetchBusinessRatingSummaries(placeIds))
       refresh();
     }
   }, [placeId]);
-
-  const renderStars = (rating) => {
-    const stars = [];
-    for (let i = 1; i <= 5; i++) {
-      if (i <= Math.floor(rating)) {
-        stars.push(<Ionicons key={i} name="star" size={20} color="gold" />);
-      } else if (i - rating < 1 && rating % 1 !== 0) {
-        stars.push(<Ionicons key={i} name="star-half" size={20} color="gold" />);
-      } else {
-        stars.push(<Ionicons key={i} name="star-outline" size={20} color="gray" />);
-      }
-    }
-    return stars;
-  };
 
   const renderHeader = () => (
     <>
@@ -121,18 +109,7 @@ export default function BusinessProfile() {
           }
         </View>
         <View style={business ? styles.indicatorContainerRestricted : styles.indicatorsContainer}>
-          <View style={styles.indicator}>
-            <Text style={styles.indicatorLabel}>
-              Likes <FontAwesome name="thumbs-up" size={14} color="gray" />
-            </Text>
-            <Text style={styles.indicatorValue}>{likes}</Text>
-          </View>
-          <View style={styles.indicator}>
-            <Text style={styles.indicatorLabel}>Avg Rating</Text>
-            <View style={business ? [styles.starsContainer, { marginLeft: 15 }] : styles.starsContainer}>
-              {renderStars(avgRating)}
-            </View>
-          </View>
+          <RatingsData ratingData={ratingData} />
           {!business ? (
             <TouchableOpacity style={styles.editProfileButton} onPress={() => setEditModalVisible(true)}>
               <Ionicons name="pencil" size={20} color="white" />
@@ -140,7 +117,7 @@ export default function BusinessProfile() {
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
-              style={[styles.favoriteButton, isFavorited && styles.isFavorited]}
+              style={[styles.favoriteButton, isFavorited && styles.isFavorited, ]}
               onPress={handleFavoritePress}
             >
               <Ionicons name="star" size={20} color="white" />
@@ -297,14 +274,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     marginTop: 10,
     justifyContent: "space-between",
-    width: "80%", // Adjust width for spacing
+    width: "100%",
     marginLeft: 15,
+    padding: 8,
   },
   indicatorContainerRestricted: {
     flexDirection: 'row',
     marginTop: 10,
-    width: '80%',
-    marginLeft: 15,
+    width: '100%',
+    justifyContent: 'space-between',
+    padding: 8,
   },
   indicator: {
     flexDirection: "column",
@@ -370,7 +349,7 @@ const styles = StyleSheet.create({
     width: 150,
     height: 150,
     borderRadius: 75,
-    backgroundColor: "#008080", // Teal background
+    backgroundColor: "#008080",
     justifyContent: "center", // Center the text
     alignItems: "center", // Center the text
     borderWidth: 5, // Optional border
@@ -403,7 +382,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 5,
-    marginLeft: 10,
+    marginRight: 5,
+    height: 35,
+    alignSelf: 'flex-end',
   },
   isFavorited: {
     backgroundColor: 'gray',

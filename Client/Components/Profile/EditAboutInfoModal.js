@@ -54,7 +54,6 @@ export default function EditAboutInfoModal({ visible, onClose, aboutInfo, placeI
     dispatch(updateBusinessInfo(updatedInfo))
       .unwrap()
       .then(() => {
-        console.log("Business info updated successfully");
         onClose(); // Close the modal after successful update
       })
       .catch((error) => {

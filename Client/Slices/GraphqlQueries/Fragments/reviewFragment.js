@@ -1,4 +1,6 @@
-export const REVIEW_FRAGMENT = `
+import { gql } from "@apollo/client";
+
+export const REVIEW_FRAGMENT = gql`
   fragment ReviewFields on Review {
     _id
     businessName

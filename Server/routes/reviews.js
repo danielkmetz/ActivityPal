@@ -281,6 +281,8 @@ router.put("/:placeId/:reviewId", async (req, res) => {
   const { placeId, reviewId } = req.params;
   const { rating, priceRating, serviceRating, atmosphereRating, wouldRecommend, reviewText, photos, taggedUsers } = req.body;
 
+  console.log('service rating', serviceRating);
+  console.log('would recommend', wouldRecommend);
   try {
     const business = await Business.findOne({ placeId });
     if (!business) return res.status(404).json({ message: "Business not found" });

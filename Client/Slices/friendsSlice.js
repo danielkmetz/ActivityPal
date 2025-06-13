@@ -2,9 +2,9 @@ import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
 import { getUserToken } from '../functions';
 import { GET_SUGGESTED_FOLLOWS_QUERY } from './GraphqlQueries/Queries/suggestedFollowQuery';
+import client from '../apolloClient';
 
 const BASE_URL = `${process.env.EXPO_PUBLIC_SERVER_URL}/connections`;
-const GRAPH_QL = `${process.env.EXPO_PUBLIC_SERVER_URL}/graphql`
 
 export const sendFollowRequest = createAsyncThunk(
   'follows/sendFollowRequest',
@@ -130,42 +130,29 @@ export const fetchSuggestedFriends = createAsyncThunk(
   'follows/fetchSuggestedFriends',
   async (userId, { rejectWithValue }) => {
     try {
-      const token = await getUserToken();
-
-      console.log('📤 Sending fetchSuggestedFriends request for userId:', userId);
-
-      const response = await axios.post(
-        GRAPH_QL,
-        {
-          query: GET_SUGGESTED_FOLLOWS_QUERY,
-          variables: { userId },
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      const data = response.data;
-
-      if (data.errors) {
-        console.error('❌ GraphQL errors:', data.errors);
-        return rejectWithValue(data.errors[0]?.message || 'Failed to fetch suggested users');
-      }
-
-      console.log(`✅ fetchSuggestedFriends success: received ${data.data.getSuggestedFollows.length} suggestions`);
-      return data.data.getSuggestedFollows;
-
-    } catch (error) {
-      console.error('❗ fetchSuggestedFriends Axios error:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
+      const { data, errors } = await client.query({
+        query: GET_SUGGESTED_FOLLOWS_QUERY,
+        variables: { userId },
+        fetchPolicy: 'network-only', // Optional: ensures no stale cache
       });
 
-      return rejectWithValue(error.response?.data?.message || 'Failed to fetch suggested users');
+      if (errors?.length) {
+        console.error('❌ GraphQL errors:', errors);
+        return rejectWithValue(errors.map(err => err.message).join('; ') || 'GraphQL query error');
+      }
+
+      if (!data?.getSuggestedFollows) {
+        return rejectWithValue('No suggested users returned');
+      }
+
+      return data.getSuggestedFollows;
+    } catch (error) {
+      return rejectWithValue(
+        error.graphQLErrors?.map(e => e.message).join('; ') ||
+        error.networkError?.message ||
+        error.message ||
+        'Failed to fetch suggested users'
+      );
     }
   }
 );

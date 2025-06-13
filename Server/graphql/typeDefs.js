@@ -231,6 +231,15 @@ const typeDefs = gql`
     friendPublicInvites: [ActivityInvite!]!
   }
 
+  type BusinessRatingSummary {
+    placeId: String!
+    averageRating: Float!
+    averagePriceRating: Float!
+    averageServiceRating: Float!
+    averageAtmosphereRating: Float!
+    recommendPercentage: Int!
+  }
+
   union UserActivity = Review | CheckIn | ActivityInvite
   union UserPost = Review | CheckIn
 
@@ -245,6 +254,7 @@ const typeDefs = gql`
     getSuggestedFollows(userId: ID!): [SuggestedUser!]!
     userAndFollowingStories(userId: ID!): [Story]
     storiesByUser(userId: ID!): [Story]
+    getBusinessRatingSummaries(placeIds: [String!]!): [BusinessRatingSummary!]!
   }
 `;
 

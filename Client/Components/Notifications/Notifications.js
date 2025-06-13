@@ -229,8 +229,6 @@ export default function Notifications() {
             );
 
             const updatedInvites = updatedList.filter(item => item.type === 'invite');
-            console.log('🆕 Updated invites only:', updatedInvites);
-
             dispatch(setUserAndFriendsReviews(updatedList));
 
             // ✅ Remove the requestInvite notification

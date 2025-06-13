@@ -1,5 +1,6 @@
 import 'react-native-get-random-values';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ApolloProvider } from '@apollo/client';
 import React, { useEffect, useRef, useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
@@ -28,6 +29,8 @@ import { fetchBusinessNotifications } from './Slices/BusNotificationsSlice';
 import { navigationRef } from './utils/NavigationService';
 import { fetchNearbyPromosAndEvents } from './Slices/GooglePlacesSlice';
 import { fetchSuggestedFriends, setHasFetchedSuggestions, selectHasFetchedSuggestions } from './Slices/friendsSlice';
+import { fetchProfilePic } from './Slices/PhotosSlice';
+import client from './apolloClient';
 
 const fetchFonts = async () => {
   return await Font.loadAsync({
@@ -70,13 +73,19 @@ function MainApp() {
     dispatch(loadToken());
   }, [dispatch]);
 
+  useEffect(() => {
+    if (userId) {
+      dispatch(fetchProfilePic(userId));
+    }
+  }, [userId]);
+
   //fetch suggested follows
   useEffect(() => {
     if (userId && !hasFetchSuggested) {
       dispatch(fetchSuggestedFriends(userId));
       dispatch(setHasFetchedSuggestions(true));
     }
-  }, [userId])
+  }, [userId]);
 
   useEffect(() => {
     const initNotifications = async () => {
@@ -136,19 +145,16 @@ function MainApp() {
 
   // Get current route name using navigation state
   const currentRoute = useNavigationState((state) => {
-    if (!state || !state.routes || state.index === undefined) return null;
+    if (!state || !state.routes || typeof state.index !== 'number') return null;
 
-    // Get top-level active screen (likely "TabNavigator")
-    const stackRoute = state.routes[state.index];
+    let route = state.routes[state.index];
 
-    // Check if it's a nested navigator (which is the case here)
-    if (stackRoute.state?.routes) {
-      // Get the active tab screen inside TabNavigator
-      const tabRoute = stackRoute.state.routes[stackRoute.state.index];
-      return tabRoute.name;
+    // Recursively drill down into nested navigators
+    while (route.state && route.state.routes && typeof route.state.index === 'number') {
+      route = route.state.routes[route.state.index];
     }
 
-    return stackRoute.name;
+    return route.name;
   });
 
   //fetch suggested promos and events
@@ -185,6 +191,7 @@ function MainApp() {
       {
         currentRoute !== "Profile" &&
         currentRoute !== "OtherUserProfile" &&
+        currentRoute !== "OtherUserProfile" &&
         currentRoute !== "BusinessProfile" &&
         currentRoute !== "CameraScreen" &&
         currentRoute !== "StoryPreview" &&
@@ -194,11 +201,11 @@ function MainApp() {
         !(currentRoute === "Activities" && activities.length > 0) &&
         (
           <Animated.View style={[styles.header, { transform: [{ translateY: headerTranslateY }] }]}>
-            <Header 
-              currentRoute={currentRoute} 
-              notificationsSeen={notificationsSeen} 
+            <Header
+              currentRoute={currentRoute}
+              notificationsSeen={notificationsSeen}
               setNotificationsSeen={setNotificationsSeen}
-              newUnreadCount={newUnreadCount} 
+              newUnreadCount={newUnreadCount}
             />
           </Animated.View>
         )}
@@ -226,17 +233,19 @@ export default function App() {
 
   return (
     <Provider store={store}>
-      <PaperProvider>
-        <GestureHandlerRootView style={{ flex: 1 }}>
-          <SafeAreaProvider>
-            <NavigationContainer ref={(ref) => {
-              navigationRef.current = ref;
-            }}>
-              <MainApp />
-            </NavigationContainer>
-          </SafeAreaProvider>
-        </GestureHandlerRootView>
-      </PaperProvider>
+      <ApolloProvider client={client}>
+        <PaperProvider>
+          <GestureHandlerRootView style={{ flex: 1 }}>
+            <SafeAreaProvider>
+              <NavigationContainer ref={(ref) => {
+                navigationRef.current = ref;
+              }}>
+                <MainApp />
+              </NavigationContainer>
+            </SafeAreaProvider>
+          </GestureHandlerRootView>
+        </PaperProvider>
+      </ApolloProvider>
     </Provider>
   );
 }

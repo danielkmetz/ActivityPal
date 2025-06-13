@@ -1,7 +1,8 @@
 import { REVIEW_FRAGMENT } from '../Fragments/reviewFragment';
 import { CHECKIN_FRAGMENT } from '../Fragments/checkInFragment';
+import { gql } from '@apollo/client';
 
-export const GET_USER_POSTS_QUERY = `
+export const GET_USER_POSTS_QUERY = gql`
   ${REVIEW_FRAGMENT}
   ${CHECKIN_FRAGMENT}
 

@@ -30,7 +30,7 @@ const MessageItem = ({
     const [likedAnimations, setLikedAnimations] = useState({});
 
     const isCurrentUser = item.senderId === userId;
-    const profilePic = isCurrentUser ? currentUserProfilePic : item.participants?.profilePicUrl;
+    const profilePic = isCurrentUser ? currentUserProfilePic : item.senderProfilePic.profilePicUrl;
     const hasMedia = item.media?.url;
     const mediaType = item.media?.mediaType;
 

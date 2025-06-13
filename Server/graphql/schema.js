@@ -449,10 +449,10 @@ const resolvers = {
       }
 
       const followingIds = currentUser.following.map(id => id.toString());
-      
+
       // Step 1: Find second-degree connections and mutuals
       const followedUsers = await User.find({ _id: { $in: followingIds } }).select('following');
-      
+
       const secondDegreeFollows = {};
 
       followedUsers.forEach(fu => {
@@ -467,7 +467,7 @@ const resolvers = {
       });
 
       const suggestionIds = Object.keys(secondDegreeFollows);
-      
+
       if (suggestionIds.length === 0) {
         return [];
       }
@@ -477,7 +477,7 @@ const resolvers = {
         User.find({ _id: { $in: suggestionIds } }).lean(),
         User.find({ _id: { $in: followingIds } }).lean()
       ]);
-      
+
       const mutualMap = new Map(mutualUsers.map(u => [u._id.toString(), u]));
 
       // Step 3: Resolve profile pics
@@ -486,7 +486,7 @@ const resolvers = {
         ...mutualUsers.map(u => u._id.toString())
       ];
       const picMap = await resolveUserProfilePics(allUserIdsNeedingPics);
-      
+
       // Step 4: Enrich suggestions
       const enriched = await Promise.all(
         suggestedUsers.map(async u => {
@@ -579,6 +579,79 @@ const resolvers = {
       } catch (err) {
         console.error('Error in storiesByUser resolver:', err);
         throw new Error('Failed to fetch user stories');
+      }
+    },
+    getBusinessRatingSummaries: async (_, { placeIds }) => {
+      try {
+        console.log("📥 Incoming placeIds:", placeIds);
+
+        if (!Array.isArray(placeIds) || placeIds.length === 0) {
+          throw new Error("placeIds must be a non-empty array");
+        }
+
+        const businesses = await Business.find({ placeId: { $in: placeIds } }).lean();
+        console.log("🏢 Found businesses:", businesses.map(b => b.placeId));
+
+        const summaries = placeIds.map((placeId) => {
+          const business = businesses.find(b => b.placeId === placeId);
+          if (!business) {
+            console.warn(`⚠️ No business found for placeId: ${placeId}`);
+          }
+
+          if (!business || !business.reviews?.length) {
+            console.warn(`⚠️ No reviews found for business: ${placeId}`);
+            return {
+              placeId,
+              averageRating: 0,
+              averagePriceRating: 0,
+              averageServiceRating: 0,
+              averageAtmosphereRating: 0,
+              recommendPercentage: 0,
+            };
+          }
+
+          const { reviews } = business;
+          console.log(`📝 Calculating summary for ${placeId}, review count: ${reviews.length}`);
+
+          const ratingFields = {
+            rating: [],
+            priceRating: [],
+            serviceRating: [],
+            atmosphereRating: [],
+            wouldRecommendCount: 0,
+          };
+
+          reviews.forEach((r, i) => {
+            if (typeof r.rating === 'number') ratingFields.rating.push(r.rating);
+            if (typeof r.priceRating === 'number') ratingFields.priceRating.push(r.priceRating);
+            if (typeof r.serviceRating === 'number') ratingFields.serviceRating.push(r.serviceRating);
+            if (typeof r.atmosphereRating === 'number') ratingFields.atmosphereRating.push(r.atmosphereRating);
+            if (r.wouldRecommend === true) ratingFields.wouldRecommendCount += 1;
+
+            console.log(`   ↳ Review #${i + 1} — rating: ${r.rating}, price: ${r.priceRating}, service: ${r.serviceRating}, atmosphere: ${r.atmosphereRating}, recommend: ${r.wouldRecommend}`);
+          });
+
+          const avg = (arr) => arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+
+          const summary = {
+            placeId,
+            averageRating: parseFloat(avg(ratingFields.rating).toFixed(2)),
+            averagePriceRating: parseFloat(avg(ratingFields.priceRating).toFixed(2)),
+            averageServiceRating: parseFloat(avg(ratingFields.serviceRating).toFixed(2)),
+            averageAtmosphereRating: parseFloat(avg(ratingFields.atmosphereRating).toFixed(2)),
+            recommendPercentage: Math.round((ratingFields.wouldRecommendCount / reviews.length) * 100),
+          };
+
+          console.log(`✅ Summary for ${placeId}:`, summary);
+
+          return summary;
+        });
+
+        console.log("✅ Final summaries array:", summaries);
+        return summaries;
+      } catch (err) {
+        console.error("❌ Error in getBusinessRatingSummaries:", err);
+        throw new Error("Failed to compute business rating summaries");
       }
     },
   },

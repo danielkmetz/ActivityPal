@@ -45,14 +45,9 @@ export const sendMessage = createAsyncThunk(
         try {
             const token = await getUserToken();
 
-            console.log('📦 Sending message with payload:', payload);
-            console.log('🔐 Using token:', token);
-
             const res = await axios.post(`${API_URL}/message`, payload, {
                 headers: { Authorization: `Bearer ${token}` },
             });
-
-            console.log('✅ Response from /message:', res.data);
 
             return {
                 message: res.data.message,

@@ -125,9 +125,6 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments }) => 
                 item._id === updatedInvite._id ? updatedInvite : item
             );
 
-            const updatedInvites = updatedList.filter(item => item.type === 'invite');
-            console.log('🆕 Updated invites only:', updatedInvites);
-
             dispatch(setUserAndFriendsReviews(updatedList));
 
             setRequested(true);

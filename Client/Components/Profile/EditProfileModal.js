@@ -66,8 +66,6 @@ export default function EditProfileModal({
     }
   }, [selectedPhotos]);
 
-  console.log(banner)
-
   const handleOpenEditAboutModal = () => {
     Animated.timing(translateX, {
       toValue: -SCREEN_WIDTH,

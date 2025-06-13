@@ -9,6 +9,7 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@apollo/client": "^3.13.8",
     "@expo/metro-runtime": "~5.0.4",
     "@expo/vector-icons": "^14.1.0",
     "@react-native-async-storage/async-storage": "2.1.2",
@@ -37,6 +38,7 @@
     "expo-status-bar": "~2.2.3",
     "expo-video": "^2.1.8",
     "ffmpeg-kit-react-native": "^6.0.2",
+    "graphql": "^16.11.0",
     "haversine-distance": "^1.2.3",
     "lodash": "^4.17.21",
     "moment": "^2.30.1",

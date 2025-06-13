@@ -1,7 +1,10 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import haversine from 'haversine-distance';
 import { getUserToken } from "../functions";
+import { GET_BUSINESS_RATING_SUMMARIES } from "./GraphqlQueries/Queries/businessRatingSummary";
 import axios from 'axios';
+import client from '../apolloClient';
+import { gql } from "@apollo/client";
 
 const apiKey = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
@@ -180,16 +183,6 @@ export const fetchEvents = createAsyncThunk(
                 .toISOString()
                 .replace(/\.\d+Z$/, 'Z'); // Remove fractional milliseconds
 
-            console.log({
-                startDateTime,
-                endDateTime,
-                latlong: `${lat},${lng}`,
-                radius,
-                unit,
-                size: 100,
-                page: 0,
-            });
-
             // Fetch events from Ticketmaster API
             const response = await axios.get(ticketMasterUrl, {
                 params: {
@@ -261,6 +254,22 @@ export const fetchBusinessData = createAsyncThunk(
     }
 );
 
+export const fetchBusinessRatingSummaries = createAsyncThunk(
+    'places/fetchBusinessRatingSummaries',
+    async (placeIds, { rejectWithValue }) => {
+        try {
+            const { data } = await client.query({
+                query: GET_BUSINESS_RATING_SUMMARIES,
+                variables: { placeIds },
+            });
+
+            return data.getBusinessRatingSummaries;
+        } catch (error) {
+            console.error('❌ Apollo GraphQL error:', error);
+            return rejectWithValue(error.message);
+        }
+    }
+);
 
 export const placesSlice = createSlice({
     name: 'places',
@@ -268,6 +277,7 @@ export const placesSlice = createSlice({
         places: [],
         events: [],
         businessData: [],
+        ratingsByPlaceId: {},
         status: 'idle',
         error: null,
     },
@@ -280,6 +290,9 @@ export const placesSlice = createSlice({
         },
         resetBusinessData: (state) => {
             state.businessData = [];
+        },
+        resetRatingsData: (state) => {
+            state.ratingsData = [];
         },
     },
     extraReducers: (builder) => {
@@ -317,15 +330,31 @@ export const placesSlice = createSlice({
                 state.status = 'failed';
                 state.error = action.error.message;
             })
-
+            .addCase(fetchBusinessRatingSummaries.pending, (state) => {
+                state.loading = true;
+                state.error = null;
+            })
+            .addCase(fetchBusinessRatingSummaries.fulfilled, (state, action) => {
+                state.loading = false;
+                action.payload.forEach((summary) => {
+                    state.ratingsByPlaceId[summary.placeId] = summary;
+                });
+            })
+            .addCase(fetchBusinessRatingSummaries.rejected, (state, action) => {
+                state.loading = false;
+                state.error = action.payload;
+            })
     }
 });
 
 export default placesSlice.reducer;
 
-export const { resetPlaces, resetEvents, resetBusinessData } = placesSlice.actions;
+export const { resetPlaces, resetEvents, resetBusinessData, resetRatingsData } = placesSlice.actions;
 
 export const selectPlaces = (state) => state.places.places;
 export const selectEvents = (state) => state.places.events;
 export const selectBusinessData = (state) => state.places.businessData;
 export const selectStatus = (state) => state.places.status;
+export const selectRatingsData = (state) => state.places.ratingsByPlaceId || {};
+export const selectRatingByPlaceId = (placeId) => (state) =>
+  state.places.ratingsByPlaceId?.[placeId] || null;

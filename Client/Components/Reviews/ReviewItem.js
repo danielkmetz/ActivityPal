@@ -404,14 +404,14 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         alignSelf: 'flex-start',
-        backgroundColor: '#999',
+        backgroundColor: '#bfbfbf',
         paddingVertical: 6,
         paddingHorizontal: 10,
-        borderRadius: 5,
+        borderRadius: 2,
         elevation: 2, // Android
         shadowColor: '#000', // iOS
         shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.3,
+        shadowOpacity: 0.2,
         shadowRadius: 2,
         marginTop: 6,
         marginBottom: 4,

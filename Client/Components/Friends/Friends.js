@@ -340,8 +340,6 @@ export default function Friends() {
             if (query.trim()) dispatch(fetchUserSuggestions(query));
         };
 
-        console.log(userSuggestions)
-
         return (
             <UserSearchCard
                 query={searchQuery}
