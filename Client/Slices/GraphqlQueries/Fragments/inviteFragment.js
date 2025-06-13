@@ -1,4 +1,6 @@
-export const INVITE_FRAGMENT = `
+import { gql } from "@apollo/client";
+
+export const INVITE_FRAGMENT = gql`
   fragment InviteFields on ActivityInvite {
     _id
     sender {

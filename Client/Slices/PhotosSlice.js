@@ -87,7 +87,6 @@ export const uploadBanner = createAsyncThunk(
   'photos/uploadBanner',
   async ({ placeId, file }, { rejectWithValue, dispatch }) => {
     try {
-      console.log(file)
       const formData = new FormData();
       formData.append('banner', file);
 

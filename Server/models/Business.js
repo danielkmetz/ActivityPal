@@ -40,13 +40,10 @@ const ReviewSchema = new mongoose.Schema({
   reviewText: { type: String, required: true },
   photos: [PhotoSchema],
   date: { type: Date, default: Date.now },
-
-  // ✅ New fields
   priceRating: { type: Number, min: 0, max: 4, default: null },          // $, $$, $$$, $$$$
   atmosphereRating: { type: Number, min: 0, max: 5, default: null },    // emoji slider
   serviceRating: { type: Number, min: 0, max: 5, default: null },       // Likert slider
   wouldRecommend: { type: Boolean, default: null },                    // Yes/No toggle
-
   likes: [
     {
       userId: { type: String, required: true },

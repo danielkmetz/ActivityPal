@@ -10,8 +10,6 @@ const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 export default function RegisterForm({ form, setForm, isBusiness, onSuccess }) {
   const dispatch = useDispatch();
 
-  console.log(form)
-
   const handleRegister = () => {
     const {
       email,

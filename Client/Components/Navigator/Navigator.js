@@ -1,6 +1,6 @@
 import React from 'react';
 import { createBottomTabNavigator, BottomTabBar } from '@react-navigation/bottom-tabs';
-import { View, Animated } from 'react-native';
+import { View, Animated, Image } from 'react-native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { FontAwesome, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Platform } from 'react-native';
@@ -19,8 +19,6 @@ import CameraScreen from '../CameraScreen/CameraScreen';
 import StoryPreview from '../Stories/StoriesPreview';
 import { selectIsBusiness, selectUser } from '../../Slices/UserSlice';
 import { useSelector } from "react-redux";
-import { selectUnreadCount } from '../../Slices/NotificationsSlice';
-import { markNotificationsSeen } from '../../utils/notificationsHasSeen';
 import CommentScreen from '../Reviews/CommentScreen';
 import StoryViewer from '../Stories/StoryViewer';
 import CreatePost from '../Reviews/CreatePost';
@@ -30,9 +28,22 @@ import FullScreenPhoto from '../Reviews/FullScreenPhoto';
 import DirectMessagesScreen from '../DirectMessages/DirectMessagesScreen';
 import MessageThreadScreen from '../DirectMessages/MessageThreadScreen';
 import SearchFollowingScreen from '../SearchFollowingUsers/SearchFollowingScreen';
+import { selectProfilePic } from '../../Slices/PhotosSlice';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
+const HomeStack = createStackNavigator();
+
+function HomeStackNavigator({ scrollY, onScroll, isAtEnd }) {
+  return (
+    <HomeStack.Navigator screenOptions={{ headerShown: false }}>
+      <HomeStack.Screen name="HomeMain">
+        {() => <Home scrollY={scrollY} onScroll={onScroll} isAtEnd={isAtEnd} />}
+      </HomeStack.Screen>
+      <HomeStack.Screen name="OtherUserProfile" component={OtherUserProfile} />
+    </HomeStack.Navigator>
+  );
+}
 
 function TabNavigator({
     scrollY,
@@ -42,14 +53,12 @@ function TabNavigator({
     customNavTranslateY,
     customHeaderTranslateY,
     isAtEnd,
-    notificationsSeen,
-    setNotificationsSeen,
-    newUnreadCount,
 }) {
     const user = useSelector(selectUser);
     const isBusiness = useSelector(selectIsBusiness);
-    const unreadCount = useSelector(selectUnreadCount);
-
+    const profilePic = useSelector(selectProfilePic);
+    const profilePicUrl = profilePic?.url;
+    
     return (
         <Tab.Navigator
             initialRouteName={user ? (isBusiness ? "Reviews" : "Home") : "Activities"}
@@ -84,8 +93,23 @@ function TabNavigator({
                         iconName = 'bunk-bed';
                         IconComponent = MaterialCommunityIcons;
                     } else if (route.name === 'Profile') {
-                        iconName = 'account-circle';
-                        IconComponent = MaterialCommunityIcons;
+                        if (profilePic) {
+                            return (
+                                <Image
+                                    source={{ uri: profilePicUrl }}
+                                    style={{
+                                        width: 28,
+                                        height: 28,
+                                        borderRadius: 14,
+                                        borderWidth: 1,
+                                        borderColor: color === 'tomato' ? 'tomato' : 'gray',
+                                    }}
+                                />
+                            );
+                        } else {
+                            iconName = 'account-circle';
+                            IconComponent = MaterialCommunityIcons;
+                        }
                     } else if (route.name === "Login") {
                         iconName = 'login';
                         IconComponent = MaterialCommunityIcons;
@@ -110,7 +134,6 @@ function TabNavigator({
                     return (
                         <View style={{ position: 'relative' }}>
                             <IconComponent name={iconName} size={iconSize} color={color} />
-
                         </View>
                     );
                 },
@@ -151,7 +174,7 @@ function TabNavigator({
                         // User-specific Screens
                         <>
                             <Tab.Screen name="Home">
-                                {() => <Home scrollY={scrollY} onScroll={onScroll} isAtEnd={isAtEnd} />}
+                                {() => <HomeStackNavigator scrollY={scrollY} onScroll={onScroll} isAtEnd={isAtEnd} />}
                             </Tab.Screen>
                             <Tab.Screen name="Activities">
                                 {(props) => (
@@ -193,7 +216,7 @@ function TabNavigator({
             )}
         </Tab.Navigator>
     );
-}
+};
 
 function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTranslateY, headerTranslateY, newUnreadCount, tabBarTranslateY, isAtEnd, notificationsSeen, setNotificationsSeen }) {
     return (
@@ -219,10 +242,6 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
                     />
                 }
             </Stack.Screen>
-            <Stack.Screen
-                name="OtherUserProfile"
-                component={OtherUserProfile}
-            />
             <Stack.Screen
                 name="BusinessProfile"
                 component={BusinessProfile}
