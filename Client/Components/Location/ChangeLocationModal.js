@@ -1,16 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import {
     Modal,
-    View,
     Text,
-    TextInput,
     StyleSheet,
     TouchableWithoutFeedback,
     Keyboard,
-    ActivityIndicator,
     Alert,
     KeyboardAvoidingView,
     Platform,
+    View,
 } from 'react-native';
 import Animated, {
     useSharedValue,
@@ -19,8 +17,6 @@ import Animated, {
 } from 'react-native-reanimated';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { useSelector, useDispatch } from 'react-redux';
-import { googlePlacesDefaultProps } from '../../utils/googleplacesDefaults';
-import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
 import {
     selectCoordinates,
     geocodeAddressThunk,
@@ -29,37 +25,33 @@ import {
     selectManualCoordinates,
     selectLocationModalVisible,
     closeLocationModal,
+    setManualCoordinates,
 } from '../../Slices/LocationSlice';
 import Notch from '../Notch/Notch';
 import useSlideDownDismiss from '../../utils/useSlideDown';
+import Autocomplete from './Autocomplete';
 
-const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_KEY;
-
-const ChangeLocationModal = ({ onLocationSelected }) => {
+const ChangeLocationModal = () => {
     const dispatch = useDispatch();
     const [address, setAddress] = useState('');
     const [loading, setLoading] = useState(false);
     const visible = useSelector(selectLocationModalVisible);
     const coordinates = useSelector(selectCoordinates);
-    const manualCoordinates = useSelector(selectManualCoordinates);
-    const reverseGeocodeAddress = useSelector(selectReverseGeocodeAddress);
-
     const fadeAnim = useSharedValue(0);
     const onClose = () => {
         dispatch(closeLocationModal());
     };
     const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
-    const { lat, lng } = coordinates;
-
+    
     useEffect(() => {
         fadeAnim.value = withTiming(visible ? 1 : 0, { duration: 100 });
 
         if (visible) {
             animateIn();
-            dispatch(reverseGeocodeThunk(coordinates))
-                .unwrap()
-                .then(setAddress)
-                .catch((err) => console.warn('Reverse geocode failed:', err));
+            // dispatch(reverseGeocodeThunk(coordinates))
+            //     .unwrap()
+            //     .then(setAddress)
+            //     .catch((err) => console.warn('Reverse geocode failed:', err));
         } else {
             (async () => {
                 await animateOut();
@@ -78,9 +70,8 @@ const ChangeLocationModal = ({ onLocationSelected }) => {
         setLoading(true);
         try {
             const resultAction = await dispatch(geocodeAddressThunk(address));
+            
             if (geocodeAddressThunk.fulfilled.match(resultAction)) {
-                const { lat, lng } = resultAction.payload;
-                onLocationSelected({ latitude: lat, longitude: lng });
                 setAddress('');
                 animateOut();
             } else {
@@ -104,34 +95,25 @@ const ChangeLocationModal = ({ onLocationSelected }) => {
                                 <Animated.View style={[styles.modalContent, animatedStyle]}>
                                     <Notch />
                                     <Text style={styles.modalTitle}>Set Location Manually</Text>
-                                    <View style={{ zIndex: 999, position: 'relative' }}>
-                                        <GooglePlacesAutocomplete
-                                            placeholder="Enter address"
-                                            fetchDetails
-                                            enablePoweredByContainer={false}
-                                            onPress={(data, details = null) => {
-                                                const location = details?.geometry?.location;
-                                                if (location) {
-                                                    onLocationSelected({ latitude: location.lat, longitude: location.lng });
-                                                    dispatch(closeLocationModal());
-                                                }
-                                            }}
-                                            query={{ key: GOOGLE_API_KEY, language: "en", types: "establishment" }}
-                                            styles={{
-                                                textInput: styles.input,
-                                                listView: {
-                                                    backgroundColor: "#fff",
-                                                    maxHeight: 250,
-                                                    zIndex: 9999, // ⬅️ ensure this is high
-                                                },
-                                            }}
-                                            textInputProps={{
-                                                autoCapitalize: 'none',
-                                                autoCorrect: false,
-                                                placeholderTextColor: '#999',
-                                            }}
-                                            {...googlePlacesDefaultProps}
-                                        />
+                                    <Autocomplete
+                                        onPlaceSelected={(details) => {
+                                            const location = details?.formatted_address;
+                                            if (location) {
+                                                setAddress(location);
+                                            }
+                                        }}
+                                        types="address"
+                                    />
+                                    <View style={styles.buttonContainer}>
+                                        <Text
+                                            onPress={!loading && address?.trim() ? handleSubmit : undefined}
+                                            style={[
+                                                styles.saveButton,
+                                                (!address.trim() || loading) && { opacity: 0.5 },
+                                            ]}
+                                        >
+                                            {loading ? 'Saving...' : 'Save'}
+                                        </Text>
                                     </View>
                                 </Animated.View>
                             </TouchableWithoutFeedback>
@@ -155,7 +137,7 @@ const styles = StyleSheet.create({
         borderTopLeftRadius: 16,
         borderTopRightRadius: 16,
         minHeight: 180,
-        paddingBottom: 300,
+        paddingBottom: 255,
     },
     modalTitle: {
         fontSize: 18,
@@ -175,6 +157,22 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: '#007bff',
         marginTop: 5,
+        fontWeight: '600',
+    },
+    buttonContainer: {
+        marginTop: 20,
+        top: 100,
+        width: '50%',
+        alignSelf: 'center',
+    },
+    saveButton: {
+        fontSize: 16,
+        color: 'white',
+        backgroundColor: '#007bff',
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        borderRadius: 8,
+        alignSelf: 'center',
         fontWeight: '600',
     },
 });

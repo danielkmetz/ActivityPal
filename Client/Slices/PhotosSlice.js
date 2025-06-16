@@ -473,6 +473,9 @@ const photoSlice = createSlice({
     resetOtherUserProfilePic: (state) => {
       state.otherUserProfilePic = null;
     },
+    resetBusinessBanner: (state) => {
+      state.businessBanner = null;
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -657,7 +660,7 @@ const photoSlice = createSlice({
       })
       .addCase(fetchBusinessBanner.fulfilled, (state, action) => {
         state.fetchLoading = false;
-        state.banner = action.payload;
+        state.businessBanner = action.payload;
       })
       .addCase(fetchBusinessBanner.rejected, (state, action) => {
         state.fetchLoading = false;
@@ -679,6 +682,6 @@ export const selectOtherUserBanner = (state) => state.photos.otherUserBanner;
 export const selectOtherUserProfilePic = (state) => state.photos.otherUserProfilePic;
 export const selectBusinessBanner = (state) => state.photos.businessBanner;
 
-export const { resetLogo, resetOtherUserBanner, resetProfilePicture, resetBanner, resetOtherUserProfilePic } = photoSlice.actions;
+export const { resetLogo, resetBusinessBanner, resetOtherUserBanner, resetProfilePicture, resetBanner, resetOtherUserProfilePic } = photoSlice.actions;
 
 export default photoSlice.reducer;
