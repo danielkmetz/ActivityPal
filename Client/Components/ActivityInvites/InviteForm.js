@@ -21,6 +21,9 @@ import { selectUserAndFriendsReviews, setUserAndFriendsReviews } from '../../Sli
 import { googlePlacesDefaultProps } from '../../utils/googleplacesDefaults';
 import TagFriendsModal from '../Reviews/TagFriendsModal';
 import { useNavigation } from '@react-navigation/native';
+import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
+import SectionHeader from '../Reviews/SectionHeader';
+import FriendPills from '../Reviews/FriendPills';
 
 const google_key = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 
@@ -154,6 +157,7 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
         fetchDetails
         {...googlePlacesDefaultProps}
       />
+      <SectionHeader title="Visibility" />
       <View style={styles.switchContainer}>
         <View style={styles.switchLabelContainer}>
           {isPublic ? (
@@ -170,23 +174,27 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
           thumbColor={Platform.OS === 'android' ? '#fff' : undefined}
         />
       </View>
-      <Text style={styles.label}>Date & Time</Text>
-      <DateTimePicker
-        value={dateTime || new Date()}
-        mode="datetime"
-        display="default"
-        onChange={(event, selectedDate) => selectedDate && setDateTime(selectedDate)}
-      />
-
-      <Text style={[styles.label, { marginTop: 30 }]}>Note (optional)</Text>
-      <TextInput
-        style={styles.noteInput}
-        placeholder="Let your friends know what's up..."
-        multiline
-        value={note}
-        onChangeText={setNote}
-      />
-
+      <View style={{marginTop: 10}}>
+        <SectionHeader title="Date & Time" />
+        <View style={{marginTop: 5, marginLeft: -10}}>
+          <DateTimePicker
+            value={dateTime || new Date()}
+            mode="datetime"
+            display="default"
+            onChange={(event, selectedDate) => selectedDate && setDateTime(selectedDate)}
+          />
+        </View>
+      </View>
+      <View style={{ marginTop: 10 }}>
+        <SectionHeader title="Note (Optional)" />
+        <TextInput
+          style={styles.noteInput}
+          placeholder="Let your friends know what's up..."
+          multiline
+          value={note}
+          onChangeText={setNote}
+        />
+      </View>
       <TouchableOpacity
         style={styles.friendButton}
         onPress={() => setShowFriendsModal(true)}
@@ -195,36 +203,24 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
           {selectedFriends.length > 0 ? `👥 ${selectedFriends.length} Selected` : '➕ Select Friends'}
         </Text>
       </TouchableOpacity>
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} >
-        {displayFriends.map(friend => (
-          <View key={getUserId(friend)} style={styles.friendPreview}>
-            <Image
-              source={
-                friend.presignedProfileUrl
-                  ? { uri: friend.presignedProfileUrl }
-                  : require('../../assets/pics/profile-pic-placeholder.jpg')
-              }
-              style={styles.profilePic}
-            />
-            <Text style={styles.friendName}>{friend.firstName}</Text>
-          </View>
-        ))}
-      </ScrollView>
-
+      <FriendPills 
+        friends={selectedFriends} 
+        onRemove={(userToRemove) => {
+          setSelectedFriends(prev => prev.filter(u => u._id !== userToRemove._id));
+        }} 
+      />
       <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmInvite}>
         <Text style={styles.confirmText}>{isEditing ? 'Save Edit' : 'Send Invite'}</Text>
       </TouchableOpacity>
-
       <TagFriendsModal
         visible={showFriendsModal}
         onClose={() => setShowFriendsModal(false)}
         onSave={(selected) => {
-          const ids = selected.map(f => f._id);
-          setSelectedFriends(ids);
+          setSelectedFriends(selected);
           setShowFriendsModal(false);
         }}
         isEventInvite
+        initialSelectedFriends={selectedFriends}
       />
     </View>
   );
@@ -263,7 +259,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#f9f9f9',
     textAlignVertical: 'top',
     marginBottom: 16,
-    height: 150
+    marginTop: 5,
+    height: 80,
   },
   friendButton: {
     backgroundColor: '#33cccc',
@@ -307,7 +304,7 @@ const styles = StyleSheet.create({
   switchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 16,
+    //marginVertical: 16,
   },
   switchLabelContainer: {
     flexDirection: 'row',

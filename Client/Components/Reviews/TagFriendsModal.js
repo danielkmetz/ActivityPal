@@ -10,13 +10,13 @@ import {
   Pressable,
 } from "react-native";
 import { useSelector } from "react-redux";
-import { selectFriends, selectFollowing } from "../../Slices/friendsSlice";
+import { selectFollowing } from "../../Slices/friendsSlice";
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 
 const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isEventInvite, initialSelectedFriends = [] }) => {
   const [selectedUsers, setSelectedUsers] = useState([]);
   const following = useSelector(selectFollowing);
-
+  
   // **Reset selection if the modal is for photo tagging**
   useEffect(() => {
     if (visible) {
@@ -94,7 +94,6 @@ const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isE
             <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
               <Text style={styles.buttonText}>Cancel</Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.saveButton}
               onPress={() => {

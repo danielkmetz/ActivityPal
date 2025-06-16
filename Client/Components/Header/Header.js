@@ -10,6 +10,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { selectConversations, selectMessagesByConversation, selectUserToMessage } from '../../Slices/DirectMessagingSlice';
 import SearchModal from '../Home/SearchModal';
 import MessageThreadTitle from './MessageThreadTitle';
+import { openLocationModal } from '../../Slices/LocationSlice';
 
 export default function Header({ currentRoute, notificationsSeen, setNotificationsSeen, newUnreadCount }) {
     const dispatch = useDispatch();
@@ -71,7 +72,11 @@ export default function Header({ currentRoute, notificationsSeen, setNotificatio
 
     const handleOpenDMs = () => {
         navigation.navigate("DirectMessages");
-    }
+    };
+
+    const handleOpenLocationModal = () => {
+        dispatch(openLocationModal());
+    };
 
     const goBack = () => {
         navigation.goBack();
@@ -122,7 +127,7 @@ export default function Header({ currentRoute, notificationsSeen, setNotificatio
                                                 <View style={styles.redDot}/>
                                             )}
                                         </TouchableOpacity>
-                                        <TouchableOpacity onPress={handleOpenSearch}>
+                                        <TouchableOpacity onPress={handleOpenLocationModal}>
                                             <Image
                                                 source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }}
                                                 style={styles.pinIcon}

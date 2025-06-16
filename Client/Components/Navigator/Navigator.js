@@ -34,7 +34,7 @@ const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 const HomeStack = createStackNavigator();
 
-function HomeStackNavigator({ scrollY, onScroll, isAtEnd }) {
+function HomeStackNavigator({ scrollY, onScroll, isAtEnd}) {
   return (
     <HomeStack.Navigator screenOptions={{ headerShown: false }}>
       <HomeStack.Screen name="HomeMain">

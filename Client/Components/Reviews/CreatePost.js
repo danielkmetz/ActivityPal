@@ -37,6 +37,7 @@ import AtmosphereRating from "./metricRatings/AtmosphereRating";
 import ServiceSlider from "./metricRatings/ServiceSlider";
 import WouldRecommend from "./metricRatings/WouldRecommend";
 import InviteForm from "../ActivityInvites/InviteForm";
+import SectionHeader from './SectionHeader'
 import FriendPills from './FriendPills';
 
 const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_KEY;
@@ -325,20 +326,20 @@ export default function CreatePost() {
                 {/* Main body content here */}
                 {postType === "review" && (
                   <>
-                    <View style={styles.ratings}>
+                    <SectionHeader title="Ratings" />
+                    <View style={styles.metricCard}>
                       <View style={{ alignItems: 'flex-start', marginBottom: 5, }}>
-                        <Text style={[styles.label, {marginRight: 5}]}>Overall</Text>
-                        <Rating count={5} startingValue={rating} onFinishRating={setRating} imageSize={30} />
+                        <Text style={[styles.label, { marginRight: 5, }]}>Overall</Text>
+                        <View style={{ backgroundColor: '#f9f9f9' }}>
+                          <Rating count={5} startingValue={rating} onFinishRating={setRating} imageSize={30} />
+                        </View>
                       </View>
-                      <View style={styles.metricCard}>
-                        <Text style={styles.metricTitle}>Rate Specifics</Text>
-                        <PriceRating value={priceRating} onChange={setPriceRating} />
-                        <ServiceSlider value={serviceRating} onChange={setServiceRating} />
-                        <AtmosphereRating value={atmosphereRating} onChange={setAtmosphereRating} />
-                        <WouldRecommend value={wouldRecommend} onChange={setWouldRecommend} />
-                      </View>
+                      <PriceRating value={priceRating} onChange={setPriceRating} />
+                      <ServiceSlider value={serviceRating} onChange={setServiceRating} />
+                      <AtmosphereRating value={atmosphereRating} onChange={setAtmosphereRating} />
+                      <WouldRecommend value={wouldRecommend} onChange={setWouldRecommend} />
                     </View>
-                    <Text style={styles.label}>Your Review</Text>
+                    <SectionHeader title="Your review" />
                     <TextInput
                       style={styles.textArea}
                       value={review}
@@ -349,7 +350,7 @@ export default function CreatePost() {
                 )}
                 {postType === "check-in" && (
                   <>
-                    <Text style={styles.label}>Check-in Message (optional)</Text>
+                    <SectionHeader title="Check-in Message (Optional)" />
                     <TextInput
                       style={styles.textArea}
                       value={checkInMessage}
@@ -364,51 +365,46 @@ export default function CreatePost() {
                     initialInvite={initialPost}
                   />
                 )}
-                {selectedPhotos.length > 0 && (
-                  <>
-                    <Text style={styles.label}>Media</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      <View style={{ flexDirection: 'row' }}>
-                        {selectedPhotos.map((item, i) => (
-                          <TouchableOpacity key={i.toString()} onPress={() => handleOpenPhotoDetails(item)}>
-                            {isVideo(item) ? (
-                              <VideoThumbnail file={item} width={80} height={80} />
-                            ) : (
-                              <Image source={{ uri: item.uri || item.url }} style={styles.media} />
-                            )}
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </ScrollView>
-                  </>
-                )}
-
-                <Text style={styles.label}>Tagged Friends</Text>
-                {taggedUsers.length > 0 ? (
-                  <FriendPills friends={taggedUsers} />
-                ) : (
-                  <Text style={{ color: "#888", marginBottom: 10 }}>No friends tagged yet.</Text>
-                )}
-
                 {postType !== "invite" && (
                   <>
-                    <View style={styles.iconActionRow}>
+                    <SectionHeader title="Tagged Friends" />
+                    {taggedUsers.length > 0 ? (
+                      <FriendPills friends={taggedUsers} />
+                    ) : (
+                      <Text style={styles.subText}>No friends tagged yet</Text>
+                    )}
+                    <SectionHeader title="Selected Media" />
+                    {selectedPhotos.length > 0 ? (
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        <View style={{ flexDirection: 'row' }}>
+                          {selectedPhotos.map((item, i) => (
+                            <TouchableOpacity key={i.toString()} onPress={() => handleOpenPhotoDetails(item)}>
+                              {isVideo(item) ? (
+                                <VideoThumbnail file={item} width={80} height={80} />
+                              ) : (
+                                <Image source={{ uri: item.uri || item.url }} style={styles.media} />
+                              )}
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </ScrollView>
+                    ) : (
+                      <Text style={styles.subText}>No media selected yet</Text>
+                    )}
+                    <View style={[styles.iconActionRow, !selectedPhotos.length && { marginTop: 20 }]}>
                       <TouchableOpacity style={styles.iconAction} onPress={() => navigation.navigate("CameraScreen")}>
                         <FontAwesome name="camera" size={24} color="black" />
                         <Text style={styles.iconLabel}>Camera</Text>
                       </TouchableOpacity>
-
                       <TouchableOpacity style={styles.iconAction} onPress={handlePhotoAlbumSelection}>
                         <FontAwesome name="picture-o" size={24} color="black" />
                         <Text style={styles.iconLabel}>Library</Text>
                       </TouchableOpacity>
-
                       <TouchableOpacity style={styles.iconAction} onPress={() => setTagFriendsModalVisible(true)}>
                         <AntDesign name="tag" size={24} color="black" />
                         <Text style={styles.iconLabel}>Tag</Text>
                       </TouchableOpacity>
                     </View>
-
                     <TouchableOpacity onPress={handleSubmit} style={styles.submitButton}>
                       <Text style={styles.submitButtonText}>{!isEditing ? 'Post' : "Save changes"}</Text>
                     </TouchableOpacity>
@@ -517,6 +513,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ccc",
     marginBottom: 15,
+    marginTop: 5,
     textAlignVertical: "top",
   },
   buttonRow: { flexDirection: "row", justifyContent: "space-around", marginVertical: 10 },
@@ -554,7 +551,6 @@ const styles = StyleSheet.create({
   iconActionRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-
   },
   iconAction: {
     alignItems: 'center',
@@ -567,14 +563,17 @@ const styles = StyleSheet.create({
     color: '#333',
     marginTop: 4,
   },
+  stars: {
+    flexDirection: 'row',
+    marginBottom: 5,
+    backgroundColor: '#f9f9f9',
+  },
   submitButtonText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
   media: { width: 80, height: 80, marginRight: 10, borderRadius: 8 },
   metricCard: {
     padding: 12,
     borderRadius: 12,
     backgroundColor: '#f9f9f9',
-    marginBottom: 16,
-    marginTop: 10,
   },
   metricTitle: {
     fontSize: 15,
@@ -582,4 +581,23 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     color: '#333',
   },
+  sectionContainer: {
+    marginTop: 20,
+    marginBottom: 5,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 5,
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: '#ccc',
+    width: '100%',
+  },
+  subText: {
+    color: '#888',
+    marginBottom: 10,
+  }
 });
