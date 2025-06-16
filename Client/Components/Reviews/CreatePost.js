@@ -17,7 +17,6 @@ import { FontAwesome, AntDesign } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { useDispatch, useSelector } from "react-redux";
 import { Rating } from "react-native-ratings";
-import { GooglePlacesAutocomplete } from "react-native-google-places-autocomplete";
 import EditPhotosModal from "../Profile/EditPhotosModal";
 import EditPhotoDetailsModal from "../Profile/EditPhotoDetailsModal";
 import TagFriendsModal from "./TagFriendsModal";
@@ -29,7 +28,6 @@ import { createCheckIn, editCheckIn } from "../../Slices/CheckInsSlice";
 import { createNotification } from "../../Slices/NotificationsSlice";
 import { createBusinessNotification } from "../../Slices/BusNotificationsSlice";
 import { selectMediaFromGallery } from "../../utils/selectPhotos";
-import { googlePlacesDefaultProps } from "../../utils/googleplacesDefaults";
 import { handlePhotoUpload } from "../../utils/photoUploadHelper";
 import { isVideo } from "../../utils/isVideo";
 import PriceRating from "./metricRatings/PriceRating";
@@ -39,8 +37,7 @@ import WouldRecommend from "./metricRatings/WouldRecommend";
 import InviteForm from "../ActivityInvites/InviteForm";
 import SectionHeader from './SectionHeader'
 import FriendPills from './FriendPills';
-
-const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_KEY;
+import Autocomplete from "../Location/Autocomplete";
 
 export default function CreatePost() {
   const navigation = useNavigation();
@@ -439,17 +436,10 @@ export default function CreatePost() {
                 )}
                 {postType !== "invite" && (
                   <View style={{ zIndex: 999, position: 'relative' }}>
-                    <GooglePlacesAutocomplete
+                    <Autocomplete
                       ref={googlePlacesRef}
-                      placeholder="Search for a business"
-                      fetchDetails
-                      onPress={(data, details) => setBusiness(details)}
-                      query={{ key: GOOGLE_API_KEY, language: "en", types: "establishment" }}
-                      styles={{
-                        textInput: styles.input,
-                        listView: { backgroundColor: "#fff", maxHeight: 250 },
-                      }}
-                      {...googlePlacesDefaultProps}
+                      onPlaceSelected={setBusiness}
+                      types={"establishment"}
                     />
                   </View>
                 )}

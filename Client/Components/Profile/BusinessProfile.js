@@ -14,7 +14,7 @@ import { selectUser } from "../../Slices/UserSlice";
 import bannerPlaceholder from '../../assets/pics/business-placeholder.png';
 import logoPlaceholder from '../../assets/pics/logo-placeholder.png';
 import EditProfileModal from "./EditProfileModal";
-import { selectLogo, fetchLogo, selectBanner, fetchBusinessBanner, selectAlbum, fetchPhotos } from "../../Slices/PhotosSlice";
+import { selectLogo, fetchLogo, selectBusinessBanner, resetBusinessBanner, resetLogo, fetchBusinessBanner, selectAlbum, fetchPhotos } from "../../Slices/PhotosSlice";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { fetchReviewsByPlaceId, selectBusinessReviews, appendBusinessReviews, setBusinessReviews } from '../../Slices/ReviewsSlice';
 import Reviews from "../Reviews/Reviews";
@@ -37,7 +37,7 @@ export default function BusinessProfile() {
   const mainUserFavorites = useSelector(selectFavorites);
   const reviews = useSelector(selectBusinessReviews);
   const logo = useSelector(selectLogo);
-  const banner = useSelector(selectBanner);
+  const banner = useSelector(selectBusinessBanner);
   const photos = useSelector(selectAlbum);
   const businessName = user?.businessName;
   const placeId = user?.placeId;
@@ -51,7 +51,7 @@ export default function BusinessProfile() {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const placeIds = [placeId];
   const ratingData = useSelector(selectRatingByPlaceId(placeId)) || {};
-  
+
   const {
     loadMore,
     refresh,
@@ -80,6 +80,10 @@ export default function BusinessProfile() {
     setFavoriteModalVisible(false);
   };
 
+  const handleGoBack = async () => {
+    navigation.goBack();
+  };
+
   useEffect(() => {
     if (placeId && typeof placeId === 'string' && placeId.trim() !== '') {
       dispatch(fetchLogo(placeId));
@@ -90,10 +94,17 @@ export default function BusinessProfile() {
     }
   }, [placeId]);
 
+  useEffect(() => {
+    return () => {
+      dispatch(resetBusinessBanner());
+      dispatch(resetLogo());
+    };
+  }, []);
+
   const renderHeader = () => (
     <>
       {business && (
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+        <TouchableOpacity style={styles.backButton} onPress={handleGoBack}>
           <Ionicons name="chevron-back" size={24} color="gray" />
         </TouchableOpacity>
       )}
@@ -174,8 +185,8 @@ export default function BusinessProfile() {
         data={null}
         keyExtractor={(item) => item.photoKey}
         numColumns={3}
-        ListHeaderComponent={renderHeader()}
-        renderItem={null}
+        ListHeaderComponent={() => renderHeader()}
+        renderItem={() => null}
         contentContainerStyle={styles.photosGrid}
         showsVerticalScrollIndicator={false}
       />
