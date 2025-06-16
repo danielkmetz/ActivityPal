@@ -25,8 +25,9 @@ import { closeContentModal, closeInviteModal, contentModalStatus, inviteModalSta
 import { selectNearbySuggestions } from "../../Slices/GooglePlacesSlice";
 import { fetchInvites } from "../../Slices/InvitesSlice";
 import { fetchConversations } from "../../Slices/DirectMessagingSlice";
+import ChangeLocationModal from "../Location/ChangeLocationModal";
 
-const Home = ({ scrollY, onScroll, isAtEnd }) => {
+const Home = ({ scrollY, onScroll, isAtEnd, locationModalVisible }) => {
     const dispatch = useDispatch();
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const friends = useSelector(selectFriends);
@@ -39,6 +40,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
     const [business, setBusiness] = useState(null);
     const [businessName, setBusinessName] = useState(null);
     const [updatedFeed, setUpdatedFeed] = useState([]);
+    const [locationModalOpen, setLocationModalOpen] = useState(false);
     const hasFetchedOnce = useSelector(selectHasFetchedOnce);
     const suggestedPosts = useSelector(selectSuggestedPosts);
     const userId = user?.id;
@@ -160,7 +162,6 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
                 }
             />
             {isAtEnd && <View style={styles.bottom} />}
-
             <WriteReviewModal
                 visible={contentModal}
                 onClose={() => dispatch(closeContentModal())}
@@ -173,6 +174,9 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
                 visible={inviteModal}
                 onClose={() => dispatch(closeInviteModal())}
                 friends={friends}
+            />
+            <ChangeLocationModal
+
             />
         </View>
     );

@@ -7,52 +7,92 @@ const weatherKey = process.env.EXPO_PUBLIC_WEATHER;
 
 const fetchWeatherData = async (lat, lng) => {
     const url = `https://api.weatherapi.com/v1/current.json`;
-  
+
     try {
-      const response = await axios.get(url, {
-        params: {
-          key: weatherKey, // Your Weather API key
-          q: `${lat},${lng}`, // Latitude and Longitude
-          aqi: 'no', // No air quality index data
-        },
-      });
-  
-      return response.data.current; // Return the current weather data
+        const response = await axios.get(url, {
+            params: {
+                key: weatherKey, // Your Weather API key
+                q: `${lat},${lng}`, // Latitude and Longitude
+                aqi: 'no', // No air quality index data
+            },
+        });
+
+        return response.data.current; // Return the current weather data
     } catch (error) {
-      console.error('Error fetching current weather:', error);
-      throw error;
+        console.error('Error fetching current weather:', error);
+        throw error;
     }
 };
 
 export const getCurrentCoordinates = createAsyncThunk(
     'location/getCurrentCoordinates',
     async (_, { rejectWithValue }) => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-  
-        if (status !== 'granted') {
-          return rejectWithValue('Permission to access location was denied');
+        try {
+            const { status } = await Location.requestForegroundPermissionsAsync();
+
+            if (status !== 'granted') {
+                return rejectWithValue('Permission to access location was denied');
+            }
+
+            const location = await Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.High,
+            });
+
+            return {
+                lat: location.coords.latitude,
+                lng: location.coords.longitude,
+            };
+        } catch (error) {
+            console.error("Error getting location:", error);
+            return rejectWithValue(error.message);
         }
-  
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        });
-  
-        return {
-          lat: location.coords.latitude,
-          lng: location.coords.longitude,
-        };
-      } catch (error) {
-        console.error("Error getting location:", error);
-        return rejectWithValue(error.message);
-      }
+    }
+);
+
+export const geocodeAddressThunk = createAsyncThunk(
+    'location/geocodeAddress',
+    async (address, { rejectWithValue }) => {
+        try {
+            const response = await fetch(
+                `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${GOOGLE_KEY}`
+            );
+            const data = await response.json();
+
+            if (data.status === 'OK' && data.results.length > 0) {
+                return data.results[0].geometry.location; // { lat, lng }
+            } else {
+                return rejectWithValue('Could not locate that address.');
+            }
+        } catch (err) {
+            return rejectWithValue('Failed to geocode address.');
+        }
+    }
+);
+
+export const reverseGeocodeThunk = createAsyncThunk(
+    'location/reverseGeocode',
+    async ({ lat, lng }, { rejectWithValue }) => {
+        try {
+            const res = await fetch(
+                `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_KEY}`
+            );
+            const data = await res.json();
+
+            if (data.status === 'OK' && data.results.length > 0) {
+                return data.results[0].formatted_address;
+            } else {
+                return rejectWithValue('Address not found.');
+            }
+        } catch (err) {
+            return rejectWithValue('Failed to reverse geocode.');
+        }
     }
 );
 
 export const fetchTimezone = createAsyncThunk(
     'location/fetchTimezone',
     async (coordinates) => {
-        const {lat, lng} = coordinates;
+        const { lat, lng } = coordinates;
         const url = `https://maps.googleapis.com/maps/api/timezone/json`;
         const timestamp = Math.floor(Date.now() / 1000); // Current timestamp in seconds
 
@@ -64,7 +104,7 @@ export const fetchTimezone = createAsyncThunk(
                     key: apiKey,
                 },
             });
-    
+
             if (response.data.status === "OK") {
                 return {
                     timeZoneId: response.data.timeZoneId, // e.g., "America/Chicago"
@@ -85,22 +125,22 @@ export const fetchTimezone = createAsyncThunk(
 export const getCityStateCountry = createAsyncThunk(
     'location/getCityStateCountry',
     async (coordinates) => {
-        const {lat} = coordinates;
-        const {lng} = coordinates;
+        const { lat } = coordinates;
+        const { lng } = coordinates;
         const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${apiKey}`;
 
         try {
             const response = await axios.get(url);
-            
+
             if (response.data.status === 'OK') {
                 const results = response.data.results;
                 // Assuming the first result contains the most accurate location information
                 const addressComponents = results[0].address_components;
-    
+
                 let city = '';
                 let state = '';
                 let country = '';
-    
+
                 // Parse the address components to get city, state, and country
                 addressComponents.forEach(component => {
                     if (component.types.includes('locality')) {
@@ -113,7 +153,7 @@ export const getCityStateCountry = createAsyncThunk(
                         country = component.long_name;
                     }
                 });
-    
+
                 return { city, state, country };
             } else {
                 console.error('No results found for the provided coordinates.');
@@ -128,7 +168,7 @@ export const getCityStateCountry = createAsyncThunk(
 export const fetchWeather = createAsyncThunk(
     'location/fetchWeather',
     async (coordinates) => {
-        const {lat, lng} = coordinates;
+        const { lat, lng } = coordinates;
 
         try {
 
@@ -145,6 +185,9 @@ export const locationSlice = createSlice({
     name: 'location',
     initialState: {
         coordinates: null,
+        manualCoordinates: null,
+        reverseGeocodeAddress: null,
+        locationModalVisible: false,
         location: null,
         weather: null,
         timeZone: null,
@@ -155,66 +198,102 @@ export const locationSlice = createSlice({
         resetCoordinates: (state, action) => {
             state.coordinates = null;
         },
+        setCoordinates: (state, action) => {
+            state.coordinates = action.payload;
+        },
         resetLocation: (state, action) => {
             state.location = null;
+        },
+        openLocationModal: (state) => {
+            state.locationModalVisible = true;
+        },
+        closeLocationModal: (state) => {
+            state.locationModalVisible = false;
         },
     },
     extraReducers: (builder) => {
         builder
-        .addCase(getCurrentCoordinates.pending, (state) => {
-            state.status = 'loading';
-        })
-        .addCase(getCurrentCoordinates.fulfilled, (state, action) => {
-            state.status = 'succeeded';
-            state.coordinates = action.payload;
-        })
-        .addCase(getCurrentCoordinates.rejected, (state, action) => {
-            state.status = 'failed';
-            state.error = action.error.message;
-        })
-        .addCase(getCityStateCountry.pending, (state) => {
-            state.status = 'loading';
-        })
-        .addCase(getCityStateCountry.fulfilled, (state, action) => {
-            state.status = 'succeeded';
-            state.location = action.payload;
-        })
-        .addCase(getCityStateCountry.rejected, (state, action) => {
-            state.status = 'failed';
-            state.error = action.error.message;
-        })
-        .addCase(fetchWeather.pending, (state) => {
-            state.status = 'loading';
-        })
-        .addCase(fetchWeather.fulfilled, (state, action) => {
-            state.status = 'succeeded';
-            state.weather = action.payload;
-        })
-        .addCase(fetchWeather.rejected, (state, action) => {
-            state.status = 'failed';
-            state.error = action.error.message;
-        })
-        .addCase(fetchTimezone.pending, (state) => {
-            state.status = 'loading';
-        })
-        .addCase(fetchTimezone.fulfilled, (state, action) => {
-            state.status = 'succeeded';
-            state.timeZone = action.payload;
-        })
-        .addCase(fetchTimezone.rejected, (state, action) => {
-            state.status = 'failed';
-            state.error = action.error.message;
-        })
-        
+            .addCase(getCurrentCoordinates.pending, (state) => {
+                state.status = 'loading';
+            })
+            .addCase(getCurrentCoordinates.fulfilled, (state, action) => {
+                state.status = 'succeeded';
+                state.coordinates = action.payload;
+            })
+            .addCase(getCurrentCoordinates.rejected, (state, action) => {
+                state.status = 'failed';
+                state.error = action.error.message;
+            })
+            .addCase(getCityStateCountry.pending, (state) => {
+                state.status = 'loading';
+            })
+            .addCase(getCityStateCountry.fulfilled, (state, action) => {
+                state.status = 'succeeded';
+                state.location = action.payload;
+            })
+            .addCase(getCityStateCountry.rejected, (state, action) => {
+                state.status = 'failed';
+                state.error = action.error.message;
+            })
+            .addCase(fetchWeather.pending, (state) => {
+                state.status = 'loading';
+            })
+            .addCase(fetchWeather.fulfilled, (state, action) => {
+                state.status = 'succeeded';
+                state.weather = action.payload;
+            })
+            .addCase(fetchWeather.rejected, (state, action) => {
+                state.status = 'failed';
+                state.error = action.error.message;
+            })
+            .addCase(fetchTimezone.pending, (state) => {
+                state.status = 'loading';
+            })
+            .addCase(fetchTimezone.fulfilled, (state, action) => {
+                state.status = 'succeeded';
+                state.timeZone = action.payload;
+            })
+            .addCase(fetchTimezone.rejected, (state, action) => {
+                state.status = 'failed';
+                state.error = action.error.message;
+            })
+            .addCase(geocodeAddressThunk.pending, (state) => {
+                state.status = 'loading';
+            })
+            .addCase(geocodeAddressThunk.fulfilled, (state, action) => {
+                state.status = 'succeeded';
+                state.manualCoordinates = {
+                    latitude: action.payload.lat,
+                    longitude: action.payload.lng,
+                };
+            })
+            .addCase(geocodeAddressThunk.rejected, (state, action) => {
+                state.status = 'failed';
+                state.error = action.payload || 'Geocoding failed';
+            })
+            .addCase(reverseGeocodeThunk.pending, (state) => {
+                state.status = 'loading';
+            })
+            .addCase(reverseGeocodeThunk.fulfilled, (state, action) => {
+                state.status = 'succeeded';
+                state.reverseGeocodeAddress = action.payload;
+            })
+            .addCase(reverseGeocodeThunk.rejected, (state, action) => {
+                state.status = 'failed';
+                state.error = action.payload || 'Reverse geocoding failed';
+            })
     }
 });
 
 export default locationSlice.reducer;
 
-export const {resetCoordinates, resetLocation} = locationSlice.actions;
+export const { resetCoordinates, resetLocation, setCoordinates, openLocationModal, closeLocationModal } = locationSlice.actions;
 
 export const selectCoordinates = (state) => state.location.coordinates;
 export const selectLocation = (state) => state.location.location;
 export const selectWeather = (state) => state.location.weather;
 export const selectTimeZone = (state) => state.location.timeZone;
+export const selectReverseGeocodeAddress = (state) => state.location.reverseGeocodeAddress;
+export const selectManualCoordinates = (state) => state.location.manualCoordinates;
+export const selectLocationModalVisible = (state) => state.location.locationModalVisible;
 
