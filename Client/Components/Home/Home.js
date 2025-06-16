@@ -27,7 +27,7 @@ import { fetchInvites } from "../../Slices/InvitesSlice";
 import { fetchConversations } from "../../Slices/DirectMessagingSlice";
 import ChangeLocationModal from "../Location/ChangeLocationModal";
 
-const Home = ({ scrollY, onScroll, isAtEnd, locationModalVisible }) => {
+const Home = ({ scrollY, onScroll, isAtEnd }) => {
     const dispatch = useDispatch();
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const friends = useSelector(selectFriends);
@@ -40,7 +40,6 @@ const Home = ({ scrollY, onScroll, isAtEnd, locationModalVisible }) => {
     const [business, setBusiness] = useState(null);
     const [businessName, setBusinessName] = useState(null);
     const [updatedFeed, setUpdatedFeed] = useState([]);
-    const [locationModalOpen, setLocationModalOpen] = useState(false);
     const hasFetchedOnce = useSelector(selectHasFetchedOnce);
     const suggestedPosts = useSelector(selectSuggestedPosts);
     const userId = user?.id;
@@ -175,9 +174,7 @@ const Home = ({ scrollY, onScroll, isAtEnd, locationModalVisible }) => {
                 onClose={() => dispatch(closeInviteModal())}
                 friends={friends}
             />
-            <ChangeLocationModal
-
-            />
+            <ChangeLocationModal/>
         </View>
     );
 };

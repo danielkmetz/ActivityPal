@@ -18,6 +18,7 @@ const Activities = ({ activity }) => {
     }, []);
 
     const handlePress = () => {
+        console.log(activity.business);
         if (activity.business) {
             navigation.navigate("BusinessProfile", { business: activity.business });
         }

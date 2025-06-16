@@ -16,7 +16,7 @@ import Activities from './Activities';
 import Events from './Events';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectEventType } from '../../Slices/PreferencesSlice';
-import { selectCoordinates } from '../../Slices/LocationSlice';
+import { selectCoordinates, selectManualCoordinates } from '../../Slices/LocationSlice';
 import { milesToMeters } from '../../functions';
 import { selectPagination, incrementPage, resetPagination, setCategoryFilter } from '../../Slices/PaginationSlice';
 import heart from '../../assets/pics/heart2.png';
@@ -48,7 +48,8 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
     const events = useSelector(selectEvents) || [];
     const eventType = useSelector(selectEventType);
     const businessData = useSelector(selectBusinessData) || [];
-    const coordinates = useSelector(selectCoordinates);
+    const autoCoordinates = useSelector(selectCoordinates);
+    const manualCoordinates = useSelector(selectManualCoordinates);
     const [prefModalVisible, setPrefModalVisible] = useState(false);
     const [keyboardOpen, setKeyboardOpen] = useState(false);
     const [placeImages, setPlaceImages] = useState({});
@@ -57,6 +58,7 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
     const { currentPage, perPage, categoryFilter } = useSelector(selectPagination);
     const [atTop, setAtTop] = useState(true);
 
+    const coordinates = manualCoordinates ? manualCoordinates : autoCoordinates;
     const lat = coordinates?.lat;
     const lng = coordinates?.lng;
     const manualDistance = milesToMeters(7);
@@ -68,16 +70,16 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
 
     useEffect(() => {
         if (!(scrollY instanceof Animated.Value)) return;
-      
+
         const listenerId = scrollY.addListener(({ value }) => {
-          setAtTop(value <= 5); // or whatever threshold you want
+            setAtTop(value <= 5); // or whatever threshold you want
         });
-      
+
         return () => {
-          scrollY.removeListener(listenerId);
+            scrollY.removeListener(listenerId);
         };
-    }, [scrollY]);      
-      
+    }, [scrollY]);
+
     const handleActivityFetch = (type, isCustom = false, customParams = {}) => {
         if (!lat || !lng) {
             console.warn("Lat/Lng not available yet");
@@ -92,13 +94,13 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
         ].includes(type);
 
         if (type !== 'Dining') {
-        dispatch(fetchGooglePlaces({
-            lat,
-            lng,
-            radius: isCustom ? customParams.radius : manualDistance,
-            budget: isCustom ? customParams.budget : manualBudget,
-            ...(isQuickFilter ? { quickFilter: type } : { activityType: type })
-        }));
+            dispatch(fetchGooglePlaces({
+                lat,
+                lng,
+                radius: isCustom ? customParams.radius : manualDistance,
+                budget: isCustom ? customParams.budget : manualBudget,
+                ...(isQuickFilter ? { quickFilter: type } : { activityType: type })
+            }));
         } else {
             dispatch(fetchDining({
                 lat,
@@ -172,42 +174,55 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
         const today = new Date();
         const todayStr = today.toISOString().split("T")[0];
         const weekday = today.toLocaleDateString("en-US", { weekday: "long" });
-      
+
         // 🛡️ guard
         if (!Array.isArray(activities) || !Array.isArray(businessData)) {
-          return { highlighted: [], regular: [] };
+            return { highlighted: [], regular: [] };
         }
-      
+
         const merged = activities.map(activity => {
-          const business = (businessData || []).find(biz => biz.placeId === activity.place_id);
-      
-          if (business) {
-            const validEvents = (business.events || []).filter(event => {
-              const isOneTimeToday = event.date === todayStr;
-              const isRecurringToday = event.recurringDays?.includes(weekday);
-              return isOneTimeToday || isRecurringToday;
-            });
-      
-            const validPromotions = (business.promotions || []).filter(promo =>
-              promo.recurringDays?.includes(weekday)
-            );
-      
+            const business = (businessData || []).find(biz => biz.placeId === activity.place_id);
+
+            if (business) {
+                const validEvents = (business.events || []).filter(event => {
+                    const isOneTimeToday = event.date === todayStr;
+                    const isRecurringToday = event.recurringDays?.includes(weekday);
+                    return isOneTimeToday || isRecurringToday;
+                });
+
+                const validPromotions = (business.promotions || []).filter(promo =>
+                    promo.recurringDays?.includes(weekday)
+                );
+
+                return {
+                    ...activity,
+                    events: validEvents,
+                    promotions: validPromotions,
+                    business,
+                };
+            }
+
+            // 🧩 Fallback if no business data found
             return {
-              ...activity,
-              events: validEvents,
-              promotions: validPromotions,
-              business,
+                ...activity,
+                events: [],
+                promotions: [],
+                business: {
+                    placeId: activity.place_id,
+                    businessName: activity.name,
+                    location: activity.vicinity || activity.formatted_address || '',
+                    phone: '',
+                    description: '',
+                    events: [],
+                    promotions: [],
+                },
             };
-          }
-      
-          return { ...activity, events: [], promotions: [] };
         });
-      
         const highlighted = (merged || []).filter(item => item.events?.length > 0 || item.promotions?.length > 0);
         const regular = (merged || []).filter(item => item.events?.length === 0 && item.promotions?.length === 0);
-      
+
         return { highlighted, regular };
-    }, [activities, businessData]);      
+    }, [activities, businessData]);
 
     const { highlighted, regular } = mergedSorted;
 
@@ -233,43 +248,43 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
     const allTypes = useMemo(() => {
         const combined = ([...highlighted, ...regular] || []).filter(Boolean); // filter out null/undefined
         const all = new Set();
-      
+
         combined.forEach(item => {
-          if (Array.isArray(item.types)) {
-            item.types.forEach(type => {
-              if (!["point_of_interest", "establishment"].includes(type)) {
-                all.add(type);
-              }
-            });
-          }
+            if (Array.isArray(item.types)) {
+                item.types.forEach(type => {
+                    if (!["point_of_interest", "establishment"].includes(type)) {
+                        all.add(type);
+                    }
+                });
+            }
         });
-      
+
         return Array.from(all).slice(0, 10); // Optional: limit to top 10
-    }, [highlighted, regular]);      
+    }, [highlighted, regular]);
 
     const filteredDisplayList = useMemo(() => {
         const safeRegular = Array.isArray(regular) ? regular : [];
         const safeHighlighted = Array.isArray(highlighted) ? highlighted : [];
-    
+
         const paginatedRegular = paginateRegular(safeRegular, currentPage, perPage);
         const combinedList = [...safeHighlighted, ...paginatedRegular].filter(item => item && typeof item === 'object');
-    
+
         combinedList.forEach((item, i) => {
             if (!item || typeof item !== 'object') {
-              console.warn(`🚨 Invalid item at index ${i}:`, item);
+                console.warn(`🚨 Invalid item at index ${i}:`, item);
             }
-          });
-        
-        const filtered = categoryFilter
-  ? combinedList.filter(item => Array.isArray(item.types) && item.types.includes(categoryFilter))
-  : combinedList;
+        });
 
-    
+        const filtered = categoryFilter
+            ? combinedList.filter(item => Array.isArray(item.types) && item.types.includes(categoryFilter))
+            : combinedList;
+
+
         return filtered;
-    }, [highlighted, regular, currentPage, perPage, categoryFilter]);       
-    
+    }, [highlighted, regular, currentPage, perPage, categoryFilter]);
+
     return (
-         <View
+        <View
             style={styles.safeArea}
         >
             <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
@@ -305,11 +320,11 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
                                                     onEndReachedThreshold={0.5}
                                                     onScroll={
                                                         Animated.event(
-                                                          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-                                                          {
-                                                            useNativeDriver: true,
-                                                            listener: onScroll
-                                                          }
+                                                            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+                                                            {
+                                                                useNativeDriver: true,
+                                                                listener: onScroll
+                                                            }
                                                         )
                                                     }
                                                     scrollEventThrottle={16}
@@ -351,16 +366,16 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
                         )}
                     </View>
                     {customNavTranslateY && (
-                    <Animated.View style={[styles.bottomNavWrapper, { transform: [{ translateY: customNavTranslateY }] }]}>
-                        <BottomNavigation
-                        onOpenPreferences={handleOpenPreferences}
-                        onOpenFilter={() => setFilterDrawerVisible(true)}
-                        categoryFilter={categoryFilter}
-                        isMapView={isMapView}
-                        onToggleMapView={() => setIsMapView(prev => !prev)}
-                        onClear={clearSuggestions}
-                        />
-                    </Animated.View> 
+                        <Animated.View style={[styles.bottomNavWrapper, { transform: [{ translateY: customNavTranslateY }] }]}>
+                            <BottomNavigation
+                                onOpenPreferences={handleOpenPreferences}
+                                onOpenFilter={() => setFilterDrawerVisible(true)}
+                                categoryFilter={categoryFilter}
+                                isMapView={isMapView}
+                                onToggleMapView={() => setIsMapView(prev => !prev)}
+                                onClear={clearSuggestions}
+                            />
+                        </Animated.View>
                     )}
                     <PreferencesModal
                         visible={prefModalVisible}
@@ -394,7 +409,7 @@ const styles = StyleSheet.create({
         height: 250, // same as your original SafeAreaView or header height
         backgroundColor: '#008080', // same color as your SafeAreaView background
         marginTop: -200,
-    },    
+    },
     container: {
         flex: 1,
         backgroundColor: '#f5f5f5',

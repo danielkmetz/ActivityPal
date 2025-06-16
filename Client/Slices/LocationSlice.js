@@ -53,9 +53,10 @@ export const geocodeAddressThunk = createAsyncThunk(
     'location/geocodeAddress',
     async (address, { rejectWithValue }) => {
         try {
-            const response = await fetch(
-                `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${GOOGLE_KEY}`
-            );
+            const encodedAddress = encodeURIComponent(address);
+            const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedAddress}&key=${apiKey}`;
+
+            const response = await fetch(url);
             const data = await response.json();
 
             if (data.status === 'OK' && data.results.length > 0) {
@@ -204,6 +205,9 @@ export const locationSlice = createSlice({
         resetLocation: (state, action) => {
             state.location = null;
         },
+        setManualCoordinates: (state, action) => {
+            state.manualCoordinates = action.payload;
+        },
         openLocationModal: (state) => {
             state.locationModalVisible = true;
         },
@@ -263,8 +267,8 @@ export const locationSlice = createSlice({
             .addCase(geocodeAddressThunk.fulfilled, (state, action) => {
                 state.status = 'succeeded';
                 state.manualCoordinates = {
-                    latitude: action.payload.lat,
-                    longitude: action.payload.lng,
+                    lat: action.payload.lat,
+                    lng: action.payload.lng,
                 };
             })
             .addCase(geocodeAddressThunk.rejected, (state, action) => {
@@ -287,7 +291,14 @@ export const locationSlice = createSlice({
 
 export default locationSlice.reducer;
 
-export const { resetCoordinates, resetLocation, setCoordinates, openLocationModal, closeLocationModal } = locationSlice.actions;
+export const { 
+    resetCoordinates, 
+    resetLocation, 
+    setCoordinates, 
+    openLocationModal, 
+    closeLocationModal,
+    setManualCoordinates, 
+} = locationSlice.actions;
 
 export const selectCoordinates = (state) => state.location.coordinates;
 export const selectLocation = (state) => state.location.location;

@@ -56,7 +56,8 @@ function MainApp() {
   const [newUnreadCount, setNewUnreadCount] = useState(0);
   const previousUnreadCount = useRef(null);
   const userId = user?.id;
-  const { lat, lng } = coordinates || {};
+  const lat = coordinates?.lat;
+  const lng = coordinates?.lng;
 
   const {
     scrollY,
