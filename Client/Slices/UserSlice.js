@@ -190,6 +190,33 @@ export const fetchUserFullName = createAsyncThunk(
   }
 );
 
+export const deleteUserAccount = createAsyncThunk(
+  'user/deleteUserAccount',
+  async (userId, { rejectWithValue, dispatch }) => {
+    try {
+      const token = await getUserToken();
+
+      const response = await axios.delete(`${BASE_URL}/users/user/${userId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      // Clear local auth token
+      await AsyncStorage.removeItem('authToken');
+
+      // Dispatch logout to clear local state
+      dispatch(logout());
+
+      return response.data.message;
+    } catch (error) {
+      return rejectWithValue(
+        error.response?.data?.message || 'Failed to delete user account'
+      );
+    }
+  }
+);
+
 // User slice
 const userSlice = createSlice({
   name: "user",
@@ -297,6 +324,17 @@ const userSlice = createSlice({
       })
       .addCase(fetchUserFullName.rejected, (state, action) => {
         state.error = action.payload || 'Failed to fetch other user name';
+      })
+      .addCase(deleteUserAccount.fulfilled, (state) => {
+        state.user = null;
+        state.token = null;
+        state.isBusiness = false;
+        state.loading = false;
+        state.error = null;
+      })
+      .addCase(deleteUserAccount.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload || 'Account deletion failed';
       })       
   },
 });

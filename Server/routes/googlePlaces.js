@@ -1,6 +1,9 @@
 const express = require("express");
 const axios = require("axios");
 const router = express.Router();
+const { isFastFood } = require('../utils/isFastFood');
+const { classifyMultiCuisine, classifyRestaurantCuisine } = require('../RestaurantClass/Keywords');
+const { detectLanguage, getCuisineFromLanguage } = require('../RestaurantClass/Language');
 
 const googleApiKey = process.env.GOOGLE_KEY;
 
@@ -68,7 +71,6 @@ const activityTypeKeywords = {
 router.post("/places", async (req, res) => {
   const { lat, lng, activityType, radius, budget, isCustom } = req.body;
 
-  // Grab either type+keyword pairs or simple keyword strings
   const searchCombos = isCustom
     ? activityTypeKeywords[activityType] || []
     : (quickFilters[activityType] || []).map(k => ({ type: 'establishment', keyword: k }));
@@ -101,10 +103,7 @@ router.post("/places", async (req, res) => {
   };
 
   try {
-    // Fetch all type/keyword pairs
-    await Promise.all(
-      searchCombos.map(({ type, keyword }) => fetchPlaces(type, keyword))
-    );
+    await Promise.all(searchCombos.map(({ type, keyword }) => fetchPlaces(type, keyword)));
 
     const haversineDistance = (lat1, lon1, lat2, lon2) => {
       const toRad = (val) => (val * Math.PI) / 180;
@@ -125,9 +124,9 @@ router.post("/places", async (req, res) => {
       !place.types?.includes("store") &&
       !place.types?.includes("storage") &&
       !place.types?.includes("golf_course") &&
-      !place.types?.includes("meal_takeaway") &&
       !place.types?.includes("casino") &&
       !/Country Club|Golf Course|Golf Club|Links/i.test(place.name || "") &&
+      !isFastFood(place.name || "") &&
       !(activityType === "gaming" &&
         (
           place.types?.includes("park") ||
@@ -147,13 +146,26 @@ router.post("/places", async (req, res) => {
       )
     );
 
-    const results = filtered.map(place => {
+    const results = await Promise.all(filtered.map(async (place) => {
       const distance = haversineDistance(lat, lng, place.geometry.location.lat, place.geometry.location.lng);
+      const name = place.name || '';
+
+      const keywordCuisine = classifyRestaurantCuisine(name);
+      const languageCuisine = keywordCuisine === "unknown" ? await getCuisineFromLanguage(name) : null;
+
+      let cuisine = keywordCuisine || languageCuisine || 'unknown';
+
+      if (cuisine === "unknown" && place.types?.includes("bar")) {
+        cuisine = "bar_food";
+      }
+
       return {
         name: place.name,
+        cuisine,
         types: place.types,
         address: place.vicinity,
         place_id: place.place_id,
+        opening_hours: place.opening_hours,
         photoUrl: place.photos
           ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photo_reference=${place.photos[0].photo_reference}&key=${googleApiKey}`
           : null,
@@ -163,7 +175,9 @@ router.post("/places", async (req, res) => {
           lng: place.geometry.location.lng,
         },
       };
-    }).sort((a, b) => a.distance - b.distance);
+    }));
+
+    results.sort((a, b) => a.distance - b.distance);
 
     console.log(`✅ Final curatedPlaces: ${results.length}`);
     res.json({ curatedPlaces: results });

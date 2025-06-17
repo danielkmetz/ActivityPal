@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { Modal, View, Text, StyleSheet, TouchableOpacity, Animated, Switch } from "react-native";
-import { fetchPrivacySettings, logout } from "../../Slices/UserSlice";
+import { Modal, View, Text, StyleSheet, TouchableOpacity, Animated, Switch, Alert } from "react-native";
+import { fetchPrivacySettings, logout, deleteuserAccount } from "../../Slices/UserSlice";
 import { resetBanner, resetLogo, resetProfilePicture, } from "../../Slices/PhotosSlice";
 import { useDispatch, useSelector } from "react-redux";
 import { resetPlaces, resetEvents, resetBusinessData } from "../../Slices/PlacesSlice";
@@ -19,8 +19,9 @@ export default function SettingsModal({ visible, onClose }) {
   const [isAnimating, setIsAnimating] = useState(false); // Controls modal visibility during animation
   const [dropdownVisible, setDropdownVisible] = useState(false);
   const [profileVisibility, setProfileVisibility] = useState(privacySettings.profileVisibility);
+  const [deleteDropdownVisible, setDeleteDropdownVisible] = useState(false);
   const userId = user?.id;
-  
+
   const handleToggleVisibility = async () => {
     const newSetting = profileVisibility === 'public' ? 'private' : 'public';
     setProfileVisibility(newSetting);
@@ -42,6 +43,25 @@ export default function SettingsModal({ visible, onClose }) {
     dispatch(resetAllReviews());
     dispatch(resetNotifications());
     dispatch(resetFriends());
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      "Delete Account",
+      "Are you sure you want to permanently delete your account? This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            if (user?.id) {
+              dispatch(deleteUserAccount(user.id));
+            }
+          },
+        },
+      ]
+    );
   };
 
   useEffect(() => {
@@ -75,7 +95,7 @@ export default function SettingsModal({ visible, onClose }) {
     if (privacySettings?.profileVisibility) {
       setProfileVisibility(privacySettings.profileVisibility);
     }
-  }, [privacySettings]);  
+  }, [privacySettings]);
 
   if (!visible && !isAnimating) {
     return null; // Prevent modal from rendering if it's not visible
@@ -100,7 +120,7 @@ export default function SettingsModal({ visible, onClose }) {
           {dropdownVisible && (
             <View style={styles.dropdownContent}>
               <View style={styles.toggleRow}>
-              <Text style={styles.dropdownValue}>{profileVisibility === 'public' ? 'Public' : 'Private'}</Text>
+                <Text style={styles.dropdownValue}>{profileVisibility === 'public' ? 'Public' : 'Private'}</Text>
                 <Switch
                   value={profileVisibility === 'private'}
                   onValueChange={handleToggleVisibility}
@@ -108,6 +128,29 @@ export default function SettingsModal({ visible, onClose }) {
               </View>
             </View>
           )}
+
+          <View style={styles.dropdownContainer}>
+            <TouchableOpacity
+              onPress={() => setDeleteDropdownVisible(prev => !prev)}
+              style={styles.dropdownHeader}
+            >
+              <Text style={[styles.dropdownLabel, { color: "#d9534f" }]}>Delete Account</Text>
+              <MaterialCommunityIcons
+                name={deleteDropdownVisible ? "chevron-up" : "chevron-down"}
+                size={24}
+                color="#d9534f"
+              />
+            </TouchableOpacity>
+
+            {deleteDropdownVisible && (
+              <View style={styles.dropdownContent}>
+                <TouchableOpacity style={styles.deleteButton} onPress={handleDeleteAccount}>
+                  <Text style={styles.deleteButtonText}>Delete Account</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+
         </View>
         {/* Buttons at the bottom */}
         <View style={styles.buttonContainer}>
@@ -206,5 +249,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333',
   },
-
+  deleteButton: {
+    backgroundColor: "#d9534f",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 5,
+    alignItems: 'center',
+  },
+  deleteButtonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
 });
