@@ -67,7 +67,7 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
     const eventDistance = 50;
     const manualBudget = "$$$$";
     const listRef = useRef(null);
-
+    
     useEffect(() => {
         if (!(scrollY instanceof Animated.Value)) return;
 
@@ -198,9 +198,12 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
                     ...activity,
                     events: validEvents,
                     promotions: validPromotions,
-                    business,
+                    business: {
+                        ...business,
+                        logoFallback: activity.photoUrl, 
+                    },
                 };
-            }
+            };
 
             // 🧩 Fallback if no business data found
             return {
@@ -210,7 +213,8 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
                 business: {
                     placeId: activity.place_id,
                     businessName: activity.name,
-                    location: activity.vicinity || activity.formatted_address || '',
+                    location: activity.address || activity.formatted_address || '',
+                    logoFallback: activity.photoUrl,
                     phone: '',
                     description: '',
                     events: [],
@@ -386,6 +390,7 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
                     {/* 🔽 Filter Drawer - ADD IT HERE */}
                     {filterDrawerVisible && activities.length > 0 && (
                         <FilterDrawer
+                            visible={filterDrawerVisible}
                             allTypes={allTypes}
                             categoryFilter={categoryFilter}
                             onSelect={(type) => dispatch(setCategoryFilter(type))}

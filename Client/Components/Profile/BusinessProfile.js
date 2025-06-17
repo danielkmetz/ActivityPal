@@ -36,7 +36,7 @@ export default function BusinessProfile() {
   const mainUser = useSelector(selectUser);
   const mainUserFavorites = useSelector(selectFavorites);
   const reviews = useSelector(selectBusinessReviews);
-  const logo = useSelector(selectLogo);
+  const logo = useSelector(selectLogo) || business.logoFallback;
   const banner = useSelector(selectBusinessBanner);
   const photos = useSelector(selectAlbum);
   const businessName = user?.businessName;
@@ -51,7 +51,7 @@ export default function BusinessProfile() {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const placeIds = [placeId];
   const ratingData = useSelector(selectRatingByPlaceId(placeId)) || {};
-
+  
   const {
     loadMore,
     refresh,
