@@ -120,4 +120,30 @@ router.get('/fullname/:userId', verifyToken, async (req, res) => {
   }
 });
 
+// DELETE user account
+router.delete('/user/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Optionally ensure that the requesting user is deleting their own account
+    if (req.user.id !== id) {
+      return res.status(403).json({ message: 'Unauthorized to delete this account.' });
+    }
+
+    const deletedUser = await User.findByIdAndDelete(id);
+
+    if (!deletedUser) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    // Optionally: perform additional cleanup here if needed
+    // e.g., delete associated posts, messages, etc.
+
+    res.status(200).json({ message: 'User account deleted successfully.' });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({ message: 'Server error.' });
+  }
+});
+
 module.exports = router;

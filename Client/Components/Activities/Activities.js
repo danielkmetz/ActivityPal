@@ -18,16 +18,11 @@ const Activities = ({ activity }) => {
     }, []);
 
     const handlePress = () => {
-        console.log(activity.business);
         if (activity.business) {
             navigation.navigate("BusinessProfile", { business: activity.business });
         }
     };
 
-    const isValidDate = (date) => {
-        return date && !isNaN(new Date(date).getTime());
-    };  
-    
     if (!activity.distance) return null;
 
     return (

@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import {
     View,
     Text,
@@ -7,12 +7,15 @@ import {
     StyleSheet,
     TouchableWithoutFeedback,
     Modal,
-    Animated,
-    Dimensions,
 } from 'react-native';
-import { PanGestureHandler, State } from 'react-native-gesture-handler';
-
-const SCREEN_HEIGHT = Dimensions.get('window').height;
+import Animated, {
+    useSharedValue,
+    withTiming,
+    useAnimatedStyle,
+} from 'react-native-reanimated';
+import { GestureDetector } from 'react-native-gesture-handler';
+import Notch from '../Notch/Notch';
+import useSlideDownDismiss from '../../utils/useSlideDown';
 
 const FilterDrawer = ({
     visible,
@@ -21,75 +24,33 @@ const FilterDrawer = ({
     onSelect,
     onClose,
 }) => {
-    const translateY = useRef(new Animated.Value(0)).current;
-    const drawerHeight = SCREEN_HEIGHT * 0.7;
-    const gestureThreshold = 100;
+    const fadeAnim = useSharedValue(0);
+    const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
 
     useEffect(() => {
+        fadeAnim.value = withTiming(visible ? 1 : 0, { duration: 100 });
+
         if (visible) {
-            // Animate drawer in
-            Animated.timing(translateY, {
-                toValue: 0,
-                duration: 250,
-                useNativeDriver: true,
-            }).start();
+            animateIn();
         } else {
-            translateY.setValue(drawerHeight);
+            (async () => {
+                await animateOut();
+                onClose();
+            })();
         }
     }, [visible]);
 
-    const handleClose = () => {
-        Animated.timing(translateY, {
-            toValue: drawerHeight,
-            duration: 250,
-            useNativeDriver: true,
-        }).start(() => {
-            onClose(); // call onClose only after animation completes
-        });
-    };
-
-    const onGestureEvent = Animated.event(
-        [{ nativeEvent: { translationY: translateY } }],
-        { useNativeDriver: true }
-    );
-
-    const onHandlerStateChange = ({ nativeEvent }) => {
-        if (nativeEvent.state === State.END) {
-            if (nativeEvent.translationY > gestureThreshold) {
-                handleClose();
-            } else {
-                Animated.spring(translateY, {
-                    toValue: 0,
-                    useNativeDriver: true,
-                }).start();
-            }
-        }
-    };
+    const fadeStyle = useAnimatedStyle(() => ({
+        opacity: fadeAnim.value,
+    }));
 
     return (
-        <Modal visible={visible} transparent animationType="none">
-            <TouchableWithoutFeedback onPress={handleClose}>
-                <View style={styles.drawerOverlay}>
-                    <PanGestureHandler
-                        onGestureEvent={onGestureEvent}
-                        onHandlerStateChange={onHandlerStateChange}
-                    >
-                        <Animated.View
-                            style={[
-                                styles.drawerContainer,
-                                {
-                                    transform: [
-                                        {
-                                            translateY: translateY.interpolate({
-                                                inputRange: [0, drawerHeight],
-                                                outputRange: [0, drawerHeight],
-                                                extrapolate: 'clamp',
-                                            }),
-                                        },
-                                    ],
-                                },
-                            ]}
-                        >
+        <Modal visible={visible} transparent onRequestClose={animateOut}>
+            <TouchableWithoutFeedback onPress={animateOut}>
+                <View style={[styles.drawerOverlay, fadeStyle]}>
+                    <GestureDetector gesture={gesture}>
+                        <Animated.View style={[styles.drawerContainer, animatedStyle]}>
+                            <Notch />
                             <TouchableWithoutFeedback>
                                 <View>
                                     <Text style={styles.drawerTitle}>Filter Categories</Text>
@@ -104,7 +65,7 @@ const FilterDrawer = ({
                                                 ]}
                                                 onPress={() => {
                                                     onSelect(item === categoryFilter ? null : item);
-                                                    handleClose();
+                                                    animateOut();
                                                 }}
                                             >
                                                 <Text style={styles.drawerItemText}>
@@ -113,16 +74,10 @@ const FilterDrawer = ({
                                             </TouchableOpacity>
                                         )}
                                     />
-                                    <TouchableOpacity
-                                        style={styles.drawerCloseButton}
-                                        onPress={handleClose}
-                                    >
-                                        <Text style={styles.drawerCloseText}>Close</Text>
-                                    </TouchableOpacity>
                                 </View>
                             </TouchableWithoutFeedback>
                         </Animated.View>
-                    </PanGestureHandler>
+                    </GestureDetector>
                 </View>
             </TouchableWithoutFeedback>
         </Modal>
