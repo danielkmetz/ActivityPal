@@ -199,7 +199,7 @@ const styles = StyleSheet.create({
     map: {
         width: width,
         height: height,
-        paddingBottom: 150,
+        paddingBottom: 90,
     },
     image: {
         width: '100%',
@@ -301,7 +301,7 @@ const styles = StyleSheet.create({
     },
     zoomControls: {
         position: 'absolute',
-        top: 40,
+        top: 130,
         right: 20,
         flexDirection: 'column',
         gap: 8,
