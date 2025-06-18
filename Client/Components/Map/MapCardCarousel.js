@@ -44,7 +44,7 @@ export default MapCardCarousel;
 const styles = StyleSheet.create({
   carouselContainer: {
     position: 'absolute',
-    bottom: 140,
+    bottom: 100,
     left: 0,
     right: 0,
   },
