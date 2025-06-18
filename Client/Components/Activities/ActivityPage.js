@@ -10,15 +10,15 @@ import {
     Animated,
 } from 'react-native';
 import PreferencesModal from '../Preferences/Preferences';
-import { selectEvents, selectBusinessData, fetchBusinessData, } from '../../Slices/PlacesSlice';
-import { fetchGooglePlaces, selectGooglePlaces, selectGoogleStatus, clearGooglePlaces, fetchDining } from '../../Slices/GooglePlacesSlice';
+import { selectEvents, selectBusinessData, fetchBusinessData, selectIsMapView, } from '../../Slices/PlacesSlice';
+import { fetchGooglePlaces, selectGooglePlaces, selectGoogleStatus, fetchDining } from '../../Slices/GooglePlacesSlice';
 import Activities from './Activities';
 import Events from './Events';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectEventType } from '../../Slices/PreferencesSlice';
 import { selectCoordinates, selectManualCoordinates } from '../../Slices/LocationSlice';
 import { milesToMeters } from '../../functions';
-import { selectPagination, incrementPage, resetPagination, setCategoryFilter } from '../../Slices/PaginationSlice';
+import { selectPagination, incrementPage, setCategoryFilter } from '../../Slices/PaginationSlice';
 import heart from '../../assets/pics/heart2.png';
 import tableware from '../../assets/pics/tableware.webp';
 import tickets from '../../assets/pics/tickets2.png';
@@ -33,7 +33,6 @@ import map from '../../assets/pics/map.png';
 import { useNavigation } from '@react-navigation/native';
 import Map from '../Map/Map';
 import FilterDrawer from './FilterDrawer';
-import BottomNavigation from './BottomNavigation'
 import SearchBar from './SearchBar';
 import QuickFilters from './QuickFilters';
 
@@ -50,11 +49,10 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
     const businessData = useSelector(selectBusinessData) || [];
     const autoCoordinates = useSelector(selectCoordinates);
     const manualCoordinates = useSelector(selectManualCoordinates);
-    const [prefModalVisible, setPrefModalVisible] = useState(false);
     const [keyboardOpen, setKeyboardOpen] = useState(false);
     const [placeImages, setPlaceImages] = useState({});
     const [filterDrawerVisible, setFilterDrawerVisible] = useState(false);
-    const [isMapView, setIsMapView] = useState(false);
+    const isMapView = useSelector(selectIsMapView)
     const { currentPage, perPage, categoryFilter } = useSelector(selectPagination);
     const [atTop, setAtTop] = useState(true);
 
@@ -140,13 +138,6 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
         return fullRegular.slice(0, endIndex);
     };
 
-    const clearSuggestions = () => {
-        if (activities.length > 0) {
-            dispatch(clearGooglePlaces());
-            dispatch(resetPagination());
-        }
-    };
-
     useEffect(() => {
         const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () => {
             setKeyboardOpen(true);
@@ -229,8 +220,6 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
     }, [activities, businessData]);
 
     const { highlighted, regular } = mergedSorted;
-
-    const handleOpenPreferences = () => setPrefModalVisible(true);
 
     const handlePress = async (data, details) => {
         const formattedBusiness = {
@@ -369,21 +358,7 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
                             </>
                         )}
                     </View>
-                    {customNavTranslateY && (
-                        <Animated.View style={[styles.bottomNavWrapper, { transform: [{ translateY: customNavTranslateY }] }]}>
-                            <BottomNavigation
-                                onOpenPreferences={handleOpenPreferences}
-                                onOpenFilter={() => setFilterDrawerVisible(true)}
-                                categoryFilter={categoryFilter}
-                                isMapView={isMapView}
-                                onToggleMapView={() => setIsMapView(prev => !prev)}
-                                onClear={clearSuggestions}
-                            />
-                        </Animated.View>
-                    )}
                     <PreferencesModal
-                        visible={prefModalVisible}
-                        onClose={() => setPrefModalVisible(false)}
                         onSubmitCustomSearch={(type, params) => handleActivityFetch(type, true, params)} // 🔥 Pass this handler
                     />
 
@@ -411,15 +386,14 @@ const styles = StyleSheet.create({
         backgroundColor: '#008080', // Match this to your header color
     },
     scrollSpacer: {
-        height: 250, // same as your original SafeAreaView or header height
         backgroundColor: '#008080', // same color as your SafeAreaView background
-        marginTop: -200,
+        marginTop: 100,
     },
     container: {
         flex: 1,
         backgroundColor: '#f5f5f5',
-        marginTop: 130,
         paddingBottom: 50,
+        marginTop: 120,
     },
     containerPopulated: {
         flex: 1,

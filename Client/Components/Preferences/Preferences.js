@@ -27,9 +27,10 @@ import { GestureDetector } from 'react-native-gesture-handler';
 import Slider from '@react-native-community/slider';
 import WheelPicker from '../CustomePicker/CustomPicker';
 import useSlideDownDismiss from '../../utils/useSlideDown';
+import { closePreferences, selectViewPreferences } from '../../Slices/PlacesSlice';
 import Notch from '../Notch/Notch';
 
-const PreferencesModal = ({ visible, onClose, onSubmitCustomSearch }) => {
+const PreferencesModal = ({ onSubmitCustomSearch }) => {
     const dispatch = useDispatch();
     const distance = useSelector(selectDistance);
     const budget = useSelector(selectBudget);
@@ -37,11 +38,15 @@ const PreferencesModal = ({ visible, onClose, onSubmitCustomSearch }) => {
     const isFamilyFriendly = useSelector(selectFamilyFriendly);
     const coordinates = useSelector(selectCoordinates);
     const [showPicker, setShowPicker] = useState(false);
-    const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
-
+    const visible = useSelector(selectViewPreferences);
     const lat = coordinates?.lat;
     const lng = coordinates?.lng;
     const radius = milesToMeters(distance);
+    
+    const onClose = () => {
+        dispatch(closePreferences());
+    };
+    const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
 
     useEffect(() => {
         if (visible) {

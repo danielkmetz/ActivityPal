@@ -28,6 +28,7 @@ import FullScreenPhoto from '../Reviews/FullScreenPhoto';
 import DirectMessagesScreen from '../DirectMessages/DirectMessagesScreen';
 import MessageThreadScreen from '../DirectMessages/MessageThreadScreen';
 import SearchFollowingScreen from '../SearchFollowingUsers/SearchFollowingScreen';
+import FilterSortScreen from '../Activities/FilterSortScreen';
 import { selectProfilePic } from '../../Slices/PhotosSlice';
 
 const Tab = createBottomTabNavigator();
@@ -43,7 +44,7 @@ function HomeStackNavigator({ scrollY, onScroll, isAtEnd}) {
       <HomeStack.Screen name="OtherUserProfile" component={OtherUserProfile} />
     </HomeStack.Navigator>
   );
-}
+};
 
 function TabNavigator({
     scrollY,
@@ -258,6 +259,7 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
             <Stack.Screen name="DirectMessages" component={DirectMessagesScreen} />
             <Stack.Screen name="MessageThread" component={MessageThreadScreen} />
             <Stack.Screen name="SearchFollowing" component={SearchFollowingScreen} />
+            <Stack.Screen name="FilterSort" component={FilterSortScreen} />
         </Stack.Navigator>
     )
 }

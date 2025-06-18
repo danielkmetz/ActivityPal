@@ -13,11 +13,7 @@ import Header from './Components/Header/Header';
 import store from './store';
 import * as Font from 'expo-font';
 import { useDispatch, useSelector } from 'react-redux';
-import {
-  getCurrentCoordinates,
-  selectCoordinates,
-  getCityStateCountry,
-} from './Slices/LocationSlice';
+import { getCurrentCoordinates, selectCoordinates, getCityStateCountry } from './Slices/LocationSlice';
 import { loadToken } from './Slices/UserSlice';
 import { PaperProvider } from 'react-native-paper';
 import { selectGooglePlaces } from './Slices/GooglePlacesSlice';
@@ -199,7 +195,6 @@ function MainApp() {
         currentRoute !== "StoryViewer" &&
         currentRoute !== "CommentScreen" &&
         currentRoute !== "FullScreenPhoto" &&
-        !(currentRoute === "Activities" && activities.length > 0) &&
         (
           <Animated.View style={[styles.header, { transform: [{ translateY: headerTranslateY }] }]}>
             <Header

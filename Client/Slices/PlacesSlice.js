@@ -280,6 +280,9 @@ export const placesSlice = createSlice({
         ratingsByPlaceId: {},
         status: 'idle',
         error: null,
+        categoryFilter: null,
+        isMapView: false,
+        viewPreferences: false,
     },
     reducers: {
         resetPlaces: (state) => {
@@ -294,6 +297,24 @@ export const placesSlice = createSlice({
         resetRatingsData: (state) => {
             state.ratingsData = [];
         },
+        setCategoryFilter: (state, action) => {
+            state.categoryFilter = action.payload;
+        },
+        clearCategoryFilter: (state) => {
+            state.categoryFilter = null;
+        },
+        toggleMapView: (state) => {
+            state.isMapView = !state.isMapView;
+        },
+        setMapView: (state, action) => {
+            state.isMapView = action.payload;
+        },
+        openPreferences: (state) => {
+            state.viewPreferences = true;
+        },
+        closePreferences: (state) => {
+            state.viewPreferences = false;
+        }
     },
     extraReducers: (builder) => {
         builder
@@ -349,12 +370,26 @@ export const placesSlice = createSlice({
 
 export default placesSlice.reducer;
 
-export const { resetPlaces, resetEvents, resetBusinessData, resetRatingsData } = placesSlice.actions;
+export const {
+    resetPlaces,
+    resetEvents,
+    resetBusinessData,
+    resetRatingsData,
+    setCategoryFilter,
+    clearCategoryFilter,
+    toggleMapView,
+    setMapView,
+    openPreferences,
+    closePreferences,
+} = placesSlice.actions;
 
 export const selectPlaces = (state) => state.places.places;
 export const selectEvents = (state) => state.places.events;
 export const selectBusinessData = (state) => state.places.businessData;
 export const selectStatus = (state) => state.places.status;
 export const selectRatingsData = (state) => state.places.ratingsByPlaceId || {};
+export const selectCategoryFilter = (state) => state.places.categoryFilter;
+export const selectIsMapView = (state) => state.places.isMapView;
+export const selectViewPreferences = (state) => state.places.viewPreferences;
 export const selectRatingByPlaceId = (placeId) => (state) =>
-  state.places.ratingsByPlaceId?.[placeId] || null;
+    state.places.ratingsByPlaceId?.[placeId] || null;
