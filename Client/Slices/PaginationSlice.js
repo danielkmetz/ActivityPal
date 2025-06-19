@@ -28,4 +28,5 @@ const paginationSlice = createSlice({
 
 export const { incrementPage, resetPage, setCategoryFilter, resetPagination } = paginationSlice.actions;
 export const selectPagination = (state) => state.pagination;
+export const selectCategoryFilter = (state) => state.pagination.categoryFilter;
 export default paginationSlice.reducer;

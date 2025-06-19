@@ -2,8 +2,9 @@ const express = require("express");
 const axios = require("axios");
 const router = express.Router();
 const { isFastFood } = require('../utils/isFastFood');
-const { classifyMultiCuisine, classifyRestaurantCuisine } = require('../RestaurantClass/Keywords');
-const { detectLanguage, getCuisineFromLanguage } = require('../RestaurantClass/Language');
+const { classifyRestaurantCuisine } = require('../RestaurantClass/Keywords/Keywords');
+const { getCuisineFromLanguage } = require('../RestaurantClass/Language');
+const { classifyCuisineFromReviews } = require('../RestaurantClass/ByReview');
 
 const googleApiKey = process.env.GOOGLE_KEY;
 
@@ -70,6 +71,7 @@ const activityTypeKeywords = {
 
 router.post("/places", async (req, res) => {
   const { lat, lng, activityType, radius, budget, isCustom } = req.body;
+  console.log('radius', radius);
 
   const searchCombos = isCustom
     ? activityTypeKeywords[activityType] || []
@@ -115,6 +117,8 @@ router.post("/places", async (req, res) => {
       return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     };
 
+    const gasStationNamePattern = /speedy|speedway|bp|shell|mobil|exxon|citgo|chevron|circle\s?k|thorntons|amoco|7-eleven|7 eleven|casey's|caseys|kum\s?&\s?go|love's|loves|pilot|sunoco|marathon|quiktrip|qt|valero|conoco/i;
+
     const filtered = Array.from(allResults.values()).filter(place =>
       !place.types?.includes("school") &&
       !place.types?.includes("doctor") &&
@@ -125,19 +129,10 @@ router.post("/places", async (req, res) => {
       !place.types?.includes("storage") &&
       !place.types?.includes("golf_course") &&
       !place.types?.includes("casino") &&
+      !place.types?.includes("gas_station") &&
+      !gasStationNamePattern.test(place.name || "") &&
       !/Country Club|Golf Course|Golf Club|Links/i.test(place.name || "") &&
       !isFastFood(place.name || "") &&
-      !(activityType === "gaming" &&
-        (
-          place.types?.includes("park") ||
-          place.types?.includes("restaurant") ||
-          place.types?.includes("meal_takeaway") ||
-          place.types?.includes("meal_delivery") ||
-          place.types?.includes("cafe") ||
-          place.types?.includes("food") ||
-          place.types?.includes("bakery") ||
-          place.types?.includes("bar")
-        )) &&
       (
         (budget === "$" && (place.price_level === 0 || place.price_level === 1)) ||
         (budget === "$$" && (place.price_level <= 2)) ||
@@ -147,13 +142,22 @@ router.post("/places", async (req, res) => {
     );
 
     const results = await Promise.all(filtered.map(async (place) => {
-      const distance = haversineDistance(lat, lng, place.geometry.location.lat, place.geometry.location.lng);
+      const distanceKm = haversineDistance(lat, lng, place.geometry.location.lat, place.geometry.location.lng);
+      const distanceMiles = distanceKm * 0.621371;
+      const radiusInMiles = radius / 1609.34;
+
+      if (distanceMiles > radiusInMiles) return null;
+
       const name = place.name || '';
-
       const keywordCuisine = classifyRestaurantCuisine(name);
-      const languageCuisine = keywordCuisine === "unknown" ? await getCuisineFromLanguage(name) : null;
+      const reviewCuisine =
+        keywordCuisine === "unknown" ? await classifyCuisineFromReviews(place.place_id) : null;
+      const languageCuisine =
+        keywordCuisine === "unknown" && reviewCuisine === "unknown"
+          ? await getCuisineFromLanguage(name)
+          : null;
 
-      let cuisine = keywordCuisine || languageCuisine || 'unknown';
+      let cuisine = keywordCuisine || languageCuisine || reviewCuisine || 'unknown';
 
       if (cuisine === "unknown" && place.types?.includes("bar")) {
         cuisine = "bar_food";
@@ -169,19 +173,30 @@ router.post("/places", async (req, res) => {
         photoUrl: place.photos
           ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photo_reference=${place.photos[0].photo_reference}&key=${googleApiKey}`
           : null,
-        distance,
+        distance: distanceMiles,
         location: {
           lat: place.geometry.location.lat,
           lng: place.geometry.location.lng,
         },
       };
     }));
+    const filteredResults = results.filter(Boolean);
 
-    results.sort((a, b) => a.distance - b.distance);
+    filteredResults.sort((a, b) => a.distance - b.distance);
 
-    console.log(`✅ Final curatedPlaces: ${results.length}`);
-    res.json({ curatedPlaces: results });
+    const cuisineCounts = filteredResults.reduce((acc, place) => {
+      const label = place.cuisine || 'unknown';
+      acc[label] = (acc[label] || 0) + 1;
+      return acc;
+    }, {});
 
+    console.log("📊 Cuisine category breakdown:");
+    Object.entries(cuisineCounts).forEach(([cuisine, count]) => {
+      console.log(` - ${cuisine}: ${count}`);
+    });
+
+    console.log(`✅ Final curatedPlaces: ${filteredResults.length}`);
+    res.json({ curatedPlaces: filteredResults });
   } catch (error) {
     console.error("🔥 Error in Google Places route:", error.message);
     res.status(500).json({ error: "Something went wrong fetching nearby places." });

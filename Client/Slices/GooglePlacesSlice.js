@@ -35,8 +35,24 @@ export const fetchDining = createAsyncThunk(
         budget,
         isCustom,
       });
-      return response.data.curatedPlaces;
+
+      const curatedPlaces = response.data.curatedPlaces;
+
+      // 🔍 Cuisine count breakdown logging
+      const cuisineCounts = curatedPlaces.reduce((acc, place) => {
+        const cuisine = place.cuisine || 'unknown';
+        acc[cuisine] = (acc[cuisine] || 0) + 1;
+        return acc;
+      }, {});
+
+      console.log("📊 Cuisine category breakdown from frontend:");
+      Object.entries(cuisineCounts).forEach(([cuisine, count]) => {
+        console.log(` - ${cuisine}: ${count}`);
+      });
+
+      return curatedPlaces;
     } catch (err) {
+      console.error("❌ Error in fetchDining:", err.message || err);
       return rejectWithValue(err.response?.data || err.message);
     }
   }

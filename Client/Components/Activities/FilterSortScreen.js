@@ -9,7 +9,10 @@ import {
 } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { setCategoryFilter } from '../../Slices/PaginationSlice';
+import { setCategoryFilter, selectCategoryFilter } from '../../Slices/PaginationSlice';
+import { useRoute } from '@react-navigation/native';
+import { useDispatch, useSelector } from 'react-redux';
+import { useNavigation } from '@react-navigation/native';
 
 const CUISINES = [
     { key: 'bar_food', label: 'Bar Food', icon: 'beer', library: 'MaterialCommunityIcons' },
@@ -21,6 +24,7 @@ const CUISINES = [
     { key: 'mediterranean', label: 'Mediterranean', icon: 'food', library: 'MaterialCommunityIcons' },
     { key: 'thai', label: 'Thai', icon: 'food', library: 'MaterialCommunityIcons' },
     { key: 'mexican', label: 'Mexican', icon: 'taco', library: 'MaterialCommunityIcons' },
+    { key: 'breakfast', label: 'Breakfast', icon: 'egg', library: 'MaterialCommunityIcons' },
 ];
 
 const PLACES = [
@@ -34,59 +38,95 @@ const PLACES = [
     { key: 'dj_parties', label: 'DJ Parties', icon: 'music-circle', library: 'MaterialCommunityIcons' },
 ];
 
-const FilterSortScreen = ({ navigation }) => {
-    const [mode, setMode] = useState('cuisine'); // or 'place'
-    const [selected, setSelected] = useState(new Set());
+const SORT_OPTIONS = [
+    { key: 'distance', label: 'Distance (Default)' },
+    { key: 'rating', label: 'Highest Rated' },
+    { key: 'popularity', label: 'Most Popular' },
+    { key: 'priceLowHigh', label: 'Price: Low to High' },
+    { key: 'priceHighLow', label: 'Price: High to Low' },
+    { key: 'serviceRating', label: 'Best Service' },
+    { key: 'wouldRecommend', label: 'Most Recommended' },
+];
 
-    const toggleSelection = (key) => {
+const FilterSortScreen = () => {
+    const route = useRoute();
+    const navigation = useNavigation();
+    const dispatch = useDispatch();
+    const categoryFilter = useSelector(selectCategoryFilter);
+    const [mode, setMode] = useState('cuisine'); // or 'place'
+    const [selected, setSelected] = useState(new Set(categoryFilter || []));
+    const { availableCuisines = [] } = route.params || {};
+    const filteredCuisines = CUISINES.filter(c => availableCuisines.includes(c.key));
+    const options = mode === 'cuisine'
+        ? filteredCuisines
+        : mode === 'place'
+            ? PLACES
+            : SORT_OPTIONS;
+
+    const handleApplyFilters = () => {
+        dispatch(setCategoryFilter(Array.from(selected)));
+        navigation.navigate("Activities");
+    };
+
+    const handleSelection = (itemKey) => {
         const newSet = new Set(selected);
-        newSet.has(key) ? newSet.delete(key) : newSet.add(key);
+        if (newSet.has(itemKey)) {
+            newSet.delete(itemKey);
+        } else {
+            newSet.add(itemKey);
+        }
         setSelected(newSet);
     };
 
-    const options = mode === 'cuisine' ? CUISINES : PLACES;
+    const handleReset = () => {
+        dispatch(setCategoryFilter(null));
+        setSelected(new Set());
+        navigation.navigate("Activities");
+    };
+
+    const paddedOptions = [...options, { key: 'placeholder-1', placeholder: true }, { key: 'placeholder-2', placeholder: true }];
 
     return (
         <View style={styles.container}>
             {/* Mode switch */}
             <View style={styles.switchContainer}>
-                <TouchableOpacity
-                    onPress={() => setMode('cuisine')}
-                    style={[styles.switchButton, mode === 'cuisine' && styles.switchActive]}
-                >
-                    <Text style={styles.switchText}>Cuisine</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    onPress={() => setMode('place')}
-                    style={[styles.switchButton, mode === 'place' && styles.switchActive]}
-                >
-                    <Text style={styles.switchText}>Place</Text>
-                </TouchableOpacity>
+                {['cuisine', 'place', 'sort'].map(tab => (
+                    <TouchableOpacity
+                        key={tab}
+                        onPress={() => setMode(tab)}
+                        style={[styles.switchButton, mode === tab && styles.switchActive]}
+                    >
+                        <Text style={styles.switchText}>
+                            {tab === 'cuisine' ? 'Cuisine' : tab === 'place' ? 'Place' : 'Sort'}
+                        </Text>
+                    </TouchableOpacity>
+                ))}
             </View>
 
             <FlatList
-                data={options}
+                data={paddedOptions}
                 keyExtractor={(item) => item.key}
                 numColumns={3}
                 contentContainerStyle={styles.grid}
+                showsVerticalScrollIndicator={false}
                 renderItem={({ item }) => {
+                    if (item.placeholder) {
+                        return <View style={[styles.tile, { backgroundColor: 'transparent' }]} />;
+                    }
                     const isActive = selected.has(item.key);
                     return (
                         <TouchableOpacity
-                            onPress={() => toggleSelection(item.key)}
-                            style={[
-                                styles.tile,
-                                isActive && styles.tileActive,
-                            ]}
+                            onPress={() => handleSelection(item.key)}
+                            style={[styles.tile, isActive && styles.tileActive]}
                         >
-                            {item.library === 'Ionicons' && (
-                                <Ionicons name={item.icon} size={28} color={isActive ? '#fff' : '#555'} />
-                            )}
-                            {item.library === 'MaterialCommunityIcons' && (
-                                <MaterialCommunityIcons name={item.icon} size={28} color={isActive ? '#fff' : '#555'} />
-                            )}
-                            {item.library === 'MaterialIcons' && (
-                                <MaterialIcons name={item.icon} size={28} color={isActive ? '#fff' : '#555'} />
+                            {item.icon && item.library && mode !== 'sort' && (
+                                item.library === 'Ionicons' ? (
+                                    <Ionicons name={item.icon} size={28} color={isActive ? '#fff' : '#555'} />
+                                ) : item.library === 'MaterialCommunityIcons' ? (
+                                    <MaterialCommunityIcons name={item.icon} size={28} color={isActive ? '#fff' : '#555'} />
+                                ) : item.library === 'MaterialIcons' ? (
+                                    <MaterialIcons name={item.icon} size={28} color={isActive ? '#fff' : '#555'} />
+                                ) : null
                             )}
                             <Text style={[styles.tileText, isActive && styles.tileTextActive]}>
                                 {item.label}
@@ -97,11 +137,11 @@ const FilterSortScreen = ({ navigation }) => {
             />
 
             <View style={styles.footer}>
-                <TouchableOpacity onPress={() => setSelected(new Set())} style={styles.resetButton}>
+                <TouchableOpacity onPress={() => handleReset()} style={styles.resetButton}>
                     <Text style={styles.resetText}>Reset</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                    onPress={() => navigation.goBack({ filters: Array.from(selected), type: mode })}
+                    onPress={handleApplyFilters}
                     style={styles.applyButton}
                 >
                     <Text style={styles.applyText}>Apply Filters</Text>
@@ -144,17 +184,15 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    tileActive: {
-        backgroundColor: '#d32f2f',
-    },
     tileText: {
-        marginTop: 8,
-        fontSize: 14,
-        color: '#444',
         textAlign: 'center',
+    },
+    tileActive: {
+        backgroundColor: '#000000',
     },
     tileTextActive: {
         color: '#fff',
+        fontWeight: 'bold',
     },
     footer: {
         position: 'absolute',
