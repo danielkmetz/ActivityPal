@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import { useDispatch } from 'react-redux';
@@ -30,6 +30,19 @@ export default function Header({ currentRoute, notificationsSeen, setNotificatio
     const hasUnreadMessages = conversations.some(
         convo => convo.lastMessage && convo.lastMessage.isRead === false
     );
+
+    const availableCuisines = useMemo(() => {
+        const cuisineSet = new Set();
+        const excluded = new Set(["unknown"]);
+
+        activities.forEach(activity => {
+            if (typeof activity.cuisine === 'string' && !excluded.has(activity.cuisine)) {
+                cuisineSet.add(activity.cuisine);
+            }
+        });
+
+        return Array.from(cuisineSet);
+    }, [activities]);
 
     // Determine dynamic title based on the current route
     const getTitle = () => {
@@ -98,7 +111,7 @@ export default function Header({ currentRoute, notificationsSeen, setNotificatio
     };
 
     const onOpenFilter = () => {
-        navigation.navigate('FilterSort');
+        navigation.navigate('FilterSort', { availableCuisines });
     };
 
     const onToggleMapView = () => {
@@ -112,7 +125,7 @@ export default function Header({ currentRoute, notificationsSeen, setNotificatio
 
     return (
         <>
-            <View style={[styles.header, activitiesRendered && {paddingTop: 60}]}>
+            <View style={[styles.header, activitiesRendered && { paddingTop: 60 }]}>
                 {currentRoute === 'Activities' && activitiesRendered ? (
                     <View style={styles.activityHeaderButtons}>
                         <TouchableOpacity style={styles.headerButton} onPress={onOpenPreferences}>

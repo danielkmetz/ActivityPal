@@ -23,7 +23,7 @@ const Activities = ({ activity }) => {
         }
     };
 
-    if (!activity.distance) return null;
+    if (!activity.distance) return null
 
     return (
         <TouchableWithoutFeedback onPress={handlePress}>

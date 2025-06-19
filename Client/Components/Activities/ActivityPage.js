@@ -18,7 +18,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { selectEventType } from '../../Slices/PreferencesSlice';
 import { selectCoordinates, selectManualCoordinates } from '../../Slices/LocationSlice';
 import { milesToMeters } from '../../functions';
-import { selectPagination, incrementPage, setCategoryFilter } from '../../Slices/PaginationSlice';
+import { selectPagination, incrementPage } from '../../Slices/PaginationSlice';
 import heart from '../../assets/pics/heart2.png';
 import tableware from '../../assets/pics/tableware.webp';
 import tickets from '../../assets/pics/tickets2.png';
@@ -32,7 +32,6 @@ import microphone from '../../assets/pics/microphone.png';
 import map from '../../assets/pics/map.png';
 import { useNavigation } from '@react-navigation/native';
 import Map from '../Map/Map';
-import FilterDrawer from './FilterDrawer';
 import SearchBar from './SearchBar';
 import QuickFilters from './QuickFilters';
 
@@ -51,7 +50,6 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
     const manualCoordinates = useSelector(selectManualCoordinates);
     const [keyboardOpen, setKeyboardOpen] = useState(false);
     const [placeImages, setPlaceImages] = useState({});
-    const [filterDrawerVisible, setFilterDrawerVisible] = useState(false);
     const isMapView = useSelector(selectIsMapView)
     const { currentPage, perPage, categoryFilter } = useSelector(selectPagination);
     const [atTop, setAtTop] = useState(true);
@@ -65,7 +63,7 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
     const eventDistance = 50;
     const manualBudget = "$$$$";
     const listRef = useRef(null);
-    
+
     useEffect(() => {
         if (!(scrollY instanceof Animated.Value)) return;
 
@@ -83,8 +81,6 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
             console.warn("Lat/Lng not available yet");
             return;
         }
-
-        setFilterDrawerVisible(false);
 
         const isQuickFilter = [
             'dateNight', 'drinksAndDining', 'outdoor', 'movieNight',
@@ -191,7 +187,7 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
                     promotions: validPromotions,
                     business: {
                         ...business,
-                        logoFallback: activity.photoUrl, 
+                        logoFallback: activity.photoUrl,
                     },
                 };
             };
@@ -229,6 +225,7 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
             phone: details?.formatted_phone_number || "Enter a phone number",
             description: details?.editorial_summary?.overview || "Enter a description of your business",
             reviews: details?.reviews || [], // Default empty array if no reviews
+            cuisine: details?.cuisine,
         };
 
         navigation.navigate("BusinessProfile", { business: formattedBusiness });
@@ -238,42 +235,23 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
         dispatch(incrementPage());
     };
 
-    const allTypes = useMemo(() => {
-        const combined = ([...highlighted, ...regular] || []).filter(Boolean); // filter out null/undefined
-        const all = new Set();
-
-        combined.forEach(item => {
-            if (Array.isArray(item.types)) {
-                item.types.forEach(type => {
-                    if (!["point_of_interest", "establishment"].includes(type)) {
-                        all.add(type);
-                    }
-                });
-            }
-        });
-
-        return Array.from(all).slice(0, 10); // Optional: limit to top 10
-    }, [highlighted, regular]);
-
     const filteredDisplayList = useMemo(() => {
         const safeRegular = Array.isArray(regular) ? regular : [];
         const safeHighlighted = Array.isArray(highlighted) ? highlighted : [];
 
-        const paginatedRegular = paginateRegular(safeRegular, currentPage, perPage);
-        const combinedList = [...safeHighlighted, ...paginatedRegular].filter(item => item && typeof item === 'object');
+        const combinedList = [...safeHighlighted, ...safeRegular].filter(item => item && typeof item === 'object');
 
-        combinedList.forEach((item, i) => {
-            if (!item || typeof item !== 'object') {
-                console.warn(`🚨 Invalid item at index ${i}:`, item);
-            }
-        });
-
-        const filtered = categoryFilter
-            ? combinedList.filter(item => Array.isArray(item.types) && item.types.includes(categoryFilter))
+        const filtered = Array.isArray(categoryFilter) && categoryFilter.length > 0
+            ? combinedList.filter(item =>
+                categoryFilter.some(filter =>
+                    item.cuisine?.toLowerCase() === filter.toLowerCase()
+                )
+            )
             : combinedList;
 
+        const paginated = paginateRegular(filtered, currentPage, perPage);
 
-        return filtered;
+        return paginated;
     }, [highlighted, regular, currentPage, perPage, categoryFilter]);
 
     return (
@@ -323,7 +301,7 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
                                                     scrollEventThrottle={16}
                                                     ListHeaderComponent={<View style={styles.scrollSpacer} />}
                                                     ListFooterComponent={
-                                                        filteredDisplayList.length < highlighted.length + regular.length ? (
+                                                        !categoryFilter && (filteredDisplayList.length < highlighted.length + regular.length) ? (
                                                             <ActivityIndicator size="small" color="#2196F3" style={{ marginVertical: 10 }} />
                                                         ) : null
                                                     }
@@ -361,17 +339,6 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
                     <PreferencesModal
                         onSubmitCustomSearch={(type, params) => handleActivityFetch(type, true, params)} // 🔥 Pass this handler
                     />
-
-                    {/* 🔽 Filter Drawer - ADD IT HERE */}
-                    {filterDrawerVisible && activities.length > 0 && (
-                        <FilterDrawer
-                            visible={filterDrawerVisible}
-                            allTypes={allTypes}
-                            categoryFilter={categoryFilter}
-                            onSelect={(type) => dispatch(setCategoryFilter(type))}
-                            onClose={() => setFilterDrawerVisible(false)}
-                        />
-                    )}
                 </View>
             </TouchableWithoutFeedback>
         </View>

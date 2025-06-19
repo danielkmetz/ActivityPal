@@ -29,19 +29,29 @@ const detectLanguage = async (text = "") => {
     const langs = langsModule.default;
 
     const langCode = franc(text);
-    if (langCode === 'und') return 'unknown';
+    
+    if (langCode === 'und') {
+      return 'unknown';
+    }
 
     const lang = langs.where("3", langCode);
-    return lang ? lang.name : 'unknown';
+    if (lang) {
+      return lang.name;
+    } else {
+      return 'unknown';
+    }
   } catch (err) {
-    console.error("❌ Error detecting language:", err);
     return 'unknown';
   }
 };
 
 const getCuisineFromLanguage = async (text = "") => {
-  const language = await detectLanguage(text);
-  return langToCuisineHint[language] || null;
+  const cleaned = text.replace(/[^a-zA-Z\s]/g, '').toLowerCase();
+  
+  const language = await detectLanguage(cleaned);
+  const cuisine = langToCuisineHint[language] || null;
+
+  return cuisine;
 };
 
 module.exports = {
