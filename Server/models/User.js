@@ -1,73 +1,6 @@
 const mongoose = require('mongoose');
 const StorySchema = require('./StorySchema');
-
-const PhotoSchema = new mongoose.Schema({
-  photoKey: { type: String, required: true }, // Unique identifier for the photo (e.g., S3 key)
-  uploadedBy: { type: String, required: true }, // Email of the user who uploaded the photo
-  description: { type: String, default: null }, // Optional description for the photo
-  taggedUsers: [
-    {
-      userId: { type: String, required: true }, // Store user ID reference
-      x: { type: Number, required: true }, // X coordinate of tag
-      y: { type: Number, required: true }, // Y coordinate of tag
-    },
-  ],
-  uploadDate: { type: Date, default: Date.now }, // Date the photo was uploaded
-});
-
-const ReplySchema = new mongoose.Schema({
-  userId: { type: String, required: true },
-  fullName: { type: String, required: true },
-  commentText: { type: String, required: true },
-  date: { type: Date, default: Date.now },
-  likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
-  replies: [this],
-});
-
-// Define a recursive CommentSchema
-const CommentSchema = new mongoose.Schema({
-  userId: { type: String, required: true },
-  fullName: { type: String, required: true },
-  commentText: { type: String, required: true },
-  likes: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
-  date: { type: Date, default: Date.now },
-  replies: [ReplySchema], // Self-referencing replies for recursive nesting
-});
-
-const CheckInSchema = new mongoose.Schema({
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User", // References the User model
-    required: true
-  },
-  placeId: {
-    type: String,
-    required: true
-  },
-  date: {
-    type: Date,
-    default: Date.now // Auto-generates timestamp
-  },
-  message: {
-    type: String,
-    maxlength: 500 // Optional check-in message
-  },
-  photos: [ PhotoSchema ] ,
-  taggedUsers: [
-    {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User" // References User model to tag friends
-    }
-  ],
-  likes: [
-    {
-      userId: { type: String, required: true },
-      fullName: { type: String, required: true },
-      date: { type: Date, default: Date.now },
-    },
-  ],
-  comments: [CommentSchema]
-});
+const { PhotoSchema } = require('./Photos');
 
 const NotificationSchema = new mongoose.Schema({
   type: {
@@ -184,7 +117,6 @@ const UserSchema = new mongoose.Schema({
     }
   },
   notifications: [NotificationSchema],
-  checkIns: [CheckInSchema],
   favorites: [
     {
       placeId: { type: String, required: true }, // Store the establishment ID

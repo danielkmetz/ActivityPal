@@ -7,6 +7,8 @@ const paginationSlice = createSlice({
     currentPage: 1,
     perPage: 10,
     categoryFilter: null,
+    sortOptions: null,
+    openNow: true,
   },
   reducers: {
     incrementPage: (state) => {
@@ -22,11 +24,19 @@ const paginationSlice = createSlice({
     resetPagination: (state) => {
       state.currentPage = 1;
       state.categoryFilter = null;
+    },
+    toggleOpenNow: (state) => {
+      state.openNow = !state.openNow;
+    },
+    setSortOptions: (state, action) => {
+      state.sortOptions = action.payload;
     },    
   },
 });
 
-export const { incrementPage, resetPage, setCategoryFilter, resetPagination } = paginationSlice.actions;
+export const { incrementPage, setSortOptions, toggleOpenNow, resetPage, setCategoryFilter, resetPagination } = paginationSlice.actions;
 export const selectPagination = (state) => state.pagination;
 export const selectCategoryFilter = (state) => state.pagination.categoryFilter;
+export const selectIsOpen = (state) => state.pagination.openNow;
+export const selectSortOptions = (state) => state.pagination.sortOptions;
 export default paginationSlice.reducer;

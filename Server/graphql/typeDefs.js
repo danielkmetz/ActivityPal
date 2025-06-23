@@ -163,7 +163,7 @@ const typeDefs = gql`
     userId: ID!
     fullName: String!
     replies: [Reply!]
-    likes: [ID]
+    likes: [Like]
     date: Date!
   }
 
@@ -173,7 +173,7 @@ const typeDefs = gql`
     userId: ID!
     fullName: String!
     replies: [Reply!]
-    likes: [ID]
+    likes: [Like]
     date: Date!
   }
 

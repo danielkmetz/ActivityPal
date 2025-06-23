@@ -16,7 +16,7 @@ import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg
 const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isEventInvite, initialSelectedFriends = [] }) => {
   const [selectedUsers, setSelectedUsers] = useState([]);
   const following = useSelector(selectFollowing);
-  
+
   // **Reset selection if the modal is for photo tagging**
   useEffect(() => {
     if (visible) {

@@ -1,6 +1,8 @@
 const haversineDistance = require('./haversineDistance');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl');
 const { DateTime } = require("luxon");
+const Event = require('../models/Events');
+const Promotion = require('../models/Promotions');
 
 /**
  * Cache to avoid redundant URL generations per request context.
@@ -60,32 +62,74 @@ const isPromoActive = (promo, nowMinutes, now) => {
 
   if (promo.recurring) {
     const isRecurringToday = Array.isArray(promo.recurringDays) && promo.recurringDays.includes(weekday);
-    if (!isRecurringToday) return false;
+    if (!isRecurringToday) {
+      // May still be active from a promo that started yesterday
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      const yesterdayWeekday = yesterday.toLocaleString('en-US', { weekday: 'long' });
+      const isRecurringYesterday = Array.isArray(promo.recurringDays) && promo.recurringDays.includes(yesterdayWeekday);
+      if (!isRecurringYesterday) return false;
+    }
   }
 
   if (promo.allDay) return true;
-
   if (!promo.startTime || !promo.endTime) return false;
 
   const startMin = parseTimeToMinutes(promo.startTime);
   const endMin = parseTimeToMinutes(promo.endTime);
-  return nowMinutes >= startMin && nowMinutes <= endMin;
+
+  if (endMin >= startMin) {
+    // Normal same-day promo
+    return nowMinutes >= startMin && nowMinutes <= endMin;
+  } else {
+    // Cross-midnight promo
+    const isRecurringToday = Array.isArray(promo.recurringDays) && promo.recurringDays.includes(weekday);
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    const yesterdayWeekday = yesterday.toLocaleString('en-US', { weekday: 'long' });
+    const isRecurringYesterday = Array.isArray(promo.recurringDays) && promo.recurringDays.includes(yesterdayWeekday);
+
+    const activeLate = isRecurringToday && nowMinutes >= startMin;
+    const activeEarly = isRecurringYesterday && nowMinutes <= endMin;
+
+    return activeLate || activeEarly;
+  }
 };
 
 const isEventActive = (event, nowMinutes, now) => {
-  const todayStr = now.toDateString();
   const weekday = now.toLocaleString('en-US', { weekday: 'long' });
+  const todayStr = now.toDateString();
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const yesterdayStr = yesterday.toDateString();
+  const yesterdayWeekday = yesterday.toLocaleString('en-US', { weekday: 'long' });
 
   const isTodayRecurring = event.recurring && event.recurringDays?.includes(weekday);
-  const isDateMatch = event.date && new Date(event.date).toDateString() === todayStr;
+  const isYesterdayRecurring = event.recurring && event.recurringDays?.includes(yesterdayWeekday);
+  const isDateMatchToday = event.date && new Date(event.date).toDateString() === todayStr;
+  const isDateMatchYesterday = event.date && new Date(event.date).toDateString() === yesterdayStr;
 
-  if (!isTodayRecurring && !isDateMatch) return false;
-  if (event.allDay) return true;
+  if (event.allDay) return isTodayRecurring || isDateMatchToday;
+
   if (!event.startTime || !event.endTime) return false;
 
   const startMin = parseTimeToMinutes(event.startTime);
   const endMin = parseTimeToMinutes(event.endTime);
-  return nowMinutes >= startMin && nowMinutes <= endMin;
+
+  if (endMin >= startMin) {
+    // Normal same-day event
+    if (isTodayRecurring || isDateMatchToday) {
+      return nowMinutes >= startMin && nowMinutes <= endMin;
+    }
+  } else {
+    // Cross-midnight event
+    const activeLate = (isTodayRecurring || isDateMatchToday) && nowMinutes >= startMin;
+    const activeEarly = (isYesterdayRecurring || isDateMatchYesterday) && nowMinutes <= endMin;
+    return activeLate || activeEarly;
+  }
+
+  return false;
 };
 
 async function enrichPhotosWithUrls(photos = []) {
@@ -117,25 +161,39 @@ function leanObject(obj) {
 }
 
 async function enrichBusinessWithPromosAndEvents(biz, userLat, userLng, now = new Date()) {
-  if (!biz?.location) return null;
+  if (!biz?.placeId || !biz?.location) {
+    console.warn("⚠️ Missing placeId or location on business:", biz);
+    return null;
+  }
 
   const [bizLng, bizLat] = biz.location.coordinates;
-  if (isNaN(bizLat) || isNaN(bizLng)) return null;
+  if (isNaN(bizLat) || isNaN(bizLng)) {
+    console.warn("⚠️ Invalid coordinates:", biz.location.coordinates);
+    return null;
+  }
 
   const distance = haversineDistance(userLat, userLng, bizLat, bizLng);
   const nowLocal = DateTime.fromJSDate(now).toLocal();
   const nowMinutes = nowLocal.hour * 60 + nowLocal.minute;
+  
+  const [promotionsRaw, eventsRaw] = await Promise.all([
+    Promotion.find({ placeId: biz.placeId }).lean(),
+    Event.find({ placeId: biz.placeId }).lean()
+  ]);
 
-  const activePromo = (biz.promotions || []).find(p => isPromoActive(p, nowMinutes, now));
-  const upcomingPromo = (biz.promotions || []).find(p => isPromoLaterToday(p, nowMinutes, now));
+  const promotions = Array.isArray(promotionsRaw) ? promotionsRaw : [];
+  const events = Array.isArray(eventsRaw) ? eventsRaw : [];
 
-  const activeEvent = (biz.events || []).find(e => isEventActive(e, nowMinutes, now));
-  const upcomingEvent = (biz.events || []).find(e => isEventLaterToday(e, nowMinutes, now));
+  const activePromo = promotions.find(p => isPromoActive(p, nowMinutes, now));
+  const upcomingPromo = promotions.find(p => isPromoLaterToday(p, nowMinutes, now));
+  const activeEvent = events.find(e => isEventActive(e, nowMinutes, now));
+  const upcomingEvent = events.find(e => isEventLaterToday(e, nowMinutes, now));
 
-  if (!activePromo && !activeEvent && !upcomingPromo && !upcomingEvent) return null;
+  if (!activePromo && !upcomingPromo && !activeEvent && !upcomingEvent) {
+    return null;
+  }
 
-  const { businessName, placeId, location, logoKey, bannerKey } = biz;
-
+  const { businessName, placeId, location } = biz;
   const logoUrl = await getCachedUrl(logoUrlCache, biz.logoKey);
   const bannerUrl = await getCachedUrl(bannerUrlCache, biz.bannerKey);
 
@@ -146,7 +204,7 @@ async function enrichBusinessWithPromosAndEvents(biz, userLat, userLng, now = ne
       type: "suggestion",
     } : null;
 
-  return {
+  const result = {
     businessName,
     placeId,
     location,
@@ -158,6 +216,9 @@ async function enrichBusinessWithPromosAndEvents(biz, userLat, userLng, now = ne
     activeEvent: await cleanAndEnrich(activeEvent),
     upcomingEvent: await cleanAndEnrich(upcomingEvent),
   };
+
+  console.log(`✅ Enriched suggestion created for "${businessName}"`);
+  return result;
 }
 
 module.exports = { enrichBusinessWithPromosAndEvents };

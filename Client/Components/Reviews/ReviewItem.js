@@ -182,7 +182,7 @@ export default function ReviewItem({
                 <View style={styles.section}>
                     <View >
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <View style={styles.userPicAndName}>
+                            <View style={[styles.userPicAndName, { flex: 1, flexShrink: 1 }]}>
                                 <StoryAvatar userId={item?.userId} profilePicUrl={item.profilePicUrl} />
                                 <View style={{ flexShrink: 1 }}>
                                     <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>

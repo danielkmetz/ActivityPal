@@ -2,6 +2,8 @@ const { ApolloServer } = require('@apollo/server');
 const mongoose = require('mongoose');
 const User = require('../models/User'); // Import User Model
 const Business = require('../models/Business'); // Import Review Model
+const Review = require('../models/Reviews.js');
+const CheckIn = require('../models/CheckIns.js');
 const ActivityInvite = require('../models/ActivityInvites.js');
 const depthLimit = require('graphql-depth-limit');
 const typeDefs = require('./typeDefs.js');
@@ -51,53 +53,71 @@ const resolvers = {
 
         const userObjectId = new mongoose.Types.ObjectId(userId);
 
-        // 🔍 Fetch user and their `following` list
+        // 🔍 Get user's following list
         const user = await User.findById(userObjectId)
           .select('following')
           .lean();
 
-        if (!user) throw new Error("User not found");
+        if (!user) {
+          throw new Error("User not found");
+        }
 
-        const followedIds = user.following || [];
-        const allUserIds = [userObjectId, ...followedIds];
-        const allUserIdStrings = allUserIds.map(id => id.toString());
+        const allUserIds = [userObjectId, ...(user.following || [])];
 
-        // 📸 Resolve profilePic and profilePicUrl for each involved user
-        const picMap = await resolveUserProfilePics(allUserIds);
-
-        // 👤 Also get name data
+        // 👤 Get user names and profile photos
         const users = await User.find({ _id: { $in: allUserIds } })
           .select('_id firstName lastName profilePic')
           .lean();
 
+        const picMap = await resolveUserProfilePics(allUserIds);
         const userMap = new Map();
         for (const u of users) {
           userMap.set(u._id.toString(), {
-            ...u,
+            fullName: `${u.firstName} ${u.lastName}`,
             profilePic: picMap[u._id.toString()]?.profilePic || null,
             profilePicUrl: picMap[u._id.toString()]?.profilePicUrl || null,
           });
         }
 
-        // 🧠 Gather reviews from user and followed users
-        const allReviews = [];
-        for (const uid of allUserIdStrings) {
-          const userEntry = userMap.get(uid);
-          if (!userEntry) continue;
+        // 🧠 Fetch top-level reviews from DB
+        const rawReviews = await Review.find({ userId: { $in: allUserIds } }).lean();
 
-          const reviews = await gatherUserReviews(
-            new mongoose.Types.ObjectId(uid),
-            userEntry.profilePic,
-            userEntry.profilePicUrl
-          );
+        // 🧼 Enrich each review
+        const enrichedReviews = await Promise.all(
+          rawReviews.map(async (review) => {
+            try {
+              const userMeta = userMap.get(review.userId.toString());
+              const business = await Business.findOne({ placeId: review.placeId }).select('businessName');
+              const taggedUsers = await resolveTaggedUsers(review.taggedUsers || []);
+              const rawPhotos = await resolveTaggedPhotoUsers(review.photos || []);
+              const photos = rawPhotos.filter(p => p && p.photoKey);
 
-          allReviews.push(...reviews);
-        }
+              return {
+                __typename: "Review",
+                ...review,
+                businessName: business?.businessName || null,
+                date: new Date(review.date).toISOString(),
+                profilePic: userMeta?.profilePic || null,
+                profilePicUrl: userMeta?.profilePicUrl || null,
+                fullName: userMeta?.fullName || "Unknown User",
+                taggedUsers,
+                photos,
+                type: "review",
+              };
+            } catch (err) {
+              console.warn("⚠️ Failed to enrich review:", review._id, err);
+              return null;
+            }
+          })
+        );
 
-        // 🕒 Sort by latest first
-        return allReviews.sort((a, b) => new Date(b.date) - new Date(a.date));
+        // 🕒 Sort by latest date
+        return enrichedReviews.filter(Boolean).sort((a, b) => new Date(b.date) - new Date(a.date));
       } catch (error) {
-        console.error("❌ Error in getUserAndFollowingReviews:", error);
+        console.error("❌ Error in getUserAndFollowingReviews:", {
+          message: error.message,
+          stack: error.stack,
+        });
         throw new Error("Failed to fetch user and following reviews");
       }
     },
@@ -106,7 +126,7 @@ const resolvers = {
         const userObjectId = new mongoose.Types.ObjectId(userId);
 
         const user = await User.findById(userObjectId).select(
-          '_id profilePic checkIns firstName lastName'
+          '_id profilePic firstName lastName'
         );
 
         if (!user) {
@@ -166,43 +186,76 @@ const resolvers = {
         const business = await Business.findOne({ placeId }).lean();
         if (!business) return [];
 
-        const allReviews = business.reviews || [];
-        const reviewUserIds = allReviews.map(r => r.userId);
-        const userPicMap = await resolveUserProfilePics(reviewUserIds);
+        const businessName = business.businessName;
+
+        // 🔍 Build query filter
+        const baseFilter = { placeId };
+
+        // ✨ Fetch and enrich REVIEWS
+        const reviewsRaw = await Review.find(baseFilter).lean();
+        const reviewUserIds = reviewsRaw.map(r => r.userId?.toString());
+        const reviewPicMap = await resolveUserProfilePics(reviewUserIds);
 
         const enrichedReviews = await Promise.all(
-          allReviews.map(async (review) => {
-            const photos = await resolveTaggedPhotoUsers(review.photos || []);
+          reviewsRaw.map(async (review) => {
             const taggedUsers = await resolveTaggedUsers(review.taggedUsers || []);
+            const rawPhotos = await resolveTaggedPhotoUsers(review.photos || []);
+            const photos = rawPhotos.filter(p => p?.photoKey);
 
             return {
+              __typename: 'Review',
               ...review,
               type: 'review',
-              businessName: business.businessName,
-              placeId: business.placeId,
-              date: new Date(review.date).toISOString(),
+              businessName,
               sortDate: new Date(review.date).toISOString(),
-              profilePic: userPicMap[review.userId?.toString()]?.profilePic || null,
-              profilePicUrl: userPicMap[review.userId?.toString()]?.profilePicUrl || null,
-              photos,
+              date: new Date(review.date).toISOString(),
+              profilePic: reviewPicMap[review.userId?.toString()]?.profilePic || null,
+              profilePicUrl: reviewPicMap[review.userId?.toString()]?.profilePicUrl || null,
               taggedUsers,
+              photos,
             };
           })
         );
 
-        const checkIns = await getCheckInsByPlaceId(placeId);
-        checkIns.forEach(ci => (ci.businessName = business.businessName));
+        // ✨ Fetch and enrich CHECK-INS
+        const checkInsRaw = await CheckIn.find(baseFilter).lean();
+        const checkInUserIds = checkInsRaw.map(ci => ci.userId?.toString());
+        const checkInPicMap = await resolveUserProfilePics(checkInUserIds);
 
-        let allPosts = [...enrichedReviews, ...checkIns];
+        const enrichedCheckIns = await Promise.all(
+          checkInsRaw.map(async (checkIn) => {
+            const taggedUsers = await resolveTaggedUsers(checkIn.taggedUsers || []);
+            const rawPhotos = await resolveTaggedPhotoUsers(checkIn.photos || []);
+            const photos = rawPhotos.filter(p => p?.photoKey);
+
+            return {
+              __typename: 'CheckIn',
+              ...checkIn,
+              type: 'check-in',
+              businessName,
+              sortDate: new Date(checkIn.date).toISOString(),
+              date: new Date(checkIn.date).toISOString(),
+              profilePic: checkInPicMap[checkIn.userId?.toString()]?.profilePic || null,
+              profilePicUrl: checkInPicMap[checkIn.userId?.toString()]?.profilePicUrl || null,
+              taggedUsers,
+              photos,
+            };
+          })
+        );
+
+        // 📦 Combine and sort by `sortDate` + `_id`
+        let allPosts = [...enrichedReviews, ...enrichedCheckIns];
 
         allPosts.sort((a, b) => {
           const dateDiff = new Date(b.sortDate) - new Date(a.sortDate);
           if (dateDiff !== 0) return dateDiff;
+
           return new mongoose.Types.ObjectId(b._id).toString().localeCompare(
             new mongoose.Types.ObjectId(a._id).toString()
           );
         });
 
+        // ⏭️ Pagination logic
         if (after?.sortDate && after?.id) {
           const afterTime = new Date(after.sortDate).getTime();
           const afterId = new mongoose.Types.ObjectId(after.id).toString();
@@ -219,49 +272,85 @@ const resolvers = {
 
         return allPosts.slice(0, limit);
       } catch (error) {
-        console.error('❌ Error in getBusinessReviews:', error);
-        throw new Error('Failed to fetch business reviews');
+        console.error("❌ Error in getBusinessReviews:", error);
+        throw new Error("Failed to fetch business reviews");
       }
     },
     getUserAndFollowingCheckIns: async (_, { userId }) => {
       try {
+        // 🧱 Validate input
         if (!mongoose.Types.ObjectId.isValid(userId)) {
           throw new Error("Invalid userId format");
         }
 
         const userObjectId = new mongoose.Types.ObjectId(userId);
 
-        // 🔍 Fetch user and their following list
-        const user = await User.findById(userObjectId)
-          .select('following')
-          .lean();
-
+        // 👥 Fetch user's following list
+        const user = await User.findById(userObjectId).select('following').lean();
         if (!user) throw new Error("User not found");
 
         const followingIds = user.following || [];
         const allUserIds = [userObjectId, ...followingIds];
-        const allUserIdStrings = allUserIds.map(id => id.toString());
 
-        // 📸 Resolve profilePic and profilePicUrl for each user
+        // 📸 Resolve profile pics for all users
         const picMap = await resolveUserProfilePics(allUserIds);
 
-        // 👤 Fetch basic info + checkIns for all relevant users
-        const users = await User.find({ _id: { $in: allUserIds } })
-          .select('_id firstName lastName checkIns profilePic')
+        // 📇 Fetch names for all users
+        const userDocs = await User.find({ _id: { $in: allUserIds } })
+          .select('_id firstName lastName')
           .lean();
 
-        const checkInResults = [];
-
-        for (const u of users) {
-          const enrichedCheckIns = await gatherUserCheckIns(
-            u,
-            picMap[u._id.toString()]?.profilePicUrl || null
-          );
-
-          checkInResults.push(...enrichedCheckIns);
+        const userMap = new Map();
+        for (const u of userDocs) {
+          userMap.set(u._id.toString(), {
+            fullName: `${u.firstName} ${u.lastName}`,
+            profilePic: picMap[u._id.toString()]?.profilePic || null,
+            profilePicUrl: picMap[u._id.toString()]?.profilePicUrl || null,
+          });
         }
 
-        return checkInResults.sort((a, b) => new Date(b.date) - new Date(a.date));
+        // 🧾 Fetch raw check-ins
+        const checkInsRaw = await CheckIn.find({ userId: { $in: allUserIds } }).lean();
+
+        // ✨ Enrich check-ins
+        const enriched = await Promise.all(
+          checkInsRaw.map(async (checkIn) => {
+            try {
+              const userMeta = userMap.get(checkIn.userId?.toString());
+              if (!userMeta) return null;
+
+              const [taggedUsers, rawPhotos, business] = await Promise.all([
+                resolveTaggedUsers(checkIn.taggedUsers || []),
+                resolveTaggedPhotoUsers(checkIn.photos || []),
+                Business.findOne({ placeId: checkIn.placeId?.trim() })
+                  .select("businessName")
+                  .lean(),
+              ]);
+
+              const photos = rawPhotos.filter(p => p && p.photoKey);
+              const businessName = business?.businessName || "Unknown Business";
+
+              return {
+                __typename: "CheckIn",
+                ...checkIn,
+                fullName: userMeta.fullName,
+                profilePic: userMeta.profilePic,
+                profilePicUrl: userMeta.profilePicUrl,
+                businessName,
+                taggedUsers,
+                photos,
+                type: "check-in",
+                date: new Date(checkIn.date).toISOString(),
+              };
+            } catch (err) {
+              console.error(`❌ Error enriching check-in ${checkIn._id}:`, err);
+              return null;
+            }
+          })
+        );
+
+        // ✅ Sort by date (most recent first)
+        return enriched.filter(Boolean).sort((a, b) => new Date(b.date) - new Date(a.date));
       } catch (error) {
         console.error("❌ Error in getUserAndFollowingCheckIns:", error);
         throw new Error("Failed to fetch user and following check-ins");

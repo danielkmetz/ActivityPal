@@ -92,17 +92,17 @@ export const calculateMetrics = (businessData) => {
   const { reviews, events } = businessData;
 
   // Calculate total reviews
-  const totalReviews = reviews.length;
+  const totalReviews = reviews?.length;
 
   // Calculate average rating
-  const averageRating = reviews.length
+  const averageRating = reviews?.length
     ? (
-      reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
+      reviews.reduce((sum, review) => sum + review.rating, 0) / reviews?.length
     ).toFixed(2)
     : 0;
 
   // Calculate total likes
-  const totalLikes = reviews.reduce((sum, review) => sum + review.likes.length, 0);
+  const totalLikes = reviews.reduce((sum, review) => sum + review?.likes?.length, 0);
 
   // Group reviews by month
   const reviewsPerMonth = reviews.reduce((acc, review) => {
@@ -113,8 +113,8 @@ export const calculateMetrics = (businessData) => {
 
   // Upcoming vs. past events
   const now = new Date();
-  const upcomingEvents = (events || []).filter((event) => new Date(event.date) >= now).length;
-  const pastEvents = (events || []).filter((event) => new Date(event.date) < now).length;
+  const upcomingEvents = (events || []).filter((event) => new Date(event.date) >= now)?.length;
+  const pastEvents = (events || []).filter((event) => new Date(event.date) < now)?.length;
 
   return {
     totalReviews,
