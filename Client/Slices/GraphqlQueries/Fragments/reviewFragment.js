@@ -6,10 +6,10 @@ export const REVIEW_FRAGMENT = gql`
     businessName
     placeId
     rating
-    priceRating,
-    serviceRating,
-    atmosphereRating,
-    wouldRecommend,
+    priceRating
+    serviceRating
+    atmosphereRating
+    wouldRecommend
     reviewText
     date
     likes {
@@ -21,58 +21,71 @@ export const REVIEW_FRAGMENT = gql`
       commentText
       userId
       fullName
-      likes
+      likes {
+        userId
+        fullName
+      }
       date
       replies {
         _id
         commentText
         userId
         fullName
-        likes
+        likes {
+          userId
+          fullName
+        }
         date
         replies {
           _id
           commentText
           userId
           fullName
-          likes
+          likes {
+            userId
+            fullName
+          }
           date
           replies {
             _id
             commentText
             userId
             fullName
-            likes
+            likes {
+              userId
+              fullName
+            }
             date
             replies {
               _id
               commentText
               userId
               fullName
-              likes
+              likes {
+                userId
+                fullName
+              }
               date
               replies {
                 _id
                 commentText
                 userId
                 fullName
-                likes
+                likes {
+                  userId
+                  fullName
+                }
                 date
                 replies {
                   _id
                   commentText
                   userId
                   fullName
-                  likes
-                  date
-                  replies {
-                    _id
-                    commentText
+                  likes {
                     userId
                     fullName
-                    likes
-                    date
                   }
+                  date
                 }
               }
             }

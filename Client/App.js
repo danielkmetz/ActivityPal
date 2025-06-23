@@ -195,6 +195,7 @@ function MainApp() {
         currentRoute !== "StoryViewer" &&
         currentRoute !== "CommentScreen" &&
         currentRoute !== "FullScreenPhoto" &&
+        currentRoute !== "EventDetails" &&
         (
           <Animated.View style={[styles.header, { transform: [{ translateY: headerTranslateY }] }]}>
             <Header

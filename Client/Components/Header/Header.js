@@ -155,7 +155,8 @@ export default function Header({ currentRoute, notificationsSeen, setNotificatio
                             currentRoute === "DirectMessages" ||
                             currentRoute === "SearchFollowing" ||
                             currentRoute === "MessageThread" ||
-                            currentRoute === "FilterSort"
+                            currentRoute === "FilterSort" ||
+                            currentRoute === "EventDetails"
                         ) && (
                                 <TouchableOpacity onPress={goBack} style={{ marginLeft: -10 }}>
                                     <MaterialCommunityIcons name="chevron-left" size={35} color="black" />

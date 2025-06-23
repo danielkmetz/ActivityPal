@@ -64,7 +64,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
     }, [dispatch, userId]);
 
     useEffect(() => {
-        if (userId && !hasFetchedOnce) {
+        if (userId) {
             refresh();
             dispatch(fetchFavorites(userId));
             dispatch(fetchStories(userId));

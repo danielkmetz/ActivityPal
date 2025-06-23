@@ -1,14 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const Business = require('../models/Business');
+const Review = require('../models/Reviews');
 const User = require('../models/User');
 const ActivityInvite = require('../models/ActivityInvites.js');
+const CheckIn = require('../models/CheckIns.js');
 const mongoose = require('mongoose');
 const { handleNotification } = require('../utils/notificationHandler.js');
 const { resolveTaggedPhotoUsers, resolveTaggedUsers, resolveUserProfilePics } = require('../utils/userPosts.js')
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 
-// Retrieve a review by its reviewId
+/////// Retrieve a review by its reviewId
 router.get('/:postType/:postId', async (req, res) => {
   const { postType, postId } = req.params;
 
@@ -16,35 +18,59 @@ router.get('/:postType/:postId', async (req, res) => {
     let post = null;
     let profilePicUrl = null;
     let business = null;
+    let businessName = null;
     let user = null;
     let sender = null;
     let taggedUsers = [];
     let photosWithUrls = [];
 
     if (postType === 'review') {
-      business = await Business.findOne({ "reviews._id": postId });
-      if (!business) return res.status(404).json({ message: "Review not found" });
-
-      post = business.reviews.id(postId);
+      post = await Review.findById(postId).lean();
       if (!post) return res.status(404).json({ message: "Review not found" });
 
-      if (post.taggedUsers && post.taggedUsers.length > 0) {
-        taggedUsers = await User.find(
-          { _id: { $in: post.taggedUsers } },
-          { firstName: 1, lastName: 1 }
-        ).lean();
+      // ⏩ Start parallel data fetches
+      const [business, postUser, taggedUsersRaw, profileMap, photoResults] = await Promise.all([
+        Business.findOne({ placeId: post.placeId }).lean(),
+        User.findById(post.userId).select("firstName lastName profilePic").lean(),
+        User.find({ _id: { $in: post.taggedUsers || [] } }, { firstName: 1, lastName: 1 }).lean(),
+        resolveUserProfilePics([post.userId]),
+        Promise.all(
+          (post.photos || []).map(async (photo) => {
+            const taggedUsersRaw = await User.find(
+              { _id: { $in: photo.taggedUsers.map(tag => tag.userId) } },
+              { firstName: 1, lastName: 1 }
+            ).lean();
 
-        taggedUsers = taggedUsers.map(user => ({
-          userId: user._id,
-          fullName: `${user.firstName} ${user.lastName}`,
-        }));
-      }
+            return {
+              _id: photo._id,
+              photoKey: photo.photoKey,
+              uploadedBy: photo.uploadedBy,
+              description: photo.description || null,
+              uploadDate: photo.uploadDate,
+              url: await getPresignedUrl(photo.photoKey),
+              taggedUsers: taggedUsersRaw.map(user => {
+                const match = photo.taggedUsers.find(tag => tag.userId.toString() === user._id.toString());
+                return {
+                  userId: user._id,
+                  fullName: `${user.firstName} ${user.lastName}`,
+                  x: match?.x,
+                  y: match?.y,
+                };
+              }),
+            };
+          })
+        ),
+      ]);
 
-      const postUser = await User.findById(post.userId).select("profilePic firstName lastName").lean();
-      if (postUser?.profilePic?.photoKey) {
-        profilePicUrl = await getPresignedUrl(postUser.profilePic.photoKey);
-      }
+      taggedUsers = taggedUsersRaw.map(user => ({
+        userId: user._id,
+        fullName: `${user.firstName} ${user.lastName}`,
+      }));
 
+      profilePicUrl = profileMap[post.userId?.toString()]?.profilePicUrl || null;
+      businessName = business?.businessName || null;
+      placeId = post.placeId || business?.placeId || null;
+      photosWithUrls = photoResults;
     } else if (postType === 'check-in') {
       user = await User.findOne({ "checkIns._id": postId });
       if (!user) return res.status(404).json({ message: "Check-in not found" });
@@ -149,7 +175,7 @@ router.get('/:postType/:postId', async (req, res) => {
   }
 });
 
-//Create a new review
+///////Create a new review
 router.post("/:placeId", async (req, res) => {
   const { placeId } = req.params;
   const {
@@ -169,29 +195,30 @@ router.post("/:placeId", async (req, res) => {
   const date = Date.now();
 
   try {
-    // 🔍 Ensure business exists or create minimal one
-    let business = await Business.findOne({ placeId });
-    if (!business) {
-      business = new Business({
-        placeId,
-        businessName: businessName || "Unknown Business",
-        location: {
-          type: "Point",
-          coordinates: [0, 0], // fallback coords
-          formattedAddress: location?.formattedAddress || "Unknown Address",
+    // 🧱 Ensure business exists (upsert minimal shell if needed)
+    const business = await Business.findOneAndUpdate(
+      { placeId },
+      {
+        $setOnInsert: {
+          placeId,
+          businessName: businessName || "Unknown Business",
+          location: {
+            type: "Point",
+            coordinates: [0, 0],
+            formattedAddress: location?.formattedAddress || "Unknown Address",
+          },
+          firstName: "N/A",
+          lastName: "N/A",
+          email: "N/A",
+          password: "N/A",
         },
-        firstName: "N/A",
-        lastName: "N/A",
-        email: "N/A",
-        password: "N/A",
-        events: [],
-        reviews: [],
-      });
-    }
+      },
+      { upsert: true, new: true }
+    );
 
-    // 🔧 Format photos for DB (leave out URL for now — handled in helper later)
+    // 🎨 Format photos
     const photoObjects = await Promise.all(
-      photos.map(async (photo) => {
+      (photos || []).map(async (photo) => {
         const formattedTagged = Array.isArray(photo.taggedUsers)
           ? photo.taggedUsers.map(tag => ({
             userId: tag.userId,
@@ -210,14 +237,15 @@ router.post("/:placeId", async (req, res) => {
       })
     );
 
-    // ✅ Safely extract tagged user IDs (from object or raw ID)
+    // 🏷️ Extract tagged user IDs
     const taggedUserIds = (taggedUsers || []).map(t =>
       typeof t === "object" && t !== null ? t.userId || t._id : t
     ).filter(Boolean);
 
-    // 🔨 Create the review (to be stored in DB)
-    const newReview = {
+    // 📝 Create review document
+    const newReview = await Review.create({
       userId,
+      placeId,
       fullName,
       rating,
       priceRating,
@@ -228,16 +256,9 @@ router.post("/:placeId", async (req, res) => {
       taggedUsers: taggedUserIds,
       photos: photoObjects,
       date,
-    };
+    });
 
-    // 📦 Push the review into the business record
-    business.reviews.push(newReview);
-    const savedBusiness = await business.save();
-
-    // ✅ Get the just-created review
-    const createdReview = savedBusiness.reviews[savedBusiness.reviews.length - 1];
-
-    // ✅ Use helper functions to format response data
+    // 🧠 Resolve profile and tag data
     const [populatedTaggedUsers, populatedPhotos, profileMap] = await Promise.all([
       resolveTaggedUsers(taggedUserIds),
       resolveTaggedPhotoUsers(photoObjects),
@@ -249,8 +270,9 @@ router.post("/:placeId", async (req, res) => {
       profilePicUrl: null,
     };
 
+    // 📦 Compose response
     const reviewResponse = {
-      _id: createdReview._id,
+      _id: newReview._id,
       placeId,
       userId,
       fullName,
@@ -276,129 +298,101 @@ router.post("/:placeId", async (req, res) => {
   }
 });
 
-//edit reviews
+/////edit reviews
 router.put("/:placeId/:reviewId", async (req, res) => {
   const { placeId, reviewId } = req.params;
-  const { rating, priceRating, serviceRating, atmosphereRating, wouldRecommend, reviewText, photos, taggedUsers } = req.body;
+  const {
+    rating,
+    priceRating,
+    serviceRating,
+    atmosphereRating,
+    wouldRecommend,
+    reviewText,
+    photos,
+    taggedUsers,
+  } = req.body;
 
-  console.log('service rating', serviceRating);
-  console.log('would recommend', wouldRecommend);
   try {
-    const business = await Business.findOne({ placeId });
-    if (!business) return res.status(404).json({ message: "Business not found" });
+    // 1. Find and validate the review
+    const review = await Review.findById(reviewId);
+    if (!review || review.placeId !== placeId) {
+      return res.status(404).json({ message: "Review not found for this place" });
+    }
 
-    const reviewIndex = business.reviews.findIndex(r => r._id.toString() === reviewId);
-    if (reviewIndex === -1) return res.status(404).json({ message: "Review not found" });
-
-    const review = business.reviews[reviewIndex];
-
-    // 1. Store previous tagged user IDs
-    const previousTaggedUserIds = review.taggedUsers?.map(id => id.toString()) || [];
+    const previousTaggedUserIds = review.taggedUsers.map(id => id.toString());
     const previousPhotos = review.photos || [];
-    const previousPhotoTaggedUserIds = previousPhotos.flatMap(photo =>
-      (photo.taggedUsers || []).map(tag => tag.userId?.toString())
+    const previousPhotosByKey = new Map(
+      previousPhotos.map(p => [p.photoKey, p])
     );
 
-    const previousPhotosByKey = new Map();
-    previousPhotos.forEach((photo) => {
-      if (photo.photoKey) {
-        previousPhotosByKey.set(photo.photoKey, photo);
-      }
-    });
-
-    // 2. Update basic fields
+    // 2. Update core fields
     if (rating !== undefined) review.rating = rating;
     if (priceRating !== undefined) review.priceRating = priceRating;
     if (serviceRating !== undefined) review.serviceRating = serviceRating;
     if (atmosphereRating !== undefined) review.atmosphereRating = atmosphereRating;
     if (wouldRecommend !== undefined) review.wouldRecommend = wouldRecommend;
-    
     if (reviewText !== undefined) review.reviewText = reviewText;
 
-    // 3. Update tagged users
-    const taggedUserIds = taggedUsers.map(t => t.userId || t._id || t);
+    // 3. Handle tagged users
+    const taggedUserIds = (taggedUsers || []).map(t => t.userId || t._id || t);
     review.taggedUsers = taggedUserIds;
 
-    // 4. Process photos and collect new tagged user IDs
+    // 4. Handle photos
     const newPhotoTaggedUserIds = [];
     const newPhotosByKey = new Map();
 
-    if (Array.isArray(photos)) {
-      review.photos = await Promise.all(
-        photos.map(async (photo) => {
-          const formattedTagged = Array.isArray(photo.taggedUsers)
-            ? photo.taggedUsers.map(tag => {
-              newPhotoTaggedUserIds.push(tag.userId?.toString());
-              return {
-                userId: tag.userId,
-                x: tag.x,
-                y: tag.y,
-              };
-            })
-            : [];
-
-          newPhotosByKey.set(photo.photoKey, photo);
-
+    review.photos = await Promise.all(
+      (photos || []).map(async (photo) => {
+        const formattedTagged = (photo.taggedUsers || []).map(tag => {
+          newPhotoTaggedUserIds.push(tag.userId?.toString());
           return {
-            photoKey: photo.photoKey,
-            uploadedBy: review.userId,
-            description: photo.description || null,
-            taggedUsers: formattedTagged,
-            uploadDate: new Date(),
+            userId: tag.userId,
+            x: tag.x,
+            y: tag.y,
           };
-        })
-      );
-    }
+        });
 
-    // 5. Detect added/removed photos
-    const deletedPhotoKeys = [...previousPhotosByKey.keys()].filter(
-      key => !newPhotosByKey.has(key)
-    );
-    const addedPhotoKeys = [...newPhotosByKey.keys()].filter(
-      key => !previousPhotosByKey.has(key)
-    );
+        newPhotosByKey.set(photo.photoKey, photo);
 
-    const removedPhotoTaggedUserIds = deletedPhotoKeys.flatMap((key) => {
-      const photo = previousPhotosByKey.get(key);
-      return photo?.taggedUsers?.map(tag => tag.userId?.toString()) || [];
-    });
-
-    const addedPhotoTaggedUserIds = addedPhotoKeys.flatMap((key) => {
-      const photo = newPhotosByKey.get(key);
-      return photo?.taggedUsers?.map(tag => tag.userId?.toString()) || [];
-    });
-
-    await business.save();
-
-    // 6. Compute diffs
-    const currentTaggedSet = new Set(taggedUserIds.map(String));
-    const currentPhotoTaggedSet = new Set([
-      ...newPhotoTaggedUserIds,
-      ...addedPhotoTaggedUserIds,
-    ]);
-
-    const oldTaggedSet = new Set(previousTaggedUserIds);
-    const oldPhotoTaggedSet = new Set([
-      ...previousPhotoTaggedUserIds,
-      ...removedPhotoTaggedUserIds,
-    ]);
-
-    const reviewTagsAdded = [...currentTaggedSet].filter(id => !oldTaggedSet.has(id));
-    const reviewTagsRemoved = [...oldTaggedSet].filter(id => !currentTaggedSet.has(id));
-
-    const photoTagsAdded = [...currentPhotoTaggedSet].filter(id => !oldPhotoTaggedSet.has(id));
-    const photoTagsRemoved = [...oldPhotoTaggedSet].filter(id => !currentPhotoTaggedSet.has(id));
-
-    const removalIds = [...new Set([...reviewTagsRemoved, ...photoTagsRemoved])];
-    const removalPromises = removalIds.map(userId =>
-      User.findByIdAndUpdate(userId, {
-        $pull: { notifications: { targetId: review._id } },
+        return {
+          photoKey: photo.photoKey,
+          uploadedBy: review.userId,
+          description: photo.description || null,
+          taggedUsers: formattedTagged,
+          uploadDate: new Date(),
+        };
       })
     );
 
-    // 7. Add notifications to newly tagged users
-    const additionPromises = [
-      ...reviewTagsAdded.map(userId =>
+    // 5. Compute diffs
+    const deletedPhotoKeys = [...previousPhotosByKey.keys()].filter(k => !newPhotosByKey.has(k));
+    const addedPhotoKeys = [...newPhotosByKey.keys()].filter(k => !previousPhotosByKey.has(k));
+
+    const removedPhotoTaggedUserIds = deletedPhotoKeys.flatMap(key =>
+      previousPhotosByKey.get(key)?.taggedUsers?.map(tag => tag.userId.toString()) || []
+    );
+    const addedPhotoTaggedUserIds = addedPhotoKeys.flatMap(key =>
+      newPhotosByKey.get(key)?.taggedUsers?.map(tag => tag.userId.toString()) || []
+    );
+
+    const oldTaggedSet = new Set([...previousTaggedUserIds, ...removedPhotoTaggedUserIds]);
+    const newTaggedSet = new Set([...taggedUserIds.map(String), ...newPhotoTaggedUserIds, ...addedPhotoTaggedUserIds]);
+
+    const removedTags = [...oldTaggedSet].filter(x => !newTaggedSet.has(x));
+    const addedTags = [...newTaggedSet].filter(x => !oldTaggedSet.has(x));
+
+    // 6. Remove old notifications
+    await Promise.all(
+      removedTags.map(userId =>
+        User.findByIdAndUpdate(userId, {
+          $pull: { notifications: { targetId: review._id } },
+        })
+      )
+    );
+
+    // 7. Add new notifications
+    await Promise.all(
+      addedTags.map(userId =>
         User.findByIdAndUpdate(userId, {
           $push: {
             notifications: {
@@ -412,31 +406,17 @@ router.put("/:placeId/:reviewId", async (req, res) => {
             },
           },
         })
-      ),
-      ...photoTagsAdded.map(userId =>
-        User.findByIdAndUpdate(userId, {
-          $push: {
-            notifications: {
-              type: "photoTag",
-              message: `${review.fullName} tagged you in a photo.`,
-              targetId: review._id,
-              typeRef: "Review",
-              senderId: review.userId,
-              date: new Date(),
-              read: false,
-            },
-          },
-        })
-      ),
-    ];
+      )
+    );
 
-    await Promise.all([...removalPromises, ...additionPromises]);
+    await review.save();
 
-    // 8. Enrich data
-    const [populatedTaggedUsers, populatedPhotos, profileMap] = await Promise.all([
+    // 8. Enrich response
+    const [populatedTaggedUsers, populatedPhotos, profileMap, business] = await Promise.all([
       resolveTaggedUsers(taggedUserIds),
       resolveTaggedPhotoUsers(review.photos),
       resolveUserProfilePics([review.userId]),
+      Business.findOne({ placeId }).lean()
     ]);
 
     const profileData = profileMap[review.userId.toString()] || {
@@ -449,7 +429,7 @@ router.put("/:placeId/:reviewId", async (req, res) => {
       review: {
         _id: review._id,
         placeId,
-        businessName: business.businessName,
+        businessName: business?.businessName || "Unknown Business",
         userId: review.userId,
         fullName: review.fullName,
         profilePic: profileData.profilePic,
@@ -474,107 +454,96 @@ router.put("/:placeId/:reviewId", async (req, res) => {
   }
 });
 
-// Delete a review by its ObjectId
+//// Delete a review by its ObjectId
 router.delete('/:placeId/:reviewId', async (req, res) => {
   const { placeId, reviewId } = req.params;
 
   try {
     const reviewObjectId = new mongoose.Types.ObjectId(reviewId);
 
-    // Find the business by placeId
-    const business = await Business.findOne({ placeId });
-    if (!business) {
-      return res.status(404).json({ message: 'Business not found' });
+    // 1. Find the review
+    const review = await Review.findById(reviewObjectId);
+    if (!review || review.placeId !== placeId) {
+      return res.status(404).json({ message: 'Review not found for this place' });
     }
 
-    // Find the review to remove
-    const reviewIndex = business.reviews.findIndex(
-      (review) => review._id.toString() === reviewId
-    );
-
-    if (reviewIndex === -1) {
-      return res.status(404).json({ message: 'Review not found' });
-    }
-
-    const review = business.reviews[reviewIndex];
-
-    // Clean up notifications from tagged users
-    if (review.taggedUsers && review.taggedUsers.length > 0) {
-      const taggedUserUpdatePromises = review.taggedUsers.map((userId) => {
-        return User.findByIdAndUpdate(userId, {
-          $pull: { notifications: { targetId: reviewObjectId } },
-        });
-      });
-
-      await Promise.all(taggedUserUpdatePromises);
+    // 2. Remove related notifications from tagged users
+    if (review.taggedUsers?.length) {
+      await User.updateMany(
+        { _id: { $in: review.taggedUsers } },
+        { $pull: { notifications: { targetId: reviewObjectId } } }
+      );
       console.log(`🔧 Removed notifications from ${review.taggedUsers.length} tagged users`);
     }
 
-    // Remove the notification from the business itself
+    // 3. Remove notification from business
     await Business.updateOne(
       { placeId },
-      {
-        $pull: {
-          notifications: { targetId: reviewObjectId },
-        },
-      }
+      { $pull: { notifications: { targetId: reviewObjectId } } }
     );
     console.log(`🏢 Removed notification from business with placeId ${placeId}`);
 
-    // Remove the review
-    business.reviews.splice(reviewIndex, 1);
-    await business.save();
+    // 4. Delete the review
+    await Review.deleteOne({ _id: reviewObjectId });
 
-    res.status(200).json({ message: 'Review and all related notifications deleted successfully' });
+    res.status(200).json({ message: 'Review and related notifications deleted successfully' });
   } catch (error) {
     console.error('❌ Error deleting review:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
-// Retrieve reviews by user ID
+////// Retrieve reviews by user ID
 router.get('/user/:userId', async (req, res) => {
   const { userId } = req.params;
 
   try {
-    // Find businesses with reviews by the user
-    const businesses = await Business.find({ 'reviews.userId': userId });
+    const objectId = new mongoose.Types.ObjectId(userId);
 
-    // Extract reviews and add the business name to each review
-    const userReviews = businesses.flatMap((business) =>
-      business.reviews
-        .filter((review) => review.userId === userId)
-        .map((review) => ({
-          ...review.toObject(), // Convert Mongoose document to plain object
-          businessName: business.businessName, // Add business name
-          placeId: business.placeId,
-        }))
-    );
+    // Fetch all reviews by userId
+    const reviews = await Review.find({ userId: objectId }).lean();
 
-    res.status(200).json({ reviews: userReviews });
+    if (!reviews.length) {
+      return res.status(200).json({ reviews: [] });
+    }
+
+    // Optionally fetch business names in bulk
+    const placeIds = [...new Set(reviews.map(r => r.placeId))];
+    const businesses = await Business.find({ placeId: { $in: placeIds } }, { placeId: 1, businessName: 1 }).lean();
+    const businessMap = new Map(businesses.map(biz => [biz.placeId, biz.businessName]));
+
+    // Attach businessName to each review
+    const reviewsWithBusiness = reviews.map(review => ({
+      ...review,
+      businessName: businessMap.get(review.placeId) || 'Unknown',
+    }));
+
+    res.status(200).json({ reviews: reviewsWithBusiness });
   } catch (error) {
-    console.error('Error retrieving reviews by user email:', error);
+    console.error('❌ Error retrieving reviews by userId:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
+////
 router.get('/:placeId', async (req, res) => {
   const { placeId } = req.params;
 
   try {
-    const business = await Business.findOne({ placeId });
-    if (!business) {
-      return res.status(404).json({ message: 'Business not found' });
+    // 🔍 Step 1: Get all reviews for this place
+    const reviews = await Review.find({ placeId }).lean();
+    if (!reviews.length) {
+      return res.status(200).json({ reviews: [] });
     }
 
-    const reviews = business.reviews || [];
+    // 🧠 Step 2: Get all unique userIds
     const userIds = reviews.map(r => r.userId?.toString()).filter(Boolean);
 
-    // ✅ Use helper to get user profile pics
+    // 📸 Step 3: Resolve profile picture URLs
     const profileMap = await resolveUserProfilePics(userIds);
 
-    // ✅ Format each review with profilePic and resolved photos
-    const updatedReviews = await Promise.all(
+    // 🧩 Step 4: Enrich reviews with profile pics and resolved photo tags
+    const enrichedReviews = await Promise.all(
       reviews.map(async (review) => {
         const profileData = profileMap[review.userId?.toString()] || {
           profilePic: null,
@@ -584,17 +553,18 @@ router.get('/:placeId', async (req, res) => {
         const enrichedPhotos = await resolveTaggedPhotoUsers(review.photos || []);
 
         return {
-          ...review.toObject(),
+          ...review,
           profilePic: profileData.profilePic,
           profilePicUrl: profileData.profilePicUrl,
           photos: enrichedPhotos,
+          type: "review",
         };
       })
     );
 
-    res.status(200).json({ reviews: updatedReviews });
+    res.status(200).json({ reviews: enrichedReviews });
   } catch (error) {
-    console.error('❌ Error retrieving reviews with profile and photo URLs:', error);
+    console.error('❌ Error retrieving reviews by placeId:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -605,98 +575,54 @@ router.post('/:postType/:placeId/:postId/like', async (req, res) => {
   const { userId, fullName } = req.body;
 
   try {
-    let post, postCollection, ownerId;
+    let post = null;
+    let ownerId = null;
+    let model = null;
 
-    if (postType === 'review') {
-      const business = await Business.findOne({ placeId });
-      if (!business) return res.status(404).json({ message: 'Business not found' });
-
-      postCollection = business.reviews;
-      post = postCollection.id(postId);
-      ownerId = post?.userId;
-
-      if (!post) return res.status(404).json({ message: 'Review not found' });
-
-      // Toggle like
-      const likeIndex = post.likes.findIndex(like => like.userId === userId);
-      const isLiking = likeIndex === -1;
-      if (isLiking) {
-        post.likes.push({ userId, fullName, date: new Date() });
-      } else {
-        post.likes.splice(likeIndex, 1);
-      }
-
-      await Business.updateOne(
-        { placeId },
-        { $set: { reviews: postCollection } }
-      );
-
-      if (!isLiking) {
-        await User.findByIdAndUpdate(ownerId, {
-          $pull: { notifications: { type: 'like', targetId: postId } },
-        });
-      }
-
-      return res.status(200).json({ message: isLiking ? 'Like added' : 'Like removed', likes: post.likes });
-
-    } else if (postType === 'check-in' || postType === 'checkin') {
-      const user = await User.findOne({ 'checkIns._id': postId });
-      if (!user) return res.status(404).json({ message: 'Check-in not found' });
-
-      postCollection = user.checkIns;
-      post = postCollection.id(postId);
-      ownerId = post?.userId;
-
-      if (!post) return res.status(404).json({ message: 'Check-in not found' });
-
-      const likeIndex = post.likes.findIndex(like => like.userId === userId);
-      const isLiking = likeIndex === -1;
-
-      if (isLiking) {
-        post.likes.push({ userId, fullName, date: new Date() });
-      } else {
-        post.likes.splice(likeIndex, 1);
-      }
-
-      await User.updateOne(
-        { _id: ownerId },
-        { $set: { checkIns: postCollection } }
-      );
-
-      if (!isLiking) {
-        await User.findByIdAndUpdate(ownerId, {
-          $pull: { notifications: { type: 'like', targetId: postId } },
-        });
-      }
-
-      return res.status(200).json({ message: isLiking ? 'Like added' : 'Like removed', likes: post.likes });
-
-    } else if (postType === 'invite') {
-      const invite = await ActivityInvite.findById(postId);
-      if (!invite) return res.status(404).json({ message: 'Invite not found' });
-
-      const likeIndex = invite.likes.findIndex(like => like.userId === userId);
-      const isLiking = likeIndex === -1;
-
-      if (isLiking) {
-        invite.likes.push({ userId, fullName, date: new Date() });
-      } else {
-        invite.likes.splice(likeIndex, 1);
-      }
-
-      await invite.save();
-
-      if (!isLiking) {
-        await User.findByIdAndUpdate(invite.senderId, {
-          $pull: { notifications: { type: 'like', targetId: postId } },
-        });
-      }
-
-      return res.status(200).json({ message: isLiking ? 'Like added' : 'Like removed', likes: invite.likes });
-
-    } else {
-      return res.status(400).json({ message: 'Invalid post type' });
+    switch (postType) {
+      case 'review':
+        model = Review;
+        break;
+      case 'check-in':
+      case 'checkin':
+        model = CheckIn;
+        break;
+      case 'invite':
+        model = ActivityInvite;
+        break;
+      default:
+        return res.status(400).json({ message: 'Invalid post type' });
     }
+
+    post = await model.findById(postId);
+    if (!post) return res.status(404).json({ message: `${postType} not found` });
+
+    ownerId = post.userId?.toString() || post.senderId?.toString(); // Reviews/CheckIns use userId; invites use senderId
+
+    const likeIndex = post.likes.findIndex(
+      (like) => like.userId.toString() === userId
+    );
+    const isLiking = likeIndex === -1;
+
+    if (isLiking) {
+      post.likes.push({ userId, fullName, date: new Date() });
+    } else {
+      post.likes.splice(likeIndex, 1);
+    }
+
+    await post.save();
+
+    // 🛎️ Optionally remove notification if unliking
+    if (!isLiking && ownerId && ownerId !== userId) {
+      await User.findByIdAndUpdate(ownerId, {
+        $pull: { notifications: { type: 'like', targetId: post._id } },
+      });
+    }
+
+    return res.status(200).json({
+      message: isLiking ? 'Like added' : 'Like removed',
+      likes: post.likes,
+    });
 
   } catch (error) {
     console.error('❌ Like toggle error:', error);
@@ -704,136 +630,46 @@ router.post('/:postType/:placeId/:postId/like', async (req, res) => {
   }
 });
 
-// Add a comment to a review invite or check-in
-router.post('/:postType/:placeId/:reviewId/comment', async (req, res) => {
-  const { postType, placeId, reviewId } = req.params;
-  const { userId, commentText, fullName } = req.body;
-
-  try {
-    let savedComment = null;
-
-    if (postType === 'review') {
-      const business = await Business.findOne({ placeId });
-      if (!business) return res.status(404).json({ message: 'Business not found' });
-
-      const review = business.reviews.id(reviewId);
-      if (!review) return res.status(404).json({ message: 'Review not found' });
-
-      const newComment = review.comments.create({ userId, commentText, fullName });
-      review.comments.push(newComment);
-      await business.save();
-
-      savedComment = newComment;
-    }
-
-    else if (postType === 'check-in') {
-      const user = await User.findOne({ 'checkIns._id': reviewId });
-      if (!user) return res.status(404).json({ message: 'Check-in post not found' });
-
-      const checkInPost = user.checkIns.id(reviewId);
-      if (!checkInPost) return res.status(404).json({ message: 'Check-in post not found' });
-
-      const newComment = checkInPost.comments.create({ userId, commentText, fullName });
-      checkInPost.comments.push(newComment);
-      await user.save();
-
-      savedComment = newComment;
-    }
-
-    else if (postType === 'invite') {
-      const invite = await ActivityInvite.findById(reviewId);
-      if (!invite) return res.status(404).json({ message: 'Invite not found' });
-
-      const newComment = invite.comments.create({ userId, commentText, fullName });
-      invite.comments.push(newComment);
-      await invite.save();
-
-      savedComment = newComment;
-    }
-
-    if (!savedComment) return res.status(500).json({ message: 'Error saving comment' });
-
-    return res.status(201).json({
-      message: `Comment added to ${postType} successfully`,
-      comment: savedComment,
-    });
-
-  } catch (error) {
-    console.error('🚨 Error adding comment:', error);
-    return res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// Add a reply to a comment in a review invite or check-in
-router.post('/:postType/:placeId/:postId/:commentId/reply', async (req, res) => {
-  const { postType, placeId, postId, commentId } = req.params;
+// POST: Add a reply to a comment
+router.post('/:postType/:postId/:commentId/reply', async (req, res) => {
+  const { postType, postId, commentId } = req.params;
   const { userId, fullName, commentText } = req.body;
 
-  try {
-    let target = null;
-    let parentCommentOwner = null;
-    let docToSave = null;
-    let business = null;
-    let user = null;
-    let invite = null;
+  if (!userId || !fullName || !commentText) {
+    return res.status(400).json({ message: 'Missing required fields' });
+  }
 
-    const findCommentOrReply = (comments = [], targetId) => {
+  try {
+    const findCommentRecursively = (comments = [], targetId) => {
       for (const comment of comments) {
         if (comment._id.toString() === targetId) return comment;
         if (comment.replies?.length > 0) {
-          const nestedReply = findCommentOrReply(comment.replies, targetId);
-          if (nestedReply) return nestedReply;
+          const nested = findCommentRecursively(comment.replies, targetId);
+          if (nested) return nested;
         }
       }
       return null;
     };
 
+    let model, markPath;
     if (postType === 'review') {
-      business = await Business.findOne({ placeId });
-      if (!business) return res.status(404).json({ message: 'Business not found' });
-
-      const review = business.reviews.id(postId);
-      if (!review) return res.status(404).json({ message: 'Review not found' });
-
-      target = findCommentOrReply(review.comments, commentId);
-      if (!target) return res.status(404).json({ message: 'Comment or reply not found' });
-
-      parentCommentOwner = target.userId;
-      docToSave = business;
-    }
-
-    else if (postType === 'check-in') {
-      user = await User.findOne({ 'checkIns._id': postId });
-      if (!user) return res.status(404).json({ message: 'Check-in post not found' });
-
-      const checkInPost = user.checkIns.id(postId);
-      if (!checkInPost) return res.status(404).json({ message: 'Check-in post not found' });
-
-      target = findCommentOrReply(checkInPost.comments, commentId);
-      if (!target) return res.status(404).json({ message: 'Comment or reply not found' });
-
-      parentCommentOwner = target.userId;
-      docToSave = user;
-    }
-
-    else if (postType === 'invite') {
-      invite = await ActivityInvite.findById(postId);
-      if (!invite) return res.status(404).json({ message: 'Invite not found' });
-
-      target = findCommentOrReply(invite.comments, commentId);
-      if (!target) return res.status(404).json({ message: 'Comment or reply not found' });
-
-      parentCommentOwner = target.userId;
-      docToSave = invite;
-    }
-
-    else {
+      model = Review;
+      markPath = 'comments';
+    } else if (postType === 'check-in') {
+      model = CheckIn;
+      markPath = 'comments';
+    } else if (postType === 'invite') {
+      model = ActivityInvite;
+      markPath = 'comments';
+    } else {
       return res.status(400).json({ message: 'Invalid post type' });
     }
 
-    if (!target) {
-      return res.status(404).json({ message: 'Target comment/reply not found' });
-    }
+    const post = await model.findById(postId);
+    if (!post) return res.status(404).json({ message: `${postType} not found` });
+
+    const targetComment = findCommentRecursively(post.comments, commentId);
+    if (!targetComment) return res.status(404).json({ message: 'Comment not found' });
 
     const newReply = {
       _id: new mongoose.Types.ObjectId(),
@@ -844,341 +680,207 @@ router.post('/:postType/:placeId/:postId/:commentId/reply', async (req, res) => 
       replies: [],
     };
 
-    target.replies.push(newReply);
+    targetComment.replies.push(newReply);
+    post.markModified(markPath);
+    await post.save();
 
-    if (postType === 'review') {
-      business.markModified('reviews');
-    } else if (postType === 'check-in') {
-      user.markModified('checkIns');
-    } else if (postType === 'invite') {
-      invite.markModified('comments');
-    }
-
-    await docToSave.save();
-
-    res.status(201).json({
+    return res.status(201).json({
       message: `Reply added to ${postType} successfully`,
       reply: newReply,
-      parentCommentOwner,
+      parentCommentOwner: targetComment.userId,
     });
 
   } catch (error) {
     console.error('🚨 Error adding reply:', error);
-    res.status(500).json({ message: 'Server error' });
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Delete a comment or reply by its ObjectId and remove associated notifications
-router.delete('/:postType/:placeId/:postId/:commentId', async (req, res) => {
-  const { postType, placeId, postId, commentId } = req.params;
-  const { relatedId } = req.body; // UserId to look within notifications
+router.delete('/:postType/:postId/:commentId', async (req, res) => {
+  const { postType, postId, commentId } = req.params;
+  const { relatedId } = req.body;
+
+  const removeCommentOrReply = (comments, targetId) => {
+    for (let i = 0; i < comments.length; i++) {
+      if (comments[i]._id.toString() === targetId) {
+        comments.splice(i, 1);
+        return true;
+      }
+      if (comments[i].replies?.length > 0) {
+        const foundInReplies = removeCommentOrReply(comments[i].replies, targetId);
+        if (foundInReplies) return true;
+      }
+    }
+    return false;
+  };
 
   try {
-    let targetComments = null;
-    let docToSave = null;
-
-    // Recursive function to find and remove a comment or reply
-    const removeCommentOrReply = (comments, targetId) => {
-      for (let i = 0; i < comments.length; i++) {
-        if (comments[i]._id.toString() === targetId) {
-          comments.splice(i, 1);
-
-          // Remove the related notification
-          User.findByIdAndUpdate(relatedId, {
-            $pull: {
-              notifications: {
-                $or: [
-                  { type: 'reply', replyId: new mongoose.Types.ObjectId(targetId) },
-                  { type: 'comment', commentId: new mongoose.Types.ObjectId(targetId) }
-                ]
-              }
-            }
-          }, { new: true }).catch(error =>
-            console.error('Error removing notification:', error)
-          );
-
-          return true;
-        }
-
-        if (comments[i].replies?.length > 0) {
-          const foundInReplies = removeCommentOrReply(comments[i].replies, targetId);
-          if (foundInReplies) return true;
-        }
-      }
-      return false;
-    };
+    let doc;
 
     if (postType === 'review') {
-      const business = await Business.findOne({ placeId });
-      if (!business) return res.status(404).json({ message: 'Business not found' });
-
-      const review = business.reviews.id(postId);
-      if (!review) return res.status(404).json({ message: 'Review not found' });
-
-      targetComments = review.comments;
-      docToSave = business;
-    }
-
-    else if (postType === 'check-in') {
-      const user = await User.findOne({ 'checkIns._id': postId });
-      if (!user) return res.status(404).json({ message: 'Check-in post not found' });
-
-      const checkInPost = user.checkIns.id(postId);
-      if (!checkInPost) return res.status(404).json({ message: 'Check-in not found' });
-
-      targetComments = checkInPost.comments;
-      docToSave = user;
-    }
-
-    else if (postType === 'invite') {
-      const invite = await ActivityInvite.findById(postId);
-      if (!invite) return res.status(404).json({ message: 'Invite not found' });
-
-      targetComments = invite.comments;
-      docToSave = invite;
-    }
-
-    else {
+      doc = await Review.findById(postId);
+    } else if (postType === 'check-in') {
+      doc = await CheckIn.findById(postId);
+    } else if (postType === 'invite') {
+      doc = await ActivityInvite.findById(postId);
+    } else {
       return res.status(400).json({ message: 'Invalid post type' });
     }
 
-    if (!targetComments) {
-      return res.status(404).json({ message: 'No comments found for this post' });
+    if (!doc) return res.status(404).json({ message: `${postType} not found` });
+    const deleted = removeCommentOrReply(doc.comments, commentId);
+    if (!deleted) return res.status(404).json({ message: 'Comment/reply not found' });
+
+    await doc.save();
+
+    if (relatedId) {
+      await User.findByIdAndUpdate(relatedId, {
+        $pull: {
+          notifications: {
+            $or: [
+              { type: 'reply', replyId: commentId },
+              { type: 'comment', commentId }
+            ]
+          }
+        }
+      });
     }
 
-    const deleted = removeCommentOrReply(targetComments, commentId);
-    if (!deleted) return res.status(404).json({ message: 'Comment or reply not found' });
-
-    await docToSave.save();
-
-    res.status(200).json({ message: `Comment or reply deleted from ${postType} successfully` });
-
-  } catch (error) {
-    console.error('🚨 Error deleting comment or reply:', error);
+    res.status(200).json({ message: 'Comment/reply deleted successfully' });
+  } catch (err) {
+    console.error('❌ Delete error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
 // Edit a comment or reply
-router.put('/:postType/:placeId/:postId/:commentId', async (req, res) => {
-  const { postType, placeId, postId, commentId } = req.params;
+router.put('/:postType/:postId/:commentId', async (req, res) => {
+  const { postType, postId, commentId } = req.params;
   const { userId, newText } = req.body;
 
-  if (!newText) {
-    return res.status(400).json({ message: 'Comment text cannot be empty' });
-  }
+  if (!newText) return res.status(400).json({ message: 'New text is required' });
+
+  const updateCommentOrReply = (comments) => {
+    for (let comment of comments) {
+      if (comment._id.toString() === commentId) {
+        if (comment.userId.toString() !== userId) return { error: 'Unauthorized' };
+        comment.commentText = newText;
+        return { updated: comment };
+      }
+      if (comment.replies?.length > 0) {
+        const nested = updateCommentOrReply(comment.replies);
+        if (nested) return nested;
+      }
+    }
+    return null;
+  };
 
   try {
-    let targetComments = null;
-    let docToSave = null;
-
-    const updateCommentOrReply = (comments) => {
-      for (let comment of comments) {
-        if (comment._id.toString() === commentId) {
-          if (comment.userId.toString() !== userId) {
-            return { error: 'Unauthorized' };
-          }
-          comment.commentText = newText;
-          return { updated: comment };
-        }
-        if (comment.replies?.length > 0) {
-          const nestedUpdate = updateCommentOrReply(comment.replies);
-          if (nestedUpdate) return nestedUpdate;
-        }
-      }
-      return null;
-    };
+    let doc;
 
     if (postType === 'review') {
-      const business = await Business.findOne({ placeId });
-      if (!business) return res.status(404).json({ message: 'Business not found' });
-
-      const review = business.reviews.id(postId);
-      if (!review) return res.status(404).json({ message: 'Review not found' });
-
-      targetComments = review.comments;
-      docToSave = business;
-    }
-
-    else if (postType === 'check-in') {
-      const user = await User.findOne({ 'checkIns._id': postId });
-      if (!user) return res.status(404).json({ message: 'Check-in post not found' });
-
-      const checkInPost = user.checkIns.id(postId);
-      if (!checkInPost) return res.status(404).json({ message: 'Check-in post not found' });
-
-      targetComments = checkInPost.comments;
-      docToSave = user;
-    }
-
-    else if (postType === 'invite') {
-      const invite = await ActivityInvite.findById(postId);
-      if (!invite) return res.status(404).json({ message: 'Invite not found' });
-
-      targetComments = invite.comments;
-      docToSave = invite;
-    }
-
-    else {
+      doc = await Review.findById(postId);
+    } else if (postType === 'check-in') {
+      doc = await CheckIn.findById(postId);
+    } else if (postType === 'invite') {
+      doc = await ActivityInvite.findById(postId);
+    } else {
       return res.status(400).json({ message: 'Invalid post type' });
     }
 
-    if (!targetComments) {
-      return res.status(404).json({ message: 'No comments found in the post' });
-    }
+    if (!doc) return res.status(404).json({ message: `${postType} not found` });
+    const result = updateCommentOrReply(doc.comments);
+    if (!result) return res.status(404).json({ message: 'Comment/reply not found' });
+    if (result.error) return res.status(403).json({ message: result.error });
 
-    const result = updateCommentOrReply(targetComments);
-
-    if (!result) {
-      return res.status(404).json({ message: 'Comment or reply not found' });
-    } else if (result.error) {
-      return res.status(403).json({ message: result.error });
-    }
-
-    if (postType === 'review') {
-      docToSave.markModified('reviews');
-    } else if (postType === 'check-in') {
-      docToSave.markModified('checkIns');
-    } else if (postType === 'invite') {
-      docToSave.markModified('comments'); // Explicitly mark invite's comments as modified
-    }
-
-    await docToSave.save();
-
-    res.status(200).json({ message: 'Comment edited successfully', updatedComment: result.updated });
-
-  } catch (error) {
-    console.error('🚨 Error editing comment or reply:', error);
+    await doc.save();
+    res.status(200).json({ message: 'Comment updated successfully', updatedComment: result.updated });
+  } catch (err) {
+    console.error('❌ Edit error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
 //Toggle like on comments & replies
-router.put('/:postType/:placeId/:postId/:commentId/like', async (req, res) => {
-  const { postType, placeId, postId, commentId } = req.params;
+router.put('/:postType/:postId/:commentId/like', async (req, res) => {
+  const { postType, postId, commentId } = req.params;
   const { userId, replyId } = req.body;
 
-  if (!userId) {
-    return res.status(400).json({ message: 'User ID is required' });
-  }
+  const toggleLike = (target) => {
+    const idx = target.likes.findIndex(id => id.toString() === userId);
+    const isLike = idx === -1;
+    if (isLike) target.likes.push(userId);
+    else target.likes.splice(idx, 1);
+    return { updatedLikes: target.likes, isLike, targetOwnerId: target.userId?.toString() };
+  };
+
+  const findReplyRecursively = (replies, id) => {
+    for (let reply of replies) {
+      if (reply._id.toString() === id) return reply;
+      if (reply.replies?.length) {
+        const nested = findReplyRecursively(reply.replies, id);
+        if (nested) return nested;
+      }
+    }
+    return null;
+  };
+
+  const findAndToggle = (comments) => {
+    for (let comment of comments) {
+      if (comment._id.toString() === commentId) {
+        if (replyId) {
+          const reply = findReplyRecursively(comment.replies, replyId);
+          if (!reply) return { error: 'Reply not found' };
+          return toggleLike(reply);
+        }
+        return toggleLike(comment);
+      }
+      if (comment.replies?.length) {
+        const nested = findAndToggle(comment.replies);
+        if (nested) return nested;
+      }
+    }
+    return null;
+  };
 
   try {
-    let targetComments = null;
-    let docToSave = null;
+    let doc;
 
-    const toggleLike = (target) => {
-      if (!Array.isArray(target.likes)) target.likes = [];
-      const likeIndex = target.likes.findIndex(id => id.toString() === userId);
-      const isLike = likeIndex === -1;
-
-      if (isLike) target.likes.push(userId);
-      else target.likes.splice(likeIndex, 1);
-
-      return {
-        updatedLikes: target.likes,
-        isLike,
-        targetOwnerId: target.userId?.toString() || null,
-        targetId: target._id?.toString()
-      };
-    };
-
-    const findReplyRecursively = (replies, targetId) => {
-      for (let reply of replies) {
-        if (reply._id.toString() === targetId) return reply;
-        if (Array.isArray(reply.replies)) {
-          const nested = findReplyRecursively(reply.replies, targetId);
-          if (nested) return nested;
-        }
-      }
-      return null;
-    };
-
-    const findAndToggle = (comments) => {
-      for (let comment of comments) {
-        if (comment._id.toString() === commentId) {
-          if (replyId) {
-            const reply = findReplyRecursively(comment.replies || [], replyId);
-            if (!reply) return { error: 'Reply not found' };
-            return { ...toggleLike(reply) };
-          } else {
-            return { ...toggleLike(comment) };
-          }
-        }
-        if (Array.isArray(comment.replies)) {
-          const nested = findAndToggle(comment.replies);
-          if (nested) return nested;
-        }
-      }
-      return null;
-    };
-
-    // Load correct post type
     if (postType === 'review') {
-      const business = await Business.findOne({ placeId });
-      if (!business) return res.status(404).json({ message: 'Business not found' });
-      const review = business.reviews.id(postId);
-      if (!review) return res.status(404).json({ message: 'Review not found' });
-      targetComments = review.comments;
-      docToSave = business;
+      doc = await Review.findById(postId);
     } else if (postType === 'check-in') {
-      const user = await User.findOne({ 'checkIns._id': postId });
-      if (!user) return res.status(404).json({ message: 'Check-in post not found' });
-      const checkIn = user.checkIns.id(postId);
-      if (!checkIn) return res.status(404).json({ message: 'Check-in not found' });
-      targetComments = checkIn.comments;
-      docToSave = user;
+      doc = await CheckIn.findById(postId);
     } else if (postType === 'invite') {
-      const invite = await ActivityInvite.findById(postId);
-      if (!invite) return res.status(404).json({ message: 'Invite not found' });
-      targetComments = invite.comments;
-      docToSave = invite;
+      doc = await ActivityInvite.findById(postId);
     } else {
       return res.status(400).json({ message: 'Invalid post type' });
     }
 
-    if (!Array.isArray(targetComments)) {
-      return res.status(404).json({ message: 'No comments found in the post' });
-    }
+    if (!doc) return res.status(404).json({ message: `${postType} not found` });
+    const result = findAndToggle(doc.comments);
+    if (!result || result.error) return res.status(404).json({ message: result?.error || 'Not found' });
 
-    const result = findAndToggle(targetComments);
-    if (!result || result.error) {
-      return res.status(404).json({ message: result?.error || 'Comment or reply not found' });
-    }
+    await doc.save();
 
-    const { updatedLikes, isLike, targetOwnerId } = result;
-    const targetId = postId;
-
-    // Ensure change is saved
-    if (postType === 'review') docToSave.markModified('reviews');
-    if (postType === 'check-in') docToSave.markModified('checkIns');
-    if (postType === 'invite') docToSave.markModified('comments');
-    await docToSave.save();
-
-    let sender = "Someone";
-    if (targetOwnerId && targetOwnerId !== userId) {
-      const notifSender = await User.findById(userId);
-      if (notifSender) {
-        sender = `${notifSender.firstName} ${notifSender.lastName}`;
-      }
-
+    if (result.targetOwnerId && result.targetOwnerId !== userId) {
+      const sender = await User.findById(userId);
       await handleNotification({
         type: 'like',
-        recipientId: targetOwnerId,
+        recipientId: result.targetOwnerId,
         actorId: userId,
-        message: `${sender} liked your comment`,
+        message: `${sender?.firstName || 'Someone'} liked your comment`,
         commentId,
         replyId: replyId || null,
-        targetId,
+        targetId: postId,
         postType,
-        isCreate: isLike,
+        isCreate: result.isLike,
       });
     }
 
-    return res.status(200).json({ message: 'Like toggled successfully', updatedLikes });
-
+    res.status(200).json({ message: 'Like toggled', updatedLikes: result.updatedLikes });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ message: 'Server error' });
+    console.error('❌ Like toggle error:', err);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 

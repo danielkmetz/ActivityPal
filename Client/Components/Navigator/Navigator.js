@@ -29,6 +29,7 @@ import DirectMessagesScreen from '../DirectMessages/DirectMessagesScreen';
 import MessageThreadScreen from '../DirectMessages/MessageThreadScreen';
 import SearchFollowingScreen from '../SearchFollowingUsers/SearchFollowingScreen';
 import FilterSortScreen from '../Activities/FilterSortScreen';
+import EventDetailsScreen from '../Activities/EventPromoDetails/EventDetailsScreen';
 import { selectProfilePic } from '../../Slices/PhotosSlice';
 
 const Tab = createBottomTabNavigator();
@@ -153,7 +154,7 @@ function TabNavigator({
                     {isBusiness ? (
                         // Business-specific Screens
                         <>
-                            <Tab.Screen name="Insights" component={Insights} />
+                            {/* <Tab.Screen name="Insights" component={Insights} /> */}
                             <Tab.Screen name="My Events">
                                 {(props) => (
                                     <MyEventsPage
@@ -260,6 +261,7 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
             <Stack.Screen name="MessageThread" component={MessageThreadScreen} />
             <Stack.Screen name="SearchFollowing" component={SearchFollowingScreen} />
             <Stack.Screen name="FilterSort" component={FilterSortScreen} />
+            <Stack.Screen name="EventDetails" component={EventDetailsScreen} />
         </Stack.Navigator>
     )
 }

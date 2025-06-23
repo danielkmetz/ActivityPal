@@ -1,21 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Image, TouchableWithoutFeedback, Animated, TouchableOpacity } from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet, Image, TouchableWithoutFeedback, } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import ActivityBannerOverlay from './ActivityOverlay';
 
 const Activities = ({ activity }) => {
     const navigation = useNavigation();
-    const [eventExpanded, setEventExpanded] = useState(false);
-    const [promoExpanded, setPromoExpanded] = useState(false);
-    const blinkAnim = new Animated.Value(1);
-    
-    useEffect(() => {
-        Animated.loop(
-            Animated.sequence([
-                Animated.timing(blinkAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
-                Animated.timing(blinkAnim, { toValue: 1, duration: 500, useNativeDriver: true })
-            ])
-        ).start();       
-    }, []);
 
     const handlePress = () => {
         if (activity.business) {
@@ -23,75 +12,50 @@ const Activities = ({ activity }) => {
         }
     };
 
+    const handleEventPromoPress = () => {
+        navigation.navigate('EventDetails', { activity });
+    }
+
     if (!activity.distance) return null
 
     return (
         <TouchableWithoutFeedback onPress={handlePress}>
             <View style={styles.container}>
-            {/* Display main photo if available */}
-            {activity.photoUrl && (
-                <Image source={{ uri: activity.photoUrl }} style={styles.photo} />
-            )}
-            
-            {/* Icon (if photoUrl is not available, this can serve as a fallback) */}
-            {activity.icon && !activity.photoUrl && (
-                <Image source={{ uri: activity.icon }} style={styles.icon} />
-            )}
-            
-            <View style={styles.infoContainer}>
-                {/* Name */}
-                {activity.name && <Text style={styles.name}>{activity.name}</Text>}
-                
-                {/* Vicinity */}
-                {activity.address && <Text style={styles.vicinity}>{activity.address}</Text>}
+                {/* Display main photo if available */}
+                {activity.photoUrl && (
+                    <View style={styles.imageWrapper}>
+                        {/* ⬅️ Overlay at the top of the image */}
+                        <ActivityBannerOverlay
+                            hasEvent={activity.events.length > 0}
+                            hasPromo={activity.promotions.length > 0}
+                            onPress={() => handleEventPromoPress()}
+                        />
 
-                {/* Distance */}
-                {activity.distance && <Text style={styles.vicinity}>{Number(activity.distance).toFixed(3)} miles</Text>}
+                        <Image source={{ uri: activity.photoUrl }} style={styles.photo} />
+
+                        {activity.opening_hours?.open_now === false && (
+                            <View style={styles.closedOverlay}>
+                                <Text style={styles.closedText}>Closed</Text>
+                            </View>
+                        )}
+                    </View>
+                )}
+                {/* Icon (if photoUrl is not available, this can serve as a fallback) */}
+                {activity.icon && !activity.photoUrl && (
+                    <Image source={{ uri: activity.icon }} style={styles.icon} />
+                )}
+
+                <View style={styles.infoContainer}>
+                    {/* Name */}
+                    {activity.name && <Text style={styles.name}>{activity.name}</Text>}
+
+                    {/* Vicinity */}
+                    {activity.address && <Text style={styles.vicinity}>{activity.address}</Text>}
+
+                    {/* Distance */}
+                    {activity.distance && <Text style={styles.vicinity}>{Number(activity.distance).toFixed(3)} miles</Text>}
+                </View>
             </View>
-
-            {/* Special Event Indicator */}
-            {activity.events.length > 0 && (
-                <TouchableOpacity onPress={() => setEventExpanded(!eventExpanded)} style={styles.eventContainer}>
-                    <Animated.View style={[styles.redDot, { opacity: blinkAnim }]} />
-                    <Text style={styles.eventText}>Special Event Happening Today!</Text>
-                    <Text style={styles.chevron}>{eventExpanded ? '▲' : '▼'}</Text>
-                </TouchableOpacity>
-            )}
-
-            {/* Expanded Event Details */}
-            {eventExpanded && activity.events.length > 0 && (
-                <View style={styles.eventDetails}>
-                    {activity.events.map((event, index) => (
-                        <View key={index} style={styles.eventItem}>
-                            <Text style={styles.eventTitle}>{event.title}</Text>
-                            <Text style={styles.eventDescription}>{event.description}</Text>
-                            <Text style={styles.eventDate}>📅 {new Date(event.date).toLocaleString()}</Text>
-                        </View>
-                    ))}
-                </View>
-            )}
-
-            {/* Special Promo Indicator */}
-            {activity.promotions.length > 0 && (
-                <TouchableOpacity onPress={() => setPromoExpanded(!promoExpanded)} style={styles.eventContainer}>
-                    <Animated.View style={[styles.redDot, { opacity: blinkAnim }]} />
-                    <Text style={styles.eventText}>Special Promotions Today!</Text>
-                    <Text style={styles.chevron}>{promoExpanded ? '▲' : '▼'}</Text>
-                </TouchableOpacity>
-            )}
-
-            {/* Expanded Promo Details */}
-            {promoExpanded && activity.promotions.length > 0 && (
-                <View style={styles.eventDetails}>
-                    {activity.promotions.map((promotion, index) => (
-                        <View key={index} style={styles.eventItem}>
-                            <Text style={styles.eventTitle}>{promotion.title}</Text>
-                            <Text style={styles.eventDescription}>{promotion.description}</Text>
-                        </View>
-                    ))}
-                </View>
-            )}
-        </View>
         </TouchableWithoutFeedback>
     );
 };
@@ -137,7 +101,7 @@ const styles = StyleSheet.create({
         padding: 8,
         paddingHorizontal: 10,
         backgroundColor: '#33cccc',
-        
+
     },
     redDot: {
         width: 10,
@@ -178,5 +142,29 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: '#757575',
         marginTop: 4,
+    },
+    imageWrapper: {
+        position: 'relative',
+    },
+    closedOverlay: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 7,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    closedText: {
+        color: 'white',
+        fontSize: 32,
+        fontWeight: 'bold',
+        textTransform: 'uppercase',
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        paddingHorizontal: 20,
+        paddingVertical: 5,
+        borderRadius: 5,
+        transform: [{ rotate: '-20deg' }],
     },
 });

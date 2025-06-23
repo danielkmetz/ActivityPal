@@ -18,7 +18,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import { selectEventType } from '../../Slices/PreferencesSlice';
 import { selectCoordinates, selectManualCoordinates } from '../../Slices/LocationSlice';
 import { milesToMeters } from '../../functions';
-import { selectPagination, incrementPage } from '../../Slices/PaginationSlice';
+import { selectPagination, incrementPage, selectIsOpen, selectSortOptions } from '../../Slices/PaginationSlice';
 import heart from '../../assets/pics/heart2.png';
 import tableware from '../../assets/pics/tableware.webp';
 import tickets from '../../assets/pics/tickets2.png';
@@ -34,6 +34,7 @@ import { useNavigation } from '@react-navigation/native';
 import Map from '../Map/Map';
 import SearchBar from './SearchBar';
 import QuickFilters from './QuickFilters';
+import sortActivities from '../../utils/sortActivities';
 
 const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
@@ -48,9 +49,11 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
     const businessData = useSelector(selectBusinessData) || [];
     const autoCoordinates = useSelector(selectCoordinates);
     const manualCoordinates = useSelector(selectManualCoordinates);
+    const isOpenNow = useSelector(selectIsOpen);
     const [keyboardOpen, setKeyboardOpen] = useState(false);
     const [placeImages, setPlaceImages] = useState({});
     const isMapView = useSelector(selectIsMapView)
+    const sortOption = useSelector(selectSortOptions);
     const { currentPage, perPage, categoryFilter } = useSelector(selectPagination);
     const [atTop, setAtTop] = useState(true);
 
@@ -239,9 +242,12 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
         const safeRegular = Array.isArray(regular) ? regular : [];
         const safeHighlighted = Array.isArray(highlighted) ? highlighted : [];
 
-        const combinedList = [...safeHighlighted, ...safeRegular].filter(item => item && typeof item === 'object');
+        const combinedList = [...safeHighlighted, ...safeRegular].filter(
+            item => item && typeof item === 'object'
+        );
 
-        const filtered = Array.isArray(categoryFilter) && categoryFilter.length > 0
+        // Apply category filter
+        const categoryFiltered = Array.isArray(categoryFilter) && categoryFilter.length > 0
             ? combinedList.filter(item =>
                 categoryFilter.some(filter =>
                     item.cuisine?.toLowerCase() === filter.toLowerCase()
@@ -249,15 +255,22 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
             )
             : combinedList;
 
-        const paginated = paginateRegular(filtered, currentPage, perPage);
+        // Apply openNow filter
+        const openNowFiltered = isOpenNow
+            ? categoryFiltered.filter(item => item.opening_hours?.open_now === true)
+            : categoryFiltered;
+        
+        // Sort the list
+        const sorted = sortActivities(openNowFiltered, sortOption);    
+
+        // Paginate
+        const paginated = paginateRegular(sorted, currentPage, perPage);
 
         return paginated;
-    }, [highlighted, regular, currentPage, perPage, categoryFilter]);
+    }, [highlighted, regular, currentPage, perPage, categoryFilter, isOpenNow, sortOption]);
 
     return (
-        <View
-            style={styles.safeArea}
-        >
+        <View style={styles.safeArea}>
             <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
                 <View style={{ flex: 1 }}>
                     <View style={activities.length > 0 ? styles.containerPopulated : styles.container}>

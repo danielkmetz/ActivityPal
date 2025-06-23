@@ -16,6 +16,8 @@ import { selectInvites } from "../../Slices/InvitesSlice";
 import { useSelector } from "react-redux";
 import { useNavigation } from "@react-navigation/native";
 import SuggestionDetailsModal from "../SuggestionDetails/SuggestionDetailsModal";
+import { handleEventOrPromoLike } from "../../utils/LikeHandlers/promoEventLikes";
+import PostActions from "./PostActions";
 
 const screenWidth = Dimensions.get("window").width;
 
@@ -29,6 +31,8 @@ export default function SuggestionItem({ suggestion }) {
 
     const { businessName, logoUrl, distance, title } = suggestion;
     const photos = suggestion?.photos || [];
+
+    console.log(suggestion);
 
     const rawInvite = invites.find(invite => {
         if (!invite.placeId || !invite.dateTime) return false;
@@ -70,6 +74,14 @@ export default function SuggestionItem({ suggestion }) {
         } else {
             setInviteModalVisible(true);
         }
+    };
+
+    const handleOpenComments = () => {
+        navigation.navigate('EventDetails', { activity: suggestion });
+    };
+
+    const handleLikeWithAnimation = () => {
+        console.log('post liked');
     };
 
     return (
@@ -153,14 +165,21 @@ export default function SuggestionItem({ suggestion }) {
                     </View>
                 </View>
             )}
-            <TouchableOpacity
-                style={styles.inviteButton}
-                onPress={inviteCreationEditing}
-            >
-                <Text style={styles.inviteText}>
-                    {existingInvite ? "Edit Invite" : "Invite"}
-                </Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', marginBottom: -30, marginTop: -10 }}>
+                <PostActions 
+                    item={suggestion}
+                    handleOpenComments={handleOpenComments}
+                    handeLikeWithAnimation={handleLikeWithAnimation}
+                />
+                <TouchableOpacity
+                    style={styles.inviteButton}
+                    onPress={inviteCreationEditing}
+                >
+                    <Text style={styles.inviteText}>
+                        {existingInvite ? "Edit Invite" : "Invite"}
+                    </Text>
+                </TouchableOpacity>
+            </View>
             <InviteModal
                 visible={inviteModalVisible}
                 onClose={() => setInviteModalVisible(false)}

@@ -44,14 +44,12 @@ export default function PostActions({ item, handleLikeWithAnimation, handleOpenC
         />
         <Text style={styles.commentCount}>{item?.comments?.length || 0}</Text>
       </TouchableOpacity>
-
       <TouchableOpacity
         onPress={handleSend}
         style={styles.sendButton}
       >
         <Feather name="send" size={20} color="#808080" />
       </TouchableOpacity>
-
       {item.type !== 'invite' &&
         photo?.taggedUsers?.length > 0 && (
           <TouchableWithoutFeedback onPress={() => toggleTaggedUsers(photo.photoKey)}>

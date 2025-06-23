@@ -66,6 +66,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         width: '100%',
         alignSelf: 'center',
+        marginTop: 30,
     },
     searchInput: {
         flex: 1,
