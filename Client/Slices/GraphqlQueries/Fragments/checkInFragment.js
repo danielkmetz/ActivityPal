@@ -32,49 +32,70 @@ export const CHECKIN_FRAGMENT = gql`
       commentText
       userId
       fullName
-      likes
+      likes {
+        userId
+        fullName
+      }
       date
       replies {
         _id
         commentText
         userId
         fullName
-        likes
+        likes {
+          userId
+          fullName
+        }
         date
         replies {
           _id
           commentText
           userId
           fullName
-          likes
+          likes {
+            userId
+            fullName
+          }
           date
           replies {
             _id
             commentText
             userId
             fullName
-            likes
+            likes {
+              userId
+              fullName
+            }
             date
             replies {
               _id
               commentText
               userId
               fullName
-              likes
+              likes {
+                userId
+                fullName
+              }
               date
               replies {
                 _id
                 commentText
                 userId
                 fullName
-                likes
+                likes {
+                  userId
+                  fullName
+                }
                 date
                 replies {
                   _id
                   commentText
                   userId
                   fullName
-                  likes
+                  likes {
+                    userId
+                    fullName
+                  }
                   date
                 }
               }

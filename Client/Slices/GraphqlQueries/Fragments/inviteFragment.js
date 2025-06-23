@@ -46,70 +46,97 @@ export const INVITE_FRAGMENT = gql`
       userId
       fullName
       commentText
-      likes
+      likes {
+        userId
+        fullName
+      }
       date
       replies {
         _id
         userId
         fullName
         commentText
-        likes
+        likes {
+          userId
+          fullName
+        }
         date
         replies {
+          _id
+          userId
+          fullName
+          commentText
+          likes {
+            userId
+            fullName
+          }
+          date
+          replies {
             _id
             userId
             fullName
             commentText
-            likes
+            likes {
+              userId
+              fullName
+            }
             date
             replies {
+              _id
+              userId
+              fullName
+              commentText
+              likes {
+                userId
+                fullName
+              }
+              date
+              replies {
                 _id
                 userId
                 fullName
                 commentText
-                likes
+                likes {
+                  userId
+                  fullName
+                }
                 date
                 replies {
+                  _id
+                  userId
+                  fullName
+                  commentText
+                  likes {
+                    userId
+                    fullName
+                  }
+                  date
+                  replies {
                     _id
                     userId
                     fullName
                     commentText
-                    likes
+                    likes {
+                      userId
+                      fullName
+                    }
                     date
                     replies {
-                        _id
+                      _id
+                      userId
+                      fullName
+                      commentText
+                      likes {
                         userId
                         fullName
-                        commentText
-                        likes
-                        date
-                        replies {
-                            _id
-                            userId
-                            fullName
-                            commentText
-                            likes
-                            date
-                            replies {
-                                _id
-                                userId
-                                fullName
-                                commentText
-                                likes
-                                date
-                                replies {
-                                    _id
-                                    userId
-                                    fullName
-                                    commentText
-                                    likes
-                                    date
-                                }
-                            }
-                        }
+                      }
+                      date
                     }
+                  }
                 }
+              }
             }
+          }
         }
       }
     }

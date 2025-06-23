@@ -5,11 +5,18 @@ import {
     TouchableOpacity,
     FlatList,
     StyleSheet,
-    Dimensions,
+    Switch, s
 } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { setCategoryFilter, selectCategoryFilter } from '../../Slices/PaginationSlice';
+import {
+    setCategoryFilter,
+    selectCategoryFilter,
+    toggleOpenNow,
+    selectIsOpen,
+    setSortOptions,
+    selectSortOptions,
+} from '../../Slices/PaginationSlice';
 import { useRoute } from '@react-navigation/native';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigation } from '@react-navigation/native';
@@ -39,7 +46,7 @@ const PLACES = [
 ];
 
 const SORT_OPTIONS = [
-    { key: 'distance', label: 'Distance (Default)' },
+    { key: 'distance', label: 'Distance: Low to High' },
     { key: 'rating', label: 'Highest Rated' },
     { key: 'popularity', label: 'Most Popular' },
     { key: 'priceLowHigh', label: 'Price: Low to High' },
@@ -53,8 +60,11 @@ const FilterSortScreen = () => {
     const navigation = useNavigation();
     const dispatch = useDispatch();
     const categoryFilter = useSelector(selectCategoryFilter);
+    const sortOption = useSelector(selectSortOptions);
     const [mode, setMode] = useState('cuisine'); // or 'place'
     const [selected, setSelected] = useState(new Set(categoryFilter || []));
+    const [selectedSort, setSelectedSort] = useState(sortOption)
+    const isOpenNow = useSelector(selectIsOpen);
     const { availableCuisines = [] } = route.params || {};
     const filteredCuisines = CUISINES.filter(c => availableCuisines.includes(c.key));
     const options = mode === 'cuisine'
@@ -65,23 +75,33 @@ const FilterSortScreen = () => {
 
     const handleApplyFilters = () => {
         dispatch(setCategoryFilter(Array.from(selected)));
+        dispatch(setSortOptions(selectedSort));
         navigation.navigate("Activities");
     };
 
     const handleSelection = (itemKey) => {
-        const newSet = new Set(selected);
-        if (newSet.has(itemKey)) {
-            newSet.delete(itemKey);
+        if (mode === 'sort') {
+            setSelectedSort(prev => (prev === itemKey ? null : itemKey));
         } else {
-            newSet.add(itemKey);
+            const newSet = new Set(selected);
+            if (newSet.has(itemKey)) {
+                newSet.delete(itemKey);
+            } else {
+                newSet.add(itemKey);
+            }
+            setSelected(newSet);
         }
-        setSelected(newSet);
     };
 
     const handleReset = () => {
         dispatch(setCategoryFilter(null));
+        dispatch(setSortOptions(null));
         setSelected(new Set());
         navigation.navigate("Activities");
+    };
+
+    const handleToggleOpenNow = () => {
+        dispatch(toggleOpenNow());
     };
 
     const paddedOptions = [...options, { key: 'placeholder-1', placeholder: true }, { key: 'placeholder-2', placeholder: true }];
@@ -102,7 +122,6 @@ const FilterSortScreen = () => {
                     </TouchableOpacity>
                 ))}
             </View>
-
             <FlatList
                 data={paddedOptions}
                 keyExtractor={(item) => item.key}
@@ -113,7 +132,10 @@ const FilterSortScreen = () => {
                     if (item.placeholder) {
                         return <View style={[styles.tile, { backgroundColor: 'transparent' }]} />;
                     }
-                    const isActive = selected.has(item.key);
+                    const isActive = mode === 'sort'
+                        ? selectedSort === item.key
+                        : selected.has(item.key);
+
                     return (
                         <TouchableOpacity
                             onPress={() => handleSelection(item.key)}
@@ -135,17 +157,27 @@ const FilterSortScreen = () => {
                     );
                 }}
             />
-
             <View style={styles.footer}>
-                <TouchableOpacity onPress={() => handleReset()} style={styles.resetButton}>
-                    <Text style={styles.resetText}>Reset</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    onPress={handleApplyFilters}
-                    style={styles.applyButton}
-                >
-                    <Text style={styles.applyText}>Apply Filters</Text>
-                </TouchableOpacity>
+                <View style={styles.toggleRow}>
+                    <Text style={styles.toggleLabel}>Only show open now</Text>
+                    <Switch
+                        value={isOpenNow}
+                        onValueChange={handleToggleOpenNow}
+                        thumbColor={isOpenNow ? '#d32f2f' : '#ccc'}
+                        trackColor={{ false: '#ccc', true: '#f4a5a5' }}
+                    />
+                </View>
+                <View style={styles.buttonRow}>
+                    <TouchableOpacity onPress={() => handleReset()} style={styles.resetButton}>
+                        <Text style={styles.resetText}>Reset</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        onPress={handleApplyFilters}
+                        style={styles.applyButton}
+                    >
+                        <Text style={styles.applyText}>Apply Filters</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
         </View>
     );
@@ -162,7 +194,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         marginHorizontal: 5,
         borderRadius: 20,
-        backgroundColor: '#eee',
+        backgroundColor: '#aaa',
     },
     switchActive: {
         backgroundColor: '#d32f2f',
@@ -186,6 +218,7 @@ const styles = StyleSheet.create({
     },
     tileText: {
         textAlign: 'center',
+        paddingHorizontal: 5,
     },
     tileActive: {
         backgroundColor: '#000000',
@@ -197,6 +230,10 @@ const styles = StyleSheet.create({
     footer: {
         position: 'absolute',
         bottom: 30,
+        width: '100%',
+        paddingHorizontal: 16,
+    },
+    buttonRow: {
         width: '100%',
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -219,5 +256,22 @@ const styles = StyleSheet.create({
     applyText: {
         color: '#fff',
         fontWeight: '600',
+    },
+    toggleRow: {
+        width: '100%',
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingVertical: 10,
+        paddingHorizontal: 8,
+        marginBottom: 10,
+        backgroundColor: '#aaa',
+        borderRadius: 8,
+        marginBottom: 40,
+    },
+    toggleLabel: {
+        fontSize: 16,
+        color: '#fff',
+        fontWeight: '500',
     },
 });
