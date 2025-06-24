@@ -1,4 +1,11 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
+import { 
+  updateNearbySuggestionCommentOrReply, 
+  addNearbySuggestionComment, 
+  addNearbySuggestionReply,
+  removeNearbySuggestionCommentOrReply, 
+  updateNearbySuggestionLikes,
+} from "./GooglePlacesSlice";
 import axios from "axios";
 
 const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
@@ -21,7 +28,21 @@ export const fetchEvents = createAsyncThunk(
 // Thunk for creating an event
 export const createEvent = createAsyncThunk(
   "events/createEvent",
-  async ({ placeId, title, date, description, photos, recurring, recurringDays, startTime = null, endTime = null, allDay }, { rejectWithValue }) => {
+  async (
+    {
+      placeId,
+      title,
+      date,
+      description,
+      photos,
+      recurring,
+      recurringDays,
+      startTime = null,
+      endTime = null,
+      allDay,
+    },
+    { rejectWithValue }
+  ) => {
     try {
       const response = await axios.post(`${BASE_URL}/business/events/${placeId}`, {
         title,
@@ -34,11 +55,13 @@ export const createEvent = createAsyncThunk(
         endTime,
         allDay,
       });
-      return response.data.event; // Return the newly created event
+
+      return response.data.event;
     } catch (error) {
       const errorMessage =
         error.response?.data?.message || error.message || "Failed to create event";
-      return rejectWithValue(errorMessage); // Return the error message
+
+      return rejectWithValue(errorMessage);
     }
   }
 );
@@ -78,7 +101,7 @@ export const deleteEvent = createAsyncThunk(
   async ({ placeId, eventId }, { rejectWithValue }) => {
     try {
       const response = await axios.delete(`${BASE_URL}/business/events/${placeId}/${eventId}`);
-      return response.data.events; // Return the updated events list
+      return response.data.eventId; // Return the updated events list
     } catch (error) {
       const errorMessage =
         error.response?.data?.message || error.message || "Failed to delete event";
@@ -89,14 +112,20 @@ export const deleteEvent = createAsyncThunk(
 
 export const toggleEventLike = createAsyncThunk(
   "events/toggleEventLike",
-  async ({ placeId, eventId, userId, fullName }, { rejectWithValue }) => {
+  async ({ placeId, id, userId, fullName }, { rejectWithValue, dispatch }) => {
     try {
       const response = await axios.post(
-        `${BASE_URL}/business/events/${placeId}/${eventId}/like`,
+        `${BASE_URL}/business/events/${placeId}/${id}/like`,
         { userId, fullName }
       );
+
+      dispatch(updateNearbySuggestionLikes({
+        postId: id,
+        likes: response.data.likes,
+      }))
+
       return {
-        eventId,
+        eventId: id,
         likes: response.data.likes, // Updated likes array from the backend
       };
     } catch (error) {
@@ -109,15 +138,20 @@ export const toggleEventLike = createAsyncThunk(
 
 export const leaveEventComment = createAsyncThunk(
   "events/leaveEventComment",
-  async ({ placeId, eventId, userId, fullName, commentText }, { rejectWithValue }) => {
+  async ({ placeId, id, userId, fullName, commentText }, { rejectWithValue, dispatch }) => {
     try {
       const response = await axios.post(
-        `${BASE_URL}/business/events/${placeId}/${eventId}/comment`,
+        `${BASE_URL}/business/events/${placeId}/${id}/comments`,
         { userId, fullName, commentText }
       );
 
+      dispatch(addNearbySuggestionComment({
+        postId: id,
+        newComment: response.data.comment,
+      }));
+
       return {
-        eventId,
+        eventId: id,
         newComment: response.data.comment, // New comment object from backend
       };
     } catch (error) {
@@ -131,12 +165,12 @@ export const leaveEventComment = createAsyncThunk(
 export const leaveEventReply = createAsyncThunk(
   "events/leaveEventReply",
   async (
-    { placeId, eventId, commentId, userId, fullName, commentText },
-    { rejectWithValue }
+    { placeId, id, commentId, userId, fullName, commentText },
+    { rejectWithValue, dispatch }
   ) => {
     try {
       const response = await axios.post(
-        `${BASE_URL}/business/events/${placeId}/${eventId}/reply`,
+        `${BASE_URL}/business/events/${id}/comments/${commentId}/replies`,
         {
           commentId,
           userId,
@@ -145,8 +179,14 @@ export const leaveEventReply = createAsyncThunk(
         }
       );
 
+      dispatch(addNearbySuggestionReply({
+        postId: id,
+        commentId,
+        newReply: response.data.reply,
+      }));
+
       return {
-        eventId,
+        eventId: id,
         commentId,
         newReply: response.data.reply,
       };
@@ -161,22 +201,30 @@ export const leaveEventReply = createAsyncThunk(
 export const toggleEventCommentLike = createAsyncThunk(
   "events/toggleEventCommentLike",
   async (
-    { placeId, eventId, commentId, userId, fullName },
-    { rejectWithValue }
+    { placeId, id, commentId, userId, fullName },
+    { rejectWithValue, dispatch }
   ) => {
     try {
       const response = await axios.post(
-        `${BASE_URL}/business/events/${placeId}/${eventId}/comments/${commentId}/like`,
+        `${BASE_URL}/business/events/${id}/comments/${commentId}/like`,
         {
           userId,
           fullName,
         }
       );
 
-      return {
-        eventId,
+      const updatedLikes = response.data.likes;
+
+      dispatch(updateNearbySuggestionCommentOrReply({
+        postId: id,
         commentId,
-        updatedComment: response.data.comment,
+        updatedComment: { _id: commentId, likes: updatedLikes },
+      }));
+
+      return {
+        eventId: id,
+        commentId,
+        updatedLikes,
       };
     } catch (error) {
       const errorMessage =
@@ -188,16 +236,24 @@ export const toggleEventCommentLike = createAsyncThunk(
 
 export const editEventCommentOrReply = createAsyncThunk(
   "events/editEventCommentOrReply",
-  async ({ eventId, commentId, commentText }, { rejectWithValue }) => {
+  async ({ id, commentId, commentText }, { rejectWithValue, dispatch }) => {
     try {
       const response = await axios.put(
-        `${BASE_URL}/business/events/${eventId}/edit-comment/${commentId}`,
+        `${BASE_URL}/business/events/${id}/edit-comment/${commentId}`,
         { commentText }
       );
 
+      const updatedComment = response.data.updatedComment;
+
+      dispatch(updateNearbySuggestionCommentOrReply({
+        postId: id,
+        commentId,
+        updatedComment,
+      }));
+
       return {
-        eventId,
-        updatedEvent: response.data.event,
+        eventId: id,
+        updatedComment,
       };
     } catch (error) {
       const message =
@@ -209,15 +265,20 @@ export const editEventCommentOrReply = createAsyncThunk(
 
 export const deleteEventCommentOrReply = createAsyncThunk(
   "events/deleteEventCommentOrReply",
-  async ({ eventId, commentId }, { rejectWithValue }) => {
+  async ({ id, commentId }, { rejectWithValue }) => {
     try {
       const response = await axios.delete(
-        `${BASE_URL}/business/events/${eventId}/delete-comment/${commentId}`
+        `${BASE_URL}/business/events/${id}/delete-comment/${commentId}`
       );
 
+      dispatch(removeNearbySuggestionCommentOrReply({
+        postId: id,
+        commentId,
+      }));
+
       return {
-        eventId,
-        updatedEvent: response.data.event,
+        eventId: id,
+        commentId,
       };
     } catch (error) {
       const message =
@@ -289,7 +350,8 @@ const eventsSlice = createSlice({
       })
       .addCase(deleteEvent.fulfilled, (state, action) => {
         state.loading = false;
-        state.events = action.payload; // Update the events list
+        const deletedId = action.payload;
+        state.events = state.events.filter(event => event._id !== deletedId);
       })
       .addCase(deleteEvent.rejected, (state, action) => {
         state.loading = false;

@@ -2,21 +2,24 @@ const express = require('express');
 const router = express.Router();
 const Business = require('../models/Business');
 const Event = require('../models/Events.js');
+const mongoose = require('mongoose');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 
 // 🔁 Recursively find and update the comment/reply
-function updateNestedComment(comments, targetId, newText) {
-  for (const comment of comments) {
-    if (comment._id.toString() === targetId) {
+function updateNestedComment(comments, commentId, newText) {
+  for (let comment of comments) {
+    if (comment._id.toString() === commentId) {
       comment.commentText = newText;
-      return true;
+      comment.updatedAt = new Date();
+      return comment; // return updated comment object
     }
-    if (comment.replies?.length) {
-      const updated = updateNestedComment(comment.replies, targetId, newText);
-      if (updated) return true;
+
+    if (comment.replies) {
+      const updated = updateNestedComment(comment.replies, commentId, newText);
+      if (updated) return updated;
     }
   }
-  return false;
+  return null;
 }
 
 // 🧹 Recursive function to remove a comment/reply
@@ -40,9 +43,11 @@ router.get("/events/:placeId", async (req, res) => {
 
   try {
     const business = await Business.findOne({ placeId }).lean();
-    if (!business) return res.status(404).json({ message: "Business not found" });
+    if (!business) {
+      return res.status(404).json({ message: "Business not found" });
+    }
 
-    const events = await Event.find({ placeId: business._id }).lean();
+    const events = await Event.find({ placeId: business.placeId }).lean();
 
     const enhancedEvents = await Promise.all(
       events.map(async (event) => {
@@ -64,7 +69,6 @@ router.get("/events/:placeId", async (req, res) => {
 
     res.status(200).json({ events: enhancedEvents });
   } catch (error) {
-    console.error("Error fetching events:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -72,7 +76,17 @@ router.get("/events/:placeId", async (req, res) => {
 ///
 router.post("/events/:placeId", async (req, res) => {
   const { placeId } = req.params;
-  const { title, description, date, photos, recurring, recurringDays, startTime, endTime, allDay } = req.body;
+  const {
+    title,
+    description,
+    date,
+    photos,
+    recurring,
+    recurringDays,
+    startTime,
+    endTime,
+    allDay
+  } = req.body;
 
   try {
     if (!title || !description) {
@@ -113,7 +127,6 @@ router.post("/events/:placeId", async (req, res) => {
 
     res.status(201).json({ message: "Event created successfully", event: savedEvent });
   } catch (error) {
-    console.error("Error creating event:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -137,7 +150,7 @@ router.put("/events/:placeId/:eventId", async (req, res) => {
     const business = await Business.findOne({ placeId }).lean();
     if (!business) return res.status(404).json({ message: "Business not found" });
 
-    const event = await Event.findOne({ _id: eventId, placeId: business._id });
+    const event = await Event.findOne({ _id: eventId, placeId: business.placeId });
     if (!event) return res.status(404).json({ message: "Event not found" });
 
     // ✅ Update fields if provided
@@ -180,7 +193,7 @@ router.delete("/events/:placeId/:eventId", async (req, res) => {
 
     const deleted = await Event.findOneAndDelete({
       _id: eventId,
-      placeId: business._id,
+      placeId: business.placeId,
     });
 
     if (!deleted) {
@@ -207,7 +220,7 @@ router.post("/events/:placeId/:eventId/like", async (req, res) => {
     const business = await Business.findOne({ placeId }).lean();
     if (!business) return res.status(404).json({ message: "Business not found" });
 
-    const event = await Event.findOne({ _id: eventId, placeId: business._id });
+    const event = await Event.findOne({ _id: eventId, placeId: business.placeId });
     if (!event) return res.status(404).json({ message: "Event not found" });
 
     const existingIndex = event.likes.findIndex((like) => like.userId.toString() === userId);
@@ -245,10 +258,11 @@ router.post("/events/:placeId/:eventId/comments", async (req, res) => {
     const business = await Business.findOne({ placeId }).lean();
     if (!business) return res.status(404).json({ message: "Business not found" });
 
-    const event = await Event.findOne({ _id: eventId, placeId: business._id });
+    const event = await Event.findOne({ _id: eventId, placeId: business.placeId });
     if (!event) return res.status(404).json({ message: "Event not found" });
 
     const newComment = {
+      _id: new mongoose.Types.ObjectId(),
       userId,
       fullName,
       commentText,
@@ -272,7 +286,7 @@ router.post("/events/:placeId/:eventId/comments", async (req, res) => {
   }
 });
 
-router.post("/events/:placeId/:eventId/comments/:commentId/replies", async (req, res) => {
+router.post("/events/:eventId/comments/:commentId/replies", async (req, res) => {
   const { placeId, eventId, commentId } = req.params;
   const { userId, fullName, commentText } = req.body;
 
@@ -281,13 +295,11 @@ router.post("/events/:placeId/:eventId/comments/:commentId/replies", async (req,
   }
 
   try {
-    const business = await Business.findOne({ placeId }).lean();
-    if (!business) return res.status(404).json({ message: "Business not found" });
-
-    const event = await Event.findOne({ _id: eventId, placeId: business._id });
+    const event = await Event.findById(eventId);
     if (!event) return res.status(404).json({ message: "Event not found" });
 
     const newReply = {
+      _id: new mongoose.Types.ObjectId(),
       userId,
       fullName,
       commentText,
@@ -345,7 +357,7 @@ router.post("/events/:placeId/:eventId/comments/:commentId/replies", async (req,
 });
 
 // 📌 POST: Toggle like on a comment or reply in an event
-router.post("/events/:placeId/:eventId/comments/:commentId/like", async (req, res) => {
+router.post("/events/:eventId/comments/:commentId/like", async (req, res) => {
   const { placeId, eventId, commentId } = req.params;
   const { userId, fullName } = req.body;
 
@@ -354,10 +366,7 @@ router.post("/events/:placeId/:eventId/comments/:commentId/like", async (req, re
   }
 
   try {
-    const business = await Business.findOne({ placeId }).lean();
-    if (!business) return res.status(404).json({ message: "Business not found" });
-
-    const event = await Event.findOne({ _id: eventId, placeId: business._id });
+    const event = await Event.findById(eventId);
     if (!event) return res.status(404).json({ message: "Event not found" });
 
     let target = null;
@@ -423,18 +432,18 @@ router.put("/events/:placeId/:eventId/edit-comment/:commentId", async (req, res)
     const business = await Business.findOne({ placeId }).lean();
     if (!business) return res.status(404).json({ message: "Business not found" });
 
-    const event = await Event.findOne({ _id: eventId, placeId: business._id });
+    const event = await Event.findOne({ _id: eventId, placeId: business.placeId });
     if (!event) return res.status(404).json({ message: "Event not found" });
 
-    const updated = updateNestedComment(event.comments || [], commentId, commentText);
-    if (!updated) {
+    const updatedComment = updateNestedComment(event.comments || [], commentId, commentText);
+    if (!updatedComment) {
       return res.status(404).json({ message: "Comment or reply not found" });
     }
 
     event.updatedAt = new Date();
     await event.save();
 
-    res.json({ message: "Comment updated successfully" });
+    res.json({ message: "Comment updated successfully", updatedComment });
   } catch (error) {
     console.error("Error editing event comment:", error);
     res.status(500).json({ message: "Internal Server Error" });
@@ -442,14 +451,11 @@ router.put("/events/:placeId/:eventId/edit-comment/:commentId", async (req, res)
 });
 
 // 🗑️ DELETE: Remove a comment or reply from an event
-router.delete("/events/:placeId/:eventId/delete-comment/:commentId", async (req, res) => {
+router.delete("/events/:eventId/delete-comment/:commentId", async (req, res) => {
   const { placeId, eventId, commentId } = req.params;
 
   try {
-    const business = await Business.findOne({ placeId }).lean();
-    if (!business) return res.status(404).json({ message: "Business not found" });
-
-    const event = await Event.findOne({ _id: eventId, placeId: business._id });
+    const event = await Event.findById(eventId);
     if (!event) return res.status(404).json({ message: "Event not found" });
 
     const deleted = deleteNestedComment(event.comments || [], commentId);

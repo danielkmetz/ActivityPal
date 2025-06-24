@@ -1,4 +1,11 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
+import { 
+  updateNearbySuggestionCommentOrReply,
+  addNearbySuggestionComment,
+  addNearbySuggestionReply,
+  removeNearbySuggestionCommentOrReply,
+  updateNearbySuggestionLikes,
+} from "./GooglePlacesSlice";
 import axios from "axios";
 
 const API_URL = `${process.env.EXPO_PUBLIC_SERVER_URL}/promotions`; // Update this to match your backend URL
@@ -57,23 +64,30 @@ export const deletePromotion = createAsyncThunk(
 
 export const togglePromoLike = createAsyncThunk(
   "promotions/togglePromoLike",
-  async ({ placeId, promoId, userId, fullName }, { rejectWithValue }) => {
+  async ({ placeId, id, userId, fullName }, { rejectWithValue, dispatch }) => {
     try {
-      const response = await axios.post(
-        `${BASE_URL}/business/promotions/${placeId}/${promoId}/like`,
+      const response = await axios.post(`${API_URL}/${id}/like`,
         {
           userId,
           fullName,
         }
       );
 
+      const newLikes = response.data.likes;
+
+      dispatch(updateNearbySuggestionLikes({
+        postId: id,
+        likes: newLikes,
+      }))
+
       return {
-        promoId,
-        updatedPromotion: response.data.promotion,
+        promoId: id,
+        likes: newLikes,
       };
     } catch (error) {
       const errorMessage =
         error.response?.data?.message || error.message || "Failed to like promotion";
+
       return rejectWithValue(errorMessage);
     }
   }
@@ -81,10 +95,18 @@ export const togglePromoLike = createAsyncThunk(
 
 export const leavePromoComment = createAsyncThunk(
   "promotions/leavePromoComment",
-  async ({ placeId, promoId, userId, fullName, commentText }, { rejectWithValue }) => {
+  async ({ placeId, id, userId, fullName, commentText }, { rejectWithValue, dispatch }) => {
     try {
+      console.log("📤 Sending comment request:", {
+        placeId,
+        promoId: id,
+        userId,
+        fullName,
+        commentText,
+      });
+
       const response = await axios.post(
-        `${BASE_URL}/business/promotions/${placeId}/${promoId}/comment`,
+        `${API_URL}/${id}/comment`, // Ensure the second `${id}` is actually the promoId
         {
           userId,
           fullName,
@@ -92,13 +114,26 @@ export const leavePromoComment = createAsyncThunk(
         }
       );
 
+      console.log("✅ Server response:", response.data);
+
+      const newComment = response.data.comment;
+
+      dispatch(addNearbySuggestionComment({
+        postId: id,
+        commentId: newComment._id,
+        updatedComment: newComment,
+      }));
+
+      console.log("📥 Dispatched addNearbySuggestionComment:", { postId: id, newComment });
+
       return {
-        promoId,
-        updatedPromotion: response.data.promotion,
+        promoId: id,
+        newComment,
       };
     } catch (error) {
       const errorMessage =
         error.response?.data?.message || error.message || "Failed to leave comment";
+      console.error("❌ Error leaving promo comment:", errorMessage);
       return rejectWithValue(errorMessage);
     }
   }
@@ -107,12 +142,12 @@ export const leavePromoComment = createAsyncThunk(
 export const leavePromoReply = createAsyncThunk(
   "promotions/leavePromoReply",
   async (
-    { placeId, promoId, commentId, userId, fullName, commentText },
-    { rejectWithValue }
+    { placeId, id, commentId, userId, fullName, commentText },
+    { rejectWithValue, dispatch }
   ) => {
     try {
       const response = await axios.post(
-        `${BASE_URL}/business/promotions/${placeId}/${promoId}/reply/${commentId}`,
+        `${API_URL}/${id}/comments/${commentId}/replies`,
         {
           userId,
           fullName,
@@ -120,9 +155,18 @@ export const leavePromoReply = createAsyncThunk(
         }
       );
 
+      const newReply = response.data.reply;
+
+      dispatch(addNearbySuggestionReply({
+        postId: id,
+        commentId,
+        newReply,
+      }));
+
       return {
-        promoId,
-        updatedPromotion: response.data.promotion,
+        promoId: id,
+        commentId,
+        newReply,
       };
     } catch (error) {
       const errorMessage =
@@ -135,21 +179,29 @@ export const leavePromoReply = createAsyncThunk(
 export const likePromoCommentOrReply = createAsyncThunk(
   "promotions/likePromoCommentOrReply",
   async (
-    { placeId, promoId, commentId, userId, fullName },
-    { rejectWithValue }
+    { placeId, id, commentId, userId, fullName },
+    { rejectWithValue, dispatch }
   ) => {
     try {
       const response = await axios.put(
-        `${BASE_URL}/business/promotions/${placeId}/${promoId}/like-comment/${commentId}`,
+        `${API_URL}/${id}/comments/${commentId}/like`,
         {
           userId,
           fullName,
         }
       );
 
+      const updatedLikes = response.data.likes;
+
+      dispatch(updateNearbySuggestionCommentOrReply({
+        postId: id,
+        commentId,
+        updatedComment: { _id: commentId, likes: updatedLikes },
+      }));
+
       return {
-        promoId,
-        updatedPromotion: response.data.promotion,
+        promoId: id,
+        updatedLikes,
       };
     } catch (error) {
       const errorMessage =
@@ -161,16 +213,24 @@ export const likePromoCommentOrReply = createAsyncThunk(
 
 export const editPromoCommentOrReply = createAsyncThunk(
   "promotions/editPromoCommentOrReply",
-  async ({ promotionId, commentId, commentText }, { rejectWithValue }) => {
+  async ({ id, commentId, commentText }, { rejectWithValue, dispatch }) => {
     try {
       const response = await axios.put(
-        `${BASE_URL}/business/promotions/${promotionId}/edit-comment/${commentId}`,
+        `${API_URL}/${id}/edit-comment/${commentId}`,
         { commentText }
       );
 
+      const updatedComment = response.data.updatedComment;
+
+      dispatch(updateNearbySuggestionCommentOrReply({
+        postId: id,
+        commentId,
+        updatedComment,
+      }));
+
       return {
-        promotionId,
-        updatedPromotion: response.data.promotion,
+        promoId: id,
+        updatedComment,
       };
     } catch (error) {
       const message =
@@ -182,15 +242,20 @@ export const editPromoCommentOrReply = createAsyncThunk(
 
 export const deletePromoCommentOrReply = createAsyncThunk(
   "promotions/deletePromoCommentOrReply",
-  async ({ promotionId, commentId }, { rejectWithValue }) => {
+  async ({ id, commentId }, { rejectWithValue, dispatch }) => {
     try {
       const response = await axios.delete(
-        `${BASE_URL}/business/promotions/${promotionId}/delete-comment/${commentId}`
+        `${API_URL}/${id}/delete-comment/${commentId}`
       );
 
+      dispatch(removeNearbySuggestionCommentOrReply({
+        postId: id,
+        commentId,
+      }));
+
       return {
-        promotionId,
-        updatedPromotion: response.data.promotion,
+        promoId: id,
+        commentId,
       };
     } catch (error) {
       const message =
@@ -257,11 +322,11 @@ const promotionsSlice = createSlice({
       })
       .addCase(togglePromoLike.fulfilled, (state, action) => {
         state.loading = false;
-        const { promoId, updatedPromotion } = action.payload;
+        const { promoId, updatedLikes } = action.payload;
 
         const index = state.promotions.findIndex((p) => p._id === promoId);
         if (index !== -1) {
-          state.promotions[index] = updatedPromotion;
+          state.promotions[index].likes = updatedLikes;
         }
       })
       .addCase(togglePromoLike.rejected, (state, action) => {
@@ -274,11 +339,12 @@ const promotionsSlice = createSlice({
       })
       .addCase(leavePromoComment.fulfilled, (state, action) => {
         state.loading = false;
-        const { promoId, updatedPromotion } = action.payload;
+        const { promoId, newComment } = action.payload;
 
-        const index = state.promotions.findIndex((p) => p._id === promoId);
-        if (index !== -1) {
-          state.promotions[index] = updatedPromotion;
+        const promo = state.promotions.find(p => p._id === promoId);
+        if (promo) {
+          promo.comments = promo.comments || [];
+          promo.comments.push(newComment);
         }
       })
       .addCase(leavePromoComment.rejected, (state, action) => {
@@ -291,11 +357,25 @@ const promotionsSlice = createSlice({
       })
       .addCase(leavePromoReply.fulfilled, (state, action) => {
         state.loading = false;
-        const { promoId, updatedPromotion } = action.payload;
+        const { promoId, commentId, newReply } = action.payload;
 
-        const index = state.promotions.findIndex((p) => p._id === promoId);
-        if (index !== -1) {
-          state.promotions[index] = updatedPromotion;
+        const findAndInsertReply = (comments) => {
+          for (let comment of comments) {
+            if (comment._id === commentId) {
+              comment.replies = comment.replies || [];
+              comment.replies.push(newReply);
+              return true;
+            }
+            if (comment.replies && findAndInsertReply(comment.replies)) {
+              return true;
+            }
+          }
+          return false;
+        };
+
+        const event = state.promotions.find((e) => e._id === promoId);
+        if (event && Array.isArray(event.comments)) {
+          findAndInsertReply(event.comments);
         }
       })
       .addCase(leavePromoReply.rejected, (state, action) => {
