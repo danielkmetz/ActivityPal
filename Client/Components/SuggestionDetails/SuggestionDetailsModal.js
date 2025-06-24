@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import {
     Modal,
     View,
@@ -11,6 +11,7 @@ import useSlideDownDismiss from '../../utils/useSlideDown';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { Avatar } from '@rneui/themed';
 import Notch from '../Notch/Notch';
+import { getTimeLabel } from '../../utils/formatEventPromoTime';
 
 const SuggestionDetailsModal = ({ visible, onClose, suggestion }) => {
     const { businessName, logoUrl, distance, title } = suggestion;
@@ -33,29 +34,6 @@ const SuggestionDetailsModal = ({ visible, onClose, suggestion }) => {
     const fadeStyle = useAnimatedStyle(() => ({
         opacity: fadeAnim.value,
     }));
-
-    const formatTime = (isoString) => {
-        if (!isoString) return '';
-        const date = new Date(isoString);
-        return date.toLocaleTimeString([], {
-            hour: 'numeric',
-            minute: '2-digit',
-        });
-    };
-
-    const getTimeLabel = () => {
-        if (suggestion?.allDay) return 'Happening All Day';
-
-        if (suggestion?.kind === 'activePromo' || suggestion?.kind === 'activeEvent') {
-            return suggestion?.endTime ? `Ends at ${formatTime(suggestion.endTime)}` : null;
-        }
-
-        if (suggestion?.kind === 'upcomingPromo' || suggestion?.kind === 'upcomingEvent') {
-            return suggestion?.startTime ? `Starts at ${formatTime(suggestion.startTime)}` : null;
-        }
-
-        return null;
-    };
 
     return (
         <Modal
@@ -85,9 +63,7 @@ const SuggestionDetailsModal = ({ visible, onClose, suggestion }) => {
                                     </View>
                                 </View>
                                 <Text style={styles.modalTitle}>{suggestion?.title}</Text>
-                                {getTimeLabel() && (
-                                    <Text style={styles.modalTime}>{getTimeLabel()}</Text>
-                                )}
+                                <Text style={styles.modalTime}>{getTimeLabel(suggestion)}</Text>
                                 <Text style={styles.modalNote}>
                                     {suggestion?.description}
                                 </Text>

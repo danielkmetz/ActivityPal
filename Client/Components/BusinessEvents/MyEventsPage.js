@@ -11,11 +11,7 @@ import {
 } from "react-native";
 import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
-import {
-  fetchEvents,
-  selectEvents,
-  deleteEvent,
-} from "../../Slices/EventsSlice";
+import { fetchEvents, selectEvents, deleteEvent } from "../../Slices/EventsSlice";
 import {
   fetchPromotions,
   selectPromotions,
@@ -38,6 +34,7 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
   const promotions = useSelector(selectPromotions) || [];
   const placeId = user?.businessDetails?.placeId;
   const scrollX = useRef(new Animated.Value(0)).current;
+  console.log(events)
 
   // Fetch data on component mount
   useEffect(() => {

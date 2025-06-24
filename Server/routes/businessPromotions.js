@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const mongoose = require('mongoose');
 const Business = require("../models/Business");
 const Promotion = require('../models/Promotions.js')
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
@@ -167,43 +168,55 @@ router.delete("/:promotionId", async (req, res) => {
 });
 
 // 📌 POST: Toggle like on a promotion
-router.post("/:promotionId/like", async (req, res) => {
-  const { promotionId } = req.params;
+router.post("/:postId/like", async (req, res) => {
+  const { postId } = req.params;
   const { userId, fullName } = req.body;
 
+  const promotionId = postId;
+  console.log("📥 Incoming like toggle request for promotion:", promotionId);
+  console.log("👤 Requesting user:", { userId, fullName });
+
   if (!userId || !fullName) {
+    console.warn("⚠️ Missing userId or fullName in request body.");
     return res.status(400).json({ message: "Missing userId or fullName" });
   }
 
   try {
     const promotion = await Promotion.findById(promotionId);
     if (!promotion) {
+      console.warn("❌ Promotion not found:", promotionId);
       return res.status(404).json({ message: "Promotion not found" });
     }
 
     promotion.likes = promotion.likes || [];
 
-    const existingIndex = promotion.likes.findIndex(like => like.userId.toString() === userId);
+    const existingIndex = promotion.likes.findIndex(
+      like => like.userId.toString() === userId
+    );
+
     if (existingIndex > -1) {
-      promotion.likes.splice(existingIndex, 1); // 💔 Unlike
+      console.log(`💔 User ${userId} already liked this promotion — unliking.`);
+      promotion.likes.splice(existingIndex, 1);
     } else {
-      promotion.likes.push({ userId, fullName, date: new Date() }); // ❤️ Like
+      console.log(`❤️ User ${userId} has not liked this promotion — adding like.`);
+      promotion.likes.push({ userId, fullName, date: new Date() });
     }
 
     await promotion.save();
+    console.log("✅ Promotion like state saved successfully.");
 
     res.status(200).json({
       message: "Like toggled successfully",
       likes: promotion.likes,
     });
   } catch (error) {
-    console.error("Error toggling promotion like:", error);
+    console.error("❌ Error toggling promotion like:", error.message, error.stack);
     res.status(500).json({ message: "Internal Server Error" });
   }
 });
 
 // 📌 POST: Add a comment to a promotion
-router.post("/:promotionId/comments", async (req, res) => {
+router.post("/:promotionId/comment", async (req, res) => {
   const { promotionId } = req.params;
   const { userId, fullName, commentText } = req.body;
 
@@ -218,6 +231,7 @@ router.post("/:promotionId/comments", async (req, res) => {
     }
 
     const newComment = {
+      _id: new mongoose.Types.ObjectId(),
       userId,
       fullName,
       commentText,
@@ -257,6 +271,7 @@ router.post("/:promotionId/comments/:commentId/replies", async (req, res) => {
     if (!promotion) return res.status(404).json({ message: "Promotion not found" });
 
     const newReply = {
+      _id: new mongoose.Types.ObjectId(),
       userId,
       fullName,
       commentText,
@@ -271,7 +286,10 @@ router.post("/:promotionId/comments/:commentId/replies", async (req, res) => {
           comment.replies.push(newReply);
           return true;
         }
-        if (comment.replies?.length && addReplyRecursively(comment.replies)) return true;
+        if (comment.replies?.length) {
+          const found = addReplyRecursively(comment.replies);
+          if (found) return true;
+        }
       }
       return false;
     };
@@ -294,51 +312,68 @@ router.post("/:promotionId/comments/:commentId/replies", async (req, res) => {
 });
 
 // 📌 POST: Toggle like on a comment or reply
-router.post("/:promotionId/comments/:commentId/like", async (req, res) => {
+router.put("/:promotionId/comments/:commentId/like", async (req, res) => {
   const { promotionId, commentId } = req.params;
   const { userId, fullName } = req.body;
 
+  console.log("📥 Incoming like request:", { promotionId, commentId, userId, fullName });
+
   if (!userId || !fullName) {
+    console.warn("⚠️ Missing userId or fullName in request body");
     return res.status(400).json({ message: "Missing userId or fullName" });
   }
 
   try {
     const promotion = await Promotion.findById(promotionId);
-    if (!promotion) return res.status(404).json({ message: "Promotion not found" });
+    if (!promotion) {
+      console.warn(`❌ Promotion not found with ID: ${promotionId}`);
+      return res.status(404).json({ message: "Promotion not found" });
+    }
 
-    let target = null;
+    console.log(`🔍 Searching for comment ${commentId} in promotion ${promotion._id}`);
 
-    const findTargetComment = (comments) => {
+    const findTargetComment = (comments, depth = 0) => {
       for (const c of comments) {
-        if (c._id.toString() === commentId) return c;
+        console.log(`${' '.repeat(depth * 2)}🧵 Checking comment ID: ${c._id}`);
+        if (c._id.toString() === commentId) {
+          console.log(`${' '.repeat(depth * 2)}✅ Found target comment`);
+          return c;
+        }
         if (c.replies?.length) {
-          const nested = findTargetComment(c.replies);
+          const nested = findTargetComment(c.replies, depth + 1);
           if (nested) return nested;
         }
       }
       return null;
     };
 
-    target = findTargetComment(promotion.comments || []);
-    if (!target) return res.status(404).json({ message: "Comment or reply not found" });
+    const target = findTargetComment(promotion.comments || []);
+    if (!target) {
+      console.warn(`❌ Comment or reply with ID ${commentId} not found`);
+      return res.status(404).json({ message: "Comment or reply not found" });
+    }
 
     target.likes = target.likes || [];
     const index = target.likes.findIndex(l => l.userId.toString() === userId);
+    console.log(`❤️ Current likes: ${target.likes.length}, Index of user: ${index}`);
 
     if (index > -1) {
-      target.likes.splice(index, 1); // 💔 Unlike
+      console.log("💔 User already liked. Removing like...");
+      target.likes.splice(index, 1); // Unlike
     } else {
-      target.likes.push({ userId, fullName, date: new Date() }); // ❤️ Like
+      console.log("❤️ User has not liked. Adding like...");
+      target.likes.push({ userId, fullName, date: new Date() }); // Like
     }
 
     await promotion.save();
+    console.log("✅ Promotion saved successfully with updated likes");
 
     res.status(200).json({
       message: "Like toggled successfully",
       likes: target.likes,
     });
   } catch (error) {
-    console.error("Error toggling like:", error);
+    console.error("❌ Error toggling like:", error);
     res.status(500).json({ message: "Internal Server Error" });
   }
 });
@@ -356,10 +391,22 @@ router.patch("/:promotionId/edit-comment/:commentId", async (req, res) => {
     const promotion = await Promotion.findById(promotionId);
     if (!promotion) return res.status(404).json({ message: "Promotion not found" });
 
+    let updatedComment = null;
+
     const updateCommentRecursively = (comments) => {
       for (const c of comments) {
         if (c._id.toString() === commentId) {
           c.commentText = newText;
+          updatedComment = {
+            _id: c._id,
+            userId: c.userId,
+            fullName: c.fullName,
+            commentText: newText,
+            createdAt: c.createdAt,
+            updatedAt: new Date(),
+            likes: c.likes || [],
+            replies: c.replies || []
+          };
           return true;
         }
         if (c.replies?.length && updateCommentRecursively(c.replies)) return true;
@@ -367,13 +414,18 @@ router.patch("/:promotionId/edit-comment/:commentId", async (req, res) => {
       return false;
     };
 
-    const updated = updateCommentRecursively(promotion.comments || []);
-    if (!updated) return res.status(404).json({ message: "Comment or reply not found" });
+    const found = updateCommentRecursively(promotion.comments || []);
+    if (!found) {
+      return res.status(404).json({ message: "Comment or reply not found" });
+    }
 
     promotion.updatedAt = new Date();
     await promotion.save();
 
-    res.json({ message: "Comment updated successfully" });
+    res.json({
+      message: "Comment updated successfully",
+      updatedComment
+    });
   } catch (error) {
     console.error("Error editing comment:", error);
     res.status(500).json({ message: "Internal Server Error" });

@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TextInput, StyleSheet, TouchableOpacity } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { hasLikedCheck } from '../../utils/LikeHandlers/hasLikedCheck';
 
 const CommentBubble = ({
   fullName,
@@ -15,8 +16,8 @@ const CommentBubble = ({
   onToggleLike,
   isReply = false,
 }) => {
-  const hasLiked = Array.isArray(likes) && likes.includes(userId);
-
+  const hasLiked = hasLikedCheck(likes, userId);
+  
   return (
     <View style={[styles.commentBubble, isReply && { marginLeft: 20 }]}>
       <Text style={styles.commentAuthor}>{fullName}:</Text>

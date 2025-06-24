@@ -8,12 +8,12 @@ import { useNavigation } from '@react-navigation/native';
 import { useDispatch, useSelector } from 'react-redux';
 import { selectLogo, fetchLogo } from '../../../Slices/PhotosSlice';
 import { Avatar } from '@rneui/base';
+import { getTimeLabel } from '../../../utils/formatEventPromoTime';
 
-const DetailsHeader = ({ activity, getTimeSincePosted }) => {
+const DetailsHeader = ({ activity, getTimeSincePosted, likedAnimations, handleLikeWithAnimation, lastTapRef, photoTapped }) => {
     const navigation = useNavigation();
     const dispatch = useDispatch();
     const logo = useSelector(selectLogo);
-    console.log(activity);
     const selectedType = activity.kind === "activiteEvent" ? "event" : "promo";
     const { allEvents = [], allPromos = [], placeId, businessName } = activity;
     const [selectedItemIndex, setSelectedItemIndex] = useState(0);
@@ -52,6 +52,7 @@ const DetailsHeader = ({ activity, getTimeSincePosted }) => {
                 </View>
                 <View style={styles.detailsSection}>
                     <Text style={styles.itemTitle}>{activity?.title}</Text>
+                    <Text style={styles.time}>{getTimeLabel(activity)}</Text>
                     <Text style={styles.itemDescription}>{activity?.description}</Text>
                 </View>
                 {activity?.photos?.length > 0 && (
@@ -62,7 +63,7 @@ const DetailsHeader = ({ activity, getTimeSincePosted }) => {
                             pagingEnabled
                             bounces={false}
                             showsHorizontalScrollIndicator={false}
-                            keyExtractor={(item) => item._id}
+                            keyExtractor={(item) => item?._id}
                             onScroll={Animated.event(
                                 [{ nativeEvent: { contentOffset: { x: scrollX } } }],
                                 { useNativeDriver: false }
@@ -77,7 +78,7 @@ const DetailsHeader = ({ activity, getTimeSincePosted }) => {
                             renderItem={({ item: photo }) => (
                                 <PhotoItem
                                     photo={photo}
-                                    reviewItem={selectedItem}
+                                    reviewItem={activity}
                                     likedAnimations={likedAnimations}
                                     photoTapped={photoTapped}
                                     handleLikeWithAnimation={handleLikeWithAnimation}
@@ -109,7 +110,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     headerText: {
-        padding: 10,
+        //padding: 10,
     },
     userInfo: {
         flexDirection: 'row',
@@ -172,5 +173,10 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         color: '#33cccc',
     },
-
+    time: {
+        fontSize: 14,
+        color: '#d32f2f',
+        fontWeight: '600',
+        marginBottom: 10,
+    },
 })
