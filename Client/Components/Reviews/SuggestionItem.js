@@ -13,26 +13,29 @@ import PhotoItem from "./PhotoItem";
 import PhotoPaginationDots from "./PhotoPaginationDots";
 import InviteModal from "../ActivityInvites/InviteModal";
 import { selectInvites } from "../../Slices/InvitesSlice";
-import { useSelector } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { useNavigation } from "@react-navigation/native";
 import SuggestionDetailsModal from "../SuggestionDetails/SuggestionDetailsModal";
-import { handleEventOrPromoLike } from "../../utils/LikeHandlers/promoEventLikes";
+import { eventPromoLikeWithAnimation } from "../../utils/LikeHandlers/promoEventLikes";
 import PostActions from "./PostActions";
+import { selectUser } from "../../Slices/UserSlice";
 
 const screenWidth = Dimensions.get("window").width;
 
 export default function SuggestionItem({ suggestion }) {
     const navigation = useNavigation();
+    const dispatch = useDispatch();
+    const user = useSelector(selectUser);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [detailsModalVisible, setDetailsModalVisible] = useState(false);
     const [inviteModalVisible, setInviteModalVisible] = useState(false);
+    const [likedAnimations, setLikedAnimations] = useState({});
+    const lastTapRef = useRef({});
     const invites = useSelector(selectInvites);
     const scrollX = useRef(new Animated.Value(0)).current;
 
     const { businessName, logoUrl, distance, title } = suggestion;
     const photos = suggestion?.photos || [];
-
-    console.log(suggestion);
 
     const rawInvite = invites.find(invite => {
         if (!invite.placeId || !invite.dateTime) return false;
@@ -80,8 +83,18 @@ export default function SuggestionItem({ suggestion }) {
         navigation.navigate('EventDetails', { activity: suggestion });
     };
 
-    const handleLikeWithAnimation = () => {
-        console.log('post liked');
+    const handleLikeWithAnimation = (item, force = true) => {
+        eventPromoLikeWithAnimation({
+            type: item.kind.includes('Promo') ? 'promo' : 'event',
+            postId: item._id,
+            item,
+            user,
+            lastTapRef,
+            likedAnimations,
+            setLikedAnimations,
+            dispatch,
+            force,
+        });
     };
 
     return (
@@ -166,10 +179,10 @@ export default function SuggestionItem({ suggestion }) {
                 </View>
             )}
             <View style={{ flexDirection: 'row', marginBottom: -30, marginTop: -10 }}>
-                <PostActions 
+                <PostActions
                     item={suggestion}
                     handleOpenComments={handleOpenComments}
-                    handeLikeWithAnimation={handleLikeWithAnimation}
+                    handleLikeWithAnimation={handleLikeWithAnimation}
                 />
                 <TouchableOpacity
                     style={styles.inviteButton}

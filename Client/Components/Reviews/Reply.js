@@ -1,11 +1,12 @@
-import React, { useState, useRef, useEffect} from 'react';
-import { View, Text, TouchableOpacity, TextInput, StyleSheet, TouchableWithoutFeedback} from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, TextInput, StyleSheet, TouchableWithoutFeedback } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser } from '../../Slices/UserSlice';
-import {toggleCommentLike} from '../../Slices/ReviewsSlice';
+import { toggleCommentLike } from '../../Slices/ReviewsSlice';
 import { findTopLevelCommentId } from '../../functions';
 import { setSelectedComment, setSelectedReply } from '../../Slices/CommentThreadSlice';
+import { hasLikedCheck } from '../../utils/LikeHandlers/hasLikedCheck';
 
 const Reply = ({
   reply,
@@ -30,6 +31,8 @@ const Reply = ({
   placeId,
   postId,
   review,
+  likePromoEventComment,
+  isPromoOrEvent = false,
 }) => {
   const dispatch = useDispatch();
   const [showReplyInput, setShowReplyInput] = useState(false);
@@ -37,8 +40,7 @@ const Reply = ({
   const user = useSelector(selectUser);
   const likes = reply?.likes || [];
   const userId = user?.id;
-
-  const hasLiked = Array.isArray(likes) && likes.includes(userId);
+  const hasLiked = hasLikedCheck(likes, userId);
 
   const setNativeRef = (node) => {
     if (node) {
@@ -47,7 +49,7 @@ const Reply = ({
   };
 
   const handleAddNestedReply = async () => {
-    if (!nestedReplyText) return;
+    //if (!nestedReplyText) return;
     await onAddReply(reply._id, nestedReplyText); // Pass reply ID and text
     setNestedReplyText('');
     setShowReplyInput(false);
@@ -57,17 +59,21 @@ const Reply = ({
 
   const handleToggleLike = () => {
     const topLevelCommentId = findTopLevelCommentId(review.comments, reply._id);
-    if (!topLevelCommentId) return;
-  
-    dispatch(toggleCommentLike({
-      postType,
-      placeId,
-      postId,
-      commentId: topLevelCommentId, // ✅ root-level comment ID
-      replyId: reply._id,
-      userId,
-    }));
-  };  
+    //if (!topLevelCommentId) return;
+
+    if (!isPromoOrEvent) {
+      dispatch(toggleCommentLike({
+        postType,
+        placeId,
+        postId,
+        commentId: topLevelCommentId, // ✅ root-level comment ID
+        replyId: reply._id,
+        userId,
+      }));
+    } else {
+      likePromoEventComment(reply._id);
+    }
+  };
 
   return (
     <TouchableWithoutFeedback
@@ -155,7 +161,7 @@ const Reply = ({
               value={nestedReplyText}
               onChangeText={setNestedReplyText}
             />
-            <TouchableOpacity style={styles.commentButton} onPress={handleAddNestedReply}>
+            <TouchableOpacity style={styles.commentButton} onPress={() => handleAddNestedReply()}>
               <Text style={styles.commentButtonText}>Reply</Text>
             </TouchableOpacity>
           </View>
@@ -190,6 +196,8 @@ const Reply = ({
               placeId={placeId}
               postId={postId}
               review={review}
+              likePromoEventComment={likePromoEventComment}
+              isPromoOrEvent={isPromoOrEvent}
             />
           ))}
       </View>

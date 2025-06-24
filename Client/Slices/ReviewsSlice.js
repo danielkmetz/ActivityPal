@@ -555,6 +555,7 @@ const reviewsSlice = createSlice({
           state.userAndFriendsReviews = [];
         }
         state.userAndFriendsReviews = [action.payload, ...state.userAndFriendsReviews];
+        state.profileReviews = [action.payload, ...state.profileReviews];
       })
       .addCase(createReview.rejected, (state, action) => {
         state.loading = "idle";

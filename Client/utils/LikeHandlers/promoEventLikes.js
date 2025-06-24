@@ -39,7 +39,8 @@ export const handleEventOrPromoLike = async ({
 
   try {
     const toggleThunk = type === 'event' ? toggleEventLike : togglePromoLike;
-    const { payload } = await dispatch(toggleThunk({ postId, placeId, userId, fullName }));
+    const payload = await dispatch(toggleThunk({ id: postId, placeId, userId, fullName }));
+    console.log(payload)
 
     const userLiked = payload?.likes?.some(like => like.userId === userId);
 
@@ -75,14 +76,21 @@ export const eventPromoLikeWithAnimation = async ({
   lastTapRef.current ||= {};
   lastTapRef.current[postId] ||= 0;
 
+  console.log("👍 Like tapped on post:", postId);
+  console.log("Previous tap time:", lastTapRef.current[postId]);
+  console.log("Time since last tap:", now - lastTapRef.current[postId]);
+  console.log("Force animation?", force);
+
   const wasLikedBefore = item?.likes?.some(like => like.userId === user?.id);
   const shouldAnimate = force || (now - lastTapRef.current[postId] < 300);
 
   if (!shouldAnimate) {
+    console.log("⏱️ Tap delay too long — not animating. Waiting for next tap.");
     lastTapRef.current[postId] = now;
     return;
   }
 
+  console.log("🚀 Dispatching like action...");
   await handleEventOrPromoLike({
     type,
     postId,
@@ -93,9 +101,12 @@ export const eventPromoLikeWithAnimation = async ({
   });
 
   if (!wasLikedBefore) {
+    console.log("💚 First time liking — preparing animation.");
+
     let animation = likedAnimations[postId];
 
     if (!(animation instanceof Animated.Value)) {
+      console.log("✨ Creating new Animated.Value for post:", postId);
       animation = new Animated.Value(0);
       setLikedAnimations(prev => ({
         ...prev,
@@ -103,7 +114,10 @@ export const eventPromoLikeWithAnimation = async ({
       }));
     }
 
+    console.log("🎞️ Running like animation for post:", postId);
     runLikeAnimation(animation);
+  } else {
+    console.log("🔁 Already liked — skipping animation.");
   }
 
   lastTapRef.current[postId] = now;
