@@ -23,7 +23,7 @@ const CommentInputFooter = ({
           value={commentText}
           onChangeText={setCommentText}
           multiline={true}
-          textAlignVertical="top"
+          textAlignVertical="center"
           onContentSizeChange={(event) => {
             setContentHeight(event.nativeEvent.contentSize.height);
           }}
@@ -48,12 +48,11 @@ const styles = StyleSheet.create({
   },
   commentInput: {
     flex: 1,
-    height: 40,
     borderWidth: 1,
     borderColor: '#ccc',
     borderRadius: 5,
     paddingHorizontal: 10,
-    minHeight: 40,
+    textAlignVertical: 'center',
   },
   commentButton: {
     backgroundColor: '#009999',

@@ -1,16 +1,16 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Image, Text, Animated, TouchableWithoutFeedback, Dimensions, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { VideoView } from 'expo-video';
 import { useSmartVideoPlayer } from '../../utils/useSmartVideoPlayer';
 import { isVideo } from '../../utils/isVideo';
+import { useLikeAnimations } from '../../utils/LikeHandlers/LikeAnimationContext';
 
 const screenWidth = Dimensions.get("window").width;
 
 const PhotoItem = ({
     photo,
     reviewItem,
-    likedAnimations,
     photoTapped,
     index,
     handleLikeWithAnimation,
@@ -18,8 +18,14 @@ const PhotoItem = ({
     isInteractive = true,
     onOpenFullScreen,
 }) => {
-    const animation = likedAnimations?.[reviewItem._id] || new Animated.Value(0);
+    const { getAnimation, registerAnimation } = useLikeAnimations(); // ✅ use context
+    const animation = getAnimation(reviewItem?._id);
     const player = useSmartVideoPlayer(photo);
+
+    useEffect(() => {
+        if (!reviewItem?._id) return;
+        registerAnimation(reviewItem._id);
+    }, [reviewItem?._id]);
 
     const handleTap = () => {
         if (!isInteractive) return;
@@ -45,7 +51,7 @@ const PhotoItem = ({
     };
 
     return (
-        <View 
+        <View
             style={styles.photoContainer}
             pointerEvents={isInteractive ? "auto" : "none"}
         >

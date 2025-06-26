@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
     View,
     Text,
@@ -32,6 +32,7 @@ export default function SuggestionItem({ suggestion }) {
     const [likedAnimations, setLikedAnimations] = useState({});
     const lastTapRef = useRef({});
     const invites = useSelector(selectInvites);
+    const tapTimeoutRef = useRef(null);
     const scrollX = useRef(new Animated.Value(0)).current;
 
     const { businessName, logoUrl, distance, title } = suggestion;
@@ -97,6 +98,34 @@ export default function SuggestionItem({ suggestion }) {
         });
     };
 
+    const handlePhotoTap = (item) => {
+        const now = Date.now();
+        const lastTap = lastTapRef.current[item._id] || 0;
+        const DOUBLE_TAP_DELAY = 150;
+
+        if (now - lastTap < DOUBLE_TAP_DELAY) {
+            clearTimeout(tapTimeoutRef.current);
+            lastTapRef.current[item._id] = 0;
+            handleLikeWithAnimation(item); // Double tap => like
+        } else {
+            lastTapRef.current[item._id] = now;
+
+            if (tapTimeoutRef.current) {
+                clearTimeout(tapTimeoutRef.current);
+            }
+
+            tapTimeoutRef.current = setTimeout(() => {
+                setDetailsModalVisible(true); // Single tap => open modal
+            }, DOUBLE_TAP_DELAY);
+        }
+    };
+
+    useEffect(() => {
+        return () => {
+            if (tapTimeoutRef.current) clearTimeout(tapTimeoutRef.current);
+        };
+    }, []);
+
     return (
         <View style={styles.card}>
             {suggestion.kind && (
@@ -135,7 +164,10 @@ export default function SuggestionItem({ suggestion }) {
                         scrollEventThrottle={16}
                         renderItem={({ item }) => (
                             <View>
-                                <TouchableOpacity activeOpacity={0.85} onPress={() => setDetailsModalVisible(true)}>
+                                <TouchableOpacity
+                                    activeOpacity={0.85}
+                                    onPress={() => handlePhotoTap(suggestion)}
+                                >
                                     <PhotoItem photo={item} isInteractive={false} />
                                 </TouchableOpacity>
                             </View>
@@ -159,7 +191,7 @@ export default function SuggestionItem({ suggestion }) {
                 </View>
             ) : (
                 <View>
-                    <TouchableOpacity activeOpacity={.85} onPress={() => setDetailsModalVisible(true)}>
+                    <TouchableOpacity activeOpacity={.85} onPress={() => handlePhotoTap(suggestion)}>
                         <PhotoItem photo={suggestion} isInteractive={false} />
                     </TouchableOpacity>
                     <View style={styles.overlayTopText}>
@@ -178,7 +210,7 @@ export default function SuggestionItem({ suggestion }) {
                     </View>
                 </View>
             )}
-            <View style={{ flexDirection: 'row', marginBottom: -30, marginTop: -10 }}>
+            <View style={{ flexDirection: 'row', marginBottom: -30, marginTop: -10, padding: 15 }}>
                 <PostActions
                     item={suggestion}
                     handleOpenComments={handleOpenComments}

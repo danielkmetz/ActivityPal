@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FlatList, StyleSheet, Animated, Easing, Keyboard, PanResponder, InteractionManager, } from 'react-native';
+import { FlatList, StyleSheet, Animated, Easing, PanResponder, InteractionManager, KeyboardAvoidingView, Keyboard, Platform } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import dayjs from 'dayjs';
@@ -26,16 +26,16 @@ dayjs.extend(relativeTime);
 export default function CommentScreen() {
     const navigation = useNavigation();
     const route = useRoute();
-    const { 
+    const {
         reviewId,
-        handleLikeWithAnimation, 
-        toggleTaggedUsers, 
-        likedAnimations, 
-        lastTapRef, 
-        targetId, 
+        handleLikeWithAnimation,
+        toggleTaggedUsers,
+        likedAnimations,
+        lastTapRef,
+        targetId,
         photoTapped,
         isBusinessReview = false,
-        isOtherUserReview = false, 
+        isOtherUserReview = false,
         isSuggestedFollowPost = false,
     } = route.params;
     const dispatch = useDispatch();
@@ -64,9 +64,6 @@ export default function CommentScreen() {
     const [contentHeight, setContentHeight] = useState(40);
 
     const shiftAnim = useRef(new Animated.Value(0)).current;
-    const panX = useRef(new Animated.Value(0)).current;
-    const previewX = useRef(new Animated.Value(0)).current;
-
     const flatListRef = useRef(null);
     const commentRefs = useRef({});
     const hasScrolledToTarget = useRef(false);
@@ -77,7 +74,7 @@ export default function CommentScreen() {
             setKeyboardHeight(height);
             setIsInputCovered(true);
             Animated.timing(shiftAnim, {
-                toValue: -height + 50,
+                toValue: -height + 10,
                 duration: 300,
                 easing: Easing.out(Easing.ease),
                 useNativeDriver: true,
@@ -120,79 +117,83 @@ export default function CommentScreen() {
         setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     };
 
-    const panResponder = useRef(
-        PanResponder.create({
-            onMoveShouldSetPanResponder: (_, gestureState) => {
-                const { dx, dy } = gestureState;
-                return Math.abs(dx) > 10 && Math.abs(dy) < 10 && !isPhotoListActive;
-            },
-            onPanResponderMove: (_, { dx }) => {
-                if (dx > 0) previewX.setValue(dx);
-                else previewX.setValue(0);
-            },
-            onPanResponderRelease: (_, { dx, vx }) => {
-                const fast = vx > 2.7;
-                const far = dx > 150;
-                if (fast || far) navigation.goBack();
-                else Animated.timing(previewX, { toValue: 0, duration: 150, useNativeDriver: true }).start();
-            }
-        })
-    ).current;
-
     const waitForRefsAndScroll = (targetId, parentChain) => {
+        console.log("🚦 waitForRefsAndScroll triggered with:", { targetId, parentChain });
+
         InteractionManager.runAfterInteractions(() => {
+            console.log("⏳ InteractionManager done");
+
             setTimeout(() => {
                 let attempts = 0;
                 const max = 20;
 
                 const interval = setInterval(() => {
                     const flatList = flatListRef.current;
-                    const ref = commentRefs.current[targetId];
+                    const targetNode = commentRefs.current[targetId];
 
-                    console.log(`🔁 [Attempt ${attempts + 1}] ref exists:`, !!ref, 'measureLayout exists:', !!ref?.measureLayout);
+                    console.log(`🔁 [Attempt ${attempts + 1}] Checking refs:`);
+                    console.log("   📋 flatListRef.current:", !!flatList);
+                    console.log("   📋 commentRefs.current[targetId]:", !!targetNode);
 
-                    if (flatList && ref?.measureLayout) {
+                    if (flatList && targetNode) {
+                        console.log("✅ Both flatList and targetNode exist");
+
                         requestAnimationFrame(() => {
                             try {
-                                ref.measureLayout(flatList.getNativeScrollRef(), (x, y) => {
-                                    console.log("✅ measureLayout success:", y);
-                                    flatList.scrollToOffset({ offset: Math.max(y - 200, 0), animated: true });
-                                }, (err) => console.warn("⚠️ measureLayout error:", err));
+                                console.log("🧪 Attempting targetNode.measureLayout");
+                                targetNode.measureLayout(
+                                    flatList.getNativeScrollRef(),
+                                    (x, y) => {
+                                        console.log("📍 measureLayout SUCCESS — scroll Y position:", y);
+                                        flatList.scrollToOffset({ offset: Math.max(y - 200, 0), animated: true });
+                                    },
+                                    (err) => {
+                                        console.warn("⚠️ measureLayout CALLBACK error:", err);
+                                    }
+                                );
                             } catch (err) {
-                                console.warn("❌ measureLayout threw:", err);
+                                console.warn("❌ measureLayout THREW error:", err);
                             }
                         });
+
                         clearInterval(interval);
                     } else if (++attempts >= max) {
                         clearInterval(interval);
+                        console.warn("🛑 Max attempts reached, using fallback method");
+
                         const fallbackIndex = review?.comments?.findIndex(c =>
                             c._id === targetId || c._id === parentChain?.[0]
                         );
-                        if (fallbackIndex !== -1 && flatListRef.current) {
-                            console.warn("⚠️ Using fallback index scroll:", fallbackIndex);
-                            flatListRef.current.scrollToIndex({ index: fallbackIndex, animated: true, viewPosition: 0.5 });
+
+                        console.log("🔍 Fallback index:", fallbackIndex);
+
+                        if (fallbackIndex !== -1 && flatList) {
+                            console.log("📦 Using fallback scrollToIndex");
+                            flatList.scrollToIndex({ index: fallbackIndex, animated: true, viewPosition: 0.5 });
                         } else {
-                            console.warn("⚠️ Fallback index not found or flatListRef is null.");
+                            console.warn("⚠️ Fallback failed: index not found or flatList is null");
                         }
                     }
-                }, 200);
-            }, 200); // small delay ensures CommentThread has mounted
+                }, 200)
+            }, 200); // delay ensures children are mounted
         });
     };
 
     useFocusEffect(
         React.useCallback(() => {
-            console.log("🔁 useFocusEffect triggered with targetId:", targetId);
+            console.log("🔁 useFocusEffect START — targetId:", targetId);
+            hasScrolledToTarget.current = false;
 
             if (!targetId || !Array.isArray(review?.comments)) {
                 console.warn("⚠️ Invalid targetId or comments not loaded.");
                 return;
             }
 
-            hasScrolledToTarget.current = false;
-
             const timer = setTimeout(() => {
+                console.log("⏲️ Delay passed — starting nested search");
                 InteractionManager.runAfterInteractions(() => {
+                    console.log("🎯 Running after interactions to search for comment");
+
                     let found = null;
                     let parentChain = [];
 
@@ -210,7 +211,7 @@ export default function CommentScreen() {
                     };
 
                     findNested(review.comments, targetId);
-                    console.log("🔎 Target comment found:", !!found, "Parent chain:", parentChain);
+                    console.log("🔎 Nested search result — found:", !!found, "parentChain:", parentChain);
 
                     if (found) {
                         if (parentChain.length > 0) {
@@ -218,20 +219,26 @@ export default function CommentScreen() {
                                 ...nestedExpandedReplies,
                                 ...parentChain.reduce((acc, id) => ({ ...acc, [id]: true }), {}),
                             };
-                            console.log("📂 Expanding parent replies:", expanded);
+                            console.log("📂 Dispatching expanded reply set:", expanded);
                             dispatch(setNestedExpandedReplies(expanded));
                             dispatch(toggleReplyExpansion(parentChain[0]));
                         }
 
-                        waitForRefsAndScroll(targetId, parentChain); // ✅ always call this regardless
+                        console.log("🚀 Calling waitForRefsAndScroll()");
+                        waitForRefsAndScroll(targetId, parentChain);
                         hasScrolledToTarget.current = true;
                     } else {
-                        console.warn("❌ Target comment not found in nested structure.");
+                        console.warn("❌ Comment not found in nested structure.");
                     }
                 });
             }, 400);
 
-            return () => clearTimeout(timer);
+            return () => {
+                clearTimeout(timer);
+                hasScrolledToTarget.current = false;
+                commentRefs.current = {};
+                console.log("🔚 useFocusEffect CLEANUP");
+            };
         }, [review?.comments, targetId])
     );
 
@@ -241,8 +248,7 @@ export default function CommentScreen() {
 
     return (
         <Animated.View
-            style={[styles.container, { transform: [{ translateX: panX }, { translateY: shiftAnim }] }]}
-            {...panResponder.panHandlers}
+            style={[styles.container, { transform: [{ translateY: shiftAnim }] }]}
         >
             <FlatList
                 ref={flatListRef}

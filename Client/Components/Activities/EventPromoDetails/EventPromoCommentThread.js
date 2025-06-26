@@ -41,7 +41,7 @@ export default function EventPromoCommentThread({ item, post, commentText, setCo
     const commentRef = useRef(null);
     const commentRefs = useRef({});
     const isEvent = type === 'event';
-
+    
     const getTimeSincePosted = (dateString) => dayjs(dateString).fromNow(true);
 
     const handleAddReply = (commentId, text) => {
@@ -58,6 +58,8 @@ export default function EventPromoCommentThread({ item, post, commentText, setCo
             commentText: text,
         }));
 
+        dispatch(toggleReplyExpansion(replyingTo));
+
         setCommentText('');
         dispatch(setReplyingTo(null));
     };
@@ -72,22 +74,6 @@ export default function EventPromoCommentThread({ item, post, commentText, setCo
             userId,
             fullName
         }));
-    };
-
-    const handleCommentSubmit = () => {
-        if (!commentText.trim()) return;
-
-        const commentThunk = isEvent ? leaveEventComment : leavePromoComment;
-
-        dispatch(commentThunk({
-            placeId: post.placeId,
-            id: post._id,
-            userId,
-            fullName,
-            commentText
-        }));
-
-        setCommentText('');
     };
 
     const handleEditComment = () => {
@@ -163,30 +149,29 @@ export default function EventPromoCommentThread({ item, post, commentText, setCo
                     <CommentBubble
                         fullName={item.fullName}
                         commentText={item.commentText}
-                        commentId={item._id}
+                        commentId={item?._id}
                         likes={item.likes}
                         userId={userId}
                         isReply={false}
                         isEditing={isEditing}
-                        isSelected={selectedComment?._id === item._id}
-                        onToggleLike={() => handleLike(item._id)}
+                        isSelected={selectedComment?._id === item?._id}
+                        onToggleLike={() => handleLike(item?._id)}
+                        setEditedText={(text) => dispatch(setEditedText(text))}
+                        editedText={editedText}
                     />
-
                     <View style={styles.replyContainer}>
                         <Text style={styles.commentDate}>{getTimeSincePosted(item.date)}</Text>
-
                         <CommentActions
                             isEditing={isEditing}
-                            isSelected={selectedComment?._id === item._id}
+                            isSelected={selectedComment?._id === item?._id}
                             onSaveEdit={handleSaveEdit}
                             onCancelEdit={handleCancelEdit}
                             onReply={handleReplyToggle}
-                            isReplying={replyingTo === item._id}
+                            isReplying={replyingTo === item?._id}
                         />
-
                         {item.replies?.length > 0 && (
                             <TouchableOpacity
-                                onPress={() => dispatch(toggleReplyExpansion(item._id))}
+                                onPress={() => dispatch(toggleReplyExpansion(item?._id))}
                                 style={styles.expandRepliesButton}
                             >
                                 <MaterialCommunityIcons
@@ -200,7 +185,6 @@ export default function EventPromoCommentThread({ item, post, commentText, setCo
                             </TouchableOpacity>
                         )}
                     </View>
-
                     {replyingTo === item._id && (
                         <View style={styles.nestedReplyInputContainer}>
                             <TextInput
@@ -214,7 +198,6 @@ export default function EventPromoCommentThread({ item, post, commentText, setCo
                             </TouchableOpacity>
                         </View>
                     )}
-
                     {expandedReplies[item._id] && item.replies?.length > 0 && (
                         <View style={styles.repliesContainer}>
                             {item.replies.map((reply) => (
@@ -250,7 +233,6 @@ export default function EventPromoCommentThread({ item, post, commentText, setCo
                     )}
                 </View>
             </TouchableWithoutFeedback>
-
             <CommentOptionsModal
                 isVisible={isOptionsVisible}
                 onClose={() => setOptionsVisible(false)}
@@ -263,8 +245,8 @@ export default function EventPromoCommentThread({ item, post, commentText, setCo
 
 const styles = StyleSheet.create({
     commentCard: {
-        marginBottom: 12,
-        paddingHorizontal: 16,
+        //marginBottom: 12,
+        //paddingHorizontal: 16,
     },
     replyContainer: {
         flexDirection: 'row',

@@ -46,17 +46,7 @@ export default function CommentThread({ item, review, commentRefs, commentText, 
   const expandedReplies = useSelector(selectExpandedReplies);
   const nestedExpandedReplies = useSelector(selectNestedExpandedReplies);
   const nestedReplyInput = useSelector(selectNestedReplyInput);
-  const containerRef = useRef(null);
-
-  useEffect(() => {
-    if (item?._id && containerRef.current) {
-      commentRefs.current[item._id] = containerRef.current;
-    }
-    return () => {
-      delete commentRefs.current[item._id];
-    };
-  }, [item?._id]);
-
+  
   const getTimeSincePosted = (dateString) => dayjs(dateString).fromNow(true);
 
   const handleAddReply = () => {
@@ -162,7 +152,14 @@ export default function CommentThread({ item, review, commentRefs, commentText, 
       <TouchableWithoutFeedback
         onLongPress={() => handleLongPress(item)}
       >
-        <View style={styles.commentCard} ref={containerRef}>
+        <View
+          onLayout={(e) => {
+            if (item?._id) {
+              commentRefs.current[item._id] = e.nativeEvent.target;
+            }
+          }}
+          style={styles.commentCard}
+        >
           <CommentBubble
             fullName={item.fullName}
             commentText={item.commentText}
@@ -177,7 +174,6 @@ export default function CommentThread({ item, review, commentRefs, commentText, 
             isReply={false}
             onToggleLike={handleToggleLike}
           />
-
           <View style={styles.replyContainer}>
             <Text style={styles.commentDate}>{getTimeSincePosted(item.date)}</Text>
 
@@ -206,7 +202,6 @@ export default function CommentThread({ item, review, commentRefs, commentText, 
               </TouchableOpacity>
             )}
           </View>
-
           {replyingTo === item._id && (
             <View style={styles.nestedReplyInputContainer}>
               <TextInput
@@ -220,7 +215,6 @@ export default function CommentThread({ item, review, commentRefs, commentText, 
               </TouchableOpacity>
             </View>
           )}
-
           {expandedReplies[item._id] && item.replies?.length > 0 && (
             <View style={styles.repliesContainer}>
               {item.replies.map((reply) => (
@@ -267,7 +261,7 @@ export default function CommentThread({ item, review, commentRefs, commentText, 
 
 const styles = StyleSheet.create({
   commentCard: {
-    marginBottom: 5,
+    marginVertical: 5,
   },
   commentButton: {
     backgroundColor: '#009999',

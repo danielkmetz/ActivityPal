@@ -28,7 +28,6 @@ const screenWidth = Dimensions.get("window").width;
 
 export default function ReviewItem({
     item,
-    likedAnimations,
     photoTapped,
     toggleTaggedUsers,
     handleLikeWithAnimation,
@@ -36,7 +35,6 @@ export default function ReviewItem({
     lastTapRef,
     handleEdit,
     handleDelete,
-    setLikedAnimations,
     following,
     followRequests,
 }) {
@@ -70,8 +68,6 @@ export default function ReviewItem({
             reviewId: item._id,
             initialIndex: index,
             lastTapRef,
-            likedAnimations,
-            setLikedAnimations,
             taggedUsersByPhotoKey: taggedUsersByPhotoKey || {}, // or however you pass it
             isSuggestedPost: isSuggestedFollowPost,
         });
@@ -260,7 +256,6 @@ export default function ReviewItem({
                                     photo={photo}
                                     index={index}
                                     reviewItem={item}
-                                    likedAnimations={likedAnimations}
                                     photoTapped={photoTapped}
                                     toggleTaggedUsers={toggleTaggedUsers}
                                     handleLikeWithAnimation={handleLikeWithAnimation}
@@ -275,13 +270,15 @@ export default function ReviewItem({
                 <Text style={styles.date}>
                     Posted: {item.date ? new Date(item.date).toISOString().split("T")[0] : "Now"}
                 </Text>
-                <PostActions
-                    item={item}
-                    handleLikeWithAnimation={handleLikeWithAnimation}
-                    handleOpenComments={handleOpenComments}
-                    toggleTaggedUsers={toggleTaggedUsers}
-                    photo={currentPhoto}
-                />
+                <View style={{ padding: 15 }}>
+                    <PostActions
+                        item={item}
+                        handleLikeWithAnimation={handleLikeWithAnimation}
+                        handleOpenComments={handleOpenComments}
+                        toggleTaggedUsers={toggleTaggedUsers}
+                        photo={currentPhoto}
+                    />
+                </View>
             </View>
             <RatingsBreakdownModal
                 visible={ratingsOpen}

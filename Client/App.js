@@ -27,6 +27,7 @@ import { fetchNearbyPromosAndEvents } from './Slices/GooglePlacesSlice';
 import { fetchSuggestedFriends, setHasFetchedSuggestions, selectHasFetchedSuggestions } from './Slices/friendsSlice';
 import { fetchProfilePic } from './Slices/PhotosSlice';
 import client from './apolloClient';
+import { LikeAnimationsProvider } from './utils/LikeHandlers/LikeAnimationContext';
 
 const fetchFonts = async () => {
   return await Font.loadAsync({
@@ -234,11 +235,13 @@ export default function App() {
         <PaperProvider>
           <GestureHandlerRootView style={{ flex: 1 }}>
             <SafeAreaProvider>
-              <NavigationContainer ref={(ref) => {
-                navigationRef.current = ref;
-              }}>
-                <MainApp />
-              </NavigationContainer>
+              <LikeAnimationsProvider>
+                <NavigationContainer ref={(ref) => {
+                  navigationRef.current = ref;
+                }}>
+                  <MainApp />
+                </NavigationContainer>
+              </LikeAnimationsProvider>
             </SafeAreaProvider>
           </GestureHandlerRootView>
         </PaperProvider>

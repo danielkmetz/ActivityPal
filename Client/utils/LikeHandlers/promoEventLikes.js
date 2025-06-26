@@ -1,10 +1,12 @@
 import { Animated } from 'react-native';
-import { createNotification } from '../../Slices/NotificationsSlice';
 import { toggleEventLike } from '../../Slices/EventsSlice';
 import { togglePromoLike } from '../../Slices/PromotionsSlice';
+import { createBusinessNotification } from '../../Slices/BusNotificationsSlice';
 
 // Utility: Trigger like animation
 const runLikeAnimation = (animation) => {
+  if (!(animation instanceof Animated.Value)) return;
+
   Animated.timing(animation, {
     toValue: 1,
     duration: 50,
@@ -22,30 +24,28 @@ const runLikeAnimation = (animation) => {
 
 // Handles like logic + notification
 export const handleEventOrPromoLike = async ({
-  type, // 'event' or 'promo'
+  type,
   postId,
   item,
   userId,
   fullName,
   dispatch,
 }) => {
-  if (!item) {
-    console.warn(`handleEventOrPromoLike: No item provided for postId ${postId}`);
-    return;
-  }
+  if (!item) return;
 
   const placeId = item.placeId;
-  const ownerId = item.userId;
+  const ownerId = item.ownerId?.toString();
 
   try {
     const toggleThunk = type === 'event' ? toggleEventLike : togglePromoLike;
-    const payload = await dispatch(toggleThunk({ id: postId, placeId, userId, fullName }));
-    console.log(payload)
+    const actionResult = await dispatch(toggleThunk({ id: postId, placeId, userId, fullName }));
 
+    const payload = actionResult?.payload;
     const userLiked = payload?.likes?.some(like => like.userId === userId);
+    const isOwner = userId === ownerId;
 
-    if (userLiked && ownerId && ownerId !== userId) {
-      await dispatch(createNotification({
+    if (userLiked && ownerId && !isOwner) {
+      await dispatch(createBusinessNotification({
         userId: ownerId,
         type: 'like',
         message: `${fullName} liked your ${type}.`,
@@ -56,7 +56,7 @@ export const handleEventOrPromoLike = async ({
       }));
     }
   } catch (err) {
-    console.error(`Error toggling like for ${type} (${postId}):`, err);
+    console.error(`Failed to like ${type}:`, err);
   }
 };
 
@@ -67,8 +67,7 @@ export const eventPromoLikeWithAnimation = async ({
   item,
   user,
   lastTapRef,
-  likedAnimations,
-  setLikedAnimations,
+  animation,
   dispatch,
   force = false,
 }) => {
@@ -76,21 +75,15 @@ export const eventPromoLikeWithAnimation = async ({
   lastTapRef.current ||= {};
   lastTapRef.current[postId] ||= 0;
 
-  console.log("👍 Like tapped on post:", postId);
-  console.log("Previous tap time:", lastTapRef.current[postId]);
-  console.log("Time since last tap:", now - lastTapRef.current[postId]);
-  console.log("Force animation?", force);
-
+  const timeSinceLastTap = now - lastTapRef.current[postId];
   const wasLikedBefore = item?.likes?.some(like => like.userId === user?.id);
-  const shouldAnimate = force || (now - lastTapRef.current[postId] < 300);
+  const shouldAnimate = force || timeSinceLastTap < 300;
 
   if (!shouldAnimate) {
-    console.log("⏱️ Tap delay too long — not animating. Waiting for next tap.");
     lastTapRef.current[postId] = now;
     return;
   }
 
-  console.log("🚀 Dispatching like action...");
   await handleEventOrPromoLike({
     type,
     postId,
@@ -100,24 +93,8 @@ export const eventPromoLikeWithAnimation = async ({
     dispatch,
   });
 
-  if (!wasLikedBefore) {
-    console.log("💚 First time liking — preparing animation.");
-
-    let animation = likedAnimations[postId];
-
-    if (!(animation instanceof Animated.Value)) {
-      console.log("✨ Creating new Animated.Value for post:", postId);
-      animation = new Animated.Value(0);
-      setLikedAnimations(prev => ({
-        ...prev,
-        [postId]: animation,
-      }));
-    }
-
-    console.log("🎞️ Running like animation for post:", postId);
+  if (!wasLikedBefore && animation instanceof Animated.Value) {
     runLikeAnimation(animation);
-  } else {
-    console.log("🔁 Already liked — skipping animation.");
   }
 
   lastTapRef.current[postId] = now;

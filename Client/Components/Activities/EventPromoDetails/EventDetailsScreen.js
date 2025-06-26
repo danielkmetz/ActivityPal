@@ -1,6 +1,7 @@
-import React, { useState, useRef } from 'react';
-import { View, Text, StyleSheet, FlatList, Keyboard, KeyboardAvoidingView, Platform, TouchableWithoutFeedback } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import { View, StyleSheet, FlatList, Keyboard, KeyboardAvoidingView, Platform, TouchableWithoutFeedback } from 'react-native';
 import { useRoute } from '@react-navigation/native';
+import { KeyboardAwareFlatList } from 'react-native-keyboard-aware-scroll-view';
 import DetailsHeader from './DetailsHeader';
 import EventPromoCommentThread from './EventPromoCommentThread';
 import CommentInputFooter from '../../Reviews/CommentINputFooter';
@@ -12,6 +13,7 @@ import dayjs from 'dayjs';
 import { selectUser } from '../../../Slices/UserSlice';
 import { selectNearbySuggestionById } from '../../../Slices/GooglePlacesSlice';
 import { selectIsEditing, selectNestedExpandedReplies, selectReplyingTo } from '../../../Slices/CommentThreadSlice';
+import { useLikeAnimations } from '../../../utils/LikeHandlers/LikeAnimationContext';
 
 export default function EventDetailsScreen() {
     const dispatch = useDispatch();
@@ -23,14 +25,14 @@ export default function EventDetailsScreen() {
     const replyingTo = useSelector(selectReplyingTo);
     const nestedReplyInput = useSelector(selectNestedExpandedReplies);
     const isEditing = useSelector(selectIsEditing);
-    const [likedAnimations, setLikedAnimations] = useState({});
-    const [photoTapped, setPhotoTapped] = useState(null);
     const [commentText, setCommentText] = useState('');
     const [inputHeight, setInputHeight] = useState(40);
     const [contentHeight, setContentHeight] = useState(40);
     const lastTapRef = useRef({});
-    const userId = user?.id;
+    const userId = user?.placeId ? user?.placeId : user?.id;
     const fullName = `${user?.firstName} ${user?.lastName}`;
+    const { getAnimation, registerAnimation } = useLikeAnimations();
+    const animation = getAnimation(activity._id);
 
     const handleAddComment = () => {
         if (!commentText.trim()) return;
@@ -48,6 +50,26 @@ export default function EventDetailsScreen() {
         setCommentText('');
     };
 
+    const handleLikeWithAnimation = (item, force = false) => {
+        const animation = getAnimation(item._id);
+        return eventPromoLikeWithAnimation({
+            type: selectedType,
+            postId: item._id,
+            item,
+            user,
+            lastTapRef,
+            animation,
+            dispatch,
+            force,
+        });
+    };
+
+    useEffect(() => {
+        if (suggestion?._id) {
+            registerAnimation(suggestion._id);
+        }
+    }, [suggestion?._id]);
+
     return (
         <KeyboardAvoidingView
             style={styles.container}
@@ -55,18 +77,19 @@ export default function EventDetailsScreen() {
         >
             <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
                 <View style={{ flex: 1 }}>
-                    <FlatList
+                    <KeyboardAwareFlatList
+                        extraScrollHeight={20}
+                        enableAutomaticScroll
                         data={suggestion?.comments}
                         keyExtractor={(item) => item._id}
                         ListHeaderComponent={
                             <DetailsHeader
-                                activity={activity}
+                                activity={suggestion}
                                 selectedType={selectedType}
                                 getTimeSincePosted={(date) => dayjs(date).fromNow(true)}
-                                handleLikeWithAnimation={eventPromoLikeWithAnimation}
-                                likedAnimations={likedAnimations}
+                                handleLikeWithAnimation={handleLikeWithAnimation}
+                                animation={animation}
                                 lastTapRef={lastTapRef}
-                                photoTapped={photoTapped}
                             />
                         }
                         renderItem={({ item }) => (
@@ -82,7 +105,7 @@ export default function EventDetailsScreen() {
                             </View>
                         )}
                     />
-                    {/* {replyingTo === null && !nestedReplyInput && !isEditing && ( */}
+                    {replyingTo === null && !isEditing && (
                         <CommentInputFooter
                             commentText={commentText}
                             setCommentText={setCommentText}
@@ -91,7 +114,7 @@ export default function EventDetailsScreen() {
                             contentHeight={contentHeight}
                             setContentHeight={setContentHeight}
                         />
-                    {/* )} */}
+                    )}
                 </View>
             </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
