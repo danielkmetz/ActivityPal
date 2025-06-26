@@ -119,10 +119,12 @@ export const toggleEventLike = createAsyncThunk(
         { userId, fullName }
       );
 
+      const { likes } = response.data; 
+
       dispatch(updateNearbySuggestionLikes({
         postId: id,
-        likes: response.data.likes,
-      }))
+        likes,
+      }));
 
       return {
         eventId: id,
@@ -176,6 +178,7 @@ export const leaveEventReply = createAsyncThunk(
           userId,
           fullName,
           commentText,
+          placeId,
         }
       );
 
@@ -265,7 +268,7 @@ export const editEventCommentOrReply = createAsyncThunk(
 
 export const deleteEventCommentOrReply = createAsyncThunk(
   "events/deleteEventCommentOrReply",
-  async ({ id, commentId }, { rejectWithValue }) => {
+  async ({ id, commentId }, { rejectWithValue, dispatch }) => {
     try {
       const response = await axios.delete(
         `${BASE_URL}/business/events/${id}/delete-comment/${commentId}`
@@ -277,7 +280,7 @@ export const deleteEventCommentOrReply = createAsyncThunk(
       }));
 
       return {
-        eventId: id,
+        postId: id,
         commentId,
       };
     } catch (error) {

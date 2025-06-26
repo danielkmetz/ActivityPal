@@ -157,11 +157,23 @@ const GooglePlacesSlice = createSlice({
     },
     addNearbySuggestionComment: (state, action) => {
       const { postId, newComment } = action.payload;
+      console.log("📝 addNearbySuggestionComment called with:", { postId, newComment });
+
       const suggestion = state.nearbySuggestions.find(s => s._id === postId);
-      if (suggestion) {
-        suggestion.comments = suggestion.comments || [];
-        suggestion.comments.push(newComment);
+      if (!suggestion) {
+        console.warn("⚠️ No suggestion found with ID:", postId);
+        return;
       }
+
+      console.log("✅ Found suggestion:", suggestion._id);
+
+      if (!suggestion.comments) {
+        console.log("📦 No comments array found — initializing it.");
+        suggestion.comments = [];
+      }
+
+      suggestion.comments.push(newComment);
+      console.log("💬 New comment added. Total comments:", suggestion.comments.length);
     },
     addNearbySuggestionReply: (state, action) => {
       const { postId, commentId, newReply } = action.payload;
@@ -208,21 +220,40 @@ const GooglePlacesSlice = createSlice({
     },
     removeNearbySuggestionCommentOrReply: (state, action) => {
       const { postId, commentId } = action.payload;
-      const suggestion = state.nearbySuggestions.find(s => s._id === postId);
-      if (!suggestion?.comments) return;
+      console.log("🗑️ Attempting to remove comment or reply:", { postId, commentId });
 
-      const removeById = (comments) => {
+      const suggestion = state.nearbySuggestions.find(s => s._id === postId);
+      if (!suggestion?.comments) {
+        console.warn(`⚠️ No suggestion found with ID ${postId} or no comments array exists.`);
+        return;
+      }
+
+      const removeById = (comments, depth = 0) => {
         for (let i = 0; i < comments.length; i++) {
+          const indent = ' '.repeat(depth * 2);
+          console.log(`${indent}🔍 Checking comment ID: ${comments[i]._id}`);
+
           if (comments[i]._id === commentId) {
+            console.log(`${indent}✅ Match found. Removing comment/reply at index ${i}.`);
             comments.splice(i, 1);
             return true;
           }
-          if (comments[i].replies && removeById(comments[i].replies)) return true;
+
+          if (comments[i].replies && comments[i].replies.length > 0) {
+            console.log(`${indent}🔁 Searching nested replies...`);
+            const removed = removeById(comments[i].replies, depth + 1);
+            if (removed) return true;
+          }
         }
         return false;
       };
 
-      removeById(suggestion.comments);
+      const wasRemoved = removeById(suggestion.comments);
+      if (wasRemoved) {
+        console.log("✅ Successfully removed comment or reply from state.");
+      } else {
+        console.warn("❌ Failed to find and remove comment or reply.");
+      }
     },
   },
   extraReducers: (builder) => {

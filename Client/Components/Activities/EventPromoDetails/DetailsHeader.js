@@ -9,12 +9,13 @@ import { useDispatch, useSelector } from 'react-redux';
 import { selectLogo, fetchLogo } from '../../../Slices/PhotosSlice';
 import { Avatar } from '@rneui/base';
 import { getTimeLabel } from '../../../utils/formatEventPromoTime';
+import PostActions from '../../Reviews/PostActions';
 
-const DetailsHeader = ({ activity, getTimeSincePosted, likedAnimations, handleLikeWithAnimation, lastTapRef, photoTapped }) => {
+const DetailsHeader = ({ activity, getTimeSincePosted, handleLikeWithAnimation, lastTapRef }) => {
     const navigation = useNavigation();
     const dispatch = useDispatch();
     const logo = useSelector(selectLogo);
-    const selectedType = activity.kind === "activiteEvent" ? "event" : "promo";
+    const selectedType = ["activeEvent", "upcomingEvent"].includes(activity.kind) ? "event" : "promo";
     const { allEvents = [], allPromos = [], placeId, businessName } = activity;
     const [selectedItemIndex, setSelectedItemIndex] = useState(0);
     const isPromo = selectedType === 'promo'; // If you're using a toggle
@@ -32,6 +33,15 @@ const DetailsHeader = ({ activity, getTimeSincePosted, likedAnimations, handleLi
         navigation.goBack();
     };
 
+    const onOpenFullScreen = (photo, index) => {
+        navigation.navigate('FullScreenPhoto', {
+            reviewId: activity?._id,
+            initialIndex: activity.photos.findIndex(p => p._id === photo._id),
+            taggedUsersByPhotoKey: activity.taggedUsersByPhotoKey || {},
+            isEventPromo: true,
+        })
+    }
+
     return (
         <View style={styles.header}>
             <View style={styles.headerText}>
@@ -46,9 +56,12 @@ const DetailsHeader = ({ activity, getTimeSincePosted, likedAnimations, handleLi
                         rounded
                         source={logo ? { uri: logo } : profilePicPlaceholder}
                     />
-                    <Text style={styles.businessName}>
-                        {businessName}
-                    </Text>
+                    <View style={{ flexDirection: 'column' }}>
+                        <Text style={styles.businessName}>
+                            {businessName}
+                        </Text>
+                        <Text style={styles.eventDate}>{getTimeSincePosted(selectedItem?.date)} ago</Text>
+                    </View>
                 </View>
                 <View style={styles.detailsSection}>
                     <Text style={styles.itemTitle}>{activity?.title}</Text>
@@ -79,8 +92,7 @@ const DetailsHeader = ({ activity, getTimeSincePosted, likedAnimations, handleLi
                                 <PhotoItem
                                     photo={photo}
                                     reviewItem={activity}
-                                    likedAnimations={likedAnimations}
-                                    photoTapped={photoTapped}
+                                    onOpenFullScreen={onOpenFullScreen}
                                     handleLikeWithAnimation={handleLikeWithAnimation}
                                     lastTapRef={lastTapRef}
                                 />
@@ -91,7 +103,13 @@ const DetailsHeader = ({ activity, getTimeSincePosted, likedAnimations, handleLi
                         )}
                     </View>
                 )}
-                <Text style={styles.eventDate}>{getTimeSincePosted(selectedItem?.date)} ago</Text>
+            </View>
+            <View style={{ paddingLeft: 15 }}>
+                <PostActions 
+                    item={activity}
+                    handleLikeWithAnimation={handleLikeWithAnimation}
+                    isCommentScreen={true}
+                />
             </View>
         </View>
     )

@@ -6,6 +6,7 @@ import {
   removeNearbySuggestionCommentOrReply,
   updateNearbySuggestionLikes,
 } from "./GooglePlacesSlice";
+import { createNotification } from "./NotificationsSlice";
 import axios from "axios";
 
 const API_URL = `${process.env.EXPO_PUBLIC_SERVER_URL}/promotions`; // Update this to match your backend URL
@@ -118,10 +119,13 @@ export const leavePromoComment = createAsyncThunk(
 
       const newComment = response.data.comment;
 
+      if (!newComment) {
+        throw new Error("No comment returned from server.");
+      }
+
       dispatch(addNearbySuggestionComment({
         postId: id,
-        commentId: newComment._id,
-        updatedComment: newComment,
+        newComment,
       }));
 
       console.log("📥 Dispatched addNearbySuggestionComment:", { postId: id, newComment });

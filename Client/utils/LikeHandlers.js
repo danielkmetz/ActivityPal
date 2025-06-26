@@ -50,6 +50,10 @@ export const handleLike = async ({
 };
 
 const runLikeAnimation = (animation) => {
+  if (!(animation instanceof Animated.Value)) {
+    console.warn('⚠️ Invalid or missing Animated.Value passed to runLikeAnimation');
+    return;
+  }
   Animated.timing(animation, {
     toValue: 1,
     duration: 50,
@@ -60,7 +64,7 @@ const runLikeAnimation = (animation) => {
         toValue: 0,
         duration: 500,
         useNativeDriver: true,
-      }).start();
+      }).start(() => console.log('✅ Animation back to 0 complete'));
     }, 500);
   });
 };
@@ -70,9 +74,8 @@ export const handleLikeWithAnimation = async ({
   postId,
   review,
   user,
+  animation,        // ✅ Now passed directly
   lastTapRef,
-  likedAnimations,
-  setLikedAnimations,
   dispatch,
   force = false,
 }) => {
@@ -98,17 +101,8 @@ export const handleLikeWithAnimation = async ({
     dispatch,
   });
 
-  if (!wasLikedBefore) {
-    let animation = likedAnimations[postId];
-
-    if (!(animation instanceof Animated.Value)) {
-      animation = new Animated.Value(0);
-      setLikedAnimations(prev => ({
-        ...prev,
-        [postId]: animation,
-      }));
-    }
-
+  // ✅ Animate only if it wasn’t previously liked and the animation is valid
+  if (!wasLikedBefore && animation instanceof Animated.Value) {
     runLikeAnimation(animation);
   }
 

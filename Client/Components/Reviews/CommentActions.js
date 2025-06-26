@@ -12,7 +12,7 @@ const CommentActions = ({
   isReplying,
 }) => {
   return (
-    <View style={styles.actionsContainer}>
+    <View style={[styles.actionsContainer, isEditing && { marginTop: 5 }]}>
       {isEditing && isSelected ? (
         <>
           <TouchableOpacity onPress={onSaveEdit} style={styles.saveButton}>
@@ -68,7 +68,7 @@ const styles = StyleSheet.create({
   },
   replyButtonText: {
     fontSize: 14,
-    color: '#4caf50',
+    color: '#009999',
     fontWeight: 'bold',
     marginLeft: 5,
   },

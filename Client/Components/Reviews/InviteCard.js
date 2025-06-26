@@ -196,11 +196,13 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments }) => 
                 </View>
 
                 <View style={styles.actionsContainer}>
-                    <PostActions
-                        item={invite}
-                        handleLikeWithAnimation={handleLikeWithAnimation}
-                        handleOpenComments={handleOpenComments}
-                    />
+                    <View style={{ paddding: 15 }}>
+                        <PostActions
+                            item={invite}
+                            handleLikeWithAnimation={handleLikeWithAnimation}
+                            handleOpenComments={handleOpenComments}
+                        />
+                    </View>
                     <View style={styles.requestsAttendance}>
                         {!isRecipient || !isSender && (
                             hasRequested ? (

@@ -28,8 +28,6 @@ const screenWidth = Dimensions.get("window").width;
 
 export default function CheckInItem({
     item,
-    likedAnimations,
-    setLikedAnimations,
     photoTapped,
     toggleTaggedUsers,
     handleLikeWithAnimation,
@@ -59,8 +57,6 @@ export default function CheckInItem({
             reviewId: item._id,
             initialIndex: index,
             lastTapRef,
-            likedAnimations,
-            setLikedAnimations,
             taggedUsersByPhotoKey: item.taggedUsersByPhotoKey || {}, // or however you pass it
             isSuggestedPost: isSuggestedFollowPost
         });
@@ -248,7 +244,6 @@ export default function CheckInItem({
                                 photo={photo}
                                 reviewItem={item}
                                 index={index}
-                                likedAnimations={likedAnimations}
                                 photoTapped={photoTapped}
                                 toggleTaggedUsers={toggleTaggedUsers}
                                 handleLikeWithAnimation={handleLikeWithAnimation}
@@ -267,13 +262,15 @@ export default function CheckInItem({
                     ? new Date(item.date).toISOString().split("T")[0]
                     : "Now"}
             </Text>
-            <PostActions
-                item={item}
-                handleLikeWithAnimation={handleLikeWithAnimation}
-                handleOpenComments={handleOpenComments}
-                toggleTaggedUsers={toggleTaggedUsers}
-                photo={currentPhoto}
-            />
+            <View style={{ padding: 15 }}>
+                <PostActions
+                    item={item}
+                    handleLikeWithAnimation={handleLikeWithAnimation}
+                    handleOpenComments={handleOpenComments}
+                    toggleTaggedUsers={toggleTaggedUsers}
+                    photo={currentPhoto}
+                />
+            </View>
         </View>
     );
 }

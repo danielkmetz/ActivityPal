@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Business = require('../models/Business');
+const User = require('../models/User.js');
 const Event = require('../models/Events.js');
 const mongoose = require('mongoose');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
@@ -42,33 +43,38 @@ router.get("/events/:placeId", async (req, res) => {
   const { placeId } = req.params;
 
   try {
+    // Lean query for better performance
     const business = await Business.findOne({ placeId }).lean();
     if (!business) {
       return res.status(404).json({ message: "Business not found" });
     }
 
-    const events = await Event.find({ placeId: business.placeId }).lean();
+    // Lean event fetch for lightweight objects
+    const events = await Event.find({ placeId }).lean();
 
     const enhancedEvents = await Promise.all(
       events.map(async (event) => {
-        const photosWithUrls = await Promise.all(
-          (event.photos || []).map(async (photo) => {
-            const url = await getPresignedUrl(photo.photoKey);
-            return { ...photo, url };
-          })
+        const photos = await Promise.all(
+          (event.photos || []).map(async (photo) => ({
+            ...photo,
+            url: await getPresignedUrl(photo.photoKey),
+          }))
         );
 
         return {
           ...event,
-          photos: photosWithUrls,
+          photos,
           businessName: business.businessName,
+          ownerId: business._id.toString(),
           placeId: business.placeId,
+          kind: 'Event',
         };
       })
     );
 
     res.status(200).json({ events: enhancedEvents });
   } catch (error) {
+    console.error("Error fetching events:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -80,12 +86,12 @@ router.post("/events/:placeId", async (req, res) => {
     title,
     description,
     date,
-    photos,
-    recurring,
-    recurringDays,
+    photos = [],
+    recurring = false,
+    recurringDays = [],
     startTime,
     endTime,
-    allDay
+    allDay = false,
   } = req.body;
 
   try {
@@ -98,24 +104,21 @@ router.post("/events/:placeId", async (req, res) => {
       return res.status(404).json({ message: "Business not found" });
     }
 
-    const photoObjects = await Promise.all(
-      (photos || []).map(async (photo) => {
-        const url = await getPresignedUrl(photo.photoKey);
-        return {
-          photoKey: photo.photoKey,
-          taggedUsers: photo.taggedUsers || [],
-          uploadedBy: placeId,
-          url,
-        };
-      })
+    const enrichedPhotos = await Promise.all(
+      photos.map(async (photo) => ({
+        photoKey: photo.photoKey,
+        taggedUsers: photo.taggedUsers ?? [],
+        uploadedBy: placeId,
+        url: await getPresignedUrl(photo.photoKey),
+      }))
     );
 
     const newEvent = new Event({
       title,
       description,
       date,
-      photos: photoObjects,
-      recurring: !!recurring,
+      photos: enrichedPhotos,
+      recurring,
       recurringDays: recurring ? recurringDays : [],
       startTime,
       endTime,
@@ -125,8 +128,16 @@ router.post("/events/:placeId", async (req, res) => {
 
     const savedEvent = await newEvent.save();
 
-    res.status(201).json({ message: "Event created successfully", event: savedEvent });
+    res.status(201).json({
+      message: "Event created successfully",
+      event: {
+        ...savedEvent.toObject(),
+        kind: "Event",
+        ownerId: business._id,
+      },
+    });
   } catch (error) {
+    console.error("Error creating event:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -138,7 +149,7 @@ router.put("/events/:placeId/:eventId", async (req, res) => {
     title,
     date,
     description,
-    photos,
+    photos = [],
     recurring,
     recurringDays,
     startTime,
@@ -147,24 +158,30 @@ router.put("/events/:placeId/:eventId", async (req, res) => {
   } = req.body;
 
   try {
-    const business = await Business.findOne({ placeId }).lean();
+    const business = await Business.findOne({ placeId });
     if (!business) return res.status(404).json({ message: "Business not found" });
 
-    const event = await Event.findOne({ _id: eventId, placeId: business.placeId });
+    const event = await Event.findOne({ _id: eventId, placeId });
     if (!event) return res.status(404).json({ message: "Event not found" });
 
-    // ✅ Update fields if provided
-    if (title !== undefined) event.title = title;
-    if (date !== undefined) event.date = date;
-    if (description !== undefined) event.description = description;
-    if (recurring !== undefined) event.recurring = recurring;
-    if (recurringDays !== undefined) event.recurringDays = recurringDays;
-    if (startTime !== undefined) event.startTime = startTime;
-    if (endTime !== undefined) event.endTime = endTime;
-    if (allDay !== undefined) event.allDay = allDay;
+    // 🔁 Dynamically update only provided fields
+    const fieldsToUpdate = {
+      title,
+      date,
+      description,
+      recurring,
+      recurringDays,
+      startTime,
+      endTime,
+      allDay,
+    };
 
-    // ✅ Handle photos with presigned URLs
-    if (photos !== undefined) {
+    Object.entries(fieldsToUpdate).forEach(([key, value]) => {
+      if (value !== undefined) event[key] = value;
+    });
+
+    // 🖼 Update photos with presigned URLs if provided
+    if (photos.length > 0) {
       event.photos = await Promise.all(
         photos.map(async (photo) => ({
           ...photo,
@@ -176,7 +193,14 @@ router.put("/events/:placeId/:eventId", async (req, res) => {
     event.updatedAt = new Date();
     const updatedEvent = await event.save();
 
-    res.status(200).json({ message: "Event updated successfully", event: updatedEvent });
+    res.status(200).json({
+      message: "Event updated successfully",
+      event: {
+        ...updatedEvent.toObject(),
+        kind: "Event",
+        ownerId: business._id,
+      },
+    });
   } catch (error) {
     console.error("Error updating event:", error);
     res.status(500).json({ message: "Server error" });
@@ -207,7 +231,7 @@ router.delete("/events/:placeId/:eventId", async (req, res) => {
   }
 });
 
-// Toggle like on an event
+//toggle a like on a event
 router.post("/events/:placeId/:eventId/like", async (req, res) => {
   const { placeId, eventId } = req.params;
   const { userId, fullName } = req.body;
@@ -217,27 +241,52 @@ router.post("/events/:placeId/:eventId/like", async (req, res) => {
   }
 
   try {
-    const business = await Business.findOne({ placeId }).lean();
-    if (!business) return res.status(404).json({ message: "Business not found" });
+    const [business, event] = await Promise.all([
+      Business.findOne({ placeId }),
+      Event.findById(eventId)
+    ]);
 
-    const event = await Event.findOne({ _id: eventId, placeId: business.placeId });
-    if (!event) return res.status(404).json({ message: "Event not found" });
-
-    const existingIndex = event.likes.findIndex((like) => like.userId.toString() === userId);
-
-    if (existingIndex > -1) {
-      // 💔 Remove existing like
-      event.likes.splice(existingIndex, 1);
-    } else {
-      // ❤️ Add new like
-      event.likes.push({ userId, fullName, date: new Date() });
+    if (!business || !event) {
+      return res.status(404).json({ message: "Business or event not found" });
     }
 
-    await event.save();
+    const likeIndex = event.likes.findIndex((like) => like.userId.toString() === userId);
+    const isUnliking = likeIndex > -1;
+
+    const notificationMatch = (n) =>
+      n.type === 'like' &&
+      n.relatedId?.toString() === userId &&
+      n.targetId?.toString() === eventId &&
+      n.postType === 'event';
+
+    let eventModified = false;
+    let businessModified = false;
+
+    if (isUnliking) {
+      event.likes.splice(likeIndex, 1);
+      eventModified = true;
+
+      const notifIndex = business.notifications.findIndex(notificationMatch);
+      if (notifIndex !== -1) {
+        business.notifications.splice(notifIndex, 1);
+        businessModified = true;
+        console.log(`🗑️ Removed like notification for user ${userId} on event ${eventId}`);
+      }
+    } else {
+      event.likes.push({ userId, fullName, date: new Date() });
+      eventModified = true;
+
+      // ✅ Notification creation intentionally removed
+    }
+
+    await Promise.all([
+      eventModified ? event.save() : null,
+      businessModified ? business.save() : null
+    ]);
 
     res.status(200).json({
       message: "Like toggled successfully",
-      likes: event.likes,
+      likes: event.likes
     });
   } catch (error) {
     console.error("Error toggling event like:", error);
@@ -255,7 +304,7 @@ router.post("/events/:placeId/:eventId/comments", async (req, res) => {
   }
 
   try {
-    const business = await Business.findOne({ placeId }).lean();
+    const business = await Business.findOne({ placeId });
     if (!business) return res.status(404).json({ message: "Business not found" });
 
     const event = await Event.findOne({ _id: eventId, placeId: business.placeId });
@@ -274,6 +323,37 @@ router.post("/events/:placeId/:eventId/comments", async (req, res) => {
     event.comments.push(newComment);
     await event.save();
 
+   const isBusinessCommenting = userId === business._id.toString();
+
+    if (!isBusinessCommenting) {
+      const alreadyNotified = business.notifications.some(
+        (n) =>
+          n.type === 'comment' &&
+          n.relatedId?.toString() === userId &&
+          n.typeRef === 'User' &&
+          n.targetId?.toString() === eventId &&
+          n.commentId === newComment._id &&
+          n.postType === 'event'
+      );
+
+      if (!alreadyNotified) {
+        business.notifications.push({
+          type: 'comment',
+          message: `${fullName} commented on your event`,
+          relatedId: userId,
+          typeRef: 'User',
+          targetId: eventId,
+          targetRef: null,
+          commentId: newComment._id,
+          read: false,
+          postType: 'event',
+          createdAt: new Date()
+        });
+        await business.save();
+        console.log(`🔔 Business notified of new comment on event ${eventId}`);
+      }
+    }
+
     const addedComment = event.comments[event.comments.length - 1];
 
     res.status(201).json({
@@ -286,17 +366,29 @@ router.post("/events/:placeId/:eventId/comments", async (req, res) => {
   }
 });
 
+//Add a reply
 router.post("/events/:eventId/comments/:commentId/replies", async (req, res) => {
-  const { placeId, eventId, commentId } = req.params;
-  const { userId, fullName, commentText } = req.body;
+  const { eventId, commentId } = req.params;
+  const { userId, fullName, commentText, placeId } = req.body;
 
   if (!userId || !fullName || !commentText) {
     return res.status(400).json({ message: "Missing required fields: userId, fullName, commentText" });
   }
 
   try {
-    const event = await Event.findById(eventId);
-    if (!event) return res.status(404).json({ message: "Event not found" });
+    let topLevelCommentId = null;
+    let parentAuthorId = null;
+    let replyTargetId = null;
+    let inserted = false;
+
+    const [event, business] = await Promise.all([
+      Event.findById(eventId),
+      Business.findOne({ placeId })
+    ]);
+
+    if (!event || !business) {
+      return res.status(404).json({ message: "Event or business not found" });
+    }
 
     const newReply = {
       _id: new mongoose.Types.ObjectId(),
@@ -308,34 +400,41 @@ router.post("/events/:eventId/comments/:commentId/replies", async (req, res) => 
       replies: [],
     };
 
-    let inserted = false;
-
-    // Helper to insert reply recursively
-    const addNestedReply = (repliesArray, targetId) => {
+    // Helper to insert reply into nested replies
+    const addNestedReply = (repliesArray, targetId, topLevelId) => {
       for (const reply of repliesArray) {
         if (reply._id.toString() === targetId) {
+          parentAuthorId = reply.userId;
+          replyTargetId = reply._id;
+          topLevelCommentId = topLevelId;
           reply.replies.push(newReply);
           return true;
         }
         if (reply.replies?.length) {
-          const found = addNestedReply(reply.replies, targetId);
+          const found = addNestedReply(reply.replies, targetId, topLevelId);
           if (found) return true;
         }
       }
       return false;
     };
 
-    // Try top-level comment
+    // First check if replying directly to a top-level comment
     const parentComment = event.comments.id(commentId);
     if (parentComment) {
+      parentAuthorId = parentComment.userId;
+      replyTargetId = parentComment._id;
+      topLevelCommentId = parentComment._id;
       parentComment.replies.push(newReply);
       inserted = true;
     } else {
-      // Try nested replies
+      // Check nested replies
       for (const comment of event.comments) {
         if (comment.replies?.length) {
-          inserted = addNestedReply(comment.replies, commentId);
-          if (inserted) break;
+          const found = addNestedReply(comment.replies, commentId, comment._id);
+          if (found) {
+            inserted = true;
+            break;
+          }
         }
       }
     }
@@ -345,6 +444,48 @@ router.post("/events/:eventId/comments/:commentId/replies", async (req, res) => 
     }
 
     await event.save();
+
+    // 🔔 Notify the user being replied to (if not self)
+    if (parentAuthorId?.toString() !== userId) {
+      const targetUser = await User.findById(parentAuthorId);
+      if (targetUser) {
+        targetUser.notifications.push({
+          type: 'reply',
+          message: `${fullName} replied to your comment`,
+          relatedId: userId,
+          typeRef: 'User',
+          targetId: eventId,
+          targetRef: null,
+          commentId: topLevelCommentId,
+          replyId: newReply._id,
+          read: false,
+          postType: 'event',
+          createdAt: new Date()
+        });
+        await targetUser.save();
+      }
+    }
+
+    // 🔔 Notify business ONLY if they were the original author of the comment/reply being replied to
+    if (
+      parentAuthorId?.toString() === business._id?.toString() &&
+      userId !== business.placeId?.toString()
+    ) {
+      business.notifications.push({
+        type: 'reply',
+        message: `${fullName} replied to your comment on ${business.businessName}'s event`,
+        relatedId: userId,
+        typeRef: 'User',
+        targetId: eventId,
+        targetRef: null,
+        commentId: topLevelCommentId,
+        replyId: newReply._id,
+        read: false,
+        postType: 'event',
+        createdAt: new Date()
+      });
+      await business.save();
+    }
 
     res.status(201).json({
       message: "Reply added successfully",
@@ -356,7 +497,7 @@ router.post("/events/:eventId/comments/:commentId/replies", async (req, res) => 
   }
 });
 
-// 📌 POST: Toggle like on a comment or reply in an event
+//Like a comment or reply
 router.post("/events/:eventId/comments/:commentId/like", async (req, res) => {
   const { placeId, eventId, commentId } = req.params;
   const { userId, fullName } = req.body;
@@ -370,44 +511,111 @@ router.post("/events/:eventId/comments/:commentId/like", async (req, res) => {
     if (!event) return res.status(404).json({ message: "Event not found" });
 
     let target = null;
+    let parentAuthorId = null;
+    let topLevelCommentId = null;
 
-    const findReplyRecursive = (replies) => {
+    const findReplyRecursive = (replies, parentTopLevelId = null) => {
       for (const reply of replies) {
-        if (reply._id.toString() === commentId) return reply;
+        if (reply._id.toString() === commentId) {
+          parentAuthorId = reply.userId;
+          topLevelCommentId = parentTopLevelId;
+          return reply;
+        }
         if (reply.replies?.length) {
-          const found = findReplyRecursive(reply.replies);
+          const found = findReplyRecursive(reply.replies, parentTopLevelId);
           if (found) return found;
         }
       }
       return null;
     };
 
-    // Try top-level comment
     const comment = event.comments.id(commentId);
     if (comment) {
       target = comment;
+      parentAuthorId = comment.userId;
+      topLevelCommentId = comment._id;
     } else {
       for (const c of event.comments) {
-        target = findReplyRecursive(c.replies);
-        if (target) break;
+        if (c.replies?.length) {
+          const found = findReplyRecursive(c.replies, c._id);
+          if (found) {
+            target = found;
+            break;
+          }
+        }
       }
     }
 
-    if (!target) {
-      return res.status(404).json({ message: "Comment or reply not found" });
-    }
+    if (!target) return res.status(404).json({ message: "Comment or reply not found" });
 
     if (!target.likes) target.likes = [];
 
     const existingIndex = target.likes.findIndex((like) => like.userId.toString() === userId);
+    const isUnliking = existingIndex > -1;
 
-    if (existingIndex > -1) {
-      target.likes.splice(existingIndex, 1); // 💔 Remove
+    if (isUnliking) {
+      target.likes.splice(existingIndex, 1); // 💔 Remove like
     } else {
-      target.likes.push({ userId, fullName, date: new Date() }); // ❤️ Add
+      target.likes.push({ userId, fullName, date: new Date() }); // ❤️ Add like
     }
 
     await event.save();
+
+    // If liking someone else's comment or reply → notify them
+    if (!isUnliking && parentAuthorId?.toString() !== userId) {
+      const targetUser = await User.findById(parentAuthorId);
+      if (targetUser) {
+        const alreadyNotified = targetUser.notifications.some(n =>
+          n.type === 'like' &&
+          n.relatedId?.toString() === userId &&
+          n.targetId?.toString() === eventId &&
+          n.commentId?.toString() === (topLevelCommentId || commentId) &&
+          n.replyId?.toString() === commentId
+        );
+
+        if (!alreadyNotified) {
+          targetUser.notifications.push({
+            type: 'like',
+            message: `${fullName} liked your comment`,
+            relatedId: userId,
+            typeRef: 'User',
+            targetId: eventId,
+            targetRef: null,
+            commentId: topLevelCommentId || commentId,
+            replyId: commentId,
+            read: false,
+            postType: 'event',
+            createdAt: new Date()
+          });
+          await targetUser.save();
+        }
+      }
+    }
+
+    if (isUnliking && parentAuthorId?.toString() !== userId) {
+      const targetUser = await User.findById(parentAuthorId);
+      if (targetUser) {
+        const notifications = targetUser.notifications || [];
+
+        const indexToRemove = notifications.findIndex(n => {
+          const isMatch =
+            n.type === 'like' &&
+            n.relatedId?.toString() === userId &&
+            n.targetId?.toString() === eventId &&
+            n.commentId?.toString() === commentId;
+          return isMatch;
+        });
+
+        if (indexToRemove > -1) {
+          targetUser.notifications.splice(indexToRemove, 1);
+          await targetUser.save();
+        } else {
+          console.log("⚠️ No matching notification found to remove");
+        }
+      } else {
+        console.warn(`⚠️ Target user ${parentAuthorId} not found during unlike cleanup`);
+      }
+    }
 
     res.status(200).json({
       message: "Like toggled successfully",

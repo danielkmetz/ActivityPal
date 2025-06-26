@@ -21,7 +21,6 @@ const CommentBubble = ({
   return (
     <View style={[styles.commentBubble, isReply && { marginLeft: 20 }]}>
       <Text style={styles.commentAuthor}>{fullName}:</Text>
-
       {isEditing && isSelected ? (
         <TextInput
           style={styles.editInput}
@@ -45,8 +44,6 @@ const CommentBubble = ({
           </View>
         </View>
       )}
-
-
     </View>
   );
 };
@@ -58,7 +55,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f2f5',
     padding: 10,
     borderRadius: 15,
-    marginVertical: 5,
+    width: '90%',
+    alignSelf: 'center'
   },
   commentAuthor: {
     fontSize: 13,

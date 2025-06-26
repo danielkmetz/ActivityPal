@@ -21,6 +21,8 @@ import PhotoItem from "../Reviews/PhotoItem";
 import PhotoPaginationDots from '../Reviews/PhotoPaginationDots';
 import EventDetailsCard from "./EventDetailsCard";
 import { useNavigation } from "@react-navigation/native";
+import PostActions from "../Reviews/PostActions";
+import { eventPromoLikeWithAnimation } from "../../utils/LikeHandlers/promoEventLikes";
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
@@ -29,12 +31,13 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
   const navigation = useNavigation();
   const [selectedTab, setSelectedTab] = useState("events"); // Toggle state for Events & Promotions
   const [dropdownVisible, setDropdownVisible] = useState(null);
+  const [likedAnimations, setLikedAnimations] = useState(null);
   const user = useSelector(selectUser);
   const events = useSelector(selectEvents);
   const promotions = useSelector(selectPromotions) || [];
   const placeId = user?.businessDetails?.placeId;
   const scrollX = useRef(new Animated.Value(0)).current;
-  console.log(events)
+  const lastTapRef = useRef({});
 
   // Fetch data on component mount
   useEffect(() => {
@@ -107,6 +110,24 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
         },
       ]
     );
+  };
+
+  const handleLikeWithAnimation = (item, force = true) => {
+    eventPromoLikeWithAnimation({
+      type: item.kind.includes('Promo') ? 'promo' : 'event',
+      postId: item._id,
+      item,
+      user,
+      lastTapRef,
+      likedAnimations,
+      setLikedAnimations,
+      dispatch,
+      force,
+    });
+  };
+
+  const handleOpenComments = (item) => {
+    navigation.navigate('EventDetails', { activity: item });
   };
 
   const isEventsTab = selectedTab === "events";
@@ -212,8 +233,14 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
 
                 </>
               )}
+              <View style={{ paddingLeft: 15 }}>
+                <PostActions
+                  item={item}
+                  handleLikeWithAnimation={handleLikeWithAnimation}
+                  handleOpenComments={() => handleOpenComments(item)}
+                />
+              </View>
             </View>
-
           </View>
         )}
 

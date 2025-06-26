@@ -102,7 +102,7 @@ export const addReply = createAsyncThunk(
   async ({ postType, placeId, postId, commentId, userId, fullName, commentText }, { rejectWithValue }) => {
     try {
       const response = await axios.post(
-        `${BASE_URL}/reviews/${postType}/${placeId}/${postId}/${commentId}/reply`,
+        `${BASE_URL}/reviews/${postType}/${postId}/${commentId}/reply`,
         { userId, fullName, commentText }
       );
 
@@ -239,7 +239,7 @@ export const deleteCommentOrReply = createAsyncThunk(
   "reviews/deleteCommentOrReply",
   async ({ postType, placeId, postId, commentId, relatedId }, { rejectWithValue }) => {
     try {
-      const response = await axios.delete(`${BASE_URL}/reviews/${postType}/${placeId}/${postId}/${commentId}`, {
+      const response = await axios.delete(`${BASE_URL}/reviews/${postType}/${postId}/${commentId}`, {
         data: { relatedId },
       });
       return { commentId, postId }; // Returning deleted comment/reply ID for UI update
@@ -268,7 +268,7 @@ export const editCommentOrReply = createAsyncThunk(
   async ({ postType, placeId, postId, commentId, userId, newText }, { rejectWithValue }) => {
     try {
       const response = await axios.put(
-        `${BASE_URL}/reviews/${postType}/${placeId}/${postId}/${commentId}`,
+        `${BASE_URL}/reviews/${postType}/${postId}/${commentId}`,
         { userId, newText }
       );
 
@@ -292,7 +292,7 @@ export const toggleCommentLike = createAsyncThunk(
   async ({ postType, placeId, postId, commentId, userId, replyId = null }, { rejectWithValue }) => {
     try {
       const res = await axios.put(
-        `${BASE_URL}/reviews/${postType}/${placeId}/${postId}/${commentId}/like`, {
+        `${BASE_URL}/reviews/${postType}/${postId}/${commentId}/like`, {
         userId,
         replyId,
       });

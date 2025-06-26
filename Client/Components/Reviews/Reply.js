@@ -118,7 +118,6 @@ const Reply = ({
             </View>
           )}
         </View>
-
         {/* Reply button */}
         <View style={styles.replyButtonContainer}>
           <Text style={styles.replyDate}>{getTimeSincePosted(reply.date)}</Text>
@@ -132,7 +131,6 @@ const Reply = ({
             <MaterialCommunityIcons name="comment-outline" size={20} color="#808080" />
             <Text style={styles.replyButtonText}>{showReplyInput ? 'Cancel' : 'Reply'}</Text>
           </TouchableOpacity>
-
           {/* Expand/collapse replies */}
           {reply.replies && reply.replies.length > 0 && (
             <TouchableOpacity
@@ -149,9 +147,7 @@ const Reply = ({
               </Text>
             </TouchableOpacity>
           )}
-
         </View>
-
         {/* Nested reply input */}
         {showReplyInput && (
           <View style={styles.nestedReplyInputContainer}>
@@ -241,7 +237,7 @@ const styles = StyleSheet.create({
   },
   replyButtonText: {
     fontSize: 14,
-    color: '#4caf50',
+    color: '#009999',
     fontWeight: 'bold',
   },
   nestedReplyInputContainer: {
@@ -259,7 +255,7 @@ const styles = StyleSheet.create({
 
   },
   commentButton: {
-    backgroundColor: '#4caf50',
+    backgroundColor: '#009999',
     paddingVertical: 8,
     paddingHorizontal: 15,
     borderRadius: 5,
@@ -293,7 +289,7 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
   saveButton: {
-    backgroundColor: '#4caf50',
+    backgroundColor: '#009999',
     paddingVertical: 5,
     paddingHorizontal: 10,
     borderRadius: 5,

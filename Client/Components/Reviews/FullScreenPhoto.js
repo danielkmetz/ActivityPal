@@ -1,4 +1,4 @@
-import React, { useRef, useState, } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   View, FlatList, Image, TouchableOpacity,
   StyleSheet, Dimensions, Text, Animated, TouchableWithoutFeedback,
@@ -11,7 +11,10 @@ import { isVideo } from '../../utils/isVideo';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import VideoThumbnail from './VideoThumbnail';
 import { handleLikeWithAnimation } from '../../utils/LikeHandlers';
+import { eventPromoLikeWithAnimation } from '../../utils/LikeHandlers/promoEventLikes';
 import { selectReviewById } from '../../utils/reviewSelectors';
+import { useLikeAnimations } from '../../utils/LikeHandlers/LikeAnimationContext';
+import { selectNearbySuggestionById } from '../../Slices/GooglePlacesSlice';
 
 const { width, height } = Dimensions.get('window');
 
@@ -22,16 +25,12 @@ const FullScreenPhoto = () => {
   const {
     reviewId,
     initialIndex = 0,
-    lastTapRef,
-    likedAnimations,
-    setLikedAnimations,
     taggedUsersByPhotoKey,
-    isBusinessReview = false,
-    isOtherUserReview = false,
-    isSuggestedPost = false,
+    isEventPromo = false,
   } = route?.params;
   const user = useSelector(selectUser);
-  const review = useSelector(selectReviewById(reviewId));
+  const review = isEventPromo ? 
+    useSelector((state) => selectNearbySuggestionById(state, reviewId)) : useSelector(selectReviewById(reviewId));
   const userId = user?.id;
   const flatListRef = useRef();
   const [commentsVisible, setCommentsVisible] = useState(false);
@@ -41,22 +40,41 @@ const FullScreenPhoto = () => {
   const [renderedSize, setRenderedSize] = useState({ width, height });
   const photos = review?.photos || [];
   const currentPhoto = photos[currentIndex];
-  const animation = useRef(likedAnimations?.[review._id] || new Animated.Value(0)).current;
-  const hasLiked = Array.isArray(review.likes) && review.likes.some(like => like.userId === userId);
+  const { getAnimation, registerAnimation } = useLikeAnimations();
+  const animation = getAnimation(review?._id);
+  const lastTapRef = useRef({});
+  const hasLiked = Array.isArray(review?.likes) && review?.likes.some(like => like.userId === userId);
   const taggedUsers = taggedUsersByPhotoKey?.[currentPhoto?.photoKey] || [];
+  const eventPromoType = ["activeEvent", "upcomingEvent"].includes(review.kind) ? "event" : "promo";
   const likeCount = review?.likes?.length;
-  
-  const likeWithAnimation = (review) => {
-    return handleLikeWithAnimation({
-      postType: review.type,
-      postId: review._id,
-      review,
-      user,
-      lastTapRef,
-      likedAnimations,
-      setLikedAnimations,
-      dispatch,
-    });
+
+  const likeWithAnimation = (force = false) => {
+    const postId = review._id;
+    const animation = getAnimation(postId);
+
+    if (isEventPromo) {
+      return eventPromoLikeWithAnimation({
+        type: eventPromoType,
+        postId,
+        item: review,
+        user,
+        lastTapRef,
+        animation,
+        dispatch,
+        force,
+      })
+    } else {
+      return handleLikeWithAnimation({
+        postType: review.type,
+        postId,
+        review,
+        user,
+        animation,
+        lastTapRef,
+        dispatch,
+        force,
+      });
+    }
   };
 
   const handleTap = () => {
@@ -79,9 +97,11 @@ const FullScreenPhoto = () => {
     }
   };
 
-  const handleLike = () => {
-    likeWithAnimation(review);
-  };
+  useEffect(() => {
+    if (review?._id) {
+      registerAnimation(review._id);
+    }
+  }, [review?._id]);
 
   if (!review || !Array.isArray(review.photos) || review.photos.length === 0) {
     return null;
@@ -170,7 +190,7 @@ const FullScreenPhoto = () => {
             <MaterialCommunityIcons name="comment-outline" size={28} color="white" />
             <Text style={styles.countText}>{review?.comments?.length}</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleLike} style={styles.iconButton}>
+          <TouchableOpacity onPress={() => likeWithAnimation(true)} style={styles.iconButton}>
             <MaterialCommunityIcons
               name={hasLiked ? "thumb-up" : "thumb-up-outline"}
               size={28}
