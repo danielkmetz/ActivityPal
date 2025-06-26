@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   Alert,
   FlatList,
@@ -14,6 +14,7 @@ import InviteCard from "./InviteCard";
 import ReviewItem from "./ReviewItem";
 import CheckInItem from "./CheckInItem";
 import SuggestionItem from "./SuggestionItem";
+import { useLikeAnimations } from "../../utils/LikeHandlers/LikeAnimationContext";
 import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from "../../utils/LikeHandlers";
 import { useNavigation } from "@react-navigation/native";
 import { selectFollowing, selectFollowRequests } from "../../Slices/friendsSlice";
@@ -29,6 +30,7 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
   const [photoTapped, setPhotoTapped] = useState(null);
   const lastTapRef = useRef({});
   const [likedAnimations, setLikedAnimations] = useState({});
+  const { registerAnimation, getAnimation } = useLikeAnimations();
   const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
   const profileReviews = useSelector(selectProfileReviews);
 
@@ -36,7 +38,7 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
 
   const handleOpenComments = (review) => {
     if (!review) return;
-    
+
     navigation.navigate('CommentScreen', {
       reviewId: review._id,
       setSelectedReview,
@@ -50,16 +52,16 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
   };
 
   const handleLikeWithAnimation = (review, force = false) => {
+    const animation = getAnimation(review._id);
     return sharedHandleLikeWithAnimation({
       postType: review.type,
       postId: review._id,
       review,
       user,
       reviews,
+      animation,
       dispatch,
       lastTapRef,
-      likedAnimations,
-      setLikedAnimations,
       force,
     });
   };
@@ -124,6 +126,14 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
     }
   };
 
+  useEffect(() => {
+    reviews?.forEach(post => {
+      if (post?._id) {
+        registerAnimation(post._id);
+      }
+    });
+  }, [reviews]);
+
   return (
     <>
       <AnimatedFlatList
@@ -177,7 +187,7 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
             return (
               <CheckInItem
                 item={item}
-                likedAnimations={likedAnimations}
+                animation={getAnimation(item._id)}
                 setLikedAnimations={setLikedAnimations}
                 photoTapped={photoTapped}
                 toggleTaggedUsers={toggleTaggedUsers}
@@ -204,8 +214,7 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
           return (
             <ReviewItem
               item={item}
-              likedAnimations={likedAnimations}
-              setLikedAnimations={setLikedAnimations}
+              animation={getAnimation(item._id)}
               photoTapped={photoTapped}
               toggleTaggedUsers={toggleTaggedUsers}
               handleLikeWithAnimation={handleLikeWithAnimation}

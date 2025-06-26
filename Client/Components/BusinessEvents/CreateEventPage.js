@@ -24,7 +24,6 @@ import RecurringDaysModal from "./RecurringDaysModal";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { normalizePhoto } from "../../functions";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import { toLocalISOString } from "../../functions";
 
 const CreateEventPage = () => {
   const dispatch = useDispatch();

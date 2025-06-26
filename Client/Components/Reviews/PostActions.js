@@ -6,7 +6,7 @@ import { useNavigation } from "@react-navigation/native";
 import { selectUser } from "../../Slices/UserSlice";
 import { useSelector } from "react-redux";
 
-export default function PostActions({ item, handleLikeWithAnimation, handleOpenComments, toggleTaggedUsers, photo }) {
+export default function PostActions({ item, handleLikeWithAnimation, handleOpenComments, toggleTaggedUsers, photo, isCommentScreen = false }) {
   const navigation = useNavigation();
   const user = useSelector(selectUser);
   const currentUserId = user?.id;
@@ -32,25 +32,26 @@ export default function PostActions({ item, handleLikeWithAnimation, handleOpenC
         />
         <Text style={styles.likeCount}>{item?.likes?.length || 0}</Text>
       </TouchableOpacity>
-
-      <TouchableOpacity
-        onPress={() => handleOpenComments(item)}
-        style={styles.commentButton}
-      >
-        <MaterialCommunityIcons
-          name="comment-outline"
-          size={20}
-          color="#808080"
-        />
-        <Text style={styles.commentCount}>{item?.comments?.length || 0}</Text>
-      </TouchableOpacity>
+      {!isCommentScreen && (
+        <TouchableOpacity
+          onPress={() => handleOpenComments(item)}
+          style={styles.commentButton}
+        >
+          <MaterialCommunityIcons
+            name="comment-outline"
+            size={20}
+            color="#808080"
+          />
+          <Text style={styles.commentCount}>{item?.comments?.length || 0}</Text>
+        </TouchableOpacity>
+      )}
       <TouchableOpacity
         onPress={handleSend}
-        style={styles.sendButton}
+        style={[styles.sendButton, isCommentScreen && { marginLeft: -2 }]}
       >
         <Feather name="send" size={20} color="#808080" />
       </TouchableOpacity>
-      {item.type !== 'invite' &&
+      {item?.type !== 'invite' &&
         photo?.taggedUsers?.length > 0 && (
           <TouchableWithoutFeedback onPress={() => toggleTaggedUsers(photo.photoKey)}>
             <View style={styles.tagIcon}>
@@ -65,7 +66,7 @@ export default function PostActions({ item, handleLikeWithAnimation, handleOpenC
 const styles = StyleSheet.create({
   actionsContainer: {
     flexDirection: "row",
-    padding: 15,
+    alignItems: 'center',
   },
   likeButton: {
     flexDirection: "row",
@@ -96,6 +97,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginLeft: 10,
     transform: [{ rotate: '15deg' }],
-    //marginTop: -5,
   },
 });

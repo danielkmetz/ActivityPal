@@ -630,20 +630,106 @@ router.post('/:postType/:placeId/:postId/like', async (req, res) => {
   }
 });
 
+// Add a comment to a review invite or check-in
+router.post('/:postType/:placeId/:postId/comment', async (req, res) => {
+  const { postType, placeId, postId } = req.params;
+  const { userId, commentText, fullName } = req.body;
+
+  try {
+    let savedComment = null;
+
+    if (postType === 'review') {
+      const review = await Review.findById(postId);
+      if (!review) return res.status(404).json({ message: 'Review not found' });
+
+      const newComment = {
+        _id: new mongoose.Types.ObjectId(),
+        userId,
+        fullName,
+        commentText,
+        createdAt: new Date(),
+      };
+
+      review.comments.push(newComment);
+      await review.save();
+
+      savedComment = review.comments[review.comments.length - 1];
+    }
+
+    else if (postType === 'check-in') {
+      const user = await User.findOne({ 'checkIns._id': postId });
+      if (!user) return res.status(404).json({ message: 'Check-in post not found' });
+
+      const checkInPost = user.checkIns.id(postId);
+      if (!checkInPost) return res.status(404).json({ message: 'Check-in post not found' });
+
+      const newComment = {
+        _id: new mongoose.Types.ObjectId(),
+        userId,
+        fullName,
+        commentText,
+        createdAt: new Date(),
+      };
+
+      checkInPost.comments.push(newComment);
+      await user.save();
+
+      savedComment = checkInPost.comments[checkInPost.comments.length - 1];
+    }
+
+    else if (postType === 'invite') {
+      const invite = await ActivityInvite.findById(postId);
+      if (!invite) return res.status(404).json({ message: 'Invite not found' });
+
+      const newComment = {
+        _id: new mongoose.Types.ObjectId(),
+        userId,
+        fullName,
+        commentText,
+        createdAt: new Date(),
+      };
+
+      invite.comments.push(newComment);
+      await invite.save();
+
+      savedComment = invite.comments[invite.comments.length - 1];
+    }
+
+    if (!savedComment) {
+      return res.status(500).json({ message: 'Error saving comment' });
+    }
+
+    return res.status(201).json({
+      message: `Comment added to ${postType} successfully`,
+      comment: savedComment,
+    });
+
+  } catch (error) {
+    console.error('🚨 Error adding comment:', error);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // POST: Add a reply to a comment
 router.post('/:postType/:postId/:commentId/reply', async (req, res) => {
   const { postType, postId, commentId } = req.params;
   const { userId, fullName, commentText } = req.body;
 
+  console.log(`📥 Incoming reply request → type: ${postType}, postId: ${postId}, commentId: ${commentId}`);
+  console.log(`👤 userId: ${userId}, fullName: ${fullName}, commentText: ${commentText}`);
+
   if (!userId || !fullName || !commentText) {
+    console.warn("⚠️ Missing required fields in request body");
     return res.status(400).json({ message: 'Missing required fields' });
   }
 
   try {
     const findCommentRecursively = (comments = [], targetId) => {
       for (const comment of comments) {
+        if (!comment || !comment._id) continue;
         if (comment._id.toString() === targetId) return comment;
-        if (comment.replies?.length > 0) {
+
+        if (Array.isArray(comment.replies) && comment.replies.length > 0) {
           const nested = findCommentRecursively(comment.replies, targetId);
           if (nested) return nested;
         }
@@ -656,20 +742,43 @@ router.post('/:postType/:postId/:commentId/reply', async (req, res) => {
       model = Review;
       markPath = 'comments';
     } else if (postType === 'check-in') {
-      model = CheckIn;
-      markPath = 'comments';
+      model = User;
+      markPath = 'checkIns';
     } else if (postType === 'invite') {
       model = ActivityInvite;
       markPath = 'comments';
     } else {
+      console.error("❌ Invalid post type:", postType);
       return res.status(400).json({ message: 'Invalid post type' });
     }
 
+    console.log(`🔍 Fetching ${postType} with ID: ${postId}`);
     const post = await model.findById(postId);
-    if (!post) return res.status(404).json({ message: `${postType} not found` });
 
-    const targetComment = findCommentRecursively(post.comments, commentId);
-    if (!targetComment) return res.status(404).json({ message: 'Comment not found' });
+    if (!post) {
+      console.warn(`🚫 ${postType} not found for ID: ${postId}`);
+      return res.status(404).json({ message: `${postType} not found` });
+    }
+
+    let commentTree = post.comments;
+
+    // If it's a check-in, dig into checkIns array to find the post
+    if (postType === 'check-in') {
+      const checkInPost = post.checkIns.id(postId);
+      if (!checkInPost) {
+        console.warn(`🚫 Check-in not found with ID: ${postId}`);
+        return res.status(404).json({ message: 'Check-in not found' });
+      }
+      commentTree = checkInPost.comments;
+    }
+
+    console.log("🔎 Searching for target comment...");
+    const targetComment = findCommentRecursively(commentTree, commentId);
+
+    if (!targetComment) {
+      console.warn("❌ Comment not found in tree:", commentId);
+      return res.status(404).json({ message: 'Comment not found' });
+    }
 
     const newReply = {
       _id: new mongoose.Types.ObjectId(),
@@ -680,10 +789,16 @@ router.post('/:postType/:postId/:commentId/reply', async (req, res) => {
       replies: [],
     };
 
+    console.log("💬 Adding reply:", newReply);
     targetComment.replies.push(newReply);
+
+    console.log("📝 Marking modified for:", markPath);
     post.markModified(markPath);
+
+    console.log("💾 Saving post with new reply...");
     await post.save();
 
+    console.log("✅ Reply added successfully.");
     return res.status(201).json({
       message: `Reply added to ${postType} successfully`,
       reply: newReply,
@@ -806,12 +921,30 @@ router.put('/:postType/:postId/:commentId/like', async (req, res) => {
   const { postType, postId, commentId } = req.params;
   const { userId, replyId } = req.body;
 
+  const user = await User.findById(userId).lean();
+  const fullName = `${user.firstName} ${user.lastName}`;
+
+  if (!userId || !fullName) {
+    return res.status(400).json({ message: 'Missing userId or fullName' });
+  }
+
   const toggleLike = (target) => {
-    const idx = target.likes.findIndex(id => id.toString() === userId);
+    if (!Array.isArray(target.likes)) target.likes = [];
+
+    const idx = target.likes.findIndex(like => like.userId?.toString() === userId);
     const isLike = idx === -1;
-    if (isLike) target.likes.push(userId);
-    else target.likes.splice(idx, 1);
-    return { updatedLikes: target.likes, isLike, targetOwnerId: target.userId?.toString() };
+
+    if (isLike) {
+      target.likes.push({ userId, fullName });
+    } else {
+      target.likes.splice(idx, 1);
+    }
+
+    return {
+      updatedLikes: target.likes,
+      isLike,
+      targetOwnerId: target.userId?.toString()
+    };
   };
 
   const findReplyRecursively = (replies, id) => {
@@ -857,13 +990,16 @@ router.put('/:postType/:postId/:commentId/like', async (req, res) => {
     }
 
     if (!doc) return res.status(404).json({ message: `${postType} not found` });
+
     const result = findAndToggle(doc.comments);
     if (!result || result.error) return res.status(404).json({ message: result?.error || 'Not found' });
 
+    doc.markModified('comments');
     await doc.save();
 
     if (result.targetOwnerId && result.targetOwnerId !== userId) {
       const sender = await User.findById(userId);
+
       await handleNotification({
         type: 'like',
         recipientId: result.targetOwnerId,
@@ -878,6 +1014,7 @@ router.put('/:postType/:postId/:commentId/like', async (req, res) => {
     }
 
     res.status(200).json({ message: 'Like toggled', updatedLikes: result.updatedLikes });
+
   } catch (err) {
     console.error('❌ Like toggle error:', err);
     res.status(500).json({ message: 'Server error' });
