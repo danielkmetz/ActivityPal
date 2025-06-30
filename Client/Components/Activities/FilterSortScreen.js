@@ -61,12 +61,12 @@ const FilterSortScreen = () => {
     const dispatch = useDispatch();
     const categoryFilter = useSelector(selectCategoryFilter);
     const sortOption = useSelector(selectSortOptions);
-    const [mode, setMode] = useState('cuisine'); // or 'place'
-    const [selected, setSelected] = useState(new Set(categoryFilter || []));
-    const [selectedSort, setSelectedSort] = useState(sortOption)
     const isOpenNow = useSelector(selectIsOpen);
     const { availableCuisines = [] } = route.params || {};
     const filteredCuisines = CUISINES.filter(c => availableCuisines.includes(c.key));
+    const [mode, setMode] = useState(filteredCuisines.length > 0 ? 'cuisine' : 'place');
+    const [selected, setSelected] = useState(new Set(categoryFilter || []));
+    const [selectedSort, setSelectedSort] = useState(sortOption);
     const options = mode === 'cuisine'
         ? filteredCuisines
         : mode === 'place'
@@ -106,11 +106,17 @@ const FilterSortScreen = () => {
 
     const paddedOptions = [...options, { key: 'placeholder-1', placeholder: true }, { key: 'placeholder-2', placeholder: true }];
 
+    const availableModes = [
+        ...(filteredCuisines.length > 0 ? ['cuisine'] : []),
+        'place',
+        'sort',
+    ];
+
     return (
         <View style={styles.container}>
             {/* Mode switch */}
             <View style={styles.switchContainer}>
-                {['cuisine', 'place', 'sort'].map(tab => (
+                {availableModes.map(tab => (
                     <TouchableOpacity
                         key={tab}
                         onPress={() => setMode(tab)}
@@ -158,15 +164,17 @@ const FilterSortScreen = () => {
                 }}
             />
             <View style={styles.footer}>
-                <View style={styles.toggleRow}>
-                    <Text style={styles.toggleLabel}>Only show open now</Text>
-                    <Switch
-                        value={isOpenNow}
-                        onValueChange={handleToggleOpenNow}
-                        thumbColor={isOpenNow ? '#d32f2f' : '#ccc'}
-                        trackColor={{ false: '#ccc', true: '#f4a5a5' }}
-                    />
-                </View>
+                {filteredCuisines.length > 0 && (
+                    <View style={styles.toggleRow}>
+                        <Text style={styles.toggleLabel}>Only show open now</Text>
+                        <Switch
+                            value={isOpenNow}
+                            onValueChange={handleToggleOpenNow}
+                            thumbColor={isOpenNow ? '#d32f2f' : '#ccc'}
+                            trackColor={{ false: '#ccc', true: '#f4a5a5' }}
+                        />
+                    </View>
+                )}
                 <View style={styles.buttonRow}>
                     <TouchableOpacity onPress={() => handleReset()} style={styles.resetButton}>
                         <Text style={styles.resetText}>Reset</Text>

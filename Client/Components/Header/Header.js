@@ -73,6 +73,8 @@ export default function Header({ currentRoute, notificationsSeen, setNotificatio
                 return "New Message";
             case "FilterSort":
                 return "Filter/Sort";
+            case "Settings":
+                return "Settings";
             case "MessageThread":
                 return <MessageThreadTitle users={userToMessage || []} />;
             default:
@@ -156,7 +158,8 @@ export default function Header({ currentRoute, notificationsSeen, setNotificatio
                             currentRoute === "SearchFollowing" ||
                             currentRoute === "MessageThread" ||
                             currentRoute === "FilterSort" ||
-                            currentRoute === "EventDetails"
+                            currentRoute === "EventDetails" || 
+                            currentRoute === "Settings"
                         ) && (
                                 <TouchableOpacity onPress={goBack} style={{ marginLeft: -10 }}>
                                     <MaterialCommunityIcons name="chevron-left" size={35} color="black" />

@@ -8,7 +8,6 @@ import {
   FlatList,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import SettingsModal from "./SettingsModal";
 import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
 import bannerPlaceholder from '../../assets/pics/business-placeholder.png';
@@ -47,7 +46,6 @@ export default function BusinessProfile() {
   const [isFavorited, setIsFavorited] = useState(mainUserFavorites?.includes(placeId));
   const [favoriteModalVisible, setFavoriteModalVisible] = useState(false);
   const [activeSection, setActiveSection] = useState(conditionalSection);
-  const [modalVisible, setModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const placeIds = [placeId];
   const ratingData = useSelector(selectRatingByPlaceId(placeId)) || {};
@@ -101,6 +99,10 @@ export default function BusinessProfile() {
     };
   }, []);
 
+  const navgateToSettings = () => {
+    navigation.navigate("Settings");
+  }
+
   const renderHeader = () => (
     <>
       {business && (
@@ -114,7 +116,7 @@ export default function BusinessProfile() {
         <View style={styles.nameSettings}>
           <Text style={styles.businessName}>{businessName}</Text>
           {!business &&
-            <TouchableOpacity style={styles.settingsIcon} onPress={() => setModalVisible(true)}>
+            <TouchableOpacity style={styles.settingsIcon} onPress={navgateToSettings}>
               <Ionicons name="settings-sharp" size={24} color="gray" />
             </TouchableOpacity>
           }
@@ -190,10 +192,6 @@ export default function BusinessProfile() {
         contentContainerStyle={styles.photosGrid}
         showsVerticalScrollIndicator={false}
       />
-      <SettingsModal
-        visible={modalVisible}
-        onClose={() => setModalVisible(false)}
-      />
       <EditProfileModal
         visible={editModalVisible}
         setEditModalVisible={setEditModalVisible}
@@ -222,7 +220,7 @@ export default function BusinessProfile() {
           </TouchableOpacity>
 
           {/* Cancel Button */}
-          <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.modalCancelButton}>
+          <TouchableOpacity style={styles.modalCancelButton}>
             <Text style={styles.modalCancelButtonText}>Cancel</Text>
           </TouchableOpacity>
         </View>

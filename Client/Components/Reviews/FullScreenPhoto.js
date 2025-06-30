@@ -15,6 +15,8 @@ import { eventPromoLikeWithAnimation } from '../../utils/LikeHandlers/promoEvent
 import { selectReviewById } from '../../utils/reviewSelectors';
 import { useLikeAnimations } from '../../utils/LikeHandlers/LikeAnimationContext';
 import { selectNearbySuggestionById } from '../../Slices/GooglePlacesSlice';
+import StoryAvatar from '../Stories/StoryAvatar';
+import ExpandableText from './ExpandableText';
 
 const { width, height } = Dimensions.get('window');
 
@@ -29,7 +31,7 @@ const FullScreenPhoto = () => {
     isEventPromo = false,
   } = route?.params;
   const user = useSelector(selectUser);
-  const review = isEventPromo ? 
+  const review = isEventPromo ?
     useSelector((state) => selectNearbySuggestionById(state, reviewId)) : useSelector(selectReviewById(reviewId));
   const userId = user?.id;
   const flatListRef = useRef();
@@ -47,6 +49,7 @@ const FullScreenPhoto = () => {
   const taggedUsers = taggedUsersByPhotoKey?.[currentPhoto?.photoKey] || [];
   const eventPromoType = ["activeEvent", "upcomingEvent"].includes(review.kind) ? "event" : "promo";
   const likeCount = review?.likes?.length;
+  const postText = review.reviewText || review.message || null;
 
   const likeWithAnimation = (force = false) => {
     const postId = review._id;
@@ -105,7 +108,7 @@ const FullScreenPhoto = () => {
 
   if (!review || !Array.isArray(review.photos) || review.photos.length === 0) {
     return null;
-  }
+  };
 
   return (
     <View style={{ flex: 1 }}>
@@ -139,7 +142,6 @@ const FullScreenPhoto = () => {
               const index = Math.round(e.nativeEvent.contentOffset.x / width);
               setCurrentIndex(index);
             }}
-
             renderItem={({ item }) => (
               <View style={styles.imageWrapper}>
                 {isVideo(item) ? (
@@ -183,7 +185,6 @@ const FullScreenPhoto = () => {
             )}
           />
         )}
-
         {/* Like / Comment Buttons */}
         <View style={styles.actionsContainer}>
           <TouchableOpacity onPress={() => setCommentsVisible(true)} style={styles.iconButton}>
@@ -199,13 +200,23 @@ const FullScreenPhoto = () => {
             <Text style={styles.countText}>{likeCount}</Text>
           </TouchableOpacity>
         </View>
-
+        <View style={styles.bottomOverlay}>
+          <View style={styles.postOwner}>
+            <StoryAvatar userId={review?.userId} profilePicUrl={review.profilePicUrl} />
+            <Text style={styles.postOwnerName}>{review.fullName}</Text>
+          </View>
+          <ExpandableText
+            text={postText}
+            maxLines={3}
+            textStyle={styles.reviewText}
+            seeMoreStyle={styles.seeMoreLink}
+          />
+        </View>
         {/* Animated Like Bubble */}
         <Animated.View style={[styles.likeOverlay, { opacity: animation }]}>
           <MaterialCommunityIcons name="thumb-up" size={80} color="#80E6D2" />
         </Animated.View>
       </View>
-
       {/* Comments Modal */}
       <BottomCommentsModal
         visible={commentsVisible}
@@ -242,7 +253,7 @@ const styles = StyleSheet.create({
   actionsContainer: {
     position: 'absolute',
     right: 20,
-    top: height / 2 + 140,
+    top: height / 2 + 110,
     zIndex: 10,
     justifyContent: 'center',
     alignItems: 'center',
@@ -277,6 +288,30 @@ const styles = StyleSheet.create({
     color: '#000',
     fontWeight: 'bold',
   },
+  bottomOverlay: {
+    position: 'absolute',
+    height: '20%',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)', // see-through black overlay
+  },
+  postOwner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  postOwnerName: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 10,
+  },
+  reviewText: {
+    color: '#fff',
+    fontSize: 14,
+  }
 });
 
 export default FullScreenPhoto;

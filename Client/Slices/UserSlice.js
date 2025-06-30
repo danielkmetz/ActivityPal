@@ -7,26 +7,26 @@ const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
 
 // AsyncThunk for user login
 export const loginUser = createAsyncThunk(
-    "user/loginUser",
-    async ({ email, password, isBusiness }, { rejectWithValue, dispatch }) => {
-      try {
-        const response = await axios.post(`${BASE_URL}/auth/login`, {
-          email,
-          password,
-          isBusiness,
-        });
-        const { token, user } = response.data;
+  "user/loginUser",
+  async ({ email, password, isBusiness }, { rejectWithValue, dispatch }) => {
+    try {
+      const response = await axios.post(`${BASE_URL}/auth/login`, {
+        email,
+        password,
+        isBusiness,
+      });
+      const { token, user } = response.data;
 
-        await AsyncStorage.setItem('authToken', token);
+      await AsyncStorage.setItem('authToken', token);
 
-        return {user, token};
-      } catch (error) {
-        // Capture and return error messages
-        const errorMessage =
-          error.response?.data?.message || error.message || "Login failed";
-        return rejectWithValue(errorMessage);
-      }
+      return { user, token };
+    } catch (error) {
+      // Capture and return error messages
+      const errorMessage =
+        error.response?.data?.message || error.message || "Login failed";
+      return rejectWithValue(errorMessage);
     }
+  }
 );
 
 export const registerUser = createAsyncThunk(
@@ -217,6 +217,30 @@ export const deleteUserAccount = createAsyncThunk(
   }
 );
 
+export const updateAnyPrivacySettings = createAsyncThunk(
+  'user/updateAnyPrivacySettings',
+  async ({ userId, updates }, { rejectWithValue }) => {
+    try {
+      const token = await getUserToken();
+
+      const response = await axios.put(
+        `${BASE_URL}/users/privacy-settings/${userId}`,
+        updates, // example: { messagePermissions: 'peopleIFollow', tagPermissions: 'noTags' }
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      return response.data.privacySettings;
+    } catch (error) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to update privacy settings');
+    }
+  }
+);
+
 // User slice
 const userSlice = createSlice({
   name: "user",
@@ -335,7 +359,20 @@ const userSlice = createSlice({
       .addCase(deleteUserAccount.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload || 'Account deletion failed';
-      })       
+      })
+      .addCase(updateAnyPrivacySettings.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(updateAnyPrivacySettings.fulfilled, (state, action) => {
+        state.loading = false;
+        state.privacySettings = action.payload;
+      })
+      .addCase(updateAnyPrivacySettings.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload || 'Failed to update privacy settings';
+      })
+
   },
 });
 

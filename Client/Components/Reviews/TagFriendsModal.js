@@ -12,10 +12,18 @@ import {
 import { useSelector } from "react-redux";
 import { selectFollowing } from "../../Slices/friendsSlice";
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
+import { selectUser } from "../../Slices/UserSlice";
 
-const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isEventInvite, initialSelectedFriends = [] }) => {
+const TagFriendsModal = ({ visible, onClose, onSave, isTagging = false, isPhotoTagging = false, isEventInvite, initialSelectedFriends = [] }) => {
   const [selectedUsers, setSelectedUsers] = useState([]);
   const following = useSelector(selectFollowing);
+  const user = useSelector(selectUser);
+  const currentUserId = user?.id;
+
+  const isCurrentUserFollowed = (otherUser, currentUserId) => {
+    if (!otherUser || !Array.isArray(otherUser.following)) return false;
+    return otherUser.following.some(user => user._id === currentUserId);
+  };
 
   // **Reset selection if the modal is for photo tagging**
   useEffect(() => {
@@ -28,12 +36,12 @@ const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isE
             tagged.userId === f._id || tagged._id === f._id
           )
         );
-  
+
         setSelectedUsers(matched);
       }
     }
-  }, [visible, following]);  
-  
+  }, [visible, following]);
+
   // Toggle selection of friends (store full object instead of just the ID)
   const toggleUserSelection = (user) => {
     setSelectedUsers((prevSelected) => {
@@ -47,6 +55,36 @@ const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isE
     });
   };
 
+  const getPermissionSetting = (user, key) =>
+    user?.privacySettings?.[key] ?? 'everyone';
+
+  const shouldIncludeUser = (user) => {
+    // Event Invite
+    if (isEventInvite) {
+      const inviteSetting = getPermissionSetting(user, 'invites');
+      if (inviteSetting === 'everyone') return true;
+      if (inviteSetting === 'peopleIFollow') {
+        return isCurrentUserFollowed(user, currentUserId);
+      }
+      return false;
+    }
+
+    // Tagging (regular or photo)
+    if (isTagging || isPhotoTagging) {
+      const tagSetting = getPermissionSetting(user, 'tagPermissions');
+      if (tagSetting === 'everyone') return true;
+      if (tagSetting === 'peopleIFollow') {
+        return isCurrentUserFollowed(user, currentUserId);
+      }
+      return false;
+    }
+
+    // Default: show all if no restriction
+    return true;
+  };
+
+  const listToRender = following.filter(shouldIncludeUser);
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
@@ -56,7 +94,7 @@ const TagFriendsModal = ({ visible, onClose, onSave, isPhotoTagging = false, isE
           </Text>
           {/* Friend List with Profile Picture & Custom Checkboxes */}
           <FlatList
-            data={following}
+            data={listToRender}
             keyExtractor={(item) => item._id.toString()} // Ensure unique key
             renderItem={({ item }) => {
               const isSelected = selectedUsers.some((f) => f._id === item._id);
