@@ -101,7 +101,7 @@ export default function SuggestionItem({ suggestion }) {
     const handlePhotoTap = (item) => {
         const now = Date.now();
         const lastTap = lastTapRef.current[item._id] || 0;
-        const DOUBLE_TAP_DELAY = 150;
+        const DOUBLE_TAP_DELAY = 250;
 
         if (now - lastTap < DOUBLE_TAP_DELAY) {
             clearTimeout(tapTimeoutRef.current);

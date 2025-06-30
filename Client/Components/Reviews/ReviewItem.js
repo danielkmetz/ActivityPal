@@ -74,6 +74,7 @@ export default function ReviewItem({
     };
 
     const navigateToOtherUserProfile = (userId) => {
+        console.log(userId)
         if (userId !== user?.id) {
             navigation.navigate('OtherUserProfile', { userId }); // Pass user data to the new screen
         } else {
@@ -190,7 +191,8 @@ export default function ReviewItem({
                                                 <Text style={styles.business}> is with </Text>
                                                 {item.taggedUsers.map((user, index) => (
                                                     <TouchableWithoutFeedback
-                                                        key={user._id || index}
+                                                        key={user.userId || index}
+                                                        onPress={() => navigateToOtherUserProfile(user.userId)}
                                                     >
                                                         <Text style={styles.userEmailText}>
                                                             {user.fullName}

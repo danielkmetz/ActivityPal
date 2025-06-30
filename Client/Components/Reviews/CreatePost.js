@@ -455,6 +455,7 @@ export default function CreatePost() {
           onSave={setTaggedUsers}
           onClose={() => setTagFriendsModalVisible(false)}
           initialSelectedFriends={taggedUsers}
+          isTagging={true}
         />
         <EditPhotosModal
           visible={editPhotosModalVisible}

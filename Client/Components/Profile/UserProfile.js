@@ -3,7 +3,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { View, Text, Image, StyleSheet, TouchableOpacity, FlatList } from "react-native";
 import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
-import SettingsModal from "./SettingsModal";
 import EditProfileModal from "./EditProfileModal";
 import Reviews from "../Reviews/Reviews";
 import Photos from "./Photos";
@@ -15,16 +14,17 @@ import Favorites from "./Favorites";
 import { selectFollowing, selectFollowers } from "../../Slices/friendsSlice";
 import usePaginatedFetch from "../../utils/usePaginatedFetch";
 import ConnectionsModal from "./ConnectionsModal";
+import { useNavigation } from "@react-navigation/native";
 
 export default function UserProfile() {
   const dispatch = useDispatch();
+  const navigation = useNavigation();
   const user = useSelector(selectUser);
   const profilePic = useSelector(selectProfilePic);
   const profileReviews = useSelector(selectProfileReviews);
   const following = useSelector(selectFollowing);
   const followers = useSelector(selectFollowers);
   const banner = useSelector(selectBanner);
-  const [modalVisible, setModalVisible] = useState(false);
   const [activeSection, setActiveSection] = useState("reviews");
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [shouldFetch, setShouldFetch] = useState(true);
@@ -47,6 +47,10 @@ export default function UserProfile() {
     params: { userId },
     limit: 5,
   });
+
+  const navigateToSettings = () => {
+    navigation.navigate("Settings");
+  };
 
   useEffect(() => {
     if (userId && shouldFetch) {
@@ -120,7 +124,7 @@ export default function UserProfile() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.editProfileButton, { marginLeft: 10, }]}
-                  onPress={() => setModalVisible(true)}
+                  onPress={navigateToSettings}
                 >
                   <Ionicons name="settings-sharp" size={24} color="white" />
                   <Text style={styles.editProfileButtonText}>Settings</Text>
@@ -150,10 +154,6 @@ export default function UserProfile() {
         }
         data={data}
         keyExtractor={(item, index) => index.toString()}
-      />
-      <SettingsModal
-        visible={modalVisible}
-        onClose={() => setModalVisible(false)}
       />
       <EditProfileModal
         visible={editModalVisible}
