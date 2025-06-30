@@ -200,6 +200,7 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
                 ...activity,
                 events: [],
                 promotions: [],
+                opening_hours: { open_now: true },
                 business: {
                     placeId: activity.place_id,
                     businessName: activity.name,

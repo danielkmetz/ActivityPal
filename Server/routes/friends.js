@@ -109,7 +109,7 @@ router.post('/approve-follow-request', verifyToken, async (req, res) => {
           'notifications.$.message': `You accepted ${requester.firstName} ${requester.lastName}'s follow request.`,
         },
       }
-    );    
+    );
 
     // Respond with enriched user object
     res.status(200).json({
@@ -164,7 +164,7 @@ router.post('/decline-follow-request', verifyToken, async (req, res) => {
           relatedId: new mongoose.Types.ObjectId(requesterId),
         },
       },
-    });    
+    });
 
     res.status(200).json({ message: 'Follow request declined.' });
   } catch (error) {
@@ -210,7 +210,7 @@ router.delete('/unfollow/:targetUserId', verifyToken, async (req, res) => {
         },
       },
     });
-    
+
     await User.findByIdAndUpdate(targetUserId, {
       $pull: {
         notifications: {
@@ -218,7 +218,7 @@ router.delete('/unfollow/:targetUserId', verifyToken, async (req, res) => {
           relatedId: new mongoose.Types.ObjectId(userId),
         },
       },
-    });    
+    });
 
     res.status(200).json({ message: 'Successfully unfollowed the user.' });
   } catch (error) {
@@ -438,8 +438,22 @@ router.get('/followers-following/:userId', verifyToken, async (req, res) => {
     const { userId } = req.params;
 
     const user = await User.findById(userId)
-      .populate('followers', '_id firstName lastName profilePic')
-      .populate('following', '_id firstName lastName profilePic');
+      .populate({
+        path: 'followers',
+        select: '_id firstName lastName profilePic privacySettings following followers',
+        populate: { // populate the followers' following list
+          path: 'following',
+          select: '_id',
+        }
+      })
+      .populate({
+        path: 'following',
+        select: '_id firstName lastName profilePic privacySettings following followers',
+        populate: { // populate the following's following list
+          path: 'following',
+          select: '_id',
+        }
+      });
 
     if (!user) {
       return res.status(404).json({ message: 'User not found.' });
@@ -456,6 +470,8 @@ router.get('/followers-following/:userId', verifyToken, async (req, res) => {
         lastName: u.lastName,
         profilePic: u.profilePic || null,
         profilePicUrl: profilePicMap[u._id.toString()]?.profilePicUrl || null,
+        privacySettings: u.privacySettings || {},
+        following: u.following || [],
       }));
 
     res.status(200).json({

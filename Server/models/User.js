@@ -97,8 +97,8 @@ const UserSchema = new mongoose.Schema({
     },
     invites: {
       type: String,
-      enum: ['friendsOnly', 'followers', 'public'],
-      default: 'friendsOnly',
+      enum: ['everyone', 'peopleIFollow', "none"],
+      default: 'peopleIFollow',
     },
     contentVisibility: {
       type: String,
@@ -107,12 +107,12 @@ const UserSchema = new mongoose.Schema({
     },
     tagPermissions: {
       type: String,
-      enum: ['everyone', 'peopleIFollow', 'noTags'],
+      enum: ['everyone', 'peopleIFollow', "none"],
       default: 'everyone',
     },
     messagePermissions: {
       type: String,
-      enum: ['everyone', 'peopleIFollow'],
+      enum: ['everyone', 'peopleIFollow', "none"],
       default: 'everyone',
     }
   },

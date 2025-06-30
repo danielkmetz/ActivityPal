@@ -31,6 +31,7 @@ import SearchFollowingScreen from '../SearchFollowingUsers/SearchFollowingScreen
 import FilterSortScreen from '../Activities/FilterSortScreen';
 import EventDetailsScreen from '../Activities/EventPromoDetails/EventDetailsScreen';
 import { selectProfilePic } from '../../Slices/PhotosSlice';
+import SettingsScreen from '../Profile/Settings/SettingsScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -262,6 +263,7 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
             <Stack.Screen name="SearchFollowing" component={SearchFollowingScreen} />
             <Stack.Screen name="FilterSort" component={FilterSortScreen} />
             <Stack.Screen name="EventDetails" component={EventDetailsScreen} />
+            <Stack.Screen name="Settings" component={SettingsScreen} />
         </Stack.Navigator>
     )
 }

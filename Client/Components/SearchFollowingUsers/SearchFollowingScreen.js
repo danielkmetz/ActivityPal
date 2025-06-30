@@ -18,9 +18,35 @@ const SearchFollowingScreen = ({ route }) => {
     const [selectedUsers, setSelectedUsers] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
     const user = useSelector(selectUser);
+    const currentUserId = user?.id;
     const buttonTitle = postId && postType ? "Send Post" : "Send Chat";
 
-    const filteredUsers = following.filter(user => {
+    const isCurrentUserFollowed = (otherUser, currentUserId) => {
+        if (!otherUser || !Array.isArray(otherUser.following)) return false;
+
+        console.log("🔍 Checking messagePermissions access for:", {
+            otherUserId: otherUser._id,
+            following: otherUser.following.map(f => (typeof f === 'object' ? f._id : f)),
+            currentUserId
+        });
+
+        return otherUser.following.some(f => {
+            const id = typeof f === 'object' ? f._id : f;
+            return id === currentUserId;
+        });
+    };
+
+    const filteredByPrivacy = following.filter(otherUser => {
+        const setting = otherUser?.privacySettings?.messagePermissions || 'everyone';
+
+        if (setting === 'everyone') return true;
+        if (setting === 'peopleIFollow') {
+            return isCurrentUserFollowed(otherUser, currentUserId);
+        }
+        return false;
+    });
+
+    const filteredUsers = filteredByPrivacy.filter(user => {
         const fullName = `${user?.firstName} ${user?.lastName}`.toLowerCase();
         return fullName.includes(searchQuery.toLowerCase());
     });

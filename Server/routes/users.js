@@ -71,35 +71,96 @@ router.get('/privacy-settings/:userId', verifyToken, async (req, res) => {
     }
 });
 
-// UPDATE privacy settings for a user
-router.put('/privacy-settings/:userId', verifyToken, async (req, res) => {
-    try {
-      const { userId } = req.params;
-      const { profileVisibility } = req.body;
-  
-      if (!['public', 'private'].includes(profileVisibility)) {
-        return res.status(400).json({ message: 'Invalid profile visibility value.' });
-      }
-  
-      const updatedUser = await User.findByIdAndUpdate(
-        userId,
-        { $set: { 'privacySettings.profileVisibility': profileVisibility } },
-        { new: true, runValidators: true }
-      ).select('privacySettings');
-  
-      if (!updatedUser) {
-        return res.status(404).json({ message: 'User not found.' });
-      }
-  
-      return res.status(200).json({
-        message: 'Privacy settings updated successfully.',
-        privacySettings: updatedUser.privacySettings,
-      });
-    } catch (error) {
-      console.error('Error updating privacy settings:', error);
-      res.status(500).json({ message: 'Server error.' });
+// UPDATE message permissions for a user
+router.put('/message-settings/:userId', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { messagePermissions } = req.body;
+
+    const validOptions = ['everyone', 'peopleIFollow'];
+    if (!validOptions.includes(messagePermissions)) {
+      return res.status(400).json({ message: 'Invalid messagePermissions value.' });
     }
-});  
+
+    // Ensure the user is updating their own settings
+    if (req.user.id !== userId) {
+      return res.status(403).json({ message: 'Unauthorized to update message settings for this user.' });
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $set: { 'privacySettings.messagePermissions': messagePermissions } },
+      { new: true, runValidators: true }
+    ).select('privacySettings');
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    return res.status(200).json({
+      message: 'Message settings updated successfully.',
+      privacySettings: updatedUser.privacySettings,
+    });
+  } catch (error) {
+    console.error('Error updating message permissions:', error);
+    res.status(500).json({ message: 'Server error.' });
+  }
+});
+
+// UPDATE any privacy setting field
+router.put('/privacy-settings/:userId', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const updates = req.body;
+
+    // Ensure user is modifying their own settings
+    if (req.user.id !== userId) {
+      return res.status(403).json({ message: 'Unauthorized to update these settings.' });
+    }
+
+    // Whitelist of allowed keys and their valid options
+    const validFields = {
+      profileVisibility: ['public', 'private'],
+      invites: ['peopleIFollow', 'everyone', 'none'],
+      contentVisibility: ['public', 'friendsOnly'],
+      tagPermissions: ['everyone', 'peopleIFollow', 'none'],
+      messagePermissions: ['everyone', 'peopleIFollow', 'none'],
+    };
+
+    const setObj = {};
+
+    for (const key in updates) {
+      const value = updates[key];
+
+      if (!(key in validFields)) {
+        return res.status(400).json({ message: `Invalid setting key: ${key}` });
+      }
+
+      if (!validFields[key].includes(value)) {
+        return res.status(400).json({ message: `Invalid value for ${key}` });
+      }
+
+      setObj[`privacySettings.${key}`] = value;
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $set: setObj },
+      { new: true, runValidators: true }
+    ).select('privacySettings');
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    res.status(200).json({
+      message: 'Privacy settings updated successfully.',
+      privacySettings: updatedUser.privacySettings,
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error.' });
+  }
+});
 
 // Get user's full name by ID
 router.get('/fullname/:userId', verifyToken, async (req, res) => {
