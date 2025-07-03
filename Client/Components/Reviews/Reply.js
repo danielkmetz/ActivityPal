@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, StyleSheet, TouchableWithoutFeedback } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, StyleSheet, TouchableWithoutFeedback, Image } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser } from '../../Slices/UserSlice';
@@ -7,6 +7,10 @@ import { toggleCommentLike } from '../../Slices/ReviewsSlice';
 import { findTopLevelCommentId } from '../../functions';
 import { setSelectedComment, setSelectedReply } from '../../Slices/CommentThreadSlice';
 import { hasLikedCheck } from '../../utils/LikeHandlers/hasLikedCheck';
+import { selectMediaFromGallery } from '../../utils/selectPhotos';
+import VideoThumbnail from './VideoThumbnail';
+import { uploadReviewPhotos } from '../../Slices/PhotosSlice';
+import { isVideo } from '../../utils/isVideo';
 
 const Reply = ({
   reply,
@@ -37,10 +41,12 @@ const Reply = ({
   const dispatch = useDispatch();
   const [showReplyInput, setShowReplyInput] = useState(false);
   const [nestedReplyText, setNestedReplyText] = useState('');
+  const [selectedReplyMedia, setSelectedReplyMedia] = useState([]);
   const user = useSelector(selectUser);
   const likes = reply?.likes || [];
   const userId = user?.id;
   const hasLiked = hasLikedCheck(likes, userId);
+  const media = reply?.media;
 
   const setNativeRef = (node) => {
     if (node) {
@@ -48,12 +54,43 @@ const Reply = ({
     }
   };
 
+  const handleSelectReplyMedia = async () => {
+    const files = await selectMediaFromGallery();
+    if (files.length > 0) {
+      setSelectedReplyMedia([files[0]]); // ensure only one is stored
+    }
+  };
+
   const handleAddNestedReply = async () => {
-    //if (!nestedReplyText) return;
-    await onAddReply(reply._id, nestedReplyText); // Pass reply ID and text
+    let media = null;
+
+    if (selectedReplyMedia.length > 0) {
+      try {
+        const uploadResult = await dispatch(
+          uploadReviewPhotos({
+            placeId: review.placeId,
+            files: selectedReplyMedia,
+          })
+        ).unwrap();
+
+        if (uploadResult?.length > 0) {
+          const file = selectedReplyMedia[0]; // Only support one media file for now
+          media = {
+            photoKey: uploadResult[0],
+            mediaType: file.type?.startsWith("video") ? "video" : "image",
+          };
+        }
+      } catch (err) {
+        console.error("Reply media upload failed", err);
+      }
+    }
+
+    await onAddReply(reply._id, nestedReplyText, media); // Update your thunk to support media
+
     setNestedReplyText('');
     setShowReplyInput(false);
     setNestedReplyInput(false);
+    setSelectedReplyMedia([]);
     handleExpandReplies(reply._id);
   };
 
@@ -104,7 +141,14 @@ const Reply = ({
             </>
           ) : (
             <View style={styles.textRow}>
-              <Text style={styles.commentText}>{reply.commentText}</Text>
+              <View style={{ flexDirection: 'column' }}>
+                {media && media.photoKey && (
+                  isVideo(media)
+                    ? <VideoThumbnail file={media} width={200} height={200} />
+                    : <Image source={{ uri: media?.mediaUrl }} style={styles.image} />
+                )}
+                <Text style={styles.commentText}>{reply.commentText}</Text>
+              </View>
               <View style={styles.likeRow}>
                 <TouchableOpacity onPress={handleToggleLike} style={styles.likeButton}>
                   <MaterialCommunityIcons
@@ -151,18 +195,47 @@ const Reply = ({
         {/* Nested reply input */}
         {showReplyInput && (
           <View style={styles.nestedReplyInputContainer}>
-            <TextInput
-              style={styles.nestedReplyInput}
-              placeholder="Write a reply..."
-              value={nestedReplyText}
-              onChangeText={setNestedReplyText}
-            />
-            <TouchableOpacity style={styles.commentButton} onPress={() => handleAddNestedReply()}>
+            <View style={styles.fakeInputBox}>
+              {/* Media Preview */}
+              {selectedReplyMedia.length > 0 && (
+                <View style={styles.mediaPreview}>
+                  {selectedReplyMedia.map((file, index) =>
+                    isVideo(file) ? (
+                      <VideoThumbnail key={index} file={file} width={100} height={100} />
+                    ) : (
+                      <Image
+                        key={index}
+                        source={{ uri: file.uri }}
+                        style={styles.previewImage}
+                      />
+                    )
+                  )}
+                </View>
+              )}
+
+              {/* Text Input */}
+              <TextInput
+                style={styles.nestedReplyInput}
+                placeholder="Write a reply..."
+                value={nestedReplyText}
+                onChangeText={setNestedReplyText}
+                multiline
+              />
+
+              {/* Camera Icon Overlay */}
+              {nestedReplyText.trim() === '' && selectedReplyMedia.length === 0 && (
+                <TouchableOpacity onPress={handleSelectReplyMedia} style={styles.cameraIcon}>
+                  <MaterialCommunityIcons name="camera-outline" size={24} color="#555" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Submit Reply */}
+            <TouchableOpacity style={styles.commentButton} onPress={handleAddNestedReply}>
               <Text style={styles.commentButtonText}>Reply</Text>
             </TouchableOpacity>
           </View>
         )}
-
         {/* Render nested replies */}
         {nestedExpandedReplies[reply._id] &&
           reply?.replies?.map((nestedReply) => (
@@ -243,22 +316,18 @@ const styles = StyleSheet.create({
   nestedReplyInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 20,
+    marginTop: 10,
   },
   nestedReplyInput: {
-    flex: 1,
-    height: 40,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 5,
-    paddingHorizontal: 10,
-    marginRight: 10,
-
+    fontSize: 14,
   },
   commentButton: {
     backgroundColor: '#009999',
     paddingVertical: 8,
     paddingHorizontal: 15,
     borderRadius: 5,
+    marginLeft: 5,
   },
   commentButtonText: {
     color: '#fff',
@@ -338,5 +407,43 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#777',
     marginLeft: 4,
+  },
+  cameraIcon: {
+    position: 'absolute',
+    right: 20,
+    top: 8
+  },
+  inputWrapper: {
+    flex: 1,
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  fakeInputBox: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 5,
+    padding: 8,
+    position: 'relative',
+    backgroundColor: '#fff',
+  },
+  mediaPreview: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 6,
+  },
+  previewImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 8,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  image: {
+    width: 200,
+    height: 200,
+    borderRadius: 8,
+    marginBottom: 6,
+    marginTop: 5
   },
 });

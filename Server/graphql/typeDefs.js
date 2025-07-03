@@ -156,6 +156,12 @@ const typeDefs = gql`
     fullName: String!
   }
 
+  type Media {
+    photoKey: String
+    mediaType: String # "image" or "video"
+    mediaUrl: String
+  }
+
   # ✅ Comments & Replies (Nested)
   type Comment {
     _id: ID!
@@ -164,6 +170,7 @@ const typeDefs = gql`
     fullName: String!
     replies: [Reply!]
     likes: [Like]
+    media: Media
     date: Date!
   }
 
@@ -175,6 +182,7 @@ const typeDefs = gql`
     replies: [Reply!]
     likes: [Like]
     date: Date!
+    media: Media
   }
 
   type FollowersAndFollowing {
