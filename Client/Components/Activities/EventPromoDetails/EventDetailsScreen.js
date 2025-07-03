@@ -12,8 +12,9 @@ import { useDispatch, useSelector } from 'react-redux';
 import dayjs from 'dayjs';
 import { selectUser } from '../../../Slices/UserSlice';
 import { selectNearbySuggestionById } from '../../../Slices/GooglePlacesSlice';
-import { selectIsEditing, selectNestedExpandedReplies, selectReplyingTo } from '../../../Slices/CommentThreadSlice';
+import { selectIsEditing, selectNestedExpandedReplies, selectReplyingTo, setReplyingTo } from '../../../Slices/CommentThreadSlice';
 import { useLikeAnimations } from '../../../utils/LikeHandlers/LikeAnimationContext';
+import { uploadReviewPhotos } from '../../../Slices/PhotosSlice';
 
 export default function EventDetailsScreen() {
     const dispatch = useDispatch();
@@ -28,14 +29,45 @@ export default function EventDetailsScreen() {
     const [commentText, setCommentText] = useState('');
     const [inputHeight, setInputHeight] = useState(40);
     const [contentHeight, setContentHeight] = useState(40);
+    const [selectedMedia, setSelectedMedia] = useState([]);
     const lastTapRef = useRef({});
     const userId = user?.placeId ? user?.placeId : user?.id;
     const fullName = `${user?.firstName} ${user?.lastName}`;
     const { getAnimation, registerAnimation } = useLikeAnimations();
     const animation = getAnimation(activity._id);
 
-    const handleAddComment = () => {
-        if (!commentText.trim()) return;
+    const handleAddComment = async () => {
+        if ((!commentText || commentText.trim() === '') && (!selectedMedia || selectedMedia.length === 0)) {
+            return;
+        }
+
+        if (!suggestion) {
+            return;
+        }
+
+        let media = null;
+
+        if (selectedMedia && selectedMedia.length > 0) {
+            const mediaFile = selectedMedia[0];
+            
+            try {
+                const result = await dispatch(
+                    uploadReviewPhotos({
+                        placeId: suggestion.placeId,
+                        files: [mediaFile],
+                    })
+                ).unwrap();
+
+                if (result?.length > 0) {
+                    media = {
+                        photoKey: result[0],
+                        mediaType: mediaFile.type.startsWith('video') ? 'video' : 'image',
+                    };
+                }
+            } catch (error) {
+                console.error('❌ Media upload failed:', error);
+            }
+        }
 
         const commentThunk = selectedType === 'event' ? leaveEventComment : leavePromoComment;
 
@@ -44,10 +76,13 @@ export default function EventDetailsScreen() {
             id: activity._id,
             userId,
             fullName,
-            commentText
+            commentText,
+            ...(media && { media }),
         }));
 
         setCommentText('');
+        setSelectedMedia([]);
+        dispatch(setReplyingTo(null));
     };
 
     const handleLikeWithAnimation = (item, force = false) => {
@@ -97,10 +132,12 @@ export default function EventDetailsScreen() {
                                 <EventPromoCommentThread
                                     key={item._id}
                                     item={item}
-                                    post={activity} // Pass the whole post here
+                                    post={suggestion} // Pass the whole post here
                                     commentText={commentText}
                                     setCommentText={setCommentText}
                                     type={selectedType}
+                                    selectedMedia={selectedMedia}
+                                    setSelectedMedia={setSelectedMedia}
                                 />
                             </View>
                         )}
@@ -113,6 +150,8 @@ export default function EventDetailsScreen() {
                             inputHeight={inputHeight}
                             contentHeight={contentHeight}
                             setContentHeight={setContentHeight}
+                            selectedMedia={selectedMedia}
+                            setSelectedMedia={setSelectedMedia}
                         />
                     )}
                 </View>

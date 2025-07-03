@@ -43,8 +43,6 @@ router.post('/metadata/:placeId', async (req, res) => {
     const { placeId } = req.params;
     const photos = req.body; // Metadata for uploaded photos
 
-    //console.log(req.body);
-  
     try {
       const business = await findBusiness(placeId);
   

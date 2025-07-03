@@ -26,6 +26,11 @@ export const REVIEW_FRAGMENT = gql`
         fullName
       }
       date
+      media {
+        photoKey
+        mediaType
+        mediaUrl
+      }
       replies {
         _id
         commentText
@@ -35,6 +40,11 @@ export const REVIEW_FRAGMENT = gql`
           userId
           fullName
         }
+          media {
+            photoKey
+            mediaType
+            mediaUrl
+          }
         date
         replies {
           _id
@@ -46,6 +56,11 @@ export const REVIEW_FRAGMENT = gql`
             fullName
           }
           date
+          media {
+            photoKey
+            mediaType
+            mediaUrl
+          }
           replies {
             _id
             commentText
@@ -55,6 +70,11 @@ export const REVIEW_FRAGMENT = gql`
               userId
               fullName
             }
+              media {
+                photoKey
+                mediaType
+                mediaUrl
+              }
             date
             replies {
               _id
@@ -65,6 +85,11 @@ export const REVIEW_FRAGMENT = gql`
                 userId
                 fullName
               }
+                media {
+                  photoKey
+                  mediaType
+                  mediaUrl
+                }
               date
               replies {
                 _id
@@ -75,6 +100,11 @@ export const REVIEW_FRAGMENT = gql`
                   userId
                   fullName
                 }
+                  media {
+                    photoKey
+                    mediaType
+                    mediaUrl
+                  }
                 date
                 replies {
                   _id
@@ -85,6 +115,11 @@ export const REVIEW_FRAGMENT = gql`
                     userId
                     fullName
                   }
+                    media {
+                      photoKey
+                      mediaType
+                      mediaUrl
+                    }
                   date
                 }
               }

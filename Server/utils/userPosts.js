@@ -4,6 +4,62 @@ const CheckIn = require('../models/CheckIns.js');
 const Review = require('../models/Reviews.js');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 
+async function enrichCommentMedia(media) {
+  if (!media || !media.photoKey) {
+    console.log("🧐 No media or photoKey provided for enrichment");
+    return null;
+  }
+
+  const url = await getPresignedUrl(media.photoKey);
+  console.log("🔗 Enriched media:", { photoKey: media.photoKey, mediaType: media.mediaType, mediaUrl: url });
+
+  return {
+    photoKey: media.photoKey,
+    mediaType: media.mediaType,
+    mediaUrl: url,
+  };
+}
+
+async function enrichReplies(replies = []) {
+  return Promise.all(
+    replies.map(async reply => {
+      const enrichedMedia = await enrichCommentMedia(reply.media);
+      const nestedReplies = await enrichReplies(reply.replies || []);
+      console.log("↩️ Enriched reply:", {
+        replyId: reply._id,
+        media: enrichedMedia,
+        nestedReplyCount: nestedReplies.length
+      });
+
+      return {
+        ...reply,
+        media: enrichedMedia,
+        replies: nestedReplies,
+      };
+    })
+  );
+}
+
+async function enrichComments(comments = []) {
+  return Promise.all(
+    comments.map(async comment => {
+      const enrichedMedia = await enrichCommentMedia(comment.media);
+      const enrichedReplies = await enrichReplies(comment.replies || []);
+      console.log("💬 Enriched comment:", {
+        commentId: comment._id,
+        media: enrichedMedia,
+        replyCount: enrichedReplies.length
+      });
+
+      return {
+        ...comment,
+        media: enrichedMedia,
+        replies: enrichedReplies,
+      };
+    })
+  );
+}
+
 async function gatherUserReviews(userObjectId, profilePic, profilePicUrl) {
   try {
     const reviews = await Review.find({ userId: userObjectId }).lean();
@@ -18,6 +74,7 @@ async function gatherUserReviews(userObjectId, profilePic, profilePicUrl) {
           ]);
 
           const photos = (rawPhotos || []).filter(p => p && p._id && p.photoKey);
+          const comments = await enrichComments(review.comments || []);
 
           return {
             __typename: "Review",
@@ -29,18 +86,17 @@ async function gatherUserReviews(userObjectId, profilePic, profilePicUrl) {
             profilePicUrl,
             taggedUsers,
             photos,
+            comments,
             type: "review",
           };
-        } catch (err) {
-          console.error(`❌ Error enriching review ${review._id}:`, err);
+        } catch {
           return null;
         }
       })
     );
 
     return enriched.filter(r => r !== null);
-  } catch (err) {
-    console.error("❌ Error in gatherUserReviews:", err);
+  } catch {
     return [];
   }
 }
@@ -48,14 +104,10 @@ async function gatherUserReviews(userObjectId, profilePic, profilePicUrl) {
 async function gatherUserCheckIns(user, profilePicUrl) {
   try {
     const checkIns = await CheckIn.find({ userId: user._id }).lean();
-    console.log(`📦 Found ${checkIns.length} check-ins for user ${user._id}`);
 
     const enriched = await Promise.all(
       checkIns.map(async (checkIn) => {
         try {
-          console.log(`➡️ Processing check-in: ${checkIn._id}`);
-          console.log(`   placeId: ${checkIn.placeId}`);
-
           const [taggedUsers, rawPhotos, business] = await Promise.all([
             resolveTaggedUsers(checkIn.taggedUsers || []),
             resolveTaggedPhotoUsers(checkIn.photos || []),
@@ -64,13 +116,8 @@ async function gatherUserCheckIns(user, profilePicUrl) {
               .lean(),
           ]);
 
-          if (!business) {
-            console.warn(`⚠️ No matching business found for placeId: "${checkIn.placeId}"`);
-          } else {
-            console.log(`✅ Found business: ${business.businessName} (placeId: ${business.placeId})`);
-          }
-
           const photos = (rawPhotos || []).filter(p => p && p._id && p.photoKey);
+          const comments = await enrichComments(checkIn.comments || []);
 
           return {
             __typename: "CheckIn",
@@ -86,19 +133,17 @@ async function gatherUserCheckIns(user, profilePicUrl) {
             taggedUsers,
             photos,
             likes: checkIn.likes || [],
-            comments: checkIn.comments || [],
+            comments,
             type: "check-in",
           };
-        } catch (err) {
-          console.error(`❌ Error enriching check-in ${checkIn._id}:`, err);
+        } catch {
           return null;
         }
       })
     );
 
     return enriched.filter(Boolean);
-  } catch (err) {
-    console.error("❌ Error in gatherUserCheckIns:", err);
+  } catch {
     return [];
   }
 }
@@ -188,4 +233,5 @@ module.exports = {
   resolveTaggedUsers,
   resolveTaggedPhotoUsers,
   resolveUserProfilePics,
+  enrichComments,
 };

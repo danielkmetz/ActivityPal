@@ -7,6 +7,7 @@ const ActivityInvite = require('../models/ActivityInvites.js');
 const CheckIn = require('../models/CheckIns.js');
 const mongoose = require('mongoose');
 const { handleNotification } = require('../utils/notificationHandler.js');
+const deleteS3Objects = require('../utils/deleteS3Objects.js');
 const { resolveTaggedPhotoUsers, resolveTaggedUsers, resolveUserProfilePics } = require('../utils/userPosts.js')
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 
@@ -633,22 +634,30 @@ router.post('/:postType/:placeId/:postId/like', async (req, res) => {
 // Add a comment to a review invite or check-in
 router.post('/:postType/:placeId/:postId/comment', async (req, res) => {
   const { postType, placeId, postId } = req.params;
-  const { userId, commentText, fullName } = req.body;
+  const { userId, commentText, fullName, media } = req.body;
+
+  const mediaPayload = media?.photoKey && media?.mediaType
+    ? {
+      photoKey: media.photoKey,
+      mediaType: ['image', 'video'].includes(media.mediaType) ? media.mediaType : null,
+    }
+    : { photoKey: null, mediaType: null };
 
   try {
     let savedComment = null;
 
+    const newComment = {
+      _id: new mongoose.Types.ObjectId(),
+      userId,
+      fullName,
+      commentText,
+      media: mediaPayload,
+      createdAt: new Date(),
+    };
+
     if (postType === 'review') {
       const review = await Review.findById(postId);
       if (!review) return res.status(404).json({ message: 'Review not found' });
-
-      const newComment = {
-        _id: new mongoose.Types.ObjectId(),
-        userId,
-        fullName,
-        commentText,
-        createdAt: new Date(),
-      };
 
       review.comments.push(newComment);
       await review.save();
@@ -663,14 +672,6 @@ router.post('/:postType/:placeId/:postId/comment', async (req, res) => {
       const checkInPost = user.checkIns.id(postId);
       if (!checkInPost) return res.status(404).json({ message: 'Check-in post not found' });
 
-      const newComment = {
-        _id: new mongoose.Types.ObjectId(),
-        userId,
-        fullName,
-        commentText,
-        createdAt: new Date(),
-      };
-
       checkInPost.comments.push(newComment);
       await user.save();
 
@@ -680,14 +681,6 @@ router.post('/:postType/:placeId/:postId/comment', async (req, res) => {
     else if (postType === 'invite') {
       const invite = await ActivityInvite.findById(postId);
       if (!invite) return res.status(404).json({ message: 'Invite not found' });
-
-      const newComment = {
-        _id: new mongoose.Types.ObjectId(),
-        userId,
-        fullName,
-        commentText,
-        createdAt: new Date(),
-      };
 
       invite.comments.push(newComment);
       await invite.save();
@@ -699,11 +692,20 @@ router.post('/:postType/:placeId/:postId/comment', async (req, res) => {
       return res.status(500).json({ message: 'Error saving comment' });
     }
 
+    let presignedUrl = null;
+    if (mediaPayload.photoKey) {
+      presignedUrl = await getPresignedUrl(mediaPayload.photoKey);
+    }
+
     return res.status(201).json({
       message: `Comment added to ${postType} successfully`,
-      comment: savedComment,
+      comment: {
+        ...savedComment.toObject?.() || savedComment,
+        media: mediaPayload.photoKey
+          ? { ...mediaPayload, mediaUrl: presignedUrl }
+          : null
+      }
     });
-
   } catch (error) {
     console.error('🚨 Error adding comment:', error);
     return res.status(500).json({ message: 'Server error' });
@@ -713,15 +715,14 @@ router.post('/:postType/:placeId/:postId/comment', async (req, res) => {
 // POST: Add a reply to a comment
 router.post('/:postType/:postId/:commentId/reply', async (req, res) => {
   const { postType, postId, commentId } = req.params;
-  const { userId, fullName, commentText } = req.body;
+  const { userId, fullName, commentText, media } = req.body;
 
-  console.log(`📥 Incoming reply request → type: ${postType}, postId: ${postId}, commentId: ${commentId}`);
-  console.log(`👤 userId: ${userId}, fullName: ${fullName}, commentText: ${commentText}`);
-
-  if (!userId || !fullName || !commentText) {
-    console.warn("⚠️ Missing required fields in request body");
-    return res.status(400).json({ message: 'Missing required fields' });
-  }
+  const mediaPayload = media?.photoKey && media?.mediaType
+    ? {
+      photoKey: media.photoKey,
+      mediaType: ['image', 'video'].includes(media.mediaType) ? media.mediaType : null,
+    }
+    : { photoKey: null, mediaType: null };
 
   try {
     const findCommentRecursively = (comments = [], targetId) => {
@@ -752,11 +753,9 @@ router.post('/:postType/:postId/:commentId/reply', async (req, res) => {
       return res.status(400).json({ message: 'Invalid post type' });
     }
 
-    console.log(`🔍 Fetching ${postType} with ID: ${postId}`);
     const post = await model.findById(postId);
 
     if (!post) {
-      console.warn(`🚫 ${postType} not found for ID: ${postId}`);
       return res.status(404).json({ message: `${postType} not found` });
     }
 
@@ -766,17 +765,15 @@ router.post('/:postType/:postId/:commentId/reply', async (req, res) => {
     if (postType === 'check-in') {
       const checkInPost = post.checkIns.id(postId);
       if (!checkInPost) {
-        console.warn(`🚫 Check-in not found with ID: ${postId}`);
         return res.status(404).json({ message: 'Check-in not found' });
       }
       commentTree = checkInPost.comments;
     }
 
-    console.log("🔎 Searching for target comment...");
     const targetComment = findCommentRecursively(commentTree, commentId);
 
     if (!targetComment) {
-      console.warn("❌ Comment not found in tree:", commentId);
+      console.warn(`❌ Could not find comment ${commentId} in post ${postId}`);
       return res.status(404).json({ message: 'Comment not found' });
     }
 
@@ -787,24 +784,45 @@ router.post('/:postType/:postId/:commentId/reply', async (req, res) => {
       commentText,
       date: new Date(),
       replies: [],
+      media: mediaPayload,
     };
 
-    console.log("💬 Adding reply:", newReply);
-    targetComment.replies.push(newReply);
+    console.log("🆕 New reply object:", newReply);
 
-    console.log("📝 Marking modified for:", markPath);
+    // 👇 Push reply and log comment before/after
+    console.log("🧩 Before push, targetComment.replies length:", targetComment.replies.length);
+    targetComment.replies.push(newReply);
+    console.log("📌 After push, replies length:", targetComment.replies.length);
+    console.log("📎 Newly pushed reply in targetComment:", targetComment.replies[targetComment.replies.length - 1]);
+
+    // ✅ Ensure Mongoose knows which field is dirty
     post.markModified(markPath);
 
-    console.log("💾 Saving post with new reply...");
-    await post.save();
+    // (optional extra safeguard if postType is 'review' or 'invite')
+    if (postType === 'review' || postType === 'invite') {
+      post.markModified(`comments`);
+    } else if (postType === 'check-in') {
+      post.markModified(`checkIns`);
+    }
 
-    console.log("✅ Reply added successfully.");
+    await post.save();
+    console.log("💾 Post saved successfully");
+
+    let presignedUrl = null;
+    if (mediaPayload.photoKey) {
+      presignedUrl = await getPresignedUrl(mediaPayload.photoKey);
+    }
+
     return res.status(201).json({
       message: `Reply added to ${postType} successfully`,
-      reply: newReply,
+      reply: {
+        ...newReply,
+        media: mediaPayload.photoKey
+          ? { ...mediaPayload, mediaUrl: presignedUrl }
+          : null
+      },
       parentCommentOwner: targetComment.userId,
     });
-
   } catch (error) {
     console.error('🚨 Error adding reply:', error);
     return res.status(500).json({ message: 'Server error' });
@@ -815,14 +833,25 @@ router.delete('/:postType/:postId/:commentId', async (req, res) => {
   const { postType, postId, commentId } = req.params;
   const { relatedId } = req.body;
 
+  let mediaToDeleteKey = null;
+
   const removeCommentOrReply = (comments, targetId) => {
     for (let i = 0; i < comments.length; i++) {
-      if (comments[i]._id.toString() === targetId) {
+      const comment = comments[i];
+
+      // Found the target comment/reply
+      if (comment._id.toString() === targetId) {
+        // Store the media key if present
+        if (comment.media?.photoKey) {
+          mediaToDeleteKey = comment.media.photoKey;
+        }
         comments.splice(i, 1);
         return true;
       }
-      if (comments[i].replies?.length > 0) {
-        const foundInReplies = removeCommentOrReply(comments[i].replies, targetId);
+
+      // Recursively check replies
+      if (Array.isArray(comment.replies) && comment.replies.length > 0) {
+        const foundInReplies = removeCommentOrReply(comment.replies, targetId);
         if (foundInReplies) return true;
       }
     }
@@ -843,10 +872,15 @@ router.delete('/:postType/:postId/:commentId', async (req, res) => {
     }
 
     if (!doc) return res.status(404).json({ message: `${postType} not found` });
+
     const deleted = removeCommentOrReply(doc.comments, commentId);
     if (!deleted) return res.status(404).json({ message: 'Comment/reply not found' });
 
     await doc.save();
+
+    if (mediaToDeleteKey) {
+      await deleteS3Objects([mediaToDeleteKey]);
+    }
 
     if (relatedId) {
       await User.findByIdAndUpdate(relatedId, {
@@ -871,17 +905,40 @@ router.delete('/:postType/:postId/:commentId', async (req, res) => {
 // Edit a comment or reply
 router.put('/:postType/:postId/:commentId', async (req, res) => {
   const { postType, postId, commentId } = req.params;
-  const { userId, newText } = req.body;
+  const { userId, newText, media } = req.body;
 
   if (!newText) return res.status(400).json({ message: 'New text is required' });
+
+  const mediaPayload = media?.photoKey && media?.mediaType
+    ? {
+      photoKey: media.photoKey,
+      mediaType: ['image', 'video'].includes(media.mediaType) ? media.mediaType : null,
+    }
+    : { photoKey: null, mediaType: null };
+
+  let oldPhotoKeyToDelete = null;
+  let updatedCommentRef = null;
 
   const updateCommentOrReply = (comments) => {
     for (let comment of comments) {
       if (comment._id.toString() === commentId) {
         if (comment.userId.toString() !== userId) return { error: 'Unauthorized' };
+
         comment.commentText = newText;
+
+        const originalKey = comment.media?.photoKey || null;
+        const incomingKey = mediaPayload.photoKey;
+
+        if (originalKey && originalKey !== incomingKey) {
+          oldPhotoKeyToDelete = originalKey;
+        }
+
+        comment.media = mediaPayload;
+        updatedCommentRef = comment;
+
         return { updated: comment };
       }
+
       if (comment.replies?.length > 0) {
         const nested = updateCommentOrReply(comment.replies);
         if (nested) return nested;
@@ -904,12 +961,35 @@ router.put('/:postType/:postId/:commentId', async (req, res) => {
     }
 
     if (!doc) return res.status(404).json({ message: `${postType} not found` });
+
     const result = updateCommentOrReply(doc.comments);
     if (!result) return res.status(404).json({ message: 'Comment/reply not found' });
     if (result.error) return res.status(403).json({ message: result.error });
 
     await doc.save();
-    res.status(200).json({ message: 'Comment updated successfully', updatedComment: result.updated });
+
+    if (oldPhotoKeyToDelete) {
+      await deleteS3Objects([oldPhotoKeyToDelete]);
+    }
+
+    let presignedUrl = null;
+    if (mediaPayload.photoKey) {
+      presignedUrl = await getPresignedUrl(mediaPayload.photoKey);
+    }
+
+    const responsePayload = {
+      message: 'Comment updated successfully',
+      updatedComment: {
+        ...updatedCommentRef.toObject(),
+        media: mediaPayload.photoKey ? {
+          ...mediaPayload,
+          mediaUrl: presignedUrl
+        } : null
+      },
+    };
+
+    res.status(200).json(responsePayload);
+
   } catch (err) {
     console.error('❌ Edit error:', err);
     res.status(500).json({ message: 'Server error' });

@@ -10,7 +10,7 @@ const typeDefs = require('./typeDefs.js');
 const { GraphQLScalarType, Kind } = require('graphql');
 const { getCheckInsByPlaceId } = require('../utils/getCheckInsByPlaceId.js');
 const { getUserFromToken } = require('../utils/auth.js');
-const { gatherUserReviews, gatherUserCheckIns, resolveTaggedPhotoUsers, resolveTaggedUsers, resolveUserProfilePics } = require('../utils/userPosts.js');
+const { gatherUserReviews, gatherUserCheckIns, enrichComments, resolveTaggedPhotoUsers, resolveTaggedUsers, resolveUserProfilePics } = require('../utils/userPosts.js');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 const { enrichStory } = require('../utils/enrichStories.js');
 
@@ -47,6 +47,8 @@ const resolvers = {
   Query: {
     getUserAndFollowingReviews: async (_, { userId }) => {
       try {
+        console.log(`📥 Starting getUserAndFollowingReviews for userId: ${userId}`);
+
         if (!mongoose.Types.ObjectId.isValid(userId)) {
           throw new Error("Invalid userId format");
         }
@@ -62,57 +64,41 @@ const resolvers = {
           throw new Error("User not found");
         }
 
-        const allUserIds = [userObjectId, ...(user.following || [])];
+        const following = user.following || [];
+        const allUserIds = [userObjectId, ...following];
+        console.log(`👥 Total users (self + following): ${allUserIds.length}`);
 
         // 👤 Get user names and profile photos
         const users = await User.find({ _id: { $in: allUserIds } })
           .select('_id firstName lastName profilePic')
           .lean();
 
+        console.log(`👤 Loaded metadata for ${users.length} users`);
+
         const picMap = await resolveUserProfilePics(allUserIds);
-        const userMap = new Map();
-        for (const u of users) {
-          userMap.set(u._id.toString(), {
-            fullName: `${u.firstName} ${u.lastName}`,
-            profilePic: picMap[u._id.toString()]?.profilePic || null,
-            profilePicUrl: picMap[u._id.toString()]?.profilePicUrl || null,
-          });
-        }
+        console.log(`📸 Resolved profile pictures for ${Object.keys(picMap).length} users`);
 
-        // 🧠 Fetch top-level reviews from DB
-        const rawReviews = await Review.find({ userId: { $in: allUserIds } }).lean();
-
-        // 🧼 Enrich each review
-        const enrichedReviews = await Promise.all(
-          rawReviews.map(async (review) => {
-            try {
-              const userMeta = userMap.get(review.userId.toString());
-              const business = await Business.findOne({ placeId: review.placeId }).select('businessName');
-              const taggedUsers = await resolveTaggedUsers(review.taggedUsers || []);
-              const rawPhotos = await resolveTaggedPhotoUsers(review.photos || []);
-              const photos = rawPhotos.filter(p => p && p.photoKey);
-
-              return {
-                __typename: "Review",
-                ...review,
-                businessName: business?.businessName || null,
-                date: new Date(review.date).toISOString(),
-                profilePic: userMeta?.profilePic || null,
-                profilePicUrl: userMeta?.profilePicUrl || null,
-                fullName: userMeta?.fullName || "Unknown User",
-                taggedUsers,
-                photos,
-                type: "review",
-              };
-            } catch (err) {
-              console.warn("⚠️ Failed to enrich review:", review._id, err);
-              return null;
-            }
+        // 🧠 Enrich each user's reviews using the helper
+        const allReviewsNested = await Promise.all(
+          users.map(async (user) => {
+            const userIdStr = user._id.toString();
+            const profileMeta = picMap[userIdStr] || {};
+            console.log(`🔧 Gathering reviews for user ${userIdStr}`);
+            return gatherUserReviews(user._id, profileMeta.profilePic, profileMeta.profilePicUrl);
           })
         );
 
+        const allReviews = allReviewsNested.flat();
+        console.log(`📄 Total enriched reviews: ${allReviews.length}`);
+
         // 🕒 Sort by latest date
-        return enrichedReviews.filter(Boolean).sort((a, b) => new Date(b.date) - new Date(a.date));
+        const sorted = allReviews
+          .filter(Boolean)
+          .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        console.log("✅ Successfully sorted and returning reviews");
+        return sorted;
+
       } catch (error) {
         console.error("❌ Error in getUserAndFollowingReviews:", {
           message: error.message,
@@ -201,6 +187,7 @@ const resolvers = {
             const taggedUsers = await resolveTaggedUsers(review.taggedUsers || []);
             const rawPhotos = await resolveTaggedPhotoUsers(review.photos || []);
             const photos = rawPhotos.filter(p => p?.photoKey);
+            const enrichedComments = enrichComments(review.comments || []);
 
             return {
               __typename: 'Review',
@@ -212,6 +199,7 @@ const resolvers = {
               profilePic: reviewPicMap[review.userId?.toString()]?.profilePic || null,
               profilePicUrl: reviewPicMap[review.userId?.toString()]?.profilePicUrl || null,
               taggedUsers,
+              comments: enrichedComments,
               photos,
             };
           })
@@ -226,6 +214,7 @@ const resolvers = {
           checkInsRaw.map(async (checkIn) => {
             const taggedUsers = await resolveTaggedUsers(checkIn.taggedUsers || []);
             const rawPhotos = await resolveTaggedPhotoUsers(checkIn.photos || []);
+            const enrichedComments = enrichComments(checkIn.comments || []);
             const photos = rawPhotos.filter(p => p?.photoKey);
 
             return {
@@ -237,6 +226,7 @@ const resolvers = {
               date: new Date(checkIn.date).toISOString(),
               profilePic: checkInPicMap[checkIn.userId?.toString()]?.profilePic || null,
               profilePicUrl: checkInPicMap[checkIn.userId?.toString()]?.profilePicUrl || null,
+              comments: enrichedComments,
               taggedUsers,
               photos,
             };
@@ -285,72 +275,38 @@ const resolvers = {
 
         const userObjectId = new mongoose.Types.ObjectId(userId);
 
-        // 👥 Fetch user's following list
+        // 👥 Fetch following list
         const user = await User.findById(userObjectId).select('following').lean();
         if (!user) throw new Error("User not found");
 
-        const followingIds = user.following || [];
-        const allUserIds = [userObjectId, ...followingIds];
+        const allUserIds = [userObjectId, ...(user.following || [])];
 
-        // 📸 Resolve profile pics for all users
-        const picMap = await resolveUserProfilePics(allUserIds);
+        // 🖼️ Resolve profile pictures
+        const profilePicMap = await resolveUserProfilePics(allUserIds);
 
-        // 📇 Fetch names for all users
+        // 🧾 Fetch user docs (for full names)
         const userDocs = await User.find({ _id: { $in: allUserIds } })
           .select('_id firstName lastName')
           .lean();
 
-        const userMap = new Map();
-        for (const u of userDocs) {
-          userMap.set(u._id.toString(), {
-            fullName: `${u.firstName} ${u.lastName}`,
-            profilePic: picMap[u._id.toString()]?.profilePic || null,
-            profilePicUrl: picMap[u._id.toString()]?.profilePicUrl || null,
-          });
-        }
+        // 🧠 Build full user objects
+        const enrichedUserDocs = userDocs.map(u => ({
+          _id: u._id,
+          firstName: u.firstName,
+          lastName: u.lastName,
+          profilePic: profilePicMap[u._id.toString()]?.profilePic || null,
+        }));
 
-        // 🧾 Fetch raw check-ins
-        const checkInsRaw = await CheckIn.find({ userId: { $in: allUserIds } }).lean();
-
-        // ✨ Enrich check-ins
-        const enriched = await Promise.all(
-          checkInsRaw.map(async (checkIn) => {
-            try {
-              const userMeta = userMap.get(checkIn.userId?.toString());
-              if (!userMeta) return null;
-
-              const [taggedUsers, rawPhotos, business] = await Promise.all([
-                resolveTaggedUsers(checkIn.taggedUsers || []),
-                resolveTaggedPhotoUsers(checkIn.photos || []),
-                Business.findOne({ placeId: checkIn.placeId?.trim() })
-                  .select("businessName")
-                  .lean(),
-              ]);
-
-              const photos = rawPhotos.filter(p => p && p.photoKey);
-              const businessName = business?.businessName || "Unknown Business";
-
-              return {
-                __typename: "CheckIn",
-                ...checkIn,
-                fullName: userMeta.fullName,
-                profilePic: userMeta.profilePic,
-                profilePicUrl: userMeta.profilePicUrl,
-                businessName,
-                taggedUsers,
-                photos,
-                type: "check-in",
-                date: new Date(checkIn.date).toISOString(),
-              };
-            } catch (err) {
-              console.error(`❌ Error enriching check-in ${checkIn._id}:`, err);
-              return null;
-            }
-          })
+        // 🚀 Run gatherUserCheckIns for all users
+        const enrichedCheckInsNested = await Promise.all(
+          enrichedUserDocs.map(user =>
+            gatherUserCheckIns(user, profilePicMap[user._id.toString()]?.profilePicUrl || null)
+          )
         );
 
-        // ✅ Sort by date (most recent first)
-        return enriched.filter(Boolean).sort((a, b) => new Date(b.date) - new Date(a.date));
+        // 📦 Flatten, sort, return
+        const allCheckIns = enrichedCheckInsNested.flat().filter(Boolean);
+        return allCheckIns.sort((a, b) => new Date(b.date) - new Date(a.date));
       } catch (error) {
         console.error("❌ Error in getUserAndFollowingCheckIns:", error);
         throw new Error("Failed to fetch user and following check-ins");
@@ -365,87 +321,106 @@ const resolvers = {
 
         const followingIds = (user.following || []).map(id => id.toString());
 
-        // Fetch invites sent by or to the user
-        const userInvitesRaw = await ActivityInvite.find({
-          $or: [
-            { senderId: userId },
-            { 'recipients.userId': userId }
-          ]
-        }).lean();
+        // ⛳ 1. Fetch invites
+        const [userInvitesRaw, followingPublicInvitesRaw] = await Promise.all([
+          ActivityInvite.find({
+            $or: [
+              { senderId: userId },
+              { 'recipients.userId': userId }
+            ]
+          }).lean(),
 
-        // Fetch public invites sent by users they follow
-        const followingPublicInvitesRaw = await ActivityInvite.find({
-          senderId: { $in: followingIds },
-          isPublic: true,
-        }).lean();
-
-        // Combine for enrichment
-        const allInvites = [...userInvitesRaw, ...followingPublicInvitesRaw];
-
-        // Collect unique user & business identifiers for enrichment
-        const senderIds = [...new Set(allInvites.map(inv => inv.senderId.toString()))];
-        const recipientUserIds = allInvites.flatMap(inv => inv.recipients.map(r => r.userId.toString()));
-        const requestUserIds = allInvites.flatMap(inv => inv.requests?.map(r => r.userId.toString()) || []);
-        const placeIds = allInvites.map(inv => inv.placeId).filter(Boolean);
-        const allUserIds = [...new Set([...senderIds, ...recipientUserIds, ...requestUserIds])];
-
-        // Fetch all users and businesses
-        const [allUsers, allBusinesses] = await Promise.all([
-          User.find({ _id: { $in: allUserIds } }).lean(),
-          Business.find({ placeId: { $in: placeIds } }).lean(),
+          ActivityInvite.find({
+            senderId: { $in: followingIds },
+            isPublic: true,
+          }).lean()
         ]);
 
-        const userMap = new Map(allUsers.map(u => [u._id.toString(), u]));
-        const businessMap = new Map(allBusinesses.map(b => [b.placeId, b]));
+        const allInvites = [...userInvitesRaw, ...followingPublicInvitesRaw];
 
-        // Helper to enrich invites
+        // 🧠 2. Collect unique user IDs + placeIds
+        const senderIds = allInvites.map(i => i.senderId.toString());
+        const recipientIds = allInvites.flatMap(i => i.recipients.map(r => r.userId.toString()));
+        const requestIds = allInvites.flatMap(i => i.requests?.map(r => r.userId.toString()) || []);
+        const allUserIds = [...new Set([...senderIds, ...recipientIds, ...requestIds])];
+        const placeIds = [...new Set(allInvites.map(i => i.placeId).filter(Boolean))];
+
+        // 🧼 3. Fetch users and businesses
+        const [users, businesses] = await Promise.all([
+          User.find({ _id: { $in: allUserIds } }).lean(),
+          Business.find({ placeId: { $in: placeIds } }).lean()
+        ]);
+
+        const userMap = new Map(users.map(u => [u._id.toString(), u]));
+        const businessMap = new Map(businesses.map(b => [b.placeId, b]));
+
+        // 🔑 4. Collect all photoKeys (users + business logos + comments) for presigned URL generation
+        const photoKeys = [];
+
+        for (const u of users) {
+          if (u.profilePic?.photoKey) photoKeys.push(u.profilePic.photoKey);
+        }
+
+        for (const b of businesses) {
+          if (b.logoKey) photoKeys.push(b.logoKey);
+        }
+
+        const allCommentMedia = allInvites.flatMap(inv => inv.comments || []).flatMap(c => {
+          const media = [];
+          if (c.media?.photoKey) media.push(c.media.photoKey);
+          for (const r of c.replies || []) {
+            if (r.media?.photoKey) media.push(r.media.photoKey);
+          }
+          return media;
+        });
+
+        photoKeys.push(...allCommentMedia);
+
+        // 📷 5. Batch presigned URL resolution
+        const presignedMap = {};
+        await Promise.all(
+          photoKeys.map(async (key) => {
+            presignedMap[key] = await getPresignedUrl(key);
+          })
+        );
+
+        // 📦 6. Build comment enrichment helper (reuse your existing function, but use presignedMap inside)
         const enrichInvite = async (invite) => {
           const sender = userMap.get(invite.senderId.toString());
-          const senderProfilePicUrl = sender?.profilePic?.photoKey
-            ? await getPresignedUrl(sender.profilePic.photoKey)
-            : null;
+          const senderPicKey = sender?.profilePic?.photoKey;
+          const senderProfilePicUrl = senderPicKey ? presignedMap[senderPicKey] : null;
 
-          const enrichedRecipients = await Promise.all(
-            invite.recipients.map(async (r) => {
-              const recipientUser = userMap.get(r.userId.toString());
-              const profilePicUrl = recipientUser?.profilePic?.photoKey
-                ? await getPresignedUrl(recipientUser.profilePic.photoKey)
-                : null;
+          const enrichedRecipients = invite.recipients.map(r => {
+            const rec = userMap.get(r.userId.toString());
+            const picKey = rec?.profilePic?.photoKey;
+            return {
+              user: {
+                id: rec?._id || r.userId,
+                firstName: rec?.firstName || '',
+                lastName: rec?.lastName || '',
+                profilePicUrl: picKey ? presignedMap[picKey] : null,
+              },
+              status: r.status,
+            };
+          });
 
-              return {
-                user: {
-                  id: recipientUser?._id || r.userId,
-                  firstName: recipientUser?.firstName || '',
-                  lastName: recipientUser?.lastName || '',
-                  profilePicUrl,
-                },
-                status: r.status,
-              };
-            })
-          );
-
-          const enrichedRequests = await Promise.all(
-            (invite.requests || []).map(async (r) => {
-              const requestUser = userMap.get(r.userId.toString());
-              const profilePicUrl = requestUser?.profilePic?.photoKey
-                ? await getPresignedUrl(requestUser.profilePic.photoKey)
-                : null;
-
-              return {
-                _id: r._id?.toString(),
-                userId: r.userId.toString(),
-                status: r.status,
-                firstName: requestUser?.firstName || '',
-                lastName: requestUser?.lastName || '',
-                profilePicUrl,
-              };
-            })
-          );
+          const enrichedRequests = (invite.requests || []).map(r => {
+            const req = userMap.get(r.userId.toString());
+            const picKey = req?.profilePic?.photoKey;
+            return {
+              _id: r._id?.toString(),
+              userId: r.userId.toString(),
+              status: r.status,
+              firstName: req?.firstName || '',
+              lastName: req?.lastName || '',
+              profilePicUrl: picKey ? presignedMap[picKey] : null,
+            };
+          });
 
           const business = businessMap.get(invite.placeId);
-          const businessLogoUrl = business?.logoKey
-            ? await getPresignedUrl(business.logoKey)
-            : null;
+          const businessLogoUrl = business?.logoKey ? presignedMap[business.logoKey] : null;
+
+          const enrichedComments = await enrichComments(invite.comments || [], presignedMap);
 
           return {
             _id: invite._id,
@@ -460,26 +435,25 @@ const resolvers = {
             businessName: business?.businessName || '',
             businessLogoUrl,
             note: invite.note,
-            dateTime: invite.dateTime.toISOString(),
+            dateTime: invite.dateTime?.toISOString() || null,
             message: invite.message,
             requests: enrichedRequests,
             isPublic: invite.isPublic,
             status: invite.status,
             likes: invite.likes || [],
-            comments: invite.comments || [],
-            createdAt: invite.createdAt.toISOString(),
+            comments: enrichedComments,
+            createdAt: invite.createdAt?.toISOString() || null,
             type: 'invite',
           };
         };
 
-        // Enrich only scoped invites
-        const resolvedUserInvites = await Promise.all(userInvitesRaw.map(enrichInvite));
-        const resolvedFollowingInvites = await Promise.all(followingPublicInvitesRaw.map(enrichInvite));
+        const userInvites = await Promise.all(userInvitesRaw.map(enrichInvite));
+        const followingInvites = await Promise.all(followingPublicInvitesRaw.map(enrichInvite));
 
         return {
           user,
-          userInvites: resolvedUserInvites,
-          friendPublicInvites: resolvedFollowingInvites, // can rename in schema to `followingPublicInvites`
+          userInvites,
+          friendPublicInvites: followingInvites,
         };
       } catch (err) {
         console.error("❌ Error in getUserAndFollowingInvites resolver:", err);

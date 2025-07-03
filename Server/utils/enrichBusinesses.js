@@ -3,6 +3,7 @@ const { getPresignedUrl } = require('../utils/cachePresignedUrl');
 const { DateTime } = require("luxon");
 const Event = require('../models/Events');
 const Promotion = require('../models/Promotions');
+const { enrichComments } = require('./userPosts');
 
 /**
  * Cache to avoid redundant URL generations per request context.
@@ -201,6 +202,7 @@ async function enrichBusinessWithPromosAndEvents(biz, userLat, userLng, now = ne
     entry ? {
       ...leanObject(entry),
       photos: await enrichPhotosWithUrls(entry.photos || []),
+      comments: await enrichComments(entry.comments || []),
       type: "suggestion",
     } : null;
 

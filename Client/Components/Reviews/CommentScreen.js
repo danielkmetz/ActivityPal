@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FlatList, StyleSheet, Animated, Easing, PanResponder, InteractionManager, KeyboardAvoidingView, Keyboard, Platform } from 'react-native';
+import { FlatList, StyleSheet, Animated, Easing, InteractionManager, Keyboard, View } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import dayjs from 'dayjs';
@@ -20,6 +20,7 @@ import {
 import { selectUser } from '../../Slices/UserSlice';
 import { formatEventDate, getTimeLeft } from '../../functions';
 import { selectReviewById } from '../../utils/reviewSelectors';
+import { uploadReviewPhotos } from '../../Slices/PhotosSlice';
 
 dayjs.extend(relativeTime);
 
@@ -49,7 +50,6 @@ export default function CommentScreen() {
     const userId = user?.id;
     const dateTime = review?.dateTime || review?.date;
     const isInvite = review?.type === "invite";
-
     const postOwnerPic = isInvite ? review?.sender?.profilePicUrl || review?.profilePicUrl : review?.profilePicUrl;
     const postOwnerName = isInvite && review?.sender?.firstName ? `${review?.sender?.firstName} ${review?.sender?.lastName}` : review?.fullName;
     const totalInvited = review?.recipients?.length || 0;
@@ -62,13 +62,12 @@ export default function CommentScreen() {
     const [isPhotoListActive, setIsPhotoListActive] = useState(false);
     const [inputHeight, setInputHeight] = useState(40);
     const [contentHeight, setContentHeight] = useState(40);
+    const [selectedMedia, setSelectedMedia] = useState([]);
 
     const shiftAnim = useRef(new Animated.Value(0)).current;
     const flatListRef = useRef(null);
     const commentRefs = useRef({});
     const hasScrolledToTarget = useRef(false);
-
-    console.log(review.taggedUsers);
 
     useEffect(() => {
         const showSub = Keyboard.addListener('keyboardWillShow', (e) => {
@@ -112,11 +111,63 @@ export default function CommentScreen() {
     }, [contentHeight]);
 
     const handleAddComment = async () => {
-        if (!commentText || !review) return;
-        await dispatch(addNewComment({ review, userId, fullName, commentText }));
+        if ((!commentText || commentText.trim() === '') && (!selectedMedia || selectedMedia.length === 0)) {
+            return;
+        }
+
+        if (!review) {
+            return;
+        }
+
+        let media = null;
+
+        if (selectedMedia && selectedMedia.length > 0) {
+            const mediaFile = selectedMedia[0];
+            console.log('📎 Selected Media:', mediaFile);
+
+            try {
+                console.log('⬆️ Uploading media...');
+                const result = await dispatch(
+                    uploadReviewPhotos({
+                        placeId: review.placeId,
+                        files: [mediaFile],
+                    })
+                ).unwrap();
+
+                console.log('✅ Media upload result:', result);
+
+                if (result?.length > 0) {
+                    media = {
+                        photoKey: result[0],
+                        mediaType: mediaFile.type.startsWith('video') ? 'video' : 'image',
+                    };
+                    console.log('🖼️ Media object to attach:', media);
+                }
+            } catch (error) {
+                console.error('❌ Media upload failed:', error);
+            }
+        }
+
+        console.log('📨 Dispatching addNewComment...');
+        await dispatch(
+            addNewComment({
+                review,
+                userId,
+                fullName,
+                commentText: commentText?.trim() || '', // fallback to empty string
+                ...(media && { media }),
+            })
+        );
+
+        console.log('🧹 Resetting state...');
         dispatch(setReplyingTo(null));
         setCommentText('');
-        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+        setSelectedMedia([]);
+
+        setTimeout(() => {
+            console.log('📜 Scrolling to bottom of comments...');
+            flatListRef.current?.scrollToEnd({ animated: true });
+        }, 100);
     };
 
     const waitForRefsAndScroll = (targetId, parentChain) => {
@@ -288,6 +339,8 @@ export default function CommentScreen() {
                         styles={styles}
                         commentText={commentText}
                         setCommentText={setCommentText}
+                        selectedMedia={selectedMedia}
+                        setSelectedMedia={setSelectedMedia}
                     />
                 )}
             />
@@ -299,6 +352,8 @@ export default function CommentScreen() {
                     inputHeight={inputHeight}
                     contentHeight={contentHeight}
                     setContentHeight={setContentHeight}
+                    selectedMedia={selectedMedia}
+                    setSelectedMedia={setSelectedMedia}
                 />
             )}
         </Animated.View>

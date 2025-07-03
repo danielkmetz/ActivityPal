@@ -71,12 +71,12 @@ export const toggleLike = createAsyncThunk(
 
 export const addComment = createAsyncThunk(
   'comments/addComment',
-  async ({ postType, placeId, postId, userId, fullName, commentText }, { rejectWithValue }) => {
+  async ({ postType, placeId, postId, userId, fullName, commentText, media }, { rejectWithValue }) => {
     try {
       // Updated API request to include postType in the URL
       const response = await axios.post(
         `${BASE_URL}/reviews/${postType}/${placeId}/${postId}/comment`,
-        { userId, commentText, fullName }
+        { userId, commentText, fullName, media }
       );
 
       // ✅ Ensure we are correctly extracting the comment object
@@ -99,11 +99,11 @@ export const addComment = createAsyncThunk(
 // Add a reply to a specific comment
 export const addReply = createAsyncThunk(
   'reviews/addReply',
-  async ({ postType, placeId, postId, commentId, userId, fullName, commentText }, { rejectWithValue }) => {
+  async ({ postType, placeId, postId, commentId, userId, fullName, commentText, media }, { rejectWithValue }) => {
     try {
       const response = await axios.post(
         `${BASE_URL}/reviews/${postType}/${postId}/${commentId}/reply`,
-        { userId, fullName, commentText }
+        { userId, fullName, commentText, media }
       );
 
       if (!response.data.reply || !response.data.reply._id) {
@@ -265,11 +265,15 @@ export const fetchPostById = createAsyncThunk(
 
 export const editCommentOrReply = createAsyncThunk(
   "reviews/editCommentOrReply",
-  async ({ postType, placeId, postId, commentId, userId, newText }, { rejectWithValue }) => {
+  async ({ postType, placeId, postId, commentId, userId, newText, media }, { rejectWithValue }) => {
     try {
       const response = await axios.put(
         `${BASE_URL}/reviews/${postType}/${postId}/${commentId}`,
-        { userId, newText }
+        {
+          userId,
+          newText,
+          media, // can be undefined, null (for deletion), or an object (for update)
+        }
       );
 
       if (!response.data.updatedComment) {

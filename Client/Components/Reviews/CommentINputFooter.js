@@ -5,7 +5,12 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
+  Image,
+  ScrollView,
 } from 'react-native';
+import VideoThumbnail from './VideoThumbnail';
+import { isVideo } from '../../utils/isVideo';
+import { selectMediaFromGallery } from '../../utils/selectPhotos';
 
 const CommentInputFooter = ({
   commentText,
@@ -13,26 +18,53 @@ const CommentInputFooter = ({
   handleAddComment,
   inputHeight,
   setContentHeight,
+  setSelectedMedia,
+  selectedMedia, // ✅ Pass down selected media to show previews
 }) => {
+  const handleSelectMedia = async () => {
+    const files = await selectMediaFromGallery();
+    if (files?.length > 0) {
+      setSelectedMedia(files);
+    }
+  };
+
   return (
-    <>
-      <View style={styles.commentInputContainer}>
+    <View style={styles.commentInputContainer}>
+      {/* Media Icon */}
+      <TouchableOpacity onPress={handleSelectMedia} style={styles.mediaIcon}>
+        <Text style={styles.mediaIconText}>📷</Text>
+      </TouchableOpacity>
+
+      {/* Input wrapper with media and TextInput */}
+      <View style={styles.fakeInputBox}>
+        {selectedMedia?.length > 0 && (
+          <View style={styles.inlineMedia}>
+            {isVideo(selectedMedia[0]) ? (
+              <VideoThumbnail file={selectedMedia[0]} width={120} height={120} shouldPlay={false} />
+            ) : (
+              <Image source={{ uri: selectedMedia[0].uri }} style={styles.inlineImage} />
+            )}
+          </View>
+        )}
+
         <TextInput
-          style={[styles.commentInput, { height: inputHeight }]}
+          style={[styles.commentInput]}
           placeholder="Write a comment..."
           value={commentText}
           onChangeText={setCommentText}
           multiline={true}
-          textAlignVertical="center"
+          textAlignVertical="top"
           onContentSizeChange={(event) => {
             setContentHeight(event.nativeEvent.contentSize.height);
           }}
         />
-        <TouchableOpacity style={styles.commentButton} onPress={handleAddComment}>
-          <Text style={styles.commentButtonText}>Post</Text>
-        </TouchableOpacity>
       </View>
-    </>
+
+      {/* Post Button */}
+      <TouchableOpacity style={styles.commentButton} onPress={handleAddComment}>
+        <Text style={styles.commentButtonText}>Post</Text>
+      </TouchableOpacity>
+    </View>
   );
 };
 
@@ -43,16 +75,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 10,
-    padding: 15,
+    paddingBottom: 15,
+    paddingHorizontal: 15,
     marginBottom: 15,
   },
-  commentInput: {
+  fakeInputBox: {
     flex: 1,
     borderWidth: 1,
     borderColor: '#ccc',
     borderRadius: 5,
-    paddingHorizontal: 10,
-    textAlignVertical: 'center',
+    padding: 8,
+    backgroundColor: '#fff',
+  },
+  commentInput: {
+    fontSize: 14,
   },
   commentButton: {
     backgroundColor: '#009999',
@@ -65,13 +101,35 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
   },
-  closeButton: {
-    alignSelf: 'center',
-    marginBottom: 30,
+  mediaIcon: {
+    marginRight: 10,
+    padding: 4,
   },
-  closeButtonText: {
-    color: '#009999',
-    fontWeight: 'bold',
-    fontSize: 16,
+  mediaIconText: {
+    fontSize: 20,
+  },
+  mediaPreviewContainer: {
+    flexDirection: 'row',
+    marginHorizontal: 15,
+    marginBottom: 10,
+  },
+  mediaThumbnail: {
+    width: 70,
+    height: 70,
+    borderRadius: 5,
+    marginRight: 10,
+  },
+  inlineMedia: {
+    marginBottom: 8,
+    alignItems: 'flex-start',
+  },
+  inlineImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 8,
+  },
+  commentInputText: {
+    fontSize: 14,
+    minHeight: 40,
   },
 });

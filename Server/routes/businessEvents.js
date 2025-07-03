@@ -5,6 +5,8 @@ const User = require('../models/User.js');
 const Event = require('../models/Events.js');
 const mongoose = require('mongoose');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
+const deleteS3Objects = require('../utils/deleteS3Objects.js');
+const { generatePresignedUrl } = require('../helpers/generatePresignedUrl.js');
 
 // 🔁 Recursively find and update the comment/reply
 function updateNestedComment(comments, commentId, newText) {
@@ -21,7 +23,7 @@ function updateNestedComment(comments, commentId, newText) {
     }
   }
   return null;
-}
+};
 
 // 🧹 Recursive function to remove a comment/reply
 function deleteNestedComment(comments, targetId) {
@@ -36,7 +38,24 @@ function deleteNestedComment(comments, targetId) {
     }
   }
   return false;
-}
+};
+
+// 🎯 Generate a pre-signed upload URL for a media object
+router.get("/media/upload-url/:key", async (req, res) => {
+  const { key } = req.params;
+
+  if (!key || !key.trim()) {
+    return res.status(400).json({ message: "Missing or invalid key parameter" });
+  }
+
+  try {
+    const url = await generatePresignedUrl(key.trim());
+    res.status(200).json({ uploadUrl: url });
+  } catch (error) {
+    console.error("Failed to generate upload URL:", error);
+    res.status(500).json({ message: "Failed to generate upload URL" });
+  }
+});
 
 ///
 router.get("/events/:placeId", async (req, res) => {
@@ -297,11 +316,14 @@ router.post("/events/:placeId/:eventId/like", async (req, res) => {
 // 📌 POST: Add a comment to an event
 router.post("/events/:placeId/:eventId/comments", async (req, res) => {
   const { placeId, eventId } = req.params;
-  const { userId, fullName, commentText } = req.body;
+  const { userId, fullName, commentText, media } = req.body;
 
-  if (!userId || !fullName || !commentText) {
-    return res.status(400).json({ message: "Missing required fields: userId, fullName, commentText" });
-  }
+  const mediaPayload = media?.photoKey && media?.mediaType
+    ? {
+        photoKey: media.photoKey,
+        mediaType: ['image', 'video'].includes(media.mediaType) ? media.mediaType : null
+      }
+    : { photoKey: null, mediaType: null };
 
   try {
     const business = await Business.findOne({ placeId });
@@ -318,13 +340,16 @@ router.post("/events/:placeId/:eventId/comments", async (req, res) => {
       date: new Date(),
       likes: [],
       replies: [],
+      media: mediaPayload
     };
 
     event.comments.push(newComment);
     await event.save();
 
-   const isBusinessCommenting = userId === business._id.toString();
+    const addedComment = event.comments[event.comments.length - 1];
+    const presignedUrl = addedComment.media?.photoKey ? await getPresignedUrl(addedComment.media.photoKey) : null;
 
+    const isBusinessCommenting = userId === business._id.toString();
     if (!isBusinessCommenting) {
       const alreadyNotified = business.notifications.some(
         (n) =>
@@ -350,15 +375,18 @@ router.post("/events/:placeId/:eventId/comments", async (req, res) => {
           createdAt: new Date()
         });
         await business.save();
-        console.log(`🔔 Business notified of new comment on event ${eventId}`);
       }
     }
 
-    const addedComment = event.comments[event.comments.length - 1];
-
     res.status(201).json({
       message: "Comment added successfully",
-      comment: addedComment,
+      comment: {
+        ...addedComment.toObject?.() || addedComment,
+        media: mediaPayload.photoKey ? {
+          ...mediaPayload,
+          mediaUrl: presignedUrl
+        } : null
+      }
     });
   } catch (error) {
     console.error("Error adding comment to event:", error);
@@ -369,11 +397,14 @@ router.post("/events/:placeId/:eventId/comments", async (req, res) => {
 //Add a reply
 router.post("/events/:eventId/comments/:commentId/replies", async (req, res) => {
   const { eventId, commentId } = req.params;
-  const { userId, fullName, commentText, placeId } = req.body;
+  const { userId, fullName, commentText, placeId, media } = req.body;
 
-  if (!userId || !fullName || !commentText) {
-    return res.status(400).json({ message: "Missing required fields: userId, fullName, commentText" });
-  }
+  const mediaPayload = media?.photoKey && media?.mediaType
+    ? {
+        photoKey: media.photoKey,
+        mediaType: ['image', 'video'].includes(media.mediaType) ? media.mediaType : null
+      }
+    : { photoKey: null, mediaType: null };
 
   try {
     let topLevelCommentId = null;
@@ -398,9 +429,9 @@ router.post("/events/:eventId/comments/:commentId/replies", async (req, res) => 
       date: new Date(),
       likes: [],
       replies: [],
+      media: mediaPayload
     };
 
-    // Helper to insert reply into nested replies
     const addNestedReply = (repliesArray, targetId, topLevelId) => {
       for (const reply of repliesArray) {
         if (reply._id.toString() === targetId) {
@@ -418,7 +449,6 @@ router.post("/events/:eventId/comments/:commentId/replies", async (req, res) => 
       return false;
     };
 
-    // First check if replying directly to a top-level comment
     const parentComment = event.comments.id(commentId);
     if (parentComment) {
       parentAuthorId = parentComment.userId;
@@ -427,7 +457,6 @@ router.post("/events/:eventId/comments/:commentId/replies", async (req, res) => 
       parentComment.replies.push(newReply);
       inserted = true;
     } else {
-      // Check nested replies
       for (const comment of event.comments) {
         if (comment.replies?.length) {
           const found = addNestedReply(comment.replies, commentId, comment._id);
@@ -445,7 +474,6 @@ router.post("/events/:eventId/comments/:commentId/replies", async (req, res) => 
 
     await event.save();
 
-    // 🔔 Notify the user being replied to (if not self)
     if (parentAuthorId?.toString() !== userId) {
       const targetUser = await User.findById(parentAuthorId);
       if (targetUser) {
@@ -466,7 +494,6 @@ router.post("/events/:eventId/comments/:commentId/replies", async (req, res) => 
       }
     }
 
-    // 🔔 Notify business ONLY if they were the original author of the comment/reply being replied to
     if (
       parentAuthorId?.toString() === business._id?.toString() &&
       userId !== business.placeId?.toString()
@@ -487,9 +514,17 @@ router.post("/events/:eventId/comments/:commentId/replies", async (req, res) => 
       await business.save();
     }
 
+    const presignedUrl = mediaPayload.photoKey ? await getPresignedUrl(mediaPayload.photoKey) : null;
+
     res.status(201).json({
       message: "Reply added successfully",
-      reply: newReply,
+      reply: {
+        ...newReply,
+        media: mediaPayload.photoKey ? {
+          ...mediaPayload,
+          mediaUrl: presignedUrl
+        } : null
+      }
     });
   } catch (error) {
     console.error("Error adding reply to event comment:", error);
@@ -630,20 +665,52 @@ router.post("/events/:eventId/comments/:commentId/like", async (req, res) => {
 // ✏️ PUT: Edit a comment or reply in an event
 router.put("/events/:placeId/:eventId/edit-comment/:commentId", async (req, res) => {
   const { placeId, eventId, commentId } = req.params;
-  const { commentText } = req.body;
+  const { commentText, media } = req.body;
 
-  if (!commentText || commentText.trim() === "") {
-    return res.status(400).json({ message: "Comment text is required." });
-  }
+  const mediaPayload = media?.photoKey && media?.mediaType
+    ? {
+        photoKey: media.photoKey,
+        mediaType: ['image', 'video'].includes(media.mediaType) ? media.mediaType : null
+      }
+    : { photoKey: null, mediaType: null };
+
+  let oldPhotoKeyToDelete = null;
+  let updatedCommentRef = null;
+
+  const updateNestedComment = (comments) => {
+    for (let comment of comments) {
+      if (comment._id.toString() === commentId) {
+        comment.commentText = commentText;
+
+        const existingKey = comment.media?.photoKey || null;
+        const newKey = mediaPayload.photoKey;
+
+        // Mark old media for deletion if changed
+        if (existingKey && existingKey !== newKey) {
+          oldPhotoKeyToDelete = existingKey;
+        }
+
+        comment.media = mediaPayload;
+        updatedCommentRef = comment;
+        return comment;
+      }
+
+      if (comment.replies?.length > 0) {
+        const nested = updateNestedComment(comment.replies);
+        if (nested) return nested;
+      }
+    }
+    return null;
+  };
 
   try {
-    const business = await Business.findOne({ placeId }).lean();
+    const business = await Business.findOne({ placeId });
     if (!business) return res.status(404).json({ message: "Business not found" });
 
     const event = await Event.findOne({ _id: eventId, placeId: business.placeId });
     if (!event) return res.status(404).json({ message: "Event not found" });
 
-    const updatedComment = updateNestedComment(event.comments || [], commentId, commentText);
+    const updatedComment = updateNestedComment(event.comments || []);
     if (!updatedComment) {
       return res.status(404).json({ message: "Comment or reply not found" });
     }
@@ -651,7 +718,25 @@ router.put("/events/:placeId/:eventId/edit-comment/:commentId", async (req, res)
     event.updatedAt = new Date();
     await event.save();
 
-    res.json({ message: "Comment updated successfully", updatedComment });
+    if (oldPhotoKeyToDelete) {
+      await deleteS3Objects([oldPhotoKeyToDelete]);
+    }
+
+    let presignedUrl = null;
+    if (mediaPayload.photoKey) {
+      presignedUrl = await getPresignedUrl(mediaPayload.photoKey);
+    }
+
+    return res.json({
+      message: "Comment updated successfully",
+      updatedComment: {
+        ...updatedCommentRef.toObject?.() || updatedCommentRef,
+        media: mediaPayload.photoKey ? {
+          ...mediaPayload,
+          mediaUrl: presignedUrl
+        } : null
+      }
+    });
   } catch (error) {
     console.error("Error editing event comment:", error);
     res.status(500).json({ message: "Internal Server Error" });
@@ -660,7 +745,29 @@ router.put("/events/:placeId/:eventId/edit-comment/:commentId", async (req, res)
 
 // 🗑️ DELETE: Remove a comment or reply from an event
 router.delete("/events/:eventId/delete-comment/:commentId", async (req, res) => {
-  const { placeId, eventId, commentId } = req.params;
+  const { eventId, commentId } = req.params;
+
+  let mediaKeyToDelete = null;
+
+  const deleteNestedComment = (comments, targetId) => {
+    for (let i = 0; i < comments.length; i++) {
+      const comment = comments[i];
+
+      if (comment._id.toString() === targetId) {
+        if (comment.media?.photoKey) {
+          mediaKeyToDelete = comment.media.photoKey;
+        }
+        comments.splice(i, 1);
+        return true;
+      }
+
+      if (comment.replies?.length > 0) {
+        const foundInReplies = deleteNestedComment(comment.replies, targetId);
+        if (foundInReplies) return true;
+      }
+    }
+    return false;
+  };
 
   try {
     const event = await Event.findById(eventId);
@@ -673,6 +780,10 @@ router.delete("/events/:eventId/delete-comment/:commentId", async (req, res) => 
 
     event.updatedAt = new Date();
     await event.save();
+
+    if (mediaKeyToDelete) {
+      await deleteS3Objects([mediaKeyToDelete]);
+    }
 
     res.json({ message: "Comment or reply deleted successfully" });
   } catch (error) {

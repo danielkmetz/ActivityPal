@@ -50,6 +50,11 @@ export const INVITE_FRAGMENT = gql`
         userId
         fullName
       }
+        media {
+          photoKey
+          mediaType
+          mediaUrl
+        }
       date
       replies {
         _id
@@ -60,6 +65,11 @@ export const INVITE_FRAGMENT = gql`
           userId
           fullName
         }
+          media {
+            photoKey
+            mediaType
+            mediaUrl
+          }
         date
         replies {
           _id
@@ -70,6 +80,11 @@ export const INVITE_FRAGMENT = gql`
             userId
             fullName
           }
+            media {
+              photoKey
+              mediaType
+              mediaUrl
+            }
           date
           replies {
             _id
@@ -80,6 +95,11 @@ export const INVITE_FRAGMENT = gql`
               userId
               fullName
             }
+              media {
+                photoKey
+                mediaType
+                mediaUrl
+              }
             date
             replies {
               _id
@@ -90,6 +110,11 @@ export const INVITE_FRAGMENT = gql`
                 userId
                 fullName
               }
+                media {
+                  photoKey
+                  mediaType
+                  mediaUrl
+                }
               date
               replies {
                 _id
@@ -100,6 +125,11 @@ export const INVITE_FRAGMENT = gql`
                   userId
                   fullName
                 }
+                  media {
+                    photoKey
+                    mediaType
+                    mediaUrl
+                  }
                 date
                 replies {
                   _id
@@ -110,6 +140,11 @@ export const INVITE_FRAGMENT = gql`
                     userId
                     fullName
                   }
+                    media {
+                      photoKey
+                      mediaType
+                      mediaUrl
+                    }
                   date
                   replies {
                     _id
@@ -120,6 +155,11 @@ export const INVITE_FRAGMENT = gql`
                       userId
                       fullName
                     }
+                      media {
+                        photoKey
+                        mediaType
+                        mediaUrl
+                      }
                     date
                     replies {
                       _id
@@ -130,6 +170,11 @@ export const INVITE_FRAGMENT = gql`
                         userId
                         fullName
                       }
+                        media {
+                          photoKey
+                          mediaType
+                          mediaUrl
+                        }
                       date
                     }
                   }

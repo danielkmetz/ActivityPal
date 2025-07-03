@@ -140,11 +140,11 @@ export const toggleEventLike = createAsyncThunk(
 
 export const leaveEventComment = createAsyncThunk(
   "events/leaveEventComment",
-  async ({ placeId, id, userId, fullName, commentText }, { rejectWithValue, dispatch }) => {
+  async ({ placeId, id, userId, fullName, commentText, media }, { rejectWithValue, dispatch }) => {
     try {
       const response = await axios.post(
         `${BASE_URL}/business/events/${placeId}/${id}/comments`,
-        { userId, fullName, commentText }
+        { userId, fullName, commentText, media }
       );
 
       dispatch(addNearbySuggestionComment({
@@ -167,7 +167,7 @@ export const leaveEventComment = createAsyncThunk(
 export const leaveEventReply = createAsyncThunk(
   "events/leaveEventReply",
   async (
-    { placeId, id, commentId, userId, fullName, commentText },
+    { placeId, id, commentId, userId, fullName, commentText, media },
     { rejectWithValue, dispatch }
   ) => {
     try {
@@ -179,6 +179,7 @@ export const leaveEventReply = createAsyncThunk(
           fullName,
           commentText,
           placeId,
+          media,
         }
       );
 
@@ -239,11 +240,11 @@ export const toggleEventCommentLike = createAsyncThunk(
 
 export const editEventCommentOrReply = createAsyncThunk(
   "events/editEventCommentOrReply",
-  async ({ id, commentId, commentText }, { rejectWithValue, dispatch }) => {
+  async ({ id, commentId, commentText, media }, { rejectWithValue, dispatch }) => {
     try {
       const response = await axios.put(
         `${BASE_URL}/business/events/${id}/edit-comment/${commentId}`,
-        { commentText }
+        { commentText, media }
       );
 
       const updatedComment = response.data.updatedComment;

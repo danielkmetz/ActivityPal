@@ -36,6 +36,11 @@ export const CHECKIN_FRAGMENT = gql`
         userId
         fullName
       }
+        media {
+          photoKey
+          mediaType
+          mediaUrl
+        }
       date
       replies {
         _id
@@ -45,6 +50,11 @@ export const CHECKIN_FRAGMENT = gql`
         likes {
           userId
           fullName
+        }
+          media {
+          photoKey
+          mediaType
+          mediaUrl
         }
         date
         replies {
@@ -56,6 +66,11 @@ export const CHECKIN_FRAGMENT = gql`
             userId
             fullName
           }
+            media {
+              photoKey
+              mediaType
+              mediaUrl
+            }
           date
           replies {
             _id
@@ -66,6 +81,11 @@ export const CHECKIN_FRAGMENT = gql`
               userId
               fullName
             }
+              media {
+                photoKey
+                mediaType
+                mediaUrl
+              }
             date
             replies {
               _id
@@ -76,6 +96,11 @@ export const CHECKIN_FRAGMENT = gql`
                 userId
                 fullName
               }
+                media {
+                  photoKey
+                  mediaType
+                  mediaUrl
+                }
               date
               replies {
                 _id
@@ -86,6 +111,11 @@ export const CHECKIN_FRAGMENT = gql`
                   userId
                   fullName
                 }
+                  media {
+                    photoKey
+                    mediaType
+                    mediaUrl
+                  }
                 date
                 replies {
                   _id
@@ -96,6 +126,11 @@ export const CHECKIN_FRAGMENT = gql`
                     userId
                     fullName
                   }
+                    media {
+                      photoKey
+                      mediaType
+                      mediaUrl
+                    }
                   date
                 }
               }
