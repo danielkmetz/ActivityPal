@@ -6,6 +6,25 @@ const Promotion = require('../models/Promotions.js')
 const User = require('../models/User.js');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 const { extractTimeOnly } = require('../utils/extractTimeOnly.js');
+const deleteS3Objects = require('../utils/deleteS3Objects.js');
+const { generatePresignedUrl } = require('../helpers/generatePresignedUrl.js');
+
+// 🎯 Generate a pre-signed upload URL for a media object
+router.get("/media/upload-url/:key", async (req, res) => {
+  const { key } = req.params;
+
+  if (!key || !key.trim()) {
+    return res.status(400).json({ message: "Missing or invalid key parameter" });
+  }
+
+  try {
+    const url = await generatePresignedUrl(key.trim());
+    res.status(200).json({ uploadUrl: url });
+  } catch (error) {
+    console.error("Failed to generate upload URL:", error);
+    res.status(500).json({ message: "Failed to generate upload URL" });
+  }
+});
 
 // 📌 GET all promotions for a business using placeId
 router.get('/:placeId', async (req, res) => {
@@ -283,22 +302,21 @@ router.post("/:postId/like", async (req, res) => {
 // 📌 POST: Add a comment to a promotion
 router.post("/:promotionId/comment", async (req, res) => {
   const { promotionId } = req.params;
-  const { userId, fullName, commentText } = req.body;
+  const { userId, fullName, commentText, media } = req.body;
 
-  if (!userId || !fullName || !commentText) {
-    return res.status(400).json({ message: "Missing required fields: userId, fullName, commentText" });
-  }
+  const mediaPayload = media?.photoKey && media?.mediaType
+    ? {
+        photoKey: media.photoKey,
+        mediaType: ['image', 'video'].includes(media.mediaType) ? media.mediaType : null
+      }
+    : { photoKey: null, mediaType: null };
 
   try {
     const promotion = await Promotion.findById(promotionId);
-    if (!promotion) {
-      return res.status(404).json({ message: "Promotion not found" });
-    }
+    if (!promotion) return res.status(404).json({ message: "Promotion not found" });
 
     const business = await Business.findOne({ placeId: promotion.placeId });
-    if (!business) {
-      return res.status(404).json({ message: "Business not found for this promotion" });
-    }
+    if (!business) return res.status(404).json({ message: "Business not found for this promotion" });
 
     const newComment = {
       _id: new mongoose.Types.ObjectId(),
@@ -308,21 +326,17 @@ router.post("/:promotionId/comment", async (req, res) => {
       date: new Date(),
       likes: [],
       replies: [],
+      media: mediaPayload,
     };
 
     promotion.comments = promotion.comments || [];
     promotion.comments.push(newComment);
     await promotion.save();
 
-    const businessId = business._id.toString();
+    const addedComment = promotion.comments[promotion.comments.length - 1];
 
-    console.log('user id', userId);
-    console.log('business id', businessId);
-
-    const isBusinessCommenting = userId === businessId;
-
+    const isBusinessCommenting = userId === business._id.toString();
     if (!isBusinessCommenting) {
-      // 🔔 Notify business (only if not already notified)
       const alreadyNotified = business.notifications.some(
         (n) =>
           n.type === 'comment' &&
@@ -347,15 +361,20 @@ router.post("/:promotionId/comment", async (req, res) => {
           createdAt: new Date()
         });
         await business.save();
-        console.log(`🔔 Business notified of new comment on promotion ${promotionId}`);
       }
     }
 
-    const addedComment = promotion.comments[promotion.comments.length - 1];
+    const presignedUrl = mediaPayload.photoKey ? await getPresignedUrl(mediaPayload.photoKey) : null;
 
     res.status(201).json({
       message: "Comment added successfully",
-      comment: addedComment,
+      comment: {
+        ...addedComment.toObject?.() || addedComment,
+        media: mediaPayload.photoKey ? {
+          ...mediaPayload,
+          mediaUrl: presignedUrl
+        } : null
+      }
     });
   } catch (error) {
     console.error("Error adding comment to promotion:", error);
@@ -365,11 +384,14 @@ router.post("/:promotionId/comment", async (req, res) => {
 
 router.post("/:promotionId/comments/:commentId/replies", async (req, res) => {
   const { promotionId, commentId } = req.params;
-  const { userId, fullName, commentText } = req.body;
+  const { userId, fullName, commentText, media } = req.body;
 
-  if (!userId || !fullName || !commentText) {
-    return res.status(400).json({ message: "Missing required fields: userId, fullName, commentText" });
-  }
+  const mediaPayload = media?.photoKey && media?.mediaType
+    ? {
+        photoKey: media.photoKey,
+        mediaType: ['image', 'video'].includes(media.mediaType) ? media.mediaType : null
+      }
+    : { photoKey: null, mediaType: null };
 
   try {
     let topLevelCommentId = null;
@@ -391,9 +413,9 @@ router.post("/:promotionId/comments/:commentId/replies", async (req, res) => {
       date: new Date(),
       likes: [],
       replies: [],
+      media: mediaPayload
     };
 
-    // Recursive function to insert a reply and capture metadata
     const addNestedReply = (repliesArray, targetId, topLevelId) => {
       for (const reply of repliesArray) {
         if (reply._id.toString() === targetId) {
@@ -411,7 +433,6 @@ router.post("/:promotionId/comments/:commentId/replies", async (req, res) => {
       return false;
     };
 
-    // Try top-level comment
     const parentComment = promotion.comments.id(commentId);
     if (parentComment) {
       parentAuthorId = parentComment.userId;
@@ -437,7 +458,6 @@ router.post("/:promotionId/comments/:commentId/replies", async (req, res) => {
 
     await promotion.save();
 
-    // 🔔 Notify the user being replied to (if not self)
     if (parentAuthorId?.toString() !== userId) {
       const targetUser = await User.findById(parentAuthorId);
       if (targetUser) {
@@ -458,7 +478,6 @@ router.post("/:promotionId/comments/:commentId/replies", async (req, res) => {
       }
     }
 
-    // 🔔 Notify business only if they authored the comment being replied to
     if (
       parentAuthorId?.toString() === business._id?.toString() &&
       userId !== business.placeId?.toString()
@@ -479,9 +498,17 @@ router.post("/:promotionId/comments/:commentId/replies", async (req, res) => {
       await business.save();
     }
 
+    const presignedUrl = mediaPayload.photoKey ? await getPresignedUrl(mediaPayload.photoKey) : null;
+
     res.status(201).json({
       message: "Reply added successfully",
-      reply: newReply,
+      reply: {
+        ...newReply,
+        media: mediaPayload.photoKey ? {
+          ...mediaPayload,
+          mediaUrl: presignedUrl
+        } : null
+      }
     });
   } catch (error) {
     console.error("Error adding reply to promotion comment:", error);
@@ -611,53 +638,98 @@ router.put("/:promotionId/comments/:commentId/like", async (req, res) => {
 // 📌 PATCH: Edit a comment or reply
 router.patch("/:promotionId/edit-comment/:commentId", async (req, res) => {
   const { promotionId, commentId } = req.params;
-  const { newText } = req.body;
+  const { newText, media } = req.body;
 
-  if (!newText || newText.trim() === "") {
-    return res.status(400).json({ message: "New comment text is required" });
-  }
+  console.log("🛠️ PATCH /edit-comment");
+  console.log("📨 Incoming:", { promotionId, commentId, newText, media });
+
+  const mediaPayload = media?.photoKey && media?.mediaType
+    ? {
+        photoKey: media.photoKey,
+        mediaType: ['image', 'video'].includes(media.mediaType) ? media.mediaType : null,
+      }
+    : { photoKey: null, mediaType: null };
+
+  console.log("📦 Parsed mediaPayload:", mediaPayload);
+
+  let oldPhotoKeyToDelete = null;
+  let updatedComment = null;
+
+  const updateCommentRecursively = (comments) => {
+    for (const c of comments) {
+      if (c._id.toString() === commentId) {
+        const originalKey = c.media?.photoKey || null;
+        const newKey = mediaPayload.photoKey;
+
+        if (originalKey && originalKey !== newKey) {
+          oldPhotoKeyToDelete = originalKey;
+          console.log(`🗑️ Old media key marked for deletion: ${oldPhotoKeyToDelete}`);
+        }
+
+        c.commentText = newText;
+        c.media = mediaPayload;
+        updatedComment = {
+          _id: c._id,
+          userId: c.userId,
+          fullName: c.fullName,
+          commentText: newText,
+          createdAt: c.createdAt,
+          updatedAt: new Date(),
+          likes: c.likes || [],
+          replies: c.replies || [],
+          media: c.media
+        };
+
+        console.log("✅ Comment updated in memory:", updatedComment);
+        return true;
+      }
+
+      if (c.replies?.length && updateCommentRecursively(c.replies)) return true;
+    }
+    return false;
+  };
 
   try {
     const promotion = await Promotion.findById(promotionId);
-    if (!promotion) return res.status(404).json({ message: "Promotion not found" });
-
-    let updatedComment = null;
-
-    const updateCommentRecursively = (comments) => {
-      for (const c of comments) {
-        if (c._id.toString() === commentId) {
-          c.commentText = newText;
-          updatedComment = {
-            _id: c._id,
-            userId: c.userId,
-            fullName: c.fullName,
-            commentText: newText,
-            createdAt: c.createdAt,
-            updatedAt: new Date(),
-            likes: c.likes || [],
-            replies: c.replies || []
-          };
-          return true;
-        }
-        if (c.replies?.length && updateCommentRecursively(c.replies)) return true;
-      }
-      return false;
-    };
+    if (!promotion) {
+      console.warn("❌ Promotion not found:", promotionId);
+      return res.status(404).json({ message: "Promotion not found" });
+    }
 
     const found = updateCommentRecursively(promotion.comments || []);
     if (!found) {
+      console.warn("❌ Comment not found in promotion:", commentId);
       return res.status(404).json({ message: "Comment or reply not found" });
     }
 
     promotion.updatedAt = new Date();
     await promotion.save();
+    console.log("💾 Promotion updated and saved");
 
-    res.json({
+    if (oldPhotoKeyToDelete) {
+      console.log("🧹 Deleting old S3 object:", oldPhotoKeyToDelete);
+      await deleteS3Objects([oldPhotoKeyToDelete]);
+    }
+
+    const presignedUrl = mediaPayload.photoKey
+      ? await getPresignedUrl(mediaPayload.photoKey)
+      : null;
+
+    const finalPayload = {
       message: "Comment updated successfully",
-      updatedComment
-    });
+      updatedComment: {
+        ...updatedComment,
+        media: mediaPayload.photoKey ? {
+          ...mediaPayload,
+          mediaUrl: presignedUrl
+        } : null
+      }
+    };
+
+    console.log("📤 Responding with payload:", finalPayload);
+    res.json(finalPayload);
   } catch (error) {
-    console.error("Error editing comment:", error);
+    console.error("💥 Error editing comment:", error);
     res.status(500).json({ message: "Internal Server Error" });
   }
 });
@@ -666,6 +738,27 @@ router.patch("/:promotionId/edit-comment/:commentId", async (req, res) => {
 router.delete("/:promotionId/delete-comment/:commentId", async (req, res) => {
   const { promotionId, commentId } = req.params;
 
+  let mediaKeyToDelete = null;
+
+  const deleteNestedComment = (comments = [], targetId) => {
+    return comments
+      .map(comment => {
+        if (comment._id.toString() === targetId) {
+          if (comment.media?.photoKey) {
+            mediaKeyToDelete = comment.media.photoKey;
+          }
+          return null; // remove this comment
+        }
+
+        if (comment.replies?.length) {
+          comment.replies = deleteNestedComment(comment.replies, targetId);
+        }
+
+        return comment;
+      })
+      .filter(Boolean);
+  };
+
   try {
     const promotion = await Promotion.findById(promotionId);
     if (!promotion) {
@@ -673,18 +766,6 @@ router.delete("/:promotionId/delete-comment/:commentId", async (req, res) => {
     }
 
     const originalLength = JSON.stringify(promotion.comments || []).length;
-
-    const deleteNestedComment = (comments = [], targetId) => {
-      return comments
-        .map(comment => {
-          if (comment._id.toString() === targetId) return null;
-          if (comment.replies?.length) {
-            comment.replies = deleteNestedComment(comment.replies, targetId);
-          }
-          return comment;
-        })
-        .filter(Boolean);
-    };
 
     promotion.comments = deleteNestedComment(promotion.comments || [], commentId);
 
@@ -695,6 +776,10 @@ router.delete("/:promotionId/delete-comment/:commentId", async (req, res) => {
 
     promotion.updatedAt = new Date();
     await promotion.save();
+
+    if (mediaKeyToDelete) {
+      await deleteS3Objects([mediaKeyToDelete]);
+    }
 
     res.json({ message: "Comment deleted successfully" });
   } catch (error) {

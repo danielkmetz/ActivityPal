@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, TouchableWithoutFeedback } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, TouchableWithoutFeedback, ScrollView, Image } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { selectUser } from '../../../Slices/UserSlice';
 import dayjs from 'dayjs';
@@ -9,22 +9,23 @@ import CommentActions from '../../Reviews/CommentActions';
 import CommentOptionsModal from '../../Reviews/CommentOptionsModal';
 import Reply from '../../Reviews/Reply';
 import {
-    leaveEventComment,
     leaveEventReply,
     toggleEventCommentLike,
     editEventCommentOrReply,
     deleteEventCommentOrReply,
 } from '../../../Slices/EventsSlice'; // Or PromotionsSlice, depending on type
 import {
-    leavePromoComment,
     leavePromoReply,
     likePromoCommentOrReply,
     editPromoCommentOrReply,
     deletePromoCommentOrReply,
 } from '../../../Slices/PromotionsSlice';
+import { isVideo } from '../../../utils/isVideo';
+import { uploadReviewPhotos } from '../../../Slices/PhotosSlice';
+import { selectMediaFromGallery } from '../../../utils/selectPhotos';
 import { selectEditedText, setNestedReplyInput, selectExpandedReplies, selectIsEditing, selectNestedExpandedReplies, selectNestedReplyInput, selectReplyingTo, selectSelectedComment, selectSelectedReply, setEditedText, setIsEditing, setNestedExpandedReplies, setReplyingTo, setSelectedComment, setSelectedReply, toggleReplyExpansion } from '../../../Slices/CommentThreadSlice';
 
-export default function EventPromoCommentThread({ item, post, commentText, setCommentText, type }) {
+export default function EventPromoCommentThread({ item, post, commentText, setCommentText, type, selectedMedia, setSelectedMedia }) {
     const dispatch = useDispatch();
     const user = useSelector(selectUser);
     const isEditing = useSelector(selectIsEditing);
@@ -33,6 +34,7 @@ export default function EventPromoCommentThread({ item, post, commentText, setCo
     const replyingTo = useSelector(selectReplyingTo);
     const nestedExpandedReplies = useSelector(selectNestedExpandedReplies);
     const [isOptionsVisible, setOptionsVisible] = useState(false);
+    const [selectedEditMedia, setSelectedEditMedia] = useState(null);
     const editedText = useSelector(selectEditedText);
     const expandedReplies = useSelector(selectExpandedReplies);
     const nestedReplyInput = useSelector(selectNestedReplyInput);
@@ -41,11 +43,41 @@ export default function EventPromoCommentThread({ item, post, commentText, setCo
     const commentRef = useRef(null);
     const commentRefs = useRef({});
     const isEvent = type === 'event';
-    
+
     const getTimeSincePosted = (dateString) => dayjs(dateString).fromNow(true);
 
-    const handleAddReply = (commentId, text) => {
-        if (!text.trim()) return;
+    const handleSelectMedia = async () => {
+        const files = await selectMediaFromGallery();
+        if (files.length > 0) {
+            setSelectedMedia([files[0]]); // ensure only one is stored
+            setSelectedEditMedia(files[0]);
+        }
+    };
+
+    const handleAddReply = async (commentId) => {
+        let media = null;
+
+        if (selectedMedia.length > 0) {
+            const mediaFile = selectedMedia[0];
+
+            try {
+                const result = await dispatch(
+                    uploadReviewPhotos({
+                        placeId: post.placeId,
+                        files: [mediaFile],
+                    })
+                ).unwrap();
+
+                if (result?.length > 0) {
+                    media = {
+                        photoKey: result[0],
+                        mediaType: mediaFile.type.startsWith('video') ? 'video' : 'image',
+                    };
+                }
+            } catch (error) {
+                console.error('❌ Media upload failed:', error);
+            }
+        }
 
         const replyThunk = isEvent ? leaveEventReply : leavePromoReply;
 
@@ -55,11 +87,12 @@ export default function EventPromoCommentThread({ item, post, commentText, setCo
             commentId,
             userId,
             fullName,
-            commentText: text,
+            commentText: commentText,
+            ...(media && { media }),
         }));
 
         dispatch(toggleReplyExpansion(replyingTo));
-
+        setSelectedMedia([]);
         setCommentText('');
         dispatch(setReplyingTo(null));
     };
@@ -77,24 +110,69 @@ export default function EventPromoCommentThread({ item, post, commentText, setCo
     };
 
     const handleEditComment = () => {
-        if (!selectedComment && !selectedReply) return;
+        const selected = selectedReply || selectedComment;
+        if (!selected) return;
 
         dispatch(setIsEditing(true));
-        dispatch(setEditedText(selectedReply ? selectedReply.commentText : selectedComment.commentText))
+        dispatch(setEditedText(selected.commentText));
+
+        const media = selected.media;
+        setSelectedEditMedia(media || null);
+        setSelectedMedia(media ? [media] : []); // ✅ fix here
+
         setOptionsVisible(false);
     };
 
-    const handleSaveEdit = () => {
+    const handleSaveEdit = async () => {
         const selected = selectedReply || selectedComment;
         if (!selected) return;
+
+        const originalMedia = selectedMedia;
+        let newMedia = null;
+
+        if (!selectedEditMedia && originalMedia?.length > 0) {
+            newMedia = null;
+        } else if (
+            selectedEditMedia &&
+            selectedEditMedia.uri &&
+            !selectedEditMedia.photoKey
+        ) {
+            try {
+                const result = await dispatch(
+                    uploadReviewPhotos({
+                        placeId: post.placeId,
+                        files: [selectedEditMedia],
+                    })
+                ).unwrap();
+
+                if (result?.length > 0) {
+                    newMedia = {
+                        photoKey: result[0],
+                        mediaType: isVideo(selectedEditMedia) ? "video" : "image",
+                    };
+                }
+            } catch (error) {
+                return;
+            }
+        } else if (selectedEditMedia?.photoKey) {
+            newMedia = {
+                photoKey: selectedEditMedia.photoKey,
+                mediaType: selectedEditMedia.mediaType || "image",
+            };
+        }
 
         const editThunk = isEvent ? editEventCommentOrReply : editPromoCommentOrReply;
 
         dispatch(editThunk({
             id: post._id,
             commentId: selected._id,
-            commentText,
-        }))
+            commentText: editedText,
+            ...(newMedia !== undefined && { media: newMedia }),
+        }));
+
+        setSelectedEditMedia(null);
+        setSelectedMedia(null);
+        dispatch(setIsEditing(false));
     };
 
     const handleCancelEdit = () => {
@@ -158,6 +236,10 @@ export default function EventPromoCommentThread({ item, post, commentText, setCo
                         onToggleLike={() => handleLike(item?._id)}
                         setEditedText={(text) => dispatch(setEditedText(text))}
                         editedText={editedText}
+                        selectedMedia={selectedMedia}
+                        setSelectedMedia={setSelectedMedia}
+                        setSelectedEditMedia={setSelectedEditMedia}
+                        media={item?.media}
                     />
                     <View style={styles.replyContainer}>
                         <Text style={styles.commentDate}>{getTimeSincePosted(item.date)}</Text>
@@ -187,13 +269,41 @@ export default function EventPromoCommentThread({ item, post, commentText, setCo
                     </View>
                     {replyingTo === item._id && (
                         <View style={styles.nestedReplyInputContainer}>
-                            <TextInput
-                                style={styles.nestedReplyInput}
-                                placeholder="Write a reply..."
-                                value={commentText}
-                                onChangeText={setCommentText}
-                            />
-                            <TouchableOpacity style={styles.commentButton} onPress={() => handleAddReply(item._id, commentText)}>
+                            <View style={styles.fakeInputBox}>
+                                {selectedMedia?.length > 0 && (
+                                    <ScrollView horizontal style={styles.previewContainer}>
+                                        {selectedMedia.map((file, idx) =>
+                                            isVideo(file) ? (
+                                                <VideoThumbnail
+                                                    key={idx}
+                                                    file={file}
+                                                    width={70}
+                                                    height={70}
+                                                    shouldPlay={false}
+                                                />
+                                            ) : (
+                                                <Image
+                                                    key={idx}
+                                                    source={{ uri: file.uri }}
+                                                    style={styles.previewImage}
+                                                />
+                                            )
+                                        )}
+                                    </ScrollView>
+                                )}
+                                <TextInput
+                                    style={styles.nestedReplyInput}
+                                    placeholder="Write a reply..."
+                                    value={commentText}
+                                    onChangeText={setCommentText}
+                                />
+                                {commentText.trim() === '' && selectedMedia.length === 0 && (
+                                    <TouchableOpacity onPress={handleSelectMedia} style={styles.cameraIcon}>
+                                        <MaterialCommunityIcons name="camera-outline" size={24} color="#555" />
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+                            <TouchableOpacity style={styles.commentButton} onPress={() => handleAddReply(item?._id)}>
                                 <Text style={styles.commentButtonText}>Reply</Text>
                             </TouchableOpacity>
                         </View>
@@ -292,6 +402,8 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         marginTop: 10,
+        marginBottom: 30,
+        marginHorizontal: 10,
     },
     commentButton: {
         backgroundColor: '#009999',
@@ -311,13 +423,7 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
     },
     nestedReplyInput: {
-        flex: 1,
-        height: 40,
-        borderWidth: 1,
-        borderColor: '#ccc',
-        borderRadius: 5,
-        paddingHorizontal: 10,
-        marginRight: 10,
+        fontSize: 14,
     },
     replyContainer: {
         flexDirection: 'row',
@@ -331,5 +437,38 @@ const styles = StyleSheet.create({
     replyCountText: {
         fontSize: 14,
         color: '#888',
+    },
+    fakeInputBox: {
+        flex: 1,
+        borderWidth: 1,
+        borderColor: '#ccc',
+        borderRadius: 5,
+        padding: 8,
+        position: 'relative',
+        backgroundColor: '#fff',
+    },
+    mediaPreview: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        marginBottom: 6,
+    },
+    previewImage: {
+        width: 100,
+        height: 100,
+        borderRadius: 8,
+        marginRight: 8,
+        marginBottom: 8,
+    },
+    image: {
+        width: 200,
+        height: 200,
+        borderRadius: 8,
+        marginBottom: 6,
+        marginTop: 5
+    },
+    cameraIcon: {
+        position: 'absolute',
+        right: 20,
+        top: 5
     },
 });

@@ -96,7 +96,7 @@ export const togglePromoLike = createAsyncThunk(
 
 export const leavePromoComment = createAsyncThunk(
   "promotions/leavePromoComment",
-  async ({ placeId, id, userId, fullName, commentText }, { rejectWithValue, dispatch }) => {
+  async ({ placeId, id, userId, fullName, commentText, media }, { rejectWithValue, dispatch }) => {
     try {
       console.log("📤 Sending comment request:", {
         placeId,
@@ -104,6 +104,7 @@ export const leavePromoComment = createAsyncThunk(
         userId,
         fullName,
         commentText,
+        media,
       });
 
       const response = await axios.post(
@@ -112,6 +113,7 @@ export const leavePromoComment = createAsyncThunk(
           userId,
           fullName,
           commentText,
+          media,
         }
       );
 
@@ -146,7 +148,7 @@ export const leavePromoComment = createAsyncThunk(
 export const leavePromoReply = createAsyncThunk(
   "promotions/leavePromoReply",
   async (
-    { placeId, id, commentId, userId, fullName, commentText },
+    { placeId, id, commentId, userId, fullName, commentText, media },
     { rejectWithValue, dispatch }
   ) => {
     try {
@@ -156,6 +158,7 @@ export const leavePromoReply = createAsyncThunk(
           userId,
           fullName,
           commentText,
+          media,
         }
       );
 
@@ -217,11 +220,11 @@ export const likePromoCommentOrReply = createAsyncThunk(
 
 export const editPromoCommentOrReply = createAsyncThunk(
   "promotions/editPromoCommentOrReply",
-  async ({ id, commentId, commentText }, { rejectWithValue, dispatch }) => {
+  async ({ id, commentId, commentText, media }, { rejectWithValue, dispatch }) => {
     try {
-      const response = await axios.put(
+      const response = await axios.patch(
         `${API_URL}/${id}/edit-comment/${commentId}`,
-        { commentText }
+        { newText: commentText, media }
       );
 
       const updatedComment = response.data.updatedComment;
