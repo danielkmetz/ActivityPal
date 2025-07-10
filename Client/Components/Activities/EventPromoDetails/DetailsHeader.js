@@ -16,11 +16,8 @@ const DetailsHeader = ({ activity, getTimeSincePosted, handleLikeWithAnimation, 
     const dispatch = useDispatch();
     const logo = useSelector(selectLogo);
     const selectedType = ["activeEvent", "upcomingEvent"].includes(activity.kind) ? "event" : "promo";
-    const { allEvents = [], allPromos = [], placeId, businessName } = activity;
-    const [selectedItemIndex, setSelectedItemIndex] = useState(0);
+    const { placeId, businessName } = activity || {};
     const isPromo = selectedType === 'promo'; // If you're using a toggle
-    const currentItems = isPromo ? allPromos : allEvents;
-    const selectedItem = currentItems?.[selectedItemIndex];
     const scrollX = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
@@ -60,7 +57,7 @@ const DetailsHeader = ({ activity, getTimeSincePosted, handleLikeWithAnimation, 
                         <Text style={styles.businessName}>
                             {businessName}
                         </Text>
-                        <Text style={styles.eventDate}>{getTimeSincePosted(selectedItem?.date)} ago</Text>
+                        <Text style={styles.eventDate}>{getTimeSincePosted(activity?.date)} ago</Text>
                     </View>
                 </View>
                 <View style={styles.detailsSection}>
