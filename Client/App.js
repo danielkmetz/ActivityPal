@@ -157,8 +157,8 @@ function MainApp() {
 
   //fetch suggested promos and events
   useEffect(() => {
-    if (lat && lng && !isBusiness) {
-      dispatch(fetchNearbyPromosAndEvents({ lat, lng }));
+    if (lat && lng && !isBusiness && userId) {
+      dispatch(fetchNearbyPromosAndEvents({ lat, lng, userId }));
     }
   }, [lat, lng]);
 
