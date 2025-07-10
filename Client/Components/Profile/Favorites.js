@@ -43,8 +43,8 @@ export default function Favorites({ favorites }) {
                             style={styles.businessImage}
                         />
                         <View style={styles.textContainer}>
-                            <Text style={styles.businessName}>{item.businessName}</Text>
-                            <Text style={styles.location}>{item.location}</Text>
+                            <Text style={styles.businessName}>{item?.businessName}</Text>
+                            <Text style={styles.location}>{item?.location?.formattedAddress}</Text>
                         </View>
                     </TouchableOpacity>
                 )}

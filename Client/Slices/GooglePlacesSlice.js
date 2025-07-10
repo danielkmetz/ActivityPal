@@ -100,9 +100,9 @@ export const fetchDining = createAsyncThunk(
 
 export const fetchNearbyPromosAndEvents = createAsyncThunk(
   'GooglePlaces/fetchNearbyPromosAndEvents',
-  async ({ lat, lng }, { rejectWithValue }) => {
+  async ({ lat, lng, userId }, { rejectWithValue }) => {
     try {
-      const response = await axios.post(`${BASE_URL}/places2/events-and-promos-nearby`, { lat, lng });
+      const response = await axios.post(`${BASE_URL}/places2/events-and-promos-nearby`, { lat, lng, userId });
 
       return response.data.suggestions;
     } catch (error) {
