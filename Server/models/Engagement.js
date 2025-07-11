@@ -16,12 +16,10 @@ const EngagementSchema = new mongoose.Schema({
     ],
     required: true
   },
-
   targetId: {
     type: String, // ObjectId as string or placeId (when targetType is 'place')
     required: true
   },
-
   engagementType: {
     type: String,
     enum: [
@@ -33,11 +31,17 @@ const EngagementSchema = new mongoose.Schema({
       'like',
       'join',
       'dismiss',
-      'share'
+      'share',
+      'invite',
     ],
     required: true
   },
-
+  // ✅ Optional but useful for business analytics
+  placeId: {
+    type: String,
+    required: false,
+    index: true, // allows fast aggregation/grouping
+  },
   timestamp: {
     type: Date,
     default: Date.now

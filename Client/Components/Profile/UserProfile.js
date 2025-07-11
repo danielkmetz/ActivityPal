@@ -7,7 +7,7 @@ import EditProfileModal from "./EditProfileModal";
 import Reviews from "../Reviews/Reviews";
 import Photos from "./Photos";
 import profilePlaceholder from '../../assets/pics/profile-pic-placeholder.jpg'
-import { selectProfilePic, selectBanner, fetchProfilePic, fetchUserBanner } from "../../Slices/PhotosSlice";
+import { selectProfilePic, selectBanner, fetchUserBanner } from "../../Slices/PhotosSlice";
 import { selectProfileReviews, fetchReviewsByUserId, appendProfileReviews, setProfileReviews } from "../../Slices/ReviewsSlice";
 import { selectFavorites, fetchFavorites } from "../../Slices/FavoritesSlice";
 import Favorites from "./Favorites";
@@ -15,6 +15,7 @@ import { selectFollowing, selectFollowers } from "../../Slices/friendsSlice";
 import usePaginatedFetch from "../../utils/usePaginatedFetch";
 import ConnectionsModal from "./ConnectionsModal";
 import { useNavigation } from "@react-navigation/native";
+import { clearTodayEngagementLog } from "../../Slices/EngagementSlice";
 
 export default function UserProfile() {
   const dispatch = useDispatch();
@@ -128,6 +129,13 @@ export default function UserProfile() {
                 >
                   <Ionicons name="settings-sharp" size={24} color="white" />
                   <Text style={styles.editProfileButtonText}>Settings</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.editProfileButton, { marginLeft: 10 }]}
+                  onPress={clearTodayEngagementLog}
+                >
+                  <Ionicons name="trash-bin" size={20} color="white" />
+                  <Text style={styles.editProfileButtonText}>Clear Log</Text>
                 </TouchableOpacity>
               </View>
             </View>

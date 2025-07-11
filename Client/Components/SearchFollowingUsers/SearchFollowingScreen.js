@@ -8,9 +8,10 @@ import { useNavigation } from '@react-navigation/native';
 import { selectFollowing } from '../../Slices/friendsSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { chooseUserToMessage, sendMessage } from '../../Slices/DirectMessagingSlice';
+import { logEngagementIfNeeded, getEngagementTarget } from '../../Slices/EngagementSlice';
 
 const SearchFollowingScreen = ({ route }) => {
-    const { postId, postType } = route.params || {};
+    const { postId, postType, placeId } = route.params || {};
     const dispatch = useDispatch();
     const navigation = useNavigation();
     const following = useSelector(selectFollowing) || [];
@@ -23,12 +24,6 @@ const SearchFollowingScreen = ({ route }) => {
 
     const isCurrentUserFollowed = (otherUser, currentUserId) => {
         if (!otherUser || !Array.isArray(otherUser.following)) return false;
-
-        console.log("🔍 Checking messagePermissions access for:", {
-            otherUserId: otherUser._id,
-            following: otherUser.following.map(f => (typeof f === 'object' ? f._id : f)),
-            currentUserId
-        });
 
         return otherUser.following.some(f => {
             const id = typeof f === 'object' ? f._id : f;
@@ -117,7 +112,16 @@ const SearchFollowingScreen = ({ route }) => {
             const resultAction = await dispatch(sendMessage(payload));
 
             if (sendMessage.fulfilled.match(resultAction)) {
-                Alert.alert('Success', 'Post sent!');
+                Alert.alert('Post sent!');
+
+                const { targetType, targetId } = getEngagementTarget({ postType, postId, placeId });
+                logEngagementIfNeeded(dispatch, {
+                    targetType,
+                    targetId,
+                    placeId,
+                    engagementType: 'share',
+                });
+
                 navigation.goBack(); // ✅ Done
             } else {
                 console.warn('❌ Post send failed:', resultAction.error?.message);
