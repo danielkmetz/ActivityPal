@@ -13,10 +13,17 @@ export default function PostActions({ item, handleLikeWithAnimation, handleOpenC
   const hasLiked = item?.likes?.some(like => like.userId === currentUserId);
 
   const handleSend = () => {
+    // Determine postType from kind if present
+    const kind = item?.kind?.toLowerCase();
+    const derivedType =
+      kind?.includes('event') ? 'event' :
+        kind?.includes('promo') ? 'promotion' : item?.type;
+
     navigation.navigate('SearchFollowing', {
       postId: item._id,
-      postType: item.type,
-    })
+      postType: derivedType,
+      placeId: item.placeId || item.business?.placeId || null,
+    });
   };
 
   return (

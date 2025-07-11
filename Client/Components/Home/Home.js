@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { View, StyleSheet } from "react-native";
 import WriteReviewModal from "../Reviews/CreatePost";
 import {
@@ -26,6 +26,7 @@ import { selectNearbySuggestions } from "../../Slices/GooglePlacesSlice";
 import { fetchInvites } from "../../Slices/InvitesSlice";
 import { fetchConversations } from "../../Slices/DirectMessagingSlice";
 import ChangeLocationModal from "../Location/ChangeLocationModal";
+import { logEngagementIfNeeded } from "../../Slices/EngagementSlice";
 
 const Home = ({ scrollY, onScroll, isAtEnd }) => {
     const dispatch = useDispatch();
@@ -42,6 +43,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
     const [updatedFeed, setUpdatedFeed] = useState([]);
     const hasFetchedOnce = useSelector(selectHasFetchedOnce);
     const suggestedPosts = useSelector(selectSuggestedPosts);
+    const seenToday = useRef(new Set());
     const userId = user?.id;
 
     const {
@@ -57,11 +59,50 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
         limit: 5,
     });
 
-    useEffect(() => {
-        if (userId) {
-            dispatch(fetchConversations());
-        }
-    }, [dispatch, userId]);
+    const viewabilityConfig = {
+        itemVisiblePercentThreshold: 60, // only log if 60% of item is visible
+    };
+
+    const handleViewableItemsChanged = useRef(({ viewableItems }) => {
+        viewableItems.forEach(item => {
+            const data = item.item;
+            const placeId = data?.placeId
+
+            if (data?.type === 'suggestion') {
+                let targetId = null;
+                let targetType = null;
+
+                const kind = data.kind?.toLowerCase() || '';
+
+                if (kind.includes('event')) {
+                    targetType = 'event';
+                    targetId = data._id;
+                } else if (kind.includes('promo')) {
+                    targetType = 'promo';
+                    targetId = data._id;
+                } else {
+                    targetType = 'place';
+                    targetId = data.placeId;
+                }
+
+                const engagementKey = `${targetType}:${targetId}`;
+
+                if (targetId && targetType && !seenToday.current.has(engagementKey)) {
+                    console.log(`👁️ Logging view for ${engagementKey}`);
+                    seenToday.current.add(engagementKey);
+
+                    logEngagementIfNeeded(dispatch, {
+                        targetType,
+                        targetId,
+                        placeId,
+                        engagementType: 'view',
+                    });
+                } else {
+                    console.log(`🔁 Skipped: already logged ${engagementKey}`);
+                }
+            }
+        });
+    }).current;
 
     useEffect(() => {
         if (userId) {
@@ -72,6 +113,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
             dispatch(fetchMutualFriends(userId));
             dispatch(fetchFollowersAndFollowing(userId));
             dispatch(fetchInvites(userId));
+            dispatch(fetchConversations());
             dispatch(setHasFetchedOnce(true));
         }
     }, [userId]);
@@ -137,7 +179,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
             dispatch(setSuggestedPosts(followPosts));
         }
     }, [suggestedFollows]);
-    
+
     useEffect(() => {
         const suggestionCards = nearbySuggestions.map(s => ({ ...s, type: 'suggestion' }));
         const allSuggestions = [...suggestionCards, ...suggestedPosts];
@@ -153,6 +195,8 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
                 onLoadMore={loadMore}
                 isLoadingMore={isLoading}
                 hasMore={hasMore}
+                onViewableItemsChanged={handleViewableItemsChanged}
+                viewabilityConfig={viewabilityConfig}
                 reviews={updatedFeed}
                 ListHeaderComponent={
                     <View style={styles.storiesWrapper}>
@@ -174,7 +218,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
                 onClose={() => dispatch(closeInviteModal())}
                 friends={friends}
             />
-            <ChangeLocationModal/>
+            <ChangeLocationModal />
         </View>
     );
 };

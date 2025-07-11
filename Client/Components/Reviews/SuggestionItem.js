@@ -19,6 +19,7 @@ import SuggestionDetailsModal from "../SuggestionDetails/SuggestionDetailsModal"
 import { eventPromoLikeWithAnimation } from "../../utils/LikeHandlers/promoEventLikes";
 import PostActions from "./PostActions";
 import { selectUser } from "../../Slices/UserSlice";
+import { logEngagementIfNeeded, getEngagementTarget } from "../../Slices/EngagementSlice";
 
 const screenWidth = Dimensions.get("window").width;
 
@@ -34,6 +35,7 @@ export default function SuggestionItem({ suggestion }) {
     const invites = useSelector(selectInvites);
     const tapTimeoutRef = useRef(null);
     const scrollX = useRef(new Animated.Value(0)).current;
+    const placeId = suggestion?.placeId;
 
     const { businessName, logoUrl, distance, title } = suggestion;
     const photos = suggestion?.photos || [];
@@ -68,6 +70,7 @@ export default function SuggestionItem({ suggestion }) {
         note: `Lets go to ${businessName} for ${title}`
     };
 
+    
     const inviteCreationEditing = () => {
         if (existingInvite) {
             navigation.navigate('CreatePost', {
@@ -81,6 +84,15 @@ export default function SuggestionItem({ suggestion }) {
     };
 
     const handleOpenComments = () => {
+        const { targetType, targetId } = getEngagementTarget(suggestion);
+
+        logEngagementIfNeeded(dispatch, {
+            targetType,
+            targetId,
+            placeId,
+            engagementType: 'click',
+        });
+
         navigation.navigate('EventDetails', { activity: suggestion });
     };
 
@@ -116,6 +128,14 @@ export default function SuggestionItem({ suggestion }) {
 
             tapTimeoutRef.current = setTimeout(() => {
                 setDetailsModalVisible(true); // Single tap => open modal
+
+                const { targetType, targetId } = getEngagementTarget(suggestion);
+                logEngagementIfNeeded(dispatch, {
+                    targetType,
+                    targetId,
+                    placeId,
+                    engagementType: 'click',
+                });
             }, DOUBLE_TAP_DELAY);
         }
     };

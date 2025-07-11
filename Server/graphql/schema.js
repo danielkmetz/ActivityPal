@@ -77,7 +77,6 @@ const resolvers = {
           users.map(async (user) => {
             const userIdStr = user._id.toString();
             const profileMeta = picMap[userIdStr] || {};
-            console.log(`🔧 Gathering reviews for user ${userIdStr}`);
             return gatherUserReviews(user._id, profileMeta.profilePic, profileMeta.profilePicUrl);
           })
         );

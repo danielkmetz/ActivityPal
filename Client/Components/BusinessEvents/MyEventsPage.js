@@ -48,8 +48,6 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
     }
   }, [placeId]);
 
-  console.log(promotions)
-
   const handleEdit = (item) => {
     if (selectedTab === "events") {
       navigation.navigate("CreateEvent", {

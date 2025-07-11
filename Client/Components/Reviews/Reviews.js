@@ -21,7 +21,7 @@ import { selectFollowing, selectFollowRequests } from "../../Slices/friendsSlice
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
-export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY, onScroll, onLoadMore, isLoadingMore }) {
+export default function Reviews({ reviews, viewabilityConfig, onViewableItemsChanged, ListHeaderComponent, hasMore, scrollY, onScroll, onLoadMore, isLoadingMore }) {
   const dispatch = useDispatch();
   const navigation = useNavigation();
   const user = useSelector(selectUser);
@@ -143,6 +143,8 @@ export default function Reviews({ reviews, ListHeaderComponent, hasMore, scrollY
           const id = item._id || item.id || index;
           return item.type === 'suggestion' ? `suggestion-${index}` : `${item.type}-${id}`;
         }}
+        viewabilityConfig={viewabilityConfig}
+        onViewableItemsChanged={onViewableItemsChanged}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={ListHeaderComponent}
         onEndReached={() => {

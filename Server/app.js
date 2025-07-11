@@ -33,6 +33,7 @@ const businessNotifications = require('./routes/businessNotifications');
 const recentSearches = require('./routes/searchHistory');
 const stories = require('./routes/stories');
 const directMessages = require('./routes/directMessages');
+const engagement = require('./routes/engagement');
 
 // Initialize app
 const app = express();
@@ -89,6 +90,7 @@ app.use('/api/business-notifications', businessNotifications);
 app.use('/api/recent-searches', recentSearches);
 app.use('/api/stories', stories);
 app.use('/api/directMessages', directMessages);
+app.use('/api/engagement', engagement);
 
 setupDirectMessagingSocket(io);
 

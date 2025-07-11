@@ -4,12 +4,13 @@ import VideoThumbnail from '../Reviews/VideoThumbnail';
 
 const PostPreview = ({ postPreview, onPress, onLongPress }) => {
     if (!postPreview) return null;
+    const displayName = postPreview.business.businessName || postPreview.fullName;
     
     return (
         <TouchableOpacity onPress={onPress} onLongPress={onLongPress} activeOpacity={0.9}>
             <View style={styles.wrapper}>
                 <View style={styles.overlay}>
-                    <Text style={styles.overlayText}>{postPreview.fullName}'s {postPreview.postType}</Text>
+                    <Text style={styles.overlayText}>{displayName}'s {postPreview.postType}</Text>
                 </View>
                 {postPreview.mediaType === 'image' ? (
                     <Image
