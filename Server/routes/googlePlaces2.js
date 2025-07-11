@@ -2,6 +2,10 @@ const express = require("express");
 const axios = require("axios");
 const router = express.Router();
 const Business = require('../models/Business');
+const Review = require('../models/Reviews');
+const ActivityInvite = require('../models/ActivityInvites');
+const CheckIn = require('../models/CheckIns');
+const User = require('../models/User');
 const { enrichBusinessWithPromosAndEvents } = require("../utils/enrichBusinesses");
 
 const googleApiKey = process.env.GOOGLE_PLACES2;
@@ -210,17 +214,50 @@ router.post("/places-nearby", async (req, res) => {
 });
 
 router.post("/events-and-promos-nearby", async (req, res) => {
-  const { lat, lng } = req.body;
-
-  console.log("📍 Incoming request to /events-and-promos-nearby with coords:", { lat, lng });
+  const { lat, lng, userId } = req.body;
 
   if (typeof lat !== "number" || typeof lng !== "number") {
-    console.warn("❗ Invalid or missing lat/lng in request body.");
     return res.status(400).json({ error: "Missing or invalid lat/lng" });
   }
 
   try {
-    // Step 1: Geospatial query to find nearby businesses
+    let userFavorites = new Set();
+    let reviewCounts = {};
+    let checkInCounts = {};
+    let inviteCounts = {};
+
+    if (userId) {
+      const user = await User.findById(userId).lean();
+
+      if (user?.favorites?.length > 0) {
+        userFavorites = new Set(user.favorites.map(fav => fav.placeId));
+      }
+
+      const [reviews, checkIns, invites] = await Promise.all([
+        Review.find({ userId, placeId: { $exists: true } }, 'placeId rating').lean(),
+        CheckIn.find({ userId, placeId: { $exists: true } }, 'placeId').lean(),
+        ActivityInvite.find({ sender: userId, placeId: { $exists: true } }, 'placeId').lean()
+      ]);
+
+      for (const { placeId, rating } of reviews) {
+        const pid = String(placeId);
+        if (!reviewCounts[pid]) reviewCounts[pid] = { positive: 0, neutral: 0, negative: 0 };
+        if (rating >= 4) reviewCounts[pid].positive += 1;
+        else if (rating === 3) reviewCounts[pid].neutral += 1;
+        else if (rating <= 2) reviewCounts[pid].negative += 1;
+      }
+
+      for (const { placeId } of checkIns) {
+        const pid = String(placeId);
+        checkInCounts[pid] = (checkInCounts[pid] || 0) + 1;
+      }
+
+      for (const { placeId } of invites) {
+        const pid = String(placeId);
+        inviteCounts[pid] = (inviteCounts[pid] || 0) + 1;
+      }
+    }
+
     const nearbyBusinesses = await Business.find({
       location: {
         $near: {
@@ -233,9 +270,6 @@ router.post("/events-and-promos-nearby", async (req, res) => {
       },
     });
 
-    console.log(`✅ Found ${nearbyBusinesses.length} nearby businesses within ${MAX_DISTANCE_METERS} miles.`);
-
-    // Step 2: Filter for businesses with active promos or events
     const flattenedSuggestions = [];
 
     for (const biz of nearbyBusinesses) {
@@ -256,7 +290,15 @@ router.post("/events-and-promos-nearby", async (req, res) => {
           upcomingEvent,
         } = enrichedBiz;
 
-        const shared = { type: 'suggestion', businessName, placeId, location, logoUrl, bannerUrl, distance };
+        const shared = {
+          type: 'suggestion',
+          businessName,
+          placeId,
+          location,
+          logoUrl,
+          bannerUrl,
+          distance,
+        };
 
         const pushIfExists = (entry, kind) => {
           if (entry) flattenedSuggestions.push({ ...shared, ...entry, kind });
@@ -267,15 +309,39 @@ router.post("/events-and-promos-nearby", async (req, res) => {
         pushIfExists(activeEvent, 'activeEvent');
         pushIfExists(upcomingEvent, 'upcomingEvent');
 
-      } catch (e) {
-        console.error(`❌ Error enriching business "${biz.businessName}":`, e);
-      }
+      } catch {}
     }
 
-    console.log(`🎯 Returning ${flattenedSuggestions.length} flattened suggestions.`);
-    res.json({ suggestions: flattenedSuggestions });
-  } catch (err) {
-    console.error("🔥 Error in /events-and-promos-nearby:", err.stack || err);
+    const scoredSuggestions = [];
+
+    for (const suggestion of flattenedSuggestions) {
+      const pid = String(suggestion.placeId);
+      const isFavorited = userFavorites.has(pid);
+      const posReviews = reviewCounts[pid]?.positive || 0;
+      const neutralReviews = reviewCounts[pid]?.neutral || 0;
+      const negReviews = reviewCounts[pid]?.negative || 0;
+      const checkIns = checkInCounts[pid] || 0;
+      const invites = inviteCounts[pid] || 0;
+
+      if (negReviews > 0 && posReviews === 0 && neutralReviews === 0 && !isFavorited) continue;
+
+      const weightedScore =
+        (posReviews * 2) +
+        (neutralReviews * 1) +
+        (checkIns * 1) +
+        (invites * 0.5);
+
+      const finalScore = isFavorited ? 1000 + weightedScore : weightedScore;
+
+      scoredSuggestions.push({ ...suggestion, _score: finalScore });
+    }
+
+    scoredSuggestions.sort((a, b) => b._score - a._score);
+    const cleanSuggestions = scoredSuggestions.map(({ _score, ...rest }) => rest);
+
+    res.json({ suggestions: cleanSuggestions });
+
+  } catch {
     res.status(500).json({ error: "Failed to fetch active promos/events nearby." });
   }
 });

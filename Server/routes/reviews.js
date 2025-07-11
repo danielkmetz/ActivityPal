@@ -907,8 +907,6 @@ router.put('/:postType/:postId/:commentId', async (req, res) => {
   const { postType, postId, commentId } = req.params;
   const { userId, newText, media } = req.body;
 
-  if (!newText) return res.status(400).json({ message: 'New text is required' });
-
   const mediaPayload = media?.photoKey && media?.mediaType
     ? {
       photoKey: media.photoKey,

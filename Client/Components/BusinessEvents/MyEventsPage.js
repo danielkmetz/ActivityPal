@@ -11,11 +11,12 @@ import {
 } from "react-native";
 import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
-import { fetchEvents, selectEvents, deleteEvent } from "../../Slices/EventsSlice";
+import { fetchEvents, selectEvents, deleteEvent, fetchEventById } from "../../Slices/EventsSlice";
 import {
   fetchPromotions,
   selectPromotions,
   deletePromotion,
+  fetchPromotionById,
 } from "../../Slices/PromotionsSlice";
 import PhotoItem from "../Reviews/PhotoItem";
 import PhotoPaginationDots from '../Reviews/PhotoPaginationDots';
@@ -46,6 +47,8 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
       dispatch(fetchPromotions(placeId));
     }
   }, [placeId]);
+
+  console.log(promotions)
 
   const handleEdit = (item) => {
     if (selectedTab === "events") {
@@ -127,6 +130,11 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
   };
 
   const handleOpenComments = (item) => {
+    if (item.kind === "Event") {
+      dispatch(fetchEventById({ eventId: item._id}))
+    } else {
+      dispatch(fetchPromotionById({ promotionId: item._id }))
+    }
     navigation.navigate('EventDetails', { activity: item });
   };
 
