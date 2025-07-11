@@ -7,12 +7,15 @@ import { selectProfilePic } from '../../Slices/PhotosSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { useSelector } from 'react-redux';
 import { useNavigation } from '@react-navigation/native';
+import { fetchEventById } from '../../Slices/EventsSlice';
+import { fetchPromotionById } from '../../Slices/PromotionsSlice';
+import { useDispatch } from 'react-redux';
 
 const MessageItem = ({
     item,
     onLongPress,
 }) => {
-
+    const dispatch = useDispatch();
     if (item.type === 'date') {
         return (
             <View style={styles.dateHeader}>
@@ -37,6 +40,27 @@ const MessageItem = ({
     const handleLongPress = () => {
         if (isCurrentUser) onLongPress(item);
     };
+    
+    const handleNavigation = () => {
+        if (item.post.postType === "event" || item.post.postType === "promotion" || item.post.postType === "promo") {
+            if (item.post.postType === "event") {
+                dispatch(fetchEventById({eventId: item.post.postId}));
+            } else {
+                dispatch(fetchPromotionById({promoId: item.post.postId}));
+            };
+            
+            navigation.navigate("EventDetails", { activity: item.post });
+        } else {
+            navigation.navigate("CommentScreen", {
+                reviewId: item.postPreview.postId,
+                initialIndex: 0,
+                lastTapRef,
+                likedAnimations,
+                setLikedAnimations,
+                taggedUsersByPhotoKey: item.postPreview.taggedUsersByPhotoKey || {},
+            })
+        }
+    }
 
     return (
         <View style={[styles.messageRow, isCurrentUser ? styles.rowReverse : styles.row]}>
@@ -75,16 +99,7 @@ const MessageItem = ({
                         <PostPreview
                             postPreview={item.postPreview}
                             onLongPress={handleLongPress}
-                            onPress={() =>
-                                navigation.navigate("CommentScreen", {
-                                    reviewId: item.postPreview.postId,
-                                    initialIndex: 0,
-                                    lastTapRef,
-                                    likedAnimations,
-                                    setLikedAnimations,
-                                    taggedUsersByPhotoKey: item.postPreview.taggedUsersByPhotoKey || {},
-                                })
-                            }
+                            onPress={handleNavigation}
                         />
                     ) : (
                         !!item.content && item.content !== '[media]' && (
