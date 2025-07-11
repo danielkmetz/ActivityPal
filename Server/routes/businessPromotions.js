@@ -7,22 +7,63 @@ const User = require('../models/User.js');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 const { extractTimeOnly } = require('../utils/extractTimeOnly.js');
 const deleteS3Objects = require('../utils/deleteS3Objects.js');
-const { generatePresignedUrl } = require('../helpers/generatePresignedUrl.js');
+const { enrichComments } = require('../utils/userPosts.js');
+const { isPromoActive, isPromoLaterToday } = require('../utils/enrichBusinesses.js');
 
-// 🎯 Generate a pre-signed upload URL for a media object
-router.get("/media/upload-url/:key", async (req, res) => {
-  const { key } = req.params;
-
-  if (!key || !key.trim()) {
-    return res.status(400).json({ message: "Missing or invalid key parameter" });
-  }
+router.get("/promotion/:promotionId", async (req, res) => {
+  const { promotionId } = req.params;
 
   try {
-    const url = await generatePresignedUrl(key.trim());
-    res.status(200).json({ uploadUrl: url });
+    const promo = await Promotion.findById(promotionId).lean();
+
+    if (!promo) {
+      return res.status(404).json({ message: "Promotion not found" });
+    }
+
+    // Get time context
+    const now = new Date();
+    const nowLocal = DateTime.fromJSDate(now).toLocal();
+    const nowMinutes = nowLocal.hour * 60 + nowLocal.minute;
+
+    // Determine kind
+    let kind = "inactivePromo";
+    if (isPromoActive(promo, nowMinutes, now)) {
+      kind = "activePromo";
+    } else if (isPromoLaterToday(promo, nowMinutes, now)) {
+      kind = "upcomingPromo";
+    }
+
+    // Enrich comments
+    const enrichedComments = await enrichComments(promo.comments || []);
+
+    // Enrich photos
+    const enrichedPhotos = await Promise.all(
+      (promo.photos || []).map(async (photo) => {
+        const url = await getPresignedUrl(photo.key);
+        return { ...photo, url };
+      })
+    );
+
+    // Get business name
+    let businessName = null;
+    if (promo.placeId) {
+      const business = await Business.findOne({ placeId: promo.placeId }).lean();
+      businessName = business?.businessName || null;
+    }
+
+    // Final enriched promotion object
+    const enrichedPromo = {
+      ...promo,
+      kind,
+      comments: enrichedComments,
+      photos: enrichedPhotos,
+      businessName,
+    };
+
+    res.json({ promotion: enrichedPromo });
   } catch (error) {
-    console.error("Failed to generate upload URL:", error);
-    res.status(500).json({ message: "Failed to generate upload URL" });
+    console.error("Error fetching promotion:", error);
+    res.status(500).json({ message: "Server error fetching promotion" });
   }
 });
 
@@ -30,34 +71,48 @@ router.get("/media/upload-url/:key", async (req, res) => {
 router.get('/:placeId', async (req, res) => {
   try {
     const { placeId } = req.params;
+    console.log(`🔍 Received request for promotions at placeId: ${placeId}`);
 
-    // Fetch business once and lean for performance
     const business = await Business.findOne({ placeId }).lean();
     if (!business) {
+      console.warn(`⚠️ Business not found for placeId: ${placeId}`);
       return res.status(404).json({ message: 'Business not found' });
     }
+    console.log(`✅ Found business: ${business.businessName} (${business._id})`);
 
-    // Fetch promotions and lean for lightweight objects
     const promotions = await Promotion.find({ placeId }).lean();
+    console.log(`📦 Found ${promotions.length} promotions for placeId ${placeId}`);
 
-    const enhanced = await Promise.all(promotions.map(async (promo) => {
-      const photos = await Promise.all((promo.photos || []).map(async (photo) => ({
-        ...photo,
-        url: await getPresignedUrl(photo.photoKey),
-      })));
+    const enhanced = await Promise.all(promotions.map(async (promo, index) => {
+      console.log(`➡️ Processing promo ${index + 1}/${promotions.length}: ${promo._id}`);
+
+      const photos = await Promise.all((promo.photos || []).map(async (photo, i) => {
+        if (!photo?.photoKey) {
+          console.warn(`⚠️ Promo ${promo._id} has invalid photo at index ${i}`);
+          return { ...photo, url: null };
+        }
+
+        try {
+          const url = await getPresignedUrl(photo.photoKey);
+          return { ...photo, url };
+        } catch (err) {
+          console.error(`❌ Failed to get presigned URL for photoKey: ${photo.photoKey}`, err);
+          return { ...photo, url: null };
+        }
+      }));
 
       return {
         ...promo,
         photos,
-        kind: 'Promo',
-        ownerId: business._id.toString(),
-        businessName: business.businessName,
+        kind: 'promo',
+        ownerId: business._id?.toString?.() || null,
+        businessName: business.businessName || 'Unknown',
       };
     }));
 
     res.json(enhanced);
   } catch (err) {
-    console.error('Error fetching promotions:', err);
+    console.error('🔥 Unexpected error in GET /:placeId promotions route:', err);
     res.status(500).json({ message: 'Internal Server Error' });
   }
 });
@@ -241,14 +296,12 @@ router.post("/:postId/like", async (req, res) => {
   try {
     const promotion = await Promotion.findById(postId);
     if (!promotion) {
-      console.warn("❌ Promotion not found:", postId);
       return res.status(404).json({ message: "Promotion not found" });
     }
 
     const placeId = promotion.placeId;
     const business = await Business.findOne({ placeId });
     if (!business) {
-      console.warn("❌ Business not found for placeId:", placeId);
       return res.status(404).json({ message: "Business not found" });
     }
 
@@ -266,7 +319,6 @@ router.post("/:postId/like", async (req, res) => {
       n.postType === 'promotion';
 
     if (isUnliking) {
-      console.log(`💔 User ${userId} unliking promotion ${postId}`);
       promotion.likes.splice(existingIndex, 1);
       promoModified = true;
 
@@ -274,10 +326,8 @@ router.post("/:postId/like", async (req, res) => {
       if (notifIndex !== -1) {
         business.notifications.splice(notifIndex, 1);
         businessModified = true;
-        console.log(`🗑️ Removed like notification from business for promotion ${postId}`);
       }
     } else {
-      console.log(`❤️ User ${userId} liking promotion ${postId}`);
       promotion.likes.push({ userId, fullName, date: new Date() });
       promoModified = true;
 
@@ -385,7 +435,7 @@ router.post("/:promotionId/comment", async (req, res) => {
 router.post("/:promotionId/comments/:commentId/replies", async (req, res) => {
   const { promotionId, commentId } = req.params;
   const { userId, fullName, commentText, media } = req.body;
-
+  
   const mediaPayload = media?.photoKey && media?.mediaType
     ? {
         photoKey: media.photoKey,

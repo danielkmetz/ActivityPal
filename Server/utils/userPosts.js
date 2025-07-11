@@ -6,13 +6,11 @@ const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 
 async function enrichCommentMedia(media) {
   if (!media || !media.photoKey) {
-    console.log("🧐 No media or photoKey provided for enrichment");
     return null;
   }
 
   const url = await getPresignedUrl(media.photoKey);
-  console.log("🔗 Enriched media:", { photoKey: media.photoKey, mediaType: media.mediaType, mediaUrl: url });
-
+  
   return {
     photoKey: media.photoKey,
     mediaType: media.mediaType,
@@ -25,12 +23,7 @@ async function enrichReplies(replies = []) {
     replies.map(async reply => {
       const enrichedMedia = await enrichCommentMedia(reply.media);
       const nestedReplies = await enrichReplies(reply.replies || []);
-      console.log("↩️ Enriched reply:", {
-        replyId: reply._id,
-        media: enrichedMedia,
-        nestedReplyCount: nestedReplies.length
-      });
-
+      
       return {
         ...reply,
         media: enrichedMedia,
@@ -45,12 +38,7 @@ async function enrichComments(comments = []) {
     comments.map(async comment => {
       const enrichedMedia = await enrichCommentMedia(comment.media);
       const enrichedReplies = await enrichReplies(comment.replies || []);
-      console.log("💬 Enriched comment:", {
-        commentId: comment._id,
-        media: enrichedMedia,
-        replyCount: enrichedReplies.length
-      });
-
+      
       return {
         ...comment,
         media: enrichedMedia,

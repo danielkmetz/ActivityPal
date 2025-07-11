@@ -223,4 +223,10 @@ async function enrichBusinessWithPromosAndEvents(biz, userLat, userLng, now = ne
   return result;
 }
 
-module.exports = { enrichBusinessWithPromosAndEvents };
+module.exports = { 
+  enrichBusinessWithPromosAndEvents,
+  isEventActive,
+  isEventLaterToday,
+  isPromoActive,
+  isPromoLaterToday,
+};

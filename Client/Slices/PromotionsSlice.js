@@ -1,15 +1,28 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
-import { 
+import {
   updateNearbySuggestionCommentOrReply,
   addNearbySuggestionComment,
   addNearbySuggestionReply,
   removeNearbySuggestionCommentOrReply,
   updateNearbySuggestionLikes,
 } from "./GooglePlacesSlice";
-import { createNotification } from "./NotificationsSlice";
 import axios from "axios";
 
 const API_URL = `${process.env.EXPO_PUBLIC_SERVER_URL}/promotions`; // Update this to match your backend URL
+
+export const fetchPromotionById = createAsyncThunk(
+  "promotions/fetchPromotionById",
+  async ({ promotionId }, { rejectWithValue }) => {
+    try {
+      const response = await axios.get(`${BASE_URL}/promotion/${promotionId}`);
+      return response.data.promotion; // assuming backend returns { promotion: {...} }
+    } catch (error) {
+      const errorMessage =
+        error.response?.data?.message || error.message || "Failed to fetch promotion";
+      return rejectWithValue(errorMessage);
+    }
+  }
+);
 
 // 1️⃣ Fetch Promotions by placeId
 export const fetchPromotions = createAsyncThunk(
@@ -98,15 +111,6 @@ export const leavePromoComment = createAsyncThunk(
   "promotions/leavePromoComment",
   async ({ placeId, id, userId, fullName, commentText, media }, { rejectWithValue, dispatch }) => {
     try {
-      console.log("📤 Sending comment request:", {
-        placeId,
-        promoId: id,
-        userId,
-        fullName,
-        commentText,
-        media,
-      });
-
       const response = await axios.post(
         `${API_URL}/${id}/comment`, // Ensure the second `${id}` is actually the promoId
         {
@@ -116,8 +120,6 @@ export const leavePromoComment = createAsyncThunk(
           media,
         }
       );
-
-      console.log("✅ Server response:", response.data);
 
       const newComment = response.data.comment;
 
@@ -130,8 +132,6 @@ export const leavePromoComment = createAsyncThunk(
         newComment,
       }));
 
-      console.log("📥 Dispatched addNearbySuggestionComment:", { postId: id, newComment });
-
       return {
         promoId: id,
         newComment,
@@ -139,7 +139,6 @@ export const leavePromoComment = createAsyncThunk(
     } catch (error) {
       const errorMessage =
         error.response?.data?.message || error.message || "Failed to leave comment";
-      console.error("❌ Error leaving promo comment:", errorMessage);
       return rejectWithValue(errorMessage);
     }
   }
@@ -277,10 +276,15 @@ const promotionsSlice = createSlice({
   name: "promotions",
   initialState: {
     promotions: [],
+    selectedPromotion: null,
     loading: false,
     error: null,
   },
-  reducers: {},
+  reducers: {
+    resetSelectedPromotion: (state) => {
+      state.selectedPromotion = null;
+    },
+  },
   extraReducers: (builder) => {
     builder
       // 📌 Fetch Promotions
@@ -296,7 +300,6 @@ const promotionsSlice = createSlice({
         state.loading = false;
         state.error = action.payload;
       })
-
       // 📌 Create Promotion
       .addCase(createPromotion.fulfilled, (state, action) => {
         state.promotions.push(action.payload);
@@ -304,7 +307,6 @@ const promotionsSlice = createSlice({
       .addCase(createPromotion.rejected, (state, action) => {
         state.error = action.payload;
       })
-
       // 📌 Update Promotion
       .addCase(updatePromotion.fulfilled, (state, action) => {
         const index = state.promotions.findIndex(promo => promo._id === action.payload._id);
@@ -315,7 +317,6 @@ const promotionsSlice = createSlice({
       .addCase(updatePromotion.rejected, (state, action) => {
         state.error = action.payload;
       })
-
       // 📌 Delete Promotion
       .addCase(deletePromotion.fulfilled, (state, action) => {
         state.promotions = state.promotions.filter(promo => promo._id !== action.payload);
@@ -335,6 +336,9 @@ const promotionsSlice = createSlice({
         if (index !== -1) {
           state.promotions[index].likes = updatedLikes;
         }
+        if (state.selectedPromotion?._id === promoId) {
+          state.selectedPromotion.likes = updatedLikes;
+        }
       })
       .addCase(togglePromoLike.rejected, (state, action) => {
         state.loading = false;
@@ -352,6 +356,10 @@ const promotionsSlice = createSlice({
         if (promo) {
           promo.comments = promo.comments || [];
           promo.comments.push(newComment);
+        }
+        if (state.selectedPromotion?._id === promoId) {
+          state.selectedPromotion.comments = state.selectedPromotion.comments || [];
+          state.selectedPromotion.comments.push(newComment);
         }
       })
       .addCase(leavePromoComment.rejected, (state, action) => {
@@ -384,6 +392,9 @@ const promotionsSlice = createSlice({
         if (event && Array.isArray(event.comments)) {
           findAndInsertReply(event.comments);
         }
+        if (state.selectedPromotion?._id === promoId && Array.isArray(state.selectedPromotion.comments)) {
+          findAndInsertReply(state.selectedPromotion.comments);
+        }
       })
       .addCase(leavePromoReply.rejected, (state, action) => {
         state.loading = false;
@@ -395,11 +406,15 @@ const promotionsSlice = createSlice({
       })
       .addCase(likePromoCommentOrReply.fulfilled, (state, action) => {
         state.loading = false;
-        const { promoId, updatedPromotion } = action.payload;
+        const { promoId, updatedLikes } = action.payload;
 
-        const index = state.promotions.findIndex((p) => p._id === promoId);
-        if (index !== -1) {
-          state.promotions[index] = updatedPromotion;
+        if (state.selectedPromotion?._id === promoId) {
+          state.selectedPromotion.likes = updatedLikes;
+        }
+
+        const promo = state.promotions.find((p) => p._id === promoId);
+        if (promo) {
+          promo.likes = updatedLikes;
         }
       })
       .addCase(likePromoCommentOrReply.rejected, (state, action) => {
@@ -407,29 +422,87 @@ const promotionsSlice = createSlice({
         state.error = action.payload;
       })
       .addCase(editPromoCommentOrReply.fulfilled, (state, action) => {
-        const { promotionId, updatedPromotion } = action.payload;
-        state.promotions = state.promotions.map((promo) =>
-          promo._id === promotionId ? updatedPromotion : promo
-        );
+        const { promoId, updatedComment } = action.payload;
+
+        const promo = state.promotions.find(p => p._id === promoId);
+        if (!promo || !promo.comments) return;
+
+        const updateComment = (comments) => {
+          for (let comment of comments) {
+            if (comment._id === updatedComment._id) {
+              const existingReplies = comment.replies;
+              Object.assign(comment, updatedComment);
+              if (existingReplies) {
+                comment.replies = existingReplies;
+              }
+              return true;
+            }
+            if (comment.replies && updateComment(comment.replies)) {
+              return true;
+            }
+          }
+          return false;
+        };
+
+        updateComment(promo.comments);
+
+        if (state.selectedPromotion?._id === promoId && state.selectedPromotion.comments) {
+          updateComment(state.selectedPromotion.comments);
+        }
       })
       .addCase(editPromoCommentOrReply.rejected, (state, action) => {
         state.error = action.payload;
       })
       .addCase(deletePromoCommentOrReply.fulfilled, (state, action) => {
-        const { promotionId, updatedPromotion } = action.payload;
-        state.promotions = state.promotions.map((promo) =>
-          promo._id === promotionId ? updatedPromotion : promo
-        );
+        const { promoId, commentId } = action.payload;
+
+        const promo = state.promotions.find(p => p._id === promoId);
+        if (!promo || !promo.comments) return;
+
+        const deleteComment = (comments) => {
+          const index = comments.findIndex(c => c._id === commentId);
+          if (index !== -1) {
+            comments.splice(index, 1);
+            return true;
+          }
+          for (let comment of comments) {
+            if (comment.replies && deleteComment(comment.replies)) {
+              return true;
+            }
+          }
+          return false;
+        };
+
+        deleteComment(promo.comments);
+
+        if (state.selectedPromotion?._id === promoId && state.selectedPromotion.comments) {
+          deleteComment(state.selectedPromotion.comments);
+        }
       })
       .addCase(deletePromoCommentOrReply.rejected, (state, action) => {
+        state.error = action.payload;
+      })
+      .addCase(fetchPromotionById.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchPromotionById.fulfilled, (state, action) => {
+        state.loading = false;
+        state.selectedPromotion = action.payload;
+      })
+      .addCase(fetchPromotionById.rejected, (state, action) => {
+        state.loading = false;
         state.error = action.payload;
       })
   },
 });
 
+export const { resetSelectedPromotion } = promotionsSlice.actions;
+
 // 📌 Selectors
 export const selectPromotions = (state) => state.promotions.promotions;
 export const selectLoading = (state) => state.promotions.loading;
 export const selectError = (state) => state.promotions.error;
+export const selectSelectedPromotion = (state) => state.promotions.selectedPromotion;
 
 export default promotionsSlice.reducer;

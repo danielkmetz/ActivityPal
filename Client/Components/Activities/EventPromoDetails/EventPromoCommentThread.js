@@ -54,7 +54,7 @@ export default function EventPromoCommentThread({ item, post, commentText, setCo
         }
     };
 
-    const handleAddReply = async (commentId) => {
+    const handleAddReply = async (commentId, commentText) => {
         let media = null;
 
         if (selectedMedia.length > 0) {
@@ -87,7 +87,7 @@ export default function EventPromoCommentThread({ item, post, commentText, setCo
             commentId,
             userId,
             fullName,
-            commentText: commentText,
+            commentText,
             ...(media && { media }),
         }));
 
@@ -166,7 +166,7 @@ export default function EventPromoCommentThread({ item, post, commentText, setCo
         dispatch(editThunk({
             id: post._id,
             commentId: selected._id,
-            commentText: editedText,
+            commentText: editedText.trim(),
             ...(newMedia !== undefined && { media: newMedia }),
         }));
 
@@ -303,7 +303,7 @@ export default function EventPromoCommentThread({ item, post, commentText, setCo
                                     </TouchableOpacity>
                                 )}
                             </View>
-                            <TouchableOpacity style={styles.commentButton} onPress={() => handleAddReply(item?._id)}>
+                            <TouchableOpacity style={styles.commentButton} onPress={() => handleAddReply(item?._id, commentText, selectedMedia)}>
                                 <Text style={styles.commentButtonText}>Reply</Text>
                             </TouchableOpacity>
                         </View>
@@ -337,6 +337,9 @@ export default function EventPromoCommentThread({ item, post, commentText, setCo
                                     review={post}
                                     likePromoEventComment={handleLike}
                                     isPromoOrEvent={true}
+                                    selectedMedia={selectedMedia}
+                                    setSelectedMedia={setSelectedMedia}
+                                    setSelectededitMedia={setSelectedEditMedia}
                                 />
                             ))}
                         </View>

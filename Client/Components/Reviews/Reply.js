@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, StyleSheet, TouchableWithoutFeedback, Image } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, StyleSheet, TouchableWithoutFeedback, Image, ScrollView } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser } from '../../Slices/UserSlice';
@@ -37,11 +37,13 @@ const Reply = ({
   review,
   likePromoEventComment,
   isPromoOrEvent = false,
+  selectedMedia,
+  setSelectedMedia,
+  setSelectedEditMedia,
 }) => {
   const dispatch = useDispatch();
   const [showReplyInput, setShowReplyInput] = useState(false);
   const [nestedReplyText, setNestedReplyText] = useState('');
-  const [selectedReplyMedia, setSelectedReplyMedia] = useState([]);
   const user = useSelector(selectUser);
   const likes = reply?.likes || [];
   const userId = user?.id;
@@ -57,24 +59,25 @@ const Reply = ({
   const handleSelectReplyMedia = async () => {
     const files = await selectMediaFromGallery();
     if (files.length > 0) {
-      setSelectedReplyMedia([files[0]]); // ensure only one is stored
+      setSelectedMedia([files[0]]); // ensure only one is stored
+      setSelectedEditMedia(files[0]);
     }
   };
 
   const handleAddNestedReply = async () => {
     let media = null;
 
-    if (selectedReplyMedia.length > 0) {
+    if (selectedMedia.length > 0) {
       try {
         const uploadResult = await dispatch(
           uploadReviewPhotos({
             placeId: review.placeId,
-            files: selectedReplyMedia,
+            files: selectedMedia,
           })
         ).unwrap();
 
         if (uploadResult?.length > 0) {
-          const file = selectedReplyMedia[0]; // Only support one media file for now
+          const file = selectedMedia[0]; // Only support one media file for now
           media = {
             photoKey: uploadResult[0],
             mediaType: file.type?.startsWith("video") ? "video" : "image",
@@ -90,7 +93,7 @@ const Reply = ({
     setNestedReplyText('');
     setShowReplyInput(false);
     setNestedReplyInput(false);
-    setSelectedReplyMedia([]);
+    setSelectedMedia([]);
     handleExpandReplies(reply._id);
   };
 
@@ -122,13 +125,53 @@ const Reply = ({
           {/* Show TextInput if editing, otherwise show text */}
           {isEditing && selectedReply?._id === reply._id ? (
             <>
-              <TextInput
-                style={styles.editInput}
-                value={editedText}
-                onChangeText={setEditedText}
-                autoFocus={true}
-                multiline
-              />
+              <View style={styles.inputWrapper}>
+                <View style={styles.fakeInput}>
+                  {selectedMedia?.length > 0 && (
+                    <View style={styles.inlineMediaWrapper}>
+                      {selectedMedia.map((file, idx) =>
+                        isVideo(file) ? (
+                          <VideoThumbnail
+                            key={idx}
+                            file={file}
+                            width={100}
+                            height={100}
+                            shouldPlay={false}
+                          />
+                        ) : (
+                          <Image
+                            key={idx}
+                            source={{ uri: file.uri || file.mediaUrl }}
+                            style={styles.inlineMedia}
+                          />
+                        )
+                      )}
+                    </View>
+                  )}
+                  <TextInput
+                    style={styles.inlineInput}
+                    value={editedText}
+                    onChangeText={setEditedText}
+                    onKeyPress={({ nativeEvent }) => {
+                      if (
+                        nativeEvent.key === 'Backspace' &&
+                        editedText.trim().length === 0 &&
+                        selectedMedia.length > 0
+                      ) {
+                        setSelectedMedia([]);
+                        setSelectedEditMedia(null);
+                      }
+                    }}
+                    autoFocus
+                    multiline
+                    placeholder="Edit your reply..."
+                  />
+                </View>
+                <TouchableOpacity onPress={handleSelectReplyMedia} style={styles.mediaIcon}>
+                  <MaterialCommunityIcons name="image-outline" size={22} color="#009999" />
+                </TouchableOpacity>
+              </View>
+
               {/* Save and Cancel Buttons */}
               <View style={styles.editButtonContainer}>
                 <TouchableOpacity style={styles.saveButton} onPress={handleSaveEdit}>
@@ -197,9 +240,9 @@ const Reply = ({
           <View style={styles.nestedReplyInputContainer}>
             <View style={styles.fakeInputBox}>
               {/* Media Preview */}
-              {selectedReplyMedia.length > 0 && (
+              {selectedMedia.length > 0 && (
                 <View style={styles.mediaPreview}>
-                  {selectedReplyMedia.map((file, index) =>
+                  {selectedMedia.map((file, index) =>
                     isVideo(file) ? (
                       <VideoThumbnail key={index} file={file} width={100} height={100} />
                     ) : (
@@ -212,24 +255,31 @@ const Reply = ({
                   )}
                 </View>
               )}
-
               {/* Text Input */}
               <TextInput
                 style={styles.nestedReplyInput}
                 placeholder="Write a reply..."
                 value={nestedReplyText}
                 onChangeText={setNestedReplyText}
+                onKeyPress={({ nativeEvent }) => {
+                  if (
+                    nativeEvent.key === 'Backspace' &&
+                    editedText.trim().length === 0 &&
+                    selectedMedia.length > 0
+                  ) {
+                    setSelectedMedia([]);
+                    setSelectedEditMedia(null);
+                  }
+                }}
                 multiline
               />
-
               {/* Camera Icon Overlay */}
-              {nestedReplyText.trim() === '' && selectedReplyMedia.length === 0 && (
+              {nestedReplyText.trim() === '' && selectedMedia.length === 0 && (
                 <TouchableOpacity onPress={handleSelectReplyMedia} style={styles.cameraIcon}>
                   <MaterialCommunityIcons name="camera-outline" size={24} color="#555" />
                 </TouchableOpacity>
               )}
             </View>
-
             {/* Submit Reply */}
             <TouchableOpacity style={styles.commentButton} onPress={handleAddNestedReply}>
               <Text style={styles.commentButtonText}>Reply</Text>
@@ -267,6 +317,9 @@ const Reply = ({
               review={review}
               likePromoEventComment={likePromoEventComment}
               isPromoOrEvent={isPromoOrEvent}
+              selectedMedia={selectedMedia}
+              setSelectedMedia={setSelectedMedia}
+              setSelectedEditMedia={setSelectedEditMedia}
             />
           ))}
       </View>
@@ -414,9 +467,7 @@ const styles = StyleSheet.create({
     top: 8
   },
   inputWrapper: {
-    flex: 1,
-    position: 'relative',
-    justifyContent: 'center',
+    marginTop: 8,
   },
   fakeInputBox: {
     flex: 1,
@@ -426,6 +477,16 @@ const styles = StyleSheet.create({
     padding: 8,
     position: 'relative',
     backgroundColor: '#fff',
+  },
+  fakeInput: {
+    flexDirection: 'column',
+    flexWrap: 'wrap',
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 6,
+    padding: 6,
+    backgroundColor: '#fff',
+    minHeight: 50,
   },
   mediaPreview: {
     flexDirection: 'row',
@@ -445,5 +506,38 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 6,
     marginTop: 5
+  },
+  mediaPreview: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 6,
+  },
+  mediaPreviewInline: {
+    marginBottom: 6,
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+  },
+  previewImageInline: {
+    width: 200,
+    height: 200,
+    borderRadius: 10,
+    marginBottom: 8,
+  },
+  inlineMedia: {
+    width: 200,
+    height: 200,
+    borderRadius: 6,
+  },
+  inlineInput: {
+    width: '100%',
+    fontSize: 14,
+    padding: 0,
+    margin: 0,
+    textAlignVertical: 'top',
+    marginTop: 5,
+  },
+  mediaIcon: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
   },
 });

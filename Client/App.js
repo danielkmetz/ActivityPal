@@ -160,7 +160,7 @@ function MainApp() {
     if (lat && lng && !isBusiness && userId) {
       dispatch(fetchNearbyPromosAndEvents({ lat, lng, userId }));
     }
-  }, [lat, lng]);
+  }, [lat, lng, userId]);
 
   //header and tab bar management during navigation
   useEffect(() => {

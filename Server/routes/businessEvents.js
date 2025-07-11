@@ -6,54 +6,63 @@ const Event = require('../models/Events.js');
 const mongoose = require('mongoose');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 const deleteS3Objects = require('../utils/deleteS3Objects.js');
-const { generatePresignedUrl } = require('../helpers/generatePresignedUrl.js');
+const { enrichComments } = require('../utils/userPosts.js');
+const { isEventLaterToday, isEventActive } = require('../utils/enrichBusinesses.js');
+const { DateTime } = require("luxon");
 
-// 🔁 Recursively find and update the comment/reply
-function updateNestedComment(comments, commentId, newText) {
-  for (let comment of comments) {
-    if (comment._id.toString() === commentId) {
-      comment.commentText = newText;
-      comment.updatedAt = new Date();
-      return comment; // return updated comment object
-    }
-
-    if (comment.replies) {
-      const updated = updateNestedComment(comment.replies, commentId, newText);
-      if (updated) return updated;
-    }
-  }
-  return null;
-};
-
-// 🧹 Recursive function to remove a comment/reply
-function deleteNestedComment(comments, targetId) {
-  for (let i = 0; i < comments.length; i++) {
-    if (comments[i]._id.toString() === targetId) {
-      comments.splice(i, 1);
-      return true;
-    }
-    if (comments[i].replies?.length) {
-      const deleted = deleteNestedComment(comments[i].replies, targetId);
-      if (deleted) return true;
-    }
-  }
-  return false;
-};
-
-// 🎯 Generate a pre-signed upload URL for a media object
-router.get("/media/upload-url/:key", async (req, res) => {
-  const { key } = req.params;
-
-  if (!key || !key.trim()) {
-    return res.status(400).json({ message: "Missing or invalid key parameter" });
-  }
+router.get("/event/:eventId", async (req, res) => {
+  const { eventId } = req.params;
 
   try {
-    const url = await generatePresignedUrl(key.trim());
-    res.status(200).json({ uploadUrl: url });
+    const event = await Event.findById(eventId).lean();
+    if (!event) {
+      return res.status(404).json({ message: "Event not found" });
+    }
+
+    // Get time context
+    const now = new Date();
+    const nowLocal = DateTime.fromJSDate(now).toLocal();
+    const nowMinutes = nowLocal.hour * 60 + nowLocal.minute;
+
+    // Determine kind
+    let kind = "inactiveEvent";
+    if (isEventActive(event, nowMinutes, now)) {
+      kind = "activeEvent";
+    } else if (isEventLaterToday(event, nowMinutes, now)) {
+      kind = "upcomingEvent";
+    }
+
+    // Enrich comments
+    const enrichedComments = await enrichComments(event.comments || []);
+
+    // Enrich photos
+    const enrichedPhotos = await Promise.all(
+      (event.photos || []).map(async (photo) => {
+        const url = await getPresignedUrl(photo.photoKey);
+        return { ...photo, url };
+      })
+    );
+
+    // Get business name
+    let businessName = null;
+    if (event.placeId) {
+      const business = await Business.findOne({ placeId: event.placeId }).lean();
+      businessName = business?.businessName || null;
+    }
+
+    // Build final enriched object
+    const enrichedEvent = {
+      ...event,
+      kind,
+      comments: enrichedComments,
+      photos: enrichedPhotos,
+      businessName,
+    };
+
+    res.json({ event: enrichedEvent });
   } catch (error) {
-    console.error("Failed to generate upload URL:", error);
-    res.status(500).json({ message: "Failed to generate upload URL" });
+    console.error("Error fetching event:", error);
+    res.status(500).json({ message: "Server error fetching event" });
   }
 });
 
@@ -663,9 +672,10 @@ router.post("/events/:eventId/comments/:commentId/like", async (req, res) => {
 });
 
 // ✏️ PUT: Edit a comment or reply in an event
-router.put("/events/:placeId/:eventId/edit-comment/:commentId", async (req, res) => {
-  const { placeId, eventId, commentId } = req.params;
+router.put("/events/:eventId/edit-comment/:commentId", async (req, res) => {
+  const { eventId, commentId } = req.params;
   const { commentText, media } = req.body;
+  console.log(commentText);
 
   const mediaPayload = media?.photoKey && media?.mediaType
     ? {
@@ -704,10 +714,7 @@ router.put("/events/:placeId/:eventId/edit-comment/:commentId", async (req, res)
   };
 
   try {
-    const business = await Business.findOne({ placeId });
-    if (!business) return res.status(404).json({ message: "Business not found" });
-
-    const event = await Event.findOne({ _id: eventId, placeId: business.placeId });
+    const event = await Event.findById(eventId);
     if (!event) return res.status(404).json({ message: "Event not found" });
 
     const updatedComment = updateNestedComment(event.comments || []);

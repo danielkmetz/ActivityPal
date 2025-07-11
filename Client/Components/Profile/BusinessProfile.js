@@ -378,6 +378,9 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 5,
     marginLeft: 10,
+    marginRight: 15,
+    height: 40,
+    alignSelf: 'flex-end'
   },
   editProfileButtonText: {
     color: "white",

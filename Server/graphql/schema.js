@@ -47,8 +47,6 @@ const resolvers = {
   Query: {
     getUserAndFollowingReviews: async (_, { userId }) => {
       try {
-        console.log(`📥 Starting getUserAndFollowingReviews for userId: ${userId}`);
-
         if (!mongoose.Types.ObjectId.isValid(userId)) {
           throw new Error("Invalid userId format");
         }
@@ -66,18 +64,14 @@ const resolvers = {
 
         const following = user.following || [];
         const allUserIds = [userObjectId, ...following];
-        console.log(`👥 Total users (self + following): ${allUserIds.length}`);
-
+        
         // 👤 Get user names and profile photos
         const users = await User.find({ _id: { $in: allUserIds } })
           .select('_id firstName lastName profilePic')
           .lean();
 
-        console.log(`👤 Loaded metadata for ${users.length} users`);
-
         const picMap = await resolveUserProfilePics(allUserIds);
-        console.log(`📸 Resolved profile pictures for ${Object.keys(picMap).length} users`);
-
+        
         // 🧠 Enrich each user's reviews using the helper
         const allReviewsNested = await Promise.all(
           users.map(async (user) => {
@@ -89,21 +83,15 @@ const resolvers = {
         );
 
         const allReviews = allReviewsNested.flat();
-        console.log(`📄 Total enriched reviews: ${allReviews.length}`);
-
+        
         // 🕒 Sort by latest date
         const sorted = allReviews
           .filter(Boolean)
           .sort((a, b) => new Date(b.date) - new Date(a.date));
 
-        console.log("✅ Successfully sorted and returning reviews");
         return sorted;
 
       } catch (error) {
-        console.error("❌ Error in getUserAndFollowingReviews:", {
-          message: error.message,
-          stack: error.stack,
-        });
         throw new Error("Failed to fetch user and following reviews");
       }
     },
@@ -308,7 +296,6 @@ const resolvers = {
         const allCheckIns = enrichedCheckInsNested.flat().filter(Boolean);
         return allCheckIns.sort((a, b) => new Date(b.date) - new Date(a.date));
       } catch (error) {
-        console.error("❌ Error in getUserAndFollowingCheckIns:", error);
         throw new Error("Failed to fetch user and following check-ins");
       }
     },
@@ -646,23 +633,14 @@ const resolvers = {
     },
     getBusinessRatingSummaries: async (_, { placeIds }) => {
       try {
-        console.log("📥 Incoming placeIds:", placeIds);
-
         if (!Array.isArray(placeIds) || placeIds.length === 0) {
           throw new Error("placeIds must be a non-empty array");
         }
 
-        const businesses = await Business.find({ placeId: { $in: placeIds } }).lean();
-        console.log("🏢 Found businesses:", businesses.map(b => b.placeId));
+        const summaries = await Promise.all(placeIds.map(async (placeId) => {
+          const reviews = await Review.find({ placeId });
 
-        const summaries = placeIds.map((placeId) => {
-          const business = businesses.find(b => b.placeId === placeId);
-          if (!business) {
-            console.warn(`⚠️ No business found for placeId: ${placeId}`);
-          }
-
-          if (!business || !business.reviews?.length) {
-            console.warn(`⚠️ No reviews found for business: ${placeId}`);
+          if (!reviews.length) {
             return {
               placeId,
               averageRating: 0,
@@ -672,9 +650,6 @@ const resolvers = {
               recommendPercentage: 0,
             };
           }
-
-          const { reviews } = business;
-          console.log(`📝 Calculating summary for ${placeId}, review count: ${reviews.length}`);
 
           const ratingFields = {
             rating: [],
@@ -691,7 +666,6 @@ const resolvers = {
             if (typeof r.atmosphereRating === 'number') ratingFields.atmosphereRating.push(r.atmosphereRating);
             if (r.wouldRecommend === true) ratingFields.wouldRecommendCount += 1;
 
-            console.log(`   ↳ Review #${i + 1} — rating: ${r.rating}, price: ${r.priceRating}, service: ${r.serviceRating}, atmosphere: ${r.atmosphereRating}, recommend: ${r.wouldRecommend}`);
           });
 
           const avg = (arr) => arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
@@ -705,15 +679,11 @@ const resolvers = {
             recommendPercentage: Math.round((ratingFields.wouldRecommendCount / reviews.length) * 100),
           };
 
-          console.log(`✅ Summary for ${placeId}:`, summary);
-
           return summary;
-        });
+        }));
 
-        console.log("✅ Final summaries array:", summaries);
         return summaries;
       } catch (err) {
-        console.error("❌ Error in getBusinessRatingSummaries:", err);
         throw new Error("Failed to compute business rating summaries");
       }
     },

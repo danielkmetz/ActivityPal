@@ -6,6 +6,7 @@ import {
     TouchableOpacity,
     StyleSheet,
     Image,
+    Alert,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { selectIsBusiness, selectUser } from '../../Slices/UserSlice';
@@ -21,6 +22,8 @@ import { decrementLastSeenUnreadCount } from '../../utils/notificationsHasSeen';
 import { useNavigation } from '@react-navigation/native';
 import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from '../../utils/LikeHandlers';
 import SwipeableRow from './SwipeableRow';
+import { fetchEventById } from '../../Slices/EventsSlice';
+import { fetchPromotionById } from '../../Slices/PromotionsSlice';
 
 export default function Notifications() {
     const dispatch = useDispatch();
@@ -43,48 +46,74 @@ export default function Notifications() {
     const fullName = `${user?.firstName} ${user?.lastName}`;
 
     const handleNotificationPress = async (notification) => {
+        if (!notification) return;
+
+        const { type, postType, targetId, commentId, replyId, _id: notificationId } = notification;
+        const target = replyId || commentId;
+
+        // Mark as read
         if (!isBusiness) {
-            dispatch(markNotificationRead({ userId: user.id, notificationId: notification._id }));
+            dispatch(markNotificationRead({ userId: user.id, notificationId }));
         } else {
-            dispatch(markBusinessNotificationRead({ placeId, notificationId: notification._id }));
+            dispatch(markBusinessNotificationRead({ placeId, notificationId }));
         }
+
         await decrementLastSeenUnreadCount();
 
-        if (
-            notification.type === "comment" ||
-            notification.type === "review" ||
-            notification.type === "check-in" ||
-            notification.type === "reply" ||
-            notification.type === "like" ||
-            notification.type === "tag" ||
-            notification.type === "photoTag" ||
-            notification.type === "activityInvite"
-        ) {
-            if (notification) {
-                const postType = notification.postType;
+        const legacyTypes = [
+            "comment",
+            "review",
+            "check-in",
+            "reply",
+            "like",
+            "tag",
+            "photoTag",
+            "activityInvite",
+        ];
 
-                const result = await dispatch(fetchPostById({ postType, postId: notification.targetId }));
+        if (!legacyTypes.includes(type)) {
+            console.warn("Unhandled notification type:", type);
+            return;
+        }
 
-                const target = notification.replyId || notification.commentId;
-
-                if (result) {
-                    navigation.navigate('CommentScreen', {
-                        reviewId: notification.targetId,
-                        setSelectedReview, // optional if needed by the screen
-                        likedAnimations,
-                        handleLikeWithAnimation,
-                        toggleTaggedUsers,
-                        lastTapRef,
-                        photoTapped,
-                        targetId: target,
-                    });
-                }
+        let result;
+        try {
+            if (postType === "event") {
+                result = await dispatch(fetchEventById({ eventId: targetId }));
+            } else if (postType === "promo") {
+                result = await dispatch(fetchPromotionById({ promotionId: targetId }));
             } else {
-                console.warn("Comment ID is missing in notification");
+                result = await dispatch(fetchPostById({ postType, postId: targetId }));
             }
+
+            if (!result?.payload) {
+                Alert.alert(
+                    "Content Not Available",
+                    "This post, comment, or reply no longer exists.",
+                    [{ text: "OK" }]
+                );
+                return;
+            }
+
+            if (postType === "event" || postType === "promo") {
+                navigation.navigate("EventDetails", { activity: result.payload });
+            } else {
+                navigation.navigate("CommentScreen", {
+                    reviewId: targetId,
+                    setSelectedReview,
+                    likedAnimations,
+                    handleLikeWithAnimation,
+                    toggleTaggedUsers,
+                    lastTapRef,
+                    photoTapped,
+                    targetId: target,
+                });
+            }
+        } catch (error) {
+            console.error("Error fetching notification target:", error);
+            Alert.alert("Error", "Unable to load the content.");
         }
     };
-
     const handleAcceptRequest = async (senderId) => {
         try {
             // Optimistic UI update first

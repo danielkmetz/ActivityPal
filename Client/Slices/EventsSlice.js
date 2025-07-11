@@ -1,14 +1,28 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
-import { 
-  updateNearbySuggestionCommentOrReply, 
-  addNearbySuggestionComment, 
+import {
+  updateNearbySuggestionCommentOrReply,
+  addNearbySuggestionComment,
   addNearbySuggestionReply,
-  removeNearbySuggestionCommentOrReply, 
+  removeNearbySuggestionCommentOrReply,
   updateNearbySuggestionLikes,
 } from "./GooglePlacesSlice";
 import axios from "axios";
 
 const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
+
+export const fetchEventById = createAsyncThunk(
+  "events/fetchEventById",
+  async ({ eventId }, { rejectWithValue }) => {
+    try {
+      const response = await axios.get(`${BASE_URL}/business/event/${eventId}`);
+      return response.data.event; // assuming the backend returns { event: {...} }
+    } catch (error) {
+      const errorMessage =
+        error.response?.data?.message || error.message || "Failed to fetch event";
+      return rejectWithValue(errorMessage);
+    }
+  }
+);
 
 // Thunk for fetching events
 export const fetchEvents = createAsyncThunk(
@@ -119,7 +133,7 @@ export const toggleEventLike = createAsyncThunk(
         { userId, fullName }
       );
 
-      const { likes } = response.data; 
+      const { likes } = response.data;
 
       dispatch(updateNearbySuggestionLikes({
         postId: id,
@@ -296,6 +310,7 @@ const eventsSlice = createSlice({
   name: 'events',
   initialState: {
     events: [],
+    selectedEvent: null,
     error: null,
     loading: false,
   },
@@ -303,6 +318,9 @@ const eventsSlice = createSlice({
     resetEvents: (state) => {
       state.events = [];
     },
+    resetSelectedEvent: (state) => {
+      state.selectedEvent = null;
+    }
   },
   extraReducers: (builder) => {
     builder
@@ -373,6 +391,9 @@ const eventsSlice = createSlice({
         if (event) {
           event.likes = likes;
         }
+        if (state.selectedEvent?._id === eventId) {
+          state.selectedEvent.likes = likes;
+        }
       })
       .addCase(toggleEventLike.rejected, (state, action) => {
         state.loading = false;
@@ -390,6 +411,10 @@ const eventsSlice = createSlice({
         if (event) {
           event.comments = event.comments || [];
           event.comments.push(newComment);
+        }
+        if (state.selectedEvent?._id === eventId) {
+          state.selectedEvent.comments = state.selectedEvent.comments || [];
+          state.selectedEvent.comments.push(newComment);
         }
       })
       .addCase(leaveEventComment.rejected, (state, action) => {
@@ -422,6 +447,9 @@ const eventsSlice = createSlice({
         if (event && Array.isArray(event.comments)) {
           findAndInsertReply(event.comments);
         }
+        if (state.selectedEvent?._id === eventId && Array.isArray(state.selectedEvent.comments)) {
+          findAndInsertReply(state.selectedEvent.comments);
+        }
       })
       .addCase(leaveEventReply.rejected, (state, action) => {
         state.loading = false;
@@ -433,24 +461,28 @@ const eventsSlice = createSlice({
       })
       .addCase(toggleEventCommentLike.fulfilled, (state, action) => {
         state.loading = false;
-        const { eventId, commentId, updatedComment } = action.payload;
+        const { eventId, commentId, updatedLikes } = action.payload;
 
-        const findAndUpdateComment = (comments) => {
-          for (let i = 0; i < comments.length; i++) {
-            if (comments[i]._id === commentId) {
-              comments[i] = updatedComment;
+        const updateLikes = (comments) => {
+          for (let comment of comments) {
+            if (comment._id === commentId) {
+              comment.likes = updatedLikes;
               return true;
             }
-            if (comments[i].replies && findAndUpdateComment(comments[i].replies)) {
+            if (Array.isArray(comment.replies) && updateLikes(comment.replies)) {
               return true;
             }
           }
           return false;
         };
 
-        const event = state.events.find((e) => e._id === eventId);
+        if (state.selectedEvent?._id === eventId && Array.isArray(state.selectedEvent.comments)) {
+          updateLikes(state.selectedEvent.comments);
+        }
+
+        const event = state.events.find(e => e._id === eventId);
         if (event && Array.isArray(event.comments)) {
-          findAndUpdateComment(event.comments);
+          updateLikes(event.comments);
         }
       })
       .addCase(toggleEventCommentLike.rejected, (state, action) => {
@@ -458,32 +490,88 @@ const eventsSlice = createSlice({
         state.error = action.payload;
       })
       .addCase(editEventCommentOrReply.fulfilled, (state, action) => {
-        const { eventId, updatedEvent } = action.payload;
-        state.events = state.events.map((event) =>
-          event._id === eventId ? updatedEvent : event
-        );
+        const { updatedComment } = action.payload;
+        if (!updatedComment || !updatedComment._id) return;
+
+        const updateCommentInList = (comments) => {
+          for (let comment of comments) {
+            if (comment._id === updatedComment._id) {
+              const existingReplies = comment.replies;
+              Object.assign(comment, updatedComment);
+              if (existingReplies) {
+                comment.replies = existingReplies;
+              }
+              return true;
+            }
+            if (comment.replies && updateCommentInList(comment.replies)) return true;
+          }
+          return false;
+        };
+
+        for (let event of state.events) {
+          if (Array.isArray(event.comments)) {
+            if (updateCommentInList(event.comments)) break;
+          }
+        }
+
+        if (
+          state.selectedEvent &&
+          Array.isArray(state.selectedEvent.comments)
+        ) {
+          updateCommentInList(state.selectedEvent.comments);
+        }
       })
       .addCase(editEventCommentOrReply.rejected, (state, action) => {
         state.error = action.payload;
       })
       .addCase(deleteEventCommentOrReply.fulfilled, (state, action) => {
-        const { eventId, updatedEvent } = action.payload;
-        state.events = state.events.map((event) =>
-          event._id === eventId ? updatedEvent : event
-        );
+        const { postId, commentId } = action.payload;
+
+        const event = state.events.find(e => e._id === postId);
+        if (!event || !event.comments) return;
+
+        const removeComment = (comments) => {
+          const index = comments.findIndex(c => c._id === commentId);
+          if (index !== -1) {
+            comments.splice(index, 1);
+            return true;
+          }
+          for (let c of comments) {
+            if (c.replies && removeComment(c.replies)) return true;
+          }
+          return false;
+        };
+
+        removeComment(event.comments);
+
+        if (state.selectedEvent?._id === postId && Array.isArray(state.selectedEvent.comments)) {
+          removeComment(state.selectedEvent.comments);
+        }
       })
       .addCase(deleteEventCommentOrReply.rejected, (state, action) => {
         state.error = action.payload;
       })
-
+      .addCase(fetchEventById.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchEventById.fulfilled, (state, action) => {
+        state.loading = false;
+        state.selectedEvent = action.payload;
+      })
+      .addCase(fetchEventById.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
   },
 });
 
 export default eventsSlice.reducer;
 
-export const { resetEvents } = eventsSlice.actions;
+export const { resetEvents, resetSelectedEvent } = eventsSlice.actions;
 
 export const selectEvents = (state) => state.events.events || [];
 export const selectLoading = (state) => state.events.loading;
 export const selectError = (state) => state.events.error;
+export const selectSelectedEvent = (state) => state.events.selectedEvent;
 

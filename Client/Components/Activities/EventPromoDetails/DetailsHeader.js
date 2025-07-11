@@ -10,14 +10,15 @@ import { selectLogo, fetchLogo } from '../../../Slices/PhotosSlice';
 import { Avatar } from '@rneui/base';
 import { getTimeLabel } from '../../../utils/formatEventPromoTime';
 import PostActions from '../../Reviews/PostActions';
+import { resetSelectedEvent } from '../../../Slices/EventsSlice';
+import { resetSelectedPromotion } from '../../../Slices/PromotionsSlice';
 
 const DetailsHeader = ({ activity, getTimeSincePosted, handleLikeWithAnimation, lastTapRef }) => {
     const navigation = useNavigation();
     const dispatch = useDispatch();
     const logo = useSelector(selectLogo);
-    const selectedType = ["activeEvent", "upcomingEvent"].includes(activity.kind) ? "event" : "promo";
+    const selectedType = activity?.kind?.toLowerCase().includes('event') ? 'event' : 'promo'
     const { placeId, businessName } = activity || {};
-    const isPromo = selectedType === 'promo'; // If you're using a toggle
     const scrollX = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
@@ -28,6 +29,11 @@ const DetailsHeader = ({ activity, getTimeSincePosted, handleLikeWithAnimation, 
 
     const goBack = () => {
         navigation.goBack();
+        if (selectedType === 'event') {
+            dispatch(resetSelectedEvent());
+        } else {
+            dispatch(resetSelectedPromotion());
+        }
     };
 
     const onOpenFullScreen = (photo, index) => {

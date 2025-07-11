@@ -35,9 +35,6 @@ export default function CommentScreen() {
         lastTapRef,
         targetId,
         photoTapped,
-        isBusinessReview = false,
-        isOtherUserReview = false,
-        isSuggestedFollowPost = false,
     } = route.params;
     const dispatch = useDispatch();
     const review = useSelector(selectReviewById(reviewId));
