@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const LikeSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  fullName: { type: String, required: true }, // optional if you can populate
+  fullName: { type: String, default: null }, // optional if you can populate
   date: { type: Date, default: Date.now },
 });
 

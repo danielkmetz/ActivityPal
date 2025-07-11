@@ -360,6 +360,9 @@ export default function CommentThread({ item, review, commentRefs, commentText, 
                   placeId={review?.placeId}
                   postId={review?._id}
                   review={review}
+                  selectedMedia={selectedMedia}
+                  setSelectedEditMedia={setSelectedEditMedia}
+                  setSelectedMedia={setSelectedMedia}
                 />
               ))}
             </View>

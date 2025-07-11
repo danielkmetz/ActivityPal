@@ -16,8 +16,6 @@ const CommentInputFooter = ({
   commentText,
   setCommentText,
   handleAddComment,
-  inputHeight,
-  setContentHeight,
   setSelectedMedia,
   selectedMedia, // ✅ Pass down selected media to show previews
 }) => {
@@ -48,15 +46,15 @@ const CommentInputFooter = ({
         )}
 
         <TextInput
-          style={[styles.commentInput]}
+          style={styles.commentInput}
           placeholder="Write a comment..."
           value={commentText}
           onChangeText={setCommentText}
           multiline={true}
           textAlignVertical="top"
-          onContentSizeChange={(event) => {
-            setContentHeight(event.nativeEvent.contentSize.height);
-          }}
+          // onContentSizeChange={(event) => {
+          //   setContentHeight(event.nativeEvent.contentSize.height);
+          // }}
         />
       </View>
 

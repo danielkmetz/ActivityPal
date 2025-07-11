@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, StyleSheet, FlatList, Keyboard, KeyboardAvoidingView, Platform, TouchableWithoutFeedback } from 'react-native';
+import { View, StyleSheet, Keyboard, KeyboardAvoidingView, Platform, TouchableWithoutFeedback } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import { KeyboardAwareFlatList } from 'react-native-keyboard-aware-scroll-view';
 import DetailsHeader from './DetailsHeader';
@@ -12,19 +12,23 @@ import { useDispatch, useSelector } from 'react-redux';
 import dayjs from 'dayjs';
 import { selectUser } from '../../../Slices/UserSlice';
 import { selectNearbySuggestionById } from '../../../Slices/GooglePlacesSlice';
-import { selectIsEditing, selectNestedExpandedReplies, selectReplyingTo, setReplyingTo } from '../../../Slices/CommentThreadSlice';
+import { selectIsEditing, selectNestedReplyInput, selectReplyingTo, setReplyingTo } from '../../../Slices/CommentThreadSlice';
 import { useLikeAnimations } from '../../../utils/LikeHandlers/LikeAnimationContext';
 import { uploadReviewPhotos } from '../../../Slices/PhotosSlice';
+import { selectSelectedPromotion } from '../../../Slices/PromotionsSlice';
+import { selectSelectedEvent } from '../../../Slices/EventsSlice';
 
 export default function EventDetailsScreen() {
     const dispatch = useDispatch();
     const { params } = useRoute();
     const { activity } = params;
+    const selectedEvent = useSelector(selectSelectedEvent);
+    const selectedPromo = useSelector(selectSelectedPromotion);
     const suggestion = useSelector((state) => selectNearbySuggestionById(state, activity?._id));
+    const post = selectedEvent || selectedPromo || suggestion;
     const selectedType = activity?.kind?.toLowerCase().includes('event') ? 'event' : 'promo'
     const user = useSelector(selectUser);
     const replyingTo = useSelector(selectReplyingTo);
-    const nestedReplyInput = useSelector(selectNestedExpandedReplies);
     const isEditing = useSelector(selectIsEditing);
     const [commentText, setCommentText] = useState('');
     const [inputHeight, setInputHeight] = useState(40);
@@ -33,6 +37,7 @@ export default function EventDetailsScreen() {
     const lastTapRef = useRef({});
     const userId = user?.placeId ? user?.placeId : user?.id;
     const fullName = `${user?.firstName} ${user?.lastName}`;
+    const nestedreplyInput = useSelector(selectNestedReplyInput);
     const { getAnimation, registerAnimation } = useLikeAnimations();
     const animation = getAnimation(activity._id);
 
@@ -41,7 +46,7 @@ export default function EventDetailsScreen() {
             return;
         }
 
-        if (!suggestion) {
+        if (!post) {
             return;
         }
 
@@ -53,7 +58,7 @@ export default function EventDetailsScreen() {
             try {
                 const result = await dispatch(
                     uploadReviewPhotos({
-                        placeId: suggestion.placeId,
+                        placeId: post.placeId,
                         files: [mediaFile],
                     })
                 ).unwrap();
@@ -82,6 +87,7 @@ export default function EventDetailsScreen() {
 
         setCommentText('');
         setSelectedMedia([]);
+        setContentHeight(40);
         dispatch(setReplyingTo(null));
     };
 
@@ -100,10 +106,10 @@ export default function EventDetailsScreen() {
     };
 
     useEffect(() => {
-        if (suggestion?._id) {
-            registerAnimation(suggestion._id);
+        if (post?._id) {
+            registerAnimation(post._id);
         }
-    }, [suggestion?._id]);
+    }, [post?._id]);
 
     return (
         <KeyboardAvoidingView
@@ -115,11 +121,11 @@ export default function EventDetailsScreen() {
                     <KeyboardAwareFlatList
                         extraScrollHeight={20}
                         enableAutomaticScroll
-                        data={suggestion?.comments}
+                        data={post?.comments}
                         keyExtractor={(item) => item._id}
                         ListHeaderComponent={
                             <DetailsHeader
-                                activity={suggestion}
+                                activity={post}
                                 selectedType={selectedType}
                                 getTimeSincePosted={(date) => dayjs(date).fromNow(true)}
                                 handleLikeWithAnimation={handleLikeWithAnimation}
@@ -132,7 +138,7 @@ export default function EventDetailsScreen() {
                                 <EventPromoCommentThread
                                     key={item._id}
                                     item={item}
-                                    post={suggestion} // Pass the whole post here
+                                    post={post} // Pass the whole post here
                                     commentText={commentText}
                                     setCommentText={setCommentText}
                                     type={selectedType}
@@ -142,14 +148,11 @@ export default function EventDetailsScreen() {
                             </View>
                         )}
                     />
-                    {replyingTo === null && !isEditing && (
+                    {replyingTo === null && !nestedreplyInput && !isEditing && (
                         <CommentInputFooter
                             commentText={commentText}
                             setCommentText={setCommentText}
                             handleAddComment={handleAddComment}
-                            inputHeight={inputHeight}
-                            contentHeight={contentHeight}
-                            setContentHeight={setContentHeight}
                             selectedMedia={selectedMedia}
                             setSelectedMedia={setSelectedMedia}
                         />

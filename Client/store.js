@@ -20,6 +20,7 @@ import modalReducer from './Slices/ModalSlice';
 import recentSearchesReducer from './Slices/RecentSearchesSlice'; 
 import storiesReducer from './Slices/StoriesSlice';
 import directMessagesReducer from './Slices/DirectMessagingSlice';
+import engagementReducer from './Slices/EngagementSlice';
 
 const store = configureStore({
     reducer: combineReducers({
@@ -44,6 +45,7 @@ const store = configureStore({
        modals: modalReducer,
        stories: storiesReducer,
        directMessages: directMessagesReducer,
+       engagement: engagementReducer,
     })
 });
 
