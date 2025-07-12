@@ -213,8 +213,15 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
                 },
             };
         });
+
         const highlighted = (merged || []).filter(item => item.events?.length > 0 || item.promotions?.length > 0);
-        const regular = (merged || []).filter(item => item.events?.length === 0 && item.promotions?.length === 0);
+        const regular = merged
+            .filter(item => item.events?.length === 0 && item.promotions?.length === 0)
+            .sort((a, b) => {
+                const aDist = typeof a.distance === 'number' ? a.distance : Infinity;
+                const bDist = typeof b.distance === 'number' ? b.distance : Infinity;
+                return aDist - bDist;
+            });
 
         return { highlighted, regular };
     }, [activities, businessData]);
@@ -260,9 +267,11 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
         const openNowFiltered = isOpenNow
             ? categoryFiltered.filter(item => item.opening_hours?.open_now === true)
             : categoryFiltered;
-        
+
         // Sort the list
-        const sorted = sortActivities(openNowFiltered, sortOption);    
+        const sorted = sortOption
+            ? sortActivities(openNowFiltered, sortOption)
+            : openNowFiltered;
 
         // Paginate
         const paginated = paginateRegular(sorted, currentPage, perPage);

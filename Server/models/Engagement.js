@@ -27,7 +27,7 @@ const EngagementSchema = new mongoose.Schema({
       'click',
       'save',
       'interested',
-      'follow',
+      'favorite',
       'like',
       'join',
       'dismiss',

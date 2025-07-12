@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   FlatList,
+  InteractionManager,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSelector, useDispatch } from "react-redux";
@@ -15,7 +16,7 @@ import logoPlaceholder from '../../assets/pics/logo-placeholder.png';
 import EditProfileModal from "./EditProfileModal";
 import { selectLogo, fetchLogo, selectBusinessBanner, resetBusinessBanner, resetLogo, fetchBusinessBanner, selectAlbum, fetchPhotos } from "../../Slices/PhotosSlice";
 import { useRoute, useNavigation } from "@react-navigation/native";
-import { fetchReviewsByPlaceId, selectBusinessReviews, appendBusinessReviews, setBusinessReviews } from '../../Slices/ReviewsSlice';
+import { fetchReviewsByPlaceId, selectBusinessReviews, appendBusinessReviews, setBusinessReviews, resetBusinessReviews } from '../../Slices/ReviewsSlice';
 import Reviews from "../Reviews/Reviews";
 import Photos from "./Photos";
 import { selectFavorites, addFavorite, removeFavorite } from "../../Slices/FavoritesSlice";
@@ -24,6 +25,8 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { fetchBusinessRatingSummaries, selectRatingByPlaceId } from "../../Slices/PlacesSlice";
 import ModalBox from 'react-native-modal';
 import RatingsData from "../Reviews/metricRatings/RatingsData";
+import { useFocusEffect } from "@react-navigation/native";
+import { useCallback } from "react";
 
 export default function BusinessProfile() {
   const dispatch = useDispatch();
@@ -49,7 +52,7 @@ export default function BusinessProfile() {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const placeIds = [placeId];
   const ratingData = useSelector(selectRatingByPlaceId(placeId)) || {};
-  
+
   const {
     loadMore,
     refresh,
@@ -79,6 +82,7 @@ export default function BusinessProfile() {
   };
 
   const handleGoBack = async () => {
+    dispatch(resetBusinessReviews());
     navigation.goBack();
   };
 
@@ -88,20 +92,30 @@ export default function BusinessProfile() {
       dispatch(fetchBusinessBanner(placeId));
       dispatch(fetchPhotos(placeId));
       dispatch(fetchBusinessRatingSummaries(placeIds))
-      refresh();
+
+      // ✅ Delay refresh until after initial render to prevent blinking
+      const task = InteractionManager.runAfterInteractions(() => {
+        refresh();
+      });
+
+      return () => task.cancel();
     }
   }, [placeId]);
 
-  useEffect(() => {
-    return () => {
-      dispatch(resetBusinessBanner());
-      dispatch(resetLogo());
-    };
-  }, []);
-
   const navgateToSettings = () => {
     navigation.navigate("Settings");
-  }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        // ✅ Called ONLY when the user navigates away (including swipe)
+        dispatch(resetBusinessReviews());
+        dispatch(resetBusinessBanner());
+        dispatch(resetLogo());
+      };
+    }, [dispatch])
+  );
 
   const renderHeader = () => (
     <>
@@ -130,7 +144,7 @@ export default function BusinessProfile() {
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
-              style={[styles.favoriteButton, isFavorited && styles.isFavorited, ]}
+              style={[styles.favoriteButton, isFavorited && styles.isFavorited,]}
               onPress={handleFavoritePress}
             >
               <Ionicons name="star" size={20} color="white" />
