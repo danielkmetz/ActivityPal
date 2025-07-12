@@ -99,6 +99,16 @@ export default function OtherUserProfile({ route, navigation }) {
     setIsFollowing(followingIds.includes(userId));
   }, [mainUser, following, followRequests, userId]);
 
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("beforeRemove", () => {
+      dispatch(resetOtherUserBanner());
+      dispatch(resetOtherUserReviews());
+      dispatch(resetOtherUserProfilePic());
+    });
+
+    return unsubscribe;
+  }, [navigation, dispatch]);
+
   const handleCancelRequest = async () => {
     await dispatch(cancelFollowRequest({ recipientId: userId }));
     // ✅ Explicitly update the state to ensure UI reflects the change
@@ -147,12 +157,7 @@ export default function OtherUserProfile({ route, navigation }) {
     <>
       <TouchableOpacity
         style={styles.backButton}
-        onPress={() => {
-          dispatch(resetOtherUserBanner());
-          dispatch(resetOtherUserReviews());
-          dispatch(resetOtherUserProfilePic());
-          navigation.goBack();
-        }}
+        onPress={() => navigation.goBack()}
       >
         <Ionicons name="chevron-back" size={24} color="gray" />
       </TouchableOpacity>

@@ -36,13 +36,14 @@ const sortActivities = (activities, sortOption) => {
                 score = getRecommendationRate(reviews);
                 break;
             case 'distance':
-            default:
                 const rawDistance = activity.distance;
                 const parsedDistance = typeof rawDistance === 'number'
                     ? rawDistance
                     : parseFloat(String(rawDistance).replace(/[^\d.]/g, ''));
                 score = isNaN(parsedDistance) ? Infinity : parsedDistance;
                 break;
+            default:
+                score = null; // fallback to null score
         }
 
         return { ...activity, _score: score, _name: name };

@@ -136,7 +136,6 @@ export default function EventDetailsScreen() {
                         renderItem={({ item }) => (
                             <View style={{ padding: 16 }}>
                                 <EventPromoCommentThread
-                                    key={item._id}
                                     item={item}
                                     post={post} // Pass the whole post here
                                     commentText={commentText}

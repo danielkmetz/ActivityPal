@@ -71,8 +71,7 @@ const activityTypeKeywords = {
 
 router.post("/places", async (req, res) => {
   const { lat, lng, activityType, radius, budget, isCustom } = req.body;
-  console.log('radius', radius);
-
+  
   const searchCombos = isCustom
     ? activityTypeKeywords[activityType] || []
     : (quickFilters[activityType] || []).map(k => ({ type: 'establishment', keyword: k }));
@@ -89,24 +88,30 @@ router.post("/places", async (req, res) => {
 
     do {
       const fullUrl = `${urlBase}${pageToken ? `&pagetoken=${pageToken}` : ""}`;
-      const response = await axios.get(fullUrl);
-      const { results, next_page_token } = response.data;
+      
+      try {
+        const response = await axios.get(fullUrl);
+        const { results, next_page_token } = response.data;
 
-      results?.forEach(place => {
-        if (!allResults.has(place.place_id)) {
-          allResults.set(place.place_id, place);
-        }
-      });
+        results?.forEach(place => {
+          if (!allResults.has(place.place_id)) {
+            allResults.set(place.place_id, place);
+          }
+        });
 
-      pageToken = next_page_token;
-      pages++;
-      if (pageToken) await delay(2000);
+        pageToken = next_page_token;
+        pages++;
+        if (pageToken) await delay(2000);
+      } catch (error) {
+        console.error(`❌ Error fetching places for keyword "${keyword}":`, error.message);
+        break;
+      }
     } while (pageToken && pages < 3);
   };
 
   try {
     await Promise.all(searchCombos.map(({ type, keyword }) => fetchPlaces(type, keyword)));
-
+    
     const haversineDistance = (lat1, lon1, lat2, lon2) => {
       const toRad = (val) => (val * Math.PI) / 180;
       const R = 6371;
@@ -119,34 +124,35 @@ router.post("/places", async (req, res) => {
 
     const gasStationNamePattern = /speedy|speedway|bp|shell|mobil|exxon|citgo|chevron|circle\s?k|thorntons|amoco|7-eleven|7 eleven|casey's|caseys|kum\s?&\s?go|love's|loves|pilot|sunoco|marathon|quiktrip|qt|valero|conoco/i;
 
-    const filtered = Array.from(allResults.values()).filter(place =>
-      !place.types?.includes("school") &&
-      !place.types?.includes("doctor") &&
-      !place.types?.includes("hospital") &&
-      !place.types?.includes("lodging") &&
-      !place.types?.includes("airport") &&
-      !place.types?.includes("store") &&
-      !place.types?.includes("storage") &&
-      !place.types?.includes("golf_course") &&
-      !place.types?.includes("casino") &&
-      !place.types?.includes("gas_station") &&
-      !gasStationNamePattern.test(place.name || "") &&
-      !/Country Club|Golf Course|Golf Club|Links/i.test(place.name || "") &&
-      !isFastFood(place.name || "") &&
-      (
-        (budget === "$" && (place.price_level === 0 || place.price_level === 1)) ||
-        (budget === "$$" && (place.price_level <= 2)) ||
-        (budget === "$$$" && (place.price_level <= 3)) ||
-        (budget === "$$$$")
-      )
-    );
+    const filtered = Array.from(allResults.values()).filter(place => {
+      const name = place.name || '';
+      const isFiltered =
+        place.types?.some(t =>
+          ["school", "doctor", "hospital", "lodging", "airport", "store", "storage", "golf_course", "casino", "gas_station"].includes(t)
+        ) ||
+        gasStationNamePattern.test(name) ||
+        /Country Club|Golf Course|Golf Club|Links/i.test(name) ||
+        isFastFood(name) ||
+        (budget === "$" && !(place.price_level === 0 || place.price_level === 1)) ||
+        (budget === "$$" && !(place.price_level <= 2)) ||
+        (budget === "$$$" && !(place.price_level <= 3)) ||
+        (budget === "$$$$" && place.price_level > 4);
+
+      if (isFiltered) {
+        return false;
+      }
+
+      return true;
+    });
 
     const results = await Promise.all(filtered.map(async (place) => {
       const distanceKm = haversineDistance(lat, lng, place.geometry.location.lat, place.geometry.location.lng);
       const distanceMiles = distanceKm * 0.621371;
       const radiusInMiles = radius / 1609.34;
 
-      if (distanceMiles > radiusInMiles) return null;
+      if (distanceMiles > radiusInMiles) {
+        return null;
+      }
 
       const name = place.name || '';
       const keywordCuisine = classifyRestaurantCuisine(name);
@@ -158,7 +164,6 @@ router.post("/places", async (req, res) => {
           : null;
 
       let cuisine = keywordCuisine || languageCuisine || reviewCuisine || 'unknown';
-
       if (cuisine === "unknown" && place.types?.includes("bar")) {
         cuisine = "bar_food";
       }
@@ -180,25 +185,22 @@ router.post("/places", async (req, res) => {
         },
       };
     }));
+
     const filteredResults = results.filter(Boolean);
-
-    filteredResults.sort((a, b) => a.distance - b.distance);
-
+    
     const cuisineCounts = filteredResults.reduce((acc, place) => {
       const label = place.cuisine || 'unknown';
       acc[label] = (acc[label] || 0) + 1;
       return acc;
     }, {});
 
-    console.log("📊 Cuisine category breakdown:");
     Object.entries(cuisineCounts).forEach(([cuisine, count]) => {
       console.log(` - ${cuisine}: ${count}`);
     });
 
-    console.log(`✅ Final curatedPlaces: ${filteredResults.length}`);
     res.json({ curatedPlaces: filteredResults });
   } catch (error) {
-    console.error("🔥 Error in Google Places route:", error.message);
+    console.error("🔥 Error in Google Places route:", error);
     res.status(500).json({ error: "Something went wrong fetching nearby places." });
   }
 });
