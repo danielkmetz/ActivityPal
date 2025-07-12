@@ -69,7 +69,6 @@ export default function SuggestionItem({ suggestion }) {
         startTime: suggestion.startTime,
         note: `Lets go to ${businessName} for ${title}`
     };
-
     
     const inviteCreationEditing = () => {
         if (existingInvite) {

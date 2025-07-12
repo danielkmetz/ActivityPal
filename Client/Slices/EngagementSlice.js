@@ -66,16 +66,23 @@ export const clearTodayEngagementLog = async () => {
 };
 
 export const getEngagementTarget = (input) => {
-  const kind = input.kind?.toLowerCase() || input.postType?.toLowerCase() || '';
+  const kind =
+    input.kind?.toLowerCase() ||
+    input.type?.toLowerCase() ||
+    input.postType?.toLowerCase() ||
+    '';
+
   let targetType = 'place';
-  let targetId = input.placeId;
+
+  // Fallback to nested placeId if needed
+  let targetId = input.placeId || input.place_id || input.business?.placeId || input.business?.place_id;
 
   if (kind.includes('event')) {
     targetType = 'event';
-    targetId = input._id || input.postId;
+    targetId = input._id || input.postId || input.id;
   } else if (kind.includes('promo')) {
     targetType = 'promo';
-    targetId = input._id || input.postId;
+    targetId = input._id || input.postId || input.id;
   }
 
   return { targetType, targetId };

@@ -12,11 +12,13 @@ import { getTimeLabel } from '../../../utils/formatEventPromoTime';
 import PostActions from '../../Reviews/PostActions';
 import { resetSelectedEvent } from '../../../Slices/EventsSlice';
 import { resetSelectedPromotion } from '../../../Slices/PromotionsSlice';
+import { logEngagementIfNeeded, getEngagementTarget } from '../../../Slices/EngagementSlice';
 
 const DetailsHeader = ({ activity, getTimeSincePosted, handleLikeWithAnimation, lastTapRef }) => {
     const navigation = useNavigation();
     const dispatch = useDispatch();
     const logo = useSelector(selectLogo);
+    const [cachedLogo, setCachedLogo] = useState(null);
     const selectedType = activity?.kind?.toLowerCase().includes('event') ? 'event' : 'promo'
     const { placeId, businessName } = activity || {};
     const scrollX = useRef(new Animated.Value(0)).current;
@@ -26,6 +28,12 @@ const DetailsHeader = ({ activity, getTimeSincePosted, handleLikeWithAnimation, 
             dispatch(fetchLogo(placeId));
         }
     }, [placeId]);
+
+    useEffect(() => {
+        if (logo) {
+            setCachedLogo(logo);
+        }
+    }, [logo]);
 
     const goBack = () => {
         navigation.goBack();
@@ -43,6 +51,18 @@ const DetailsHeader = ({ activity, getTimeSincePosted, handleLikeWithAnimation, 
             taggedUsersByPhotoKey: activity.taggedUsersByPhotoKey || {},
             isEventPromo: true,
         })
+    };
+
+    const navigateToBusiness = () => {
+        const targetType = 'place';
+
+        logEngagementIfNeeded(dispatch, {
+            targetType,
+            targetId: placeId,
+            placeId,
+            engagementType: 'click',
+        });
+        navigation.navigate("BusinessProfile", { business: activity });
     }
 
     return (
@@ -57,12 +77,14 @@ const DetailsHeader = ({ activity, getTimeSincePosted, handleLikeWithAnimation, 
                     <Avatar
                         size={52}
                         rounded
-                        source={logo ? { uri: logo } : profilePicPlaceholder}
+                        source={cachedLogo ? { uri: cachedLogo } : profilePicPlaceholder}
                     />
                     <View style={{ flexDirection: 'column' }}>
-                        <Text style={styles.businessName}>
-                            {businessName}
-                        </Text>
+                        <TouchableOpacity onPress={navigateToBusiness} >
+                            <Text style={styles.businessName}>
+                                {businessName}
+                            </Text>
+                        </TouchableOpacity>
                         <Text style={styles.eventDate}>{getTimeSincePosted(activity?.date)} ago</Text>
                     </View>
                 </View>
@@ -108,7 +130,7 @@ const DetailsHeader = ({ activity, getTimeSincePosted, handleLikeWithAnimation, 
                 )}
             </View>
             <View style={{ paddingLeft: 15 }}>
-                <PostActions 
+                <PostActions
                     item={activity}
                     handleLikeWithAnimation={handleLikeWithAnimation}
                     isCommentScreen={true}
