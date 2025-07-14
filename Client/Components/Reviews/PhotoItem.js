@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Image, Text, Animated, TouchableWithoutFeedback, Dimensions, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { VideoView } from 'expo-video';
@@ -19,12 +19,17 @@ const PhotoItem = ({
     onOpenFullScreen,
 }) => {
     const { getAnimation, registerAnimation } = useLikeAnimations(); // ✅ use context
-    const animation = getAnimation(reviewItem?._id);
+    const [animation, setAnimation] = useState(null);
     const player = useSmartVideoPlayer(photo);
 
     useEffect(() => {
         if (!reviewItem?._id) return;
+
         registerAnimation(reviewItem._id);
+        const anim = getAnimation(reviewItem._id);
+        if (anim) {
+            setAnimation(anim);
+        }
     }, [reviewItem?._id]);
 
     const handleTap = () => {
@@ -69,7 +74,7 @@ const PhotoItem = ({
                         <Image source={{ uri: photo.url || photo.uri || photo.bannerUrl }} style={styles.photo} />
                     )}
 
-                    {isInteractive && (
+                    {isInteractive && animation && (
                         <Animated.View style={[styles.likeOverlay, { opacity: animation }]}>
                             <MaterialCommunityIcons name="thumb-up" size={80} color="#80E6D2" />
                         </Animated.View>

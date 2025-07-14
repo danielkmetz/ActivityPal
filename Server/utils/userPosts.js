@@ -189,30 +189,60 @@ async function resolveTaggedPhotoUsers(photos = []) {
   });
 }
 
-async function resolveUserProfilePics(userIds = []) {
-  if (!Array.isArray(userIds) || userIds.length === 0) return {};
+async function resolveUserProfilePics(userIds) {
+  const result = {};
 
-  const users = await User.find({ _id: { $in: userIds } }).select('_id profilePic');
+  // Step 1: Try resolving all IDs as Users first
+  const users = await User.find({ _id: { $in: userIds } })
+    .select('_id profilePic')
+    .lean();
 
-  // 🔁 Get all photoKeys first
-  const urlMap = {};
-  await Promise.all(
-    users.map(async user => {
-      const photoKey = user.profilePic?.photoKey;
-      if (photoKey) urlMap[photoKey] = await getPresignedUrl(photoKey);
-    })
-  );
+  const foundUserIds = new Set(users.map(u => u._id.toString()));
 
-  const userPicMap = {};
   for (const user of users) {
-    const photoKey = user.profilePic?.photoKey;
-    userPicMap[user._id.toString()] = {
+    let presignedUrl = null;
+
+    if (user.profilePic?.photoKey) {
+      try {
+        presignedUrl = await getPresignedUrl(user.profilePic.photoKey);
+      } catch (err) {
+        console.warn(`⚠️ Failed to get presigned URL for user ${user._id}:`, err.message);
+      }
+    }
+
+    result[user._id.toString()] = {
       profilePic: user.profilePic || null,
-      profilePicUrl: photoKey ? urlMap[photoKey] : null,
+      profilePicUrl: presignedUrl,
     };
   }
 
-  return userPicMap;
+  // Step 2: Check if any IDs were *not* found in Users
+  const remainingIds = userIds.filter(id => !foundUserIds.has(id.toString()));
+  if (remainingIds.length === 0) return result;
+
+  // Step 3: Only query Business if needed
+  const businesses = await Business.find({ _id: { $in: remainingIds } })
+    .select('_id logoKey')
+    .lean();
+
+  for (const business of businesses) {
+    let presignedUrl = null;
+
+    if (business.logoKey) {
+      try {
+        presignedUrl = await getPresignedUrl(business.logoKey);
+      } catch (err) {
+        console.warn(`⚠️ Failed to get presigned URL for business ${business._id}:`, err.message);
+      }
+    }
+
+    result[business._id.toString()] = {
+      profilePic: business.logoKey || null,
+      profilePicUrl: presignedUrl,
+    };
+  }
+
+  return result;
 }
 
 module.exports = {

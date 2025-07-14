@@ -4,7 +4,7 @@ import VideoThumbnail from '../Reviews/VideoThumbnail';
 
 const PostPreview = ({ postPreview, onPress, onLongPress }) => {
     if (!postPreview) return null;
-    const displayName = postPreview.business.businessName || postPreview.fullName;
+    const displayName = postPreview?.business?.businessName || postPreview?.fullName;
     
     return (
         <TouchableOpacity onPress={onPress} onLongPress={onLongPress} activeOpacity={0.9}>
