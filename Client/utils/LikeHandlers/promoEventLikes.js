@@ -2,8 +2,8 @@ import { Animated } from 'react-native';
 import { toggleEventLike } from '../../Slices/EventsSlice';
 import { togglePromoLike } from '../../Slices/PromotionsSlice';
 import { createBusinessNotification } from '../../Slices/BusNotificationsSlice';
+import { getLikeAnimationsContext } from '../../utils/LikeHandlers/LikeAnimationContext';
 
-// Utility: Trigger like animation
 const runLikeAnimation = (animation) => {
   if (!(animation instanceof Animated.Value)) return;
 
@@ -22,7 +22,6 @@ const runLikeAnimation = (animation) => {
   });
 };
 
-// Handles like logic + notification
 export const handleEventOrPromoLike = async ({
   type,
   postId,
@@ -39,14 +38,14 @@ export const handleEventOrPromoLike = async ({
   try {
     const toggleThunk = type === 'event' ? toggleEventLike : togglePromoLike;
     const actionResult = await dispatch(toggleThunk({ id: postId, placeId, userId, fullName }));
-
     const payload = actionResult?.payload;
+
     const userLiked = payload?.likes?.some(like => like.userId === userId);
     const isOwner = userId === ownerId;
 
     if (userLiked && ownerId && !isOwner) {
       await dispatch(createBusinessNotification({
-        userId: ownerId,
+        placeId,
         type: 'like',
         message: `${fullName} liked your ${type}.`,
         relatedId: userId,
@@ -60,14 +59,12 @@ export const handleEventOrPromoLike = async ({
   }
 };
 
-// Handles double-tap + animation
 export const eventPromoLikeWithAnimation = async ({
   type,
   postId,
   item,
   user,
   lastTapRef,
-  animation,
   dispatch,
   force = false,
 }) => {
@@ -92,6 +89,10 @@ export const eventPromoLikeWithAnimation = async ({
     fullName: `${user?.firstName} ${user?.lastName}`,
     dispatch,
   });
+
+  const { registerAnimation, getAnimation } = getLikeAnimationsContext();
+  registerAnimation(postId);
+  const animation = getAnimation(postId);
 
   if (!wasLikedBefore && animation instanceof Animated.Value) {
     runLikeAnimation(animation);

@@ -229,14 +229,13 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
                         likedAnimations={{}} // or pass in your real likedAnimations object
                         photoTapped={null} // pass in correct value if needed
                         toggleTaggedUsers={() => { }} // no-op unless you need tag functionality
-                        handleLikeWithAnimation={() => { }} // no-op unless using like animation
+                        handleLikeWithAnimation={handleLikeWithAnimation} // no-op unless using like animation
                         isInteractive={false}
                       />
                     )}
                     style={{ width: Dimensions.get('window').width, marginTop: -10, }}
                   />
                   <PhotoPaginationDots photos={item.photos} scrollX={scrollX} />
-
                 </>
               )}
               <View style={{ paddingLeft: 15 }}>

@@ -105,4 +105,26 @@ router.post("/favorites", verifyToken, async (req, res) => {
   }
 });
 
+// Get business Mongo _id using placeId
+router.get("/id/:placeId", verifyToken, async (req, res) => {
+  const { placeId } = req.params;
+
+  try {
+    if (!placeId) {
+      return res.status(400).json({ message: "placeId is required" });
+    }
+
+    const business = await BusinessUser.findOne({ placeId }).select("_id");
+
+    if (!business) {
+      return res.status(404).json({ message: "Business not found for the provided placeId" });
+    }
+
+    res.status(200).json({ businessId: business._id });
+  } catch (error) {
+    console.error("Error fetching business ID by placeId:", error);
+    res.status(500).json({ message: "An error occurred while fetching business ID" });
+  }
+});
+
 module.exports = router;

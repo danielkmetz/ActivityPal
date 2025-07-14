@@ -59,13 +59,19 @@ const MessageThreadScreen = ({ route }) => {
   };
 
   const handleSend = async () => {
+    console.log('📤 Attempting to send message...');
+    console.log('✏️ Input:', input);
+    console.log('🖼️ Selected media:', selectedMedia);
+
     if (!input.trim() && !selectedMedia) {
+      console.log('⛔ Message send blocked: no input and no media');
       return;
     }
 
     let uploadedMedia = null;
 
     if (selectedMedia && !selectedMedia.url && !selectedMedia.photoKey) {
+      console.log('⬆️ Uploading media...');
       try {
         const uploaded = await handlePhotoUpload({
           dispatch,
@@ -73,6 +79,8 @@ const MessageThreadScreen = ({ route }) => {
           placeId: 'messages',
           photos: [selectedMedia],
         });
+
+        console.log('📁 Upload result:', uploaded);
 
         if (uploaded.length > 0) {
           const file = uploaded[0];
@@ -82,22 +90,31 @@ const MessageThreadScreen = ({ route }) => {
             photoKey: file.photoKey,
             mediaType,
           };
+          console.log('✅ Media prepared:', uploadedMedia);
         } else {
+          console.warn('⚠️ Media upload returned empty array');
           return;
         }
       } catch (err) {
+        console.error('❌ Media upload failed:', err);
         return;
       }
     }
 
     if (editingMessageId) {
-      await dispatch(
-        editMessage({
-          messageId: editingMessageId,
-          content: input.trim(),
-          media: uploadedMedia,
-        })
-      );
+      console.log(`✏️ Editing message with ID: ${editingMessageId}`);
+      try {
+        await dispatch(
+          editMessage({
+            messageId: editingMessageId,
+            content: input.trim(),
+            media: uploadedMedia,
+          })
+        );
+        console.log('✅ Message edited');
+      } catch (err) {
+        console.error('❌ Failed to edit message:', err);
+      }
       setEditingMessageId(null);
     } else {
       const contentToSend = input.trim() || (uploadedMedia ? '[media]' : '');
@@ -113,18 +130,31 @@ const MessageThreadScreen = ({ route }) => {
         media: uploadedMedia || null,
       };
 
-      const resultAction = await dispatch(sendMessage(payload));
+      console.log('📨 Dispatching sendMessage with payload:', payload);
 
-      if (sendMessage.fulfilled.match(resultAction)) {
-        const newId = resultAction.payload?.conversationId;
-        if (!localConversationId && newId) {
-          setLocalConversationId(newId);
+      try {
+        const resultAction = await dispatch(sendMessage(payload));
+        console.log('📬 sendMessage result:', resultAction);
+
+        if (sendMessage.fulfilled.match(resultAction)) {
+          const newId = resultAction.payload?.conversationId;
+          if (!localConversationId && newId) {
+            setLocalConversationId(newId);
+            console.log('🆕 Conversation ID set:', newId);
+          } else {
+            console.log('ℹ️ Message sent to existing conversation');
+          }
+        } else {
+          console.warn('⚠️ sendMessage was not fulfilled:', resultAction);
         }
+      } catch (err) {
+        console.error('❌ Failed to send message:', err);
       }
     }
 
     setInput('');
     setSelectedMedia(null);
+    console.log('✅ Message input and media reset');
   };
 
   const handleSelectMedia = async () => {
