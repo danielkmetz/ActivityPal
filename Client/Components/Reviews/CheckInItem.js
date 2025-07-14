@@ -14,13 +14,14 @@ import PhotoItem from "./PhotoItem";
 import PhotoPaginationDots from "./PhotoPaginationDots";
 import PostActions from './PostActions';
 import { selectUser } from "../../Slices/UserSlice";
-import { useSelector } from "react-redux";
+import { useSelector, useDispatch } from "react-redux";
 import { useNavigation } from "@react-navigation/native";
 import PostOptionsMenu from "./PostOptionsMenu";
 import StoryAvatar from "../Stories/StoryAvatar";
 import { createNotification } from "../../Slices/NotificationsSlice";
 import { declineFollowRequest, cancelFollowRequest, approveFollowRequest } from "../../Slices/friendsSlice";
 import { handleFollowUserHelper } from "../../utils/followHelper";
+import { logEngagementIfNeeded } from "../../Slices/EngagementSlice";
 
 const pinPic = "https://cdn-icons-png.flaticon.com/512/684/684908.png";
 
@@ -38,6 +39,7 @@ export default function CheckInItem({
     following,
     followRequests,
 }) {
+    const dispatch = useDispatch();
     const navigation = useNavigation();
     const user = useSelector(selectUser);
     const isSender = item.userId === user?.id;
@@ -60,6 +62,17 @@ export default function CheckInItem({
             taggedUsersByPhotoKey: item.taggedUsersByPhotoKey || {}, // or however you pass it
             isSuggestedPost: isSuggestedFollowPost
         });
+    };
+
+    const navigateToBusiness = () => {
+        logEngagementIfNeeded(dispatch, {
+            targetType: 'place',
+            targetId: item.placeId,
+            placeId: item.placeId,
+            engagementType: 'click',
+        })
+
+        navigation.navigate("BusinessProfile", { business: item.placeId })
     };
 
     const navigateToOtherUserProfile = (userId) => {
@@ -169,22 +182,26 @@ export default function CheckInItem({
                         <StoryAvatar userId={item?.userId} profilePicUrl={item.profilePicUrl} />
                         <View style={{ flexShrink: 1 }}>
                             <Text style={styles.userEmailText}>
-                                <TouchableWithoutFeedback onPress={() => navigateToOtherUserProfile(item.userId)}>
-                                    <Text style={styles.name}>{item.fullName}</Text>
+                                <TouchableWithoutFeedback >
+                                    <Text 
+                                        style={styles.name}
+                                        onPress={() => navigateToOtherUserProfile(item.userId)}    
+                                    >
+                                        {item.fullName}
+                                    </Text>
                                 </TouchableWithoutFeedback>
                                 {item.taggedUsers?.length > 0 ? (
                                     <>
                                         <Text style={styles.business}> is with </Text>
                                         {item.taggedUsers.map((user, index) => (
-                                            <TouchableWithoutFeedback
-                                                key={user._id || index}
-                                                onPress={() => navigateToOtherUserProfile(user.userId)}
-                                            >
-                                                <Text style={styles.name}>
+                                                <Text 
+                                                    onPress={() => navigateToOtherUserProfile(user.userId)} 
+                                                    suppressHighlighting={true}
+                                                    style={styles.name}
+                                                >
                                                     {user.fullName}
                                                     {index < item.taggedUsers.length - 1 ? ", " : ""}
                                                 </Text>
-                                            </TouchableWithoutFeedback>
                                         ))}
                                         <Text style={styles.business}> at </Text>
                                         <Text style={styles.business}>{item.businessName}</Text>
@@ -192,7 +209,7 @@ export default function CheckInItem({
                                 ) : (
                                     <>
                                         <Text style={styles.business}> is at </Text>
-                                        <Text style={styles.business}>{item.businessName}</Text>
+                                        <Text onPress={navigateToBusiness} suppressHighlighting={true} style={styles.business}>{item.businessName}</Text>
                                     </>
                                 )}
                                 {item.photos.length > 0 && (
@@ -257,10 +274,12 @@ export default function CheckInItem({
                 </View>
             )}
             <Text style={styles.date}>
-                Posted:{" "}
-                {item.date
-                    ? new Date(item.date).toISOString().split("T")[0]
-                    : "Now"}
+                <Text>Posted: </Text>
+                <Text>
+                    {item.date
+                        ? new Date(item.date).toISOString().split("T")[0]
+                        : "Now"}
+                </Text>
             </Text>
             <View style={{ padding: 15 }}>
                 <PostActions
