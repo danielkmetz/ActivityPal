@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, Image, StyleSheet, TouchableOpacity, FlatList } from "react-native";
+import { View, Text, Image, StyleSheet, TouchableOpacity, FlatList, InteractionManager } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useDispatch, useSelector } from "react-redux";
 import { selectUser, fetchOtherUserSettings, selectOtherUserSettings, selectOtherUserName, fetchUserFullName } from "../../Slices/UserSlice";
@@ -13,6 +13,7 @@ import {
   selectOtherUserFollowers,
   selectOtherUserFollowing,
   fetchOtherUserFollowersAndFollowing,
+  followBack,
 } from "../../Slices/friendsSlice";
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import Reviews from "../Reviews/Reviews";
@@ -38,6 +39,7 @@ import { fetchOtherUserFavorites, selectOtherUserFavorites } from "../../Slices/
 import usePaginatedFetch from "../../utils/usePaginatedFetch";
 import ConnectionsModal from "./ConnectionsModal";
 import { handleFollowUserHelper } from "../../utils/followHelper";
+import { selectConversations, chooseUserToMessage } from "../../Slices/DirectMessagingSlice";
 
 export default function OtherUserProfile({ route, navigation }) {
   const { userId } = route.params;
@@ -53,6 +55,7 @@ export default function OtherUserProfile({ route, navigation }) {
   const otherUserProfilePic = useSelector(selectOtherUserProfilePic);
   const otherUserPrivacy = useSelector(selectOtherUserSettings);
   const fullName = useSelector(selectOtherUserName);
+  const conversations = useSelector(selectConversations);
   const isPrivate = otherUserPrivacy?.profileVisibility === 'private';
   const [isRequestSent, setIsRequestSent] = useState(false);
   const [isRequestReceived, setIsRequestReceived] = useState(false);
@@ -79,11 +82,16 @@ export default function OtherUserProfile({ route, navigation }) {
     if (userId) {
       dispatch(fetchOtherUserBanner(userId));
       dispatch(fetchUserFullName(userId));
-      refresh();
       dispatch(fetchOtherUserProfilePic(userId));
       dispatch(fetchOtherUserFavorites(userId));
       dispatch(fetchOtherUserSettings(userId));
       dispatch(fetchOtherUserFollowersAndFollowing(userId));
+
+      const task = InteractionManager.runAfterInteractions(() => {
+        refresh();
+      });
+
+      return () => task.cancel();
     }
   }, [userId]);
 
@@ -147,6 +155,43 @@ export default function OtherUserProfile({ route, navigation }) {
     }));
   };
 
+  const handleSendMessage = () => {
+    const currentUserId = mainUser?.id;
+    if (!currentUserId || !userId) return;
+
+    const participantIds = [currentUserId, userId].sort();
+
+    const existingConversation = conversations.find(conv => {
+      const ids = (conv.participants || [])
+        .map(p => (typeof p === 'object' ? p._id : p)?.toString())
+        .filter(Boolean)
+        .sort();
+
+      return (
+        ids.length === participantIds.length &&
+        ids.every((id, index) => id === participantIds[index])
+      );
+    });
+
+    // ✅ Construct the full recipient object payload
+    const recipient = {
+      _id: userId,
+      firstName: fullName?.split(" ")[0] || "",
+      lastName: fullName?.split(" ")[1] || "",
+      profilePic: otherUserProfilePic || {},
+      profilePicUrl: otherUserProfilePic?.url || "",
+      privacySettings: otherUserPrivacy || {},
+      following: otherUserFollowing || [],
+    };
+
+    dispatch(chooseUserToMessage([recipient]));
+
+    navigation.navigate('MessageThread', {
+      conversationId: existingConversation?._id || null,
+      participants: [recipient],
+    });
+  };
+
   const photos = Array.from(
     new Set(profileReviews.flatMap((review) => review.photos?.map((photo) => photo.url) || []))
   ).map((url) => ({ url }));
@@ -197,12 +242,18 @@ export default function OtherUserProfile({ route, navigation }) {
         </View>
       </View>
       {isFollowing ? (
-        <>
+        <View style={styles.buttonRow}>
           <TouchableOpacity
             style={styles.friendsButton}
             onPress={() => setDropdownVisible(!dropdownVisible)}
           >
             <Text style={styles.friendsText}>Following</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.messageButton}
+            onPress={handleSendMessage}
+          >
+            <Text style={styles.friendsText}>Message</Text>
           </TouchableOpacity>
           {dropdownVisible && (
             <View style={styles.dropdown}>
@@ -211,7 +262,7 @@ export default function OtherUserProfile({ route, navigation }) {
               </TouchableOpacity>
             </View>
           )}
-        </>
+        </View>
       ) : isRequestReceived ? (
         <View style={styles.requestButtonsContainer}>
           <TouchableOpacity style={styles.acceptRequestButton} onPress={handleAcceptRequest}>
@@ -330,6 +381,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#555",
   },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%'
+  },
   addFriendButton: {
     backgroundColor: "#009999",
     marginHorizontal: 20,
@@ -366,6 +422,7 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     alignItems: "center",
     marginTop: 20,
+    width: '40%'
   },
   friendsText: {
     color: "#fff",
@@ -440,7 +497,6 @@ const styles = StyleSheet.create({
   },
   navTab: {
     alignItems: "center",
-
   },
   navTabText: {
     fontSize: 16,
@@ -460,6 +516,16 @@ const styles = StyleSheet.create({
   },
   reviews: {
     marginTop: 10,
-  }
+  },
+  messageButton: {
+    backgroundColor: "gray",
+    marginHorizontal: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 25,
+    alignItems: "center",
+    marginTop: 20,
+    width: '40%'
+  },
 
 });

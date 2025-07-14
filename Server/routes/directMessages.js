@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const User = require('../models/User');
+const Business = require('../models/Business');
 const verifyToken = require('../middleware/verifyToken'); // Import your middleware
 const { resolveUserProfilePics } = require('../utils/userPosts');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl');
@@ -158,8 +159,30 @@ router.post('/message', verifyToken, async (req, res) => {
         .map(id => id.toString())
         .filter(id => id !== senderId);
 
-      const otherUsers = await User.find({ _id: { $in: otherUserIds } }).lean();
+      const [userDocs, businessDocs] = await Promise.all([
+        User.find({ _id: { $in: otherUserIds } }).lean(),
+        Business.find({ _id: { $in: otherUserIds } }).lean(),
+      ]);
+
       const profileMap = await resolveUserProfilePics(otherUserIds);
+
+      const otherUsers = [...userDocs.map(u => ({
+        _id: u._id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        username: u.username,
+        profilePic: profileMap[u._id]?.profilePic || null,
+        profilePicUrl: profileMap[u._id]?.profilePicUrl || null,
+        type: 'User',
+      })), ...businessDocs.map(b => ({
+        _id: b._id,
+        firstName: b.businessName,
+        lastName: '',
+        username: b.username || b.businessName,
+        profilePic: profileMap[b._id]?.profilePic || null,
+        profilePicUrl: profileMap[b._id]?.profilePicUrl || null,
+        type: 'Business',
+      }))];
 
       enrichedConversation = {
         _id: conversation._id,
@@ -213,14 +236,30 @@ router.get('/conversations', verifyToken, async (req, res) => {
     const otherUserIdsArray = Array.from(allOtherUserIds);
 
     // Fetch user data
-    const otherUsers = await User.find({ _id: { $in: otherUserIdsArray } })
-      .select('_id firstName lastName profilePic')
-      .lean();
+    const [users, businesses] = await Promise.all([
+      User.find({ _id: { $in: otherUserIdsArray } }).select('_id firstName lastName profilePic').lean(),
+      Business.find({ _id: { $in: otherUserIdsArray } }).select('_id businessName logoKey').lean(),
+    ]);
 
     // Build lookup maps
     const userMap = {};
-    otherUsers.forEach(user => {
-      userMap[user._id.toString()] = user;
+    users.forEach(u => {
+      userMap[u._id.toString()] = {
+        _id: u._id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        profilePic: u.profilePic || null,
+        type: 'User',
+      };
+    });
+    businesses.forEach(b => {
+      userMap[b._id.toString()] = {
+        _id: b._id,
+        firstName: b.businessName,
+        lastName: '',
+        profilePic: b.logoKey || null,
+        type: 'Business',
+      };
     });
 
     const picMap = await resolveUserProfilePics(otherUserIdsArray);
@@ -230,14 +269,10 @@ router.get('/conversations', verifyToken, async (req, res) => {
       const otherParticipants = conv.participants
         .filter(id => id.toString() !== userId)
         .map(id => {
-          const idStr = id.toString();
-          const userData = userMap[idStr] || {};
-          const picData = picMap[idStr] || {};
+          const participant = userMap[id.toString()] || {};
+          const picData = picMap[id.toString()] || {};
           return {
-            _id: id,
-            firstName: userData.firstName || '',
-            lastName: userData.lastName || '',
-            profilePic: userData.profilePic || null,
+            ...participant,
             profilePicUrl: picData.profilePicUrl || null,
           };
         });
@@ -287,7 +322,7 @@ router.get('/messages/:conversationId', verifyToken, async (req, res) => {
     )];
 
     // 5️⃣ Resolve profile picture URLs for these sender IDs
-    const profilePicMap = await resolveUserProfilePics(otherSenderIds); 
+    const profilePicMap = await resolveUserProfilePics(otherSenderIds);
     // Should return: { userId1: url1, userId2: url2, ... }
 
     // 6️⃣ Enrich messages with media URL, post preview, and profile pic

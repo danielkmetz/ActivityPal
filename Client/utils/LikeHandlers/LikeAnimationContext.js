@@ -2,9 +2,10 @@ import React, { createContext, useRef, useContext } from 'react';
 import { Animated } from 'react-native';
 
 const LikeAnimationsContext = createContext();
+let contextValue;
 
 export const LikeAnimationsProvider = ({ children }) => {
-  const animationsRef = useRef({}); // { postId: Animated.Value }
+  const animationsRef = useRef({});
 
   const registerAnimation = (postId) => {
     if (!animationsRef.current[postId]) {
@@ -14,11 +15,14 @@ export const LikeAnimationsProvider = ({ children }) => {
 
   const getAnimation = (postId) => animationsRef.current[postId];
 
+  contextValue = { registerAnimation, getAnimation }; // 👈 Save ref
+
   return (
-    <LikeAnimationsContext.Provider value={{ registerAnimation, getAnimation }}>
+    <LikeAnimationsContext.Provider value={contextValue}>
       {children}
     </LikeAnimationsContext.Provider>
   );
 };
 
 export const useLikeAnimations = () => useContext(LikeAnimationsContext);
+export const getLikeAnimationsContext = () => contextValue;

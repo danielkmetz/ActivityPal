@@ -1,6 +1,6 @@
 import React, { useState, useEffect, } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { View, Text, Image, StyleSheet, TouchableOpacity, FlatList } from "react-native";
+import { View, Text, Image, StyleSheet, TouchableOpacity, FlatList, InteractionManager } from "react-native";
 import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
 import EditProfileModal from "./EditProfileModal";
@@ -57,8 +57,13 @@ export default function UserProfile() {
     if (userId && shouldFetch) {
       dispatch(fetchUserBanner(userId));
       dispatch(fetchFavorites(userId));
-      refresh();
-      setShouldFetch(false)
+      
+      const task = InteractionManager.runAfterInteractions(() => {
+        refresh();
+      });
+      
+      setShouldFetch(false);
+      return () => task.cancel();
     }
   }, [userId]);
 

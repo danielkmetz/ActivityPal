@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -7,12 +7,12 @@ import {
   TouchableOpacity,
   FlatList,
   InteractionManager,
+  Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
 import bannerPlaceholder from '../../assets/pics/business-placeholder.png';
-import logoPlaceholder from '../../assets/pics/logo-placeholder.png';
 import EditProfileModal from "./EditProfileModal";
 import { selectLogo, fetchLogo, selectBusinessBanner, resetBusinessBanner, resetLogo, fetchBusinessBanner, selectAlbum, fetchPhotos } from "../../Slices/PhotosSlice";
 import { useRoute, useNavigation } from "@react-navigation/native";
@@ -24,9 +24,14 @@ import usePaginatedFetch from "../../utils/usePaginatedFetch";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { fetchBusinessRatingSummaries, selectRatingByPlaceId } from "../../Slices/PlacesSlice";
 import ModalBox from 'react-native-modal';
-import RatingsData from "../Reviews/metricRatings/RatingsData";
-import { useFocusEffect } from "@react-navigation/native";
-import { useCallback } from "react";
+import { selectConversations, chooseUserToMessage } from "../../Slices/DirectMessagingSlice";
+import { fetchBusinessId, selectBusinessId, resetBusinessId } from "../../Slices/UserSlice";
+import { fetchPromotions, selectPromotions, fetchPromotionById } from "../../Slices/PromotionsSlice";
+import { fetchEvents, selectEvents, fetchEventById } from "../../Slices/EventsSlice";
+import BusinessProfileHeader from "./BusinessProfileHeader";
+import { eventPromoLikeWithAnimation } from "../../utils/LikeHandlers/promoEventLikes";
+import BusinessNavTabs from "./BusinessNavTabs";
+import EventPromoFeed from "../BusinessEvents/EventPromoFeed";
 
 export default function BusinessProfile() {
   const dispatch = useDispatch();
@@ -41,8 +46,11 @@ export default function BusinessProfile() {
   const logo = useSelector(selectLogo) || business?.logoFallback;
   const banner = useSelector(selectBusinessBanner);
   const photos = useSelector(selectAlbum);
+  const conversations = useSelector(selectConversations) || [];
+  const events = useSelector(selectEvents);
+  const promotions = useSelector(selectPromotions);
   const businessName = user?.businessName;
-  const placeId = user?.placeId;
+  const placeId = user?.placeId || business?.placeId;
   const location = user?.location?.formattedAddress;
   const phone = user?.phone || "Enter a phone number";
   const description = user?.description || "Enter a description of your business";
@@ -50,8 +58,14 @@ export default function BusinessProfile() {
   const [favoriteModalVisible, setFavoriteModalVisible] = useState(false);
   const [activeSection, setActiveSection] = useState(conditionalSection);
   const [editModalVisible, setEditModalVisible] = useState(false);
+  const [likedAnimations, setLikedAnimations] = useState(null);
   const placeIds = [placeId];
   const ratingData = useSelector(selectRatingByPlaceId(placeId)) || {};
+  const businessId = useSelector(selectBusinessId);
+  const isEventsTab = activeSection === "events";
+  const eventPromoData = isEventsTab ? events : promotions;
+  const scrollX = useRef(new Animated.Value(0)).current;
+  const lastTapRef = useRef({});
 
   const {
     loadMore,
@@ -87,11 +101,26 @@ export default function BusinessProfile() {
   };
 
   useEffect(() => {
+    let task;
+
+    if (business && placeId) {
+      task = InteractionManager.runAfterInteractions(() => {
+        dispatch(fetchBusinessId(placeId));
+        dispatch(fetchEvents(placeId));
+        dispatch(fetchPromotions(placeId));
+      });
+    }
+    return () => {
+      if (task) task.cancel();
+    };
+  }, [business, placeId]);
+
+  useEffect(() => {
     if (placeId && typeof placeId === 'string' && placeId.trim() !== '') {
       dispatch(fetchLogo(placeId));
       dispatch(fetchBusinessBanner(placeId));
       dispatch(fetchPhotos(placeId));
-      dispatch(fetchBusinessRatingSummaries(placeIds))
+      dispatch(fetchBusinessRatingSummaries(placeIds));
 
       // ✅ Delay refresh until after initial render to prevent blinking
       const task = InteractionManager.runAfterInteractions(() => {
@@ -106,16 +135,77 @@ export default function BusinessProfile() {
     navigation.navigate("Settings");
   };
 
-  useFocusEffect(
-    useCallback(() => {
-      return () => {
-        // ✅ Called ONLY when the user navigates away (including swipe)
+  const handleSendMessage = () => {
+    const currentUserId = mainUser?.id;
+
+    if (!currentUserId || !placeId) return;
+
+    const participantIds = [currentUserId, businessId].sort();
+
+    const existingConversation = conversations.find(conv => {
+      const ids = (conv.participants || [])
+        .map(p => (typeof p === 'object' ? p._id : p)?.toString())
+        .filter(Boolean)
+        .sort();
+
+      return (
+        ids.length === participantIds.length &&
+        ids.every((id, index) => id === participantIds[index])
+      );
+    });
+
+    const participant = {
+      _id: businessId,
+      firstName: business?.businessName || "", // Business name in firstName field
+      lastName: "", // Optional — can leave blank for businesses
+      profilePic: logo ? { url: logo } : {}, // Construct profilePic object from logo URL
+      profilePicUrl: logo || "", // Logo as profile picture
+    };
+
+    dispatch(chooseUserToMessage([participant]));
+
+    navigation.navigate('MessageThread', {
+      conversationId: existingConversation?._id || null,
+      participants: [participant],
+    });
+  };
+
+  const handleEventPromoLike = (item, force = true) => {
+    eventPromoLikeWithAnimation({
+      type: item.kind.includes('promo') ? 'promo' : 'event',
+      postId: item._id,
+      item,
+      user: mainUser,
+      lastTapRef,
+      dispatch,
+      force,
+    });
+  };
+
+  const openPromoEventComments = (item) => {
+    if (item.kind.toLowerCase() === "event") {
+      dispatch(fetchEventById({ eventId: item._id }))
+    } else {
+      dispatch(fetchPromotionById({ promotionId: item._id }))
+    }
+    navigation.navigate('EventDetails', { activity: item });
+  };
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      // Avoid resetting if going to MessageThread or another nested screen
+      const nextRoute = e.data?.action?.payload?.name;
+
+      if (nextRoute !== 'MessageThread') {
         dispatch(resetBusinessReviews());
         dispatch(resetBusinessBanner());
         dispatch(resetLogo());
-      };
-    }, [dispatch])
-  );
+        dispatch(resetBusinessId());
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   const renderHeader = () => (
     <>
@@ -125,57 +215,23 @@ export default function BusinessProfile() {
         </TouchableOpacity>
       )}
       <Image source={banner?.presignedUrl ? { uri: banner?.presignedUrl } : bannerPlaceholder} style={styles.banner} />
-      <View style={styles.profileContainer}>
-        <Image source={logo ? { uri: logo } : logoPlaceholder} style={styles.profilePicture} resizeMode="contain" />
-        <View style={styles.nameSettings}>
-          <Text style={styles.businessName}>{businessName}</Text>
-          {!business &&
-            <TouchableOpacity style={styles.settingsIcon} onPress={navgateToSettings}>
-              <Ionicons name="settings-sharp" size={24} color="gray" />
-            </TouchableOpacity>
-          }
-        </View>
-        <View style={business ? styles.indicatorContainerRestricted : styles.indicatorsContainer}>
-          <RatingsData ratingData={ratingData} />
-          {!business ? (
-            <TouchableOpacity style={styles.editProfileButton} onPress={() => setEditModalVisible(true)}>
-              <Ionicons name="pencil" size={20} color="white" />
-              <Text style={styles.editProfileButtonText}>Edit Profile</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={[styles.favoriteButton, isFavorited && styles.isFavorited,]}
-              onPress={handleFavoritePress}
-            >
-              <Ionicons name="star" size={20} color="white" />
-              <Text style={styles.editProfileButtonText}>{isFavorited ? "Favorited" : "Favorite"}</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
+      <BusinessProfileHeader
+        logo={logo}
+        businessName={businessName}
+        business={business}
+        ratingData={ratingData}
+        isFavorited={isFavorited}
+        navgateToSettings={navgateToSettings}
+        setEditModalVisible={setEditModalVisible}
+        handleFavoritePress={handleFavoritePress}
+        handleSendMessage={handleSendMessage}
+      />
       <View style={styles.divider} />
-      <View style={styles.navButtonsContainer}>
-        {business && (
-          <TouchableOpacity
-            style={[styles.navButton, activeSection === "reviews" && styles.activeButton]}
-            onPress={() => setActiveSection("reviews")}
-          >
-            <Text style={styles.navButtonText}>Reviews</Text>
-          </TouchableOpacity>
-        )}
-        <TouchableOpacity
-          style={[styles.navButton, activeSection === "about" && styles.activeButton]}
-          onPress={() => setActiveSection("about")}
-        >
-          <Text style={styles.navButtonText}>About</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.navButton, activeSection === "photos" && styles.activeButton]}
-          onPress={() => setActiveSection("photos")}
-        >
-          <Text style={styles.navButtonText}>Photos</Text>
-        </TouchableOpacity>
-      </View>
+      <BusinessNavTabs
+        business={business}
+        activeSection={activeSection}
+        setActiveSection={setActiveSection}
+      />
       {activeSection === "reviews" && business && (
         <Reviews reviews={reviews} onLoadMore={loadMore} isLoadingMore={isLoading} hasMore={hasMore} />
       )}
@@ -190,7 +246,17 @@ export default function BusinessProfile() {
         </View>
       )}
       {activeSection === "photos" && <Photos photos={photos} />}
-
+      {(activeSection === "events" || activeSection === "promotions") && (
+        <EventPromoFeed
+          data={eventPromoData}
+          scrollX={scrollX}
+          likedAnimations={likedAnimations}
+          lastTapRef={lastTapRef}
+          activeSection={activeSection}
+          handleEventPromoLike={handleEventPromoLike}
+          openPromoEventComments={openPromoEventComments}
+        />
+      )}
     </>
   );
 
@@ -226,13 +292,11 @@ export default function BusinessProfile() {
         <View style={styles.modalContent}>
           {/* Modal Title */}
           <Text style={styles.modalTitle}>Remove from Favorites?</Text>
-
           {/* Remove Button */}
           <TouchableOpacity onPress={handleRemoveFavorite} style={styles.modalButton}>
             <MaterialCommunityIcons name="delete-outline" size={20} color="red" />
             <Text style={styles.modalButtonTextRed}>Remove</Text>
           </TouchableOpacity>
-
           {/* Cancel Button */}
           <TouchableOpacity style={styles.modalCancelButton}>
             <Text style={styles.modalCancelButtonText}>Cancel</Text>
@@ -263,93 +327,11 @@ const styles = StyleSheet.create({
     position: "relative", // To position the settings icon inside the banner
     width: '100%',
   },
-  profileContainer: {
-    marginTop: -75, // Pull the profile picture up to overlap the banner
-    alignItems: "flex-start", // Align profile picture and text to the left
-  },
-  profilePicture: {
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    borderWidth: 5, // Optional border for better overlap effect
-    borderColor: "#fff", // White border to match the background
-    backgroundColor: 'white'
-  },
-  nameSettings: {
-    width: "100%",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 10,
-  },
-  businessName: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#333", // Dark text color
-    textAlign: "left",
-    maxWidth: "60%",
-    marginLeft: 15,
-  },
-  settingsIcon: {
-    padding: 5,
-    marginRight: 20,
-  },
-  indicatorsContainer: {
-    flexDirection: "row",
-    marginTop: 10,
-    justifyContent: "space-between",
-    width: "100%",
-    marginLeft: 15,
-    padding: 8,
-  },
-  indicatorContainerRestricted: {
-    flexDirection: 'row',
-    marginTop: 10,
-    width: '100%',
-    justifyContent: 'space-between',
-    padding: 8,
-  },
-  indicator: {
-    flexDirection: "column",
-    alignItems: "center",
-  },
-  indicatorLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  indicatorValue: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#0073e6",
-  },
-  starsContainer: {
-    flexDirection: "row",
-    marginTop: 5,
-  },
   divider: {
     width: "100%",
     height: 1,
     backgroundColor: "lightgray", // Line color
     marginVertical: 5, // Spacing above and below the line
-  },
-  navButtonsContainer: {
-    flexDirection: "row",
-    marginVertical: 10,
-    marginLeft: 5,
-  },
-  navButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 30,
-  },
-  activeButton: {
-    backgroundColor: 'rgba(144, 238, 144, 0.4)',
-  },
-  navButtonText: {
-    color: "black",
-    fontWeight: "bold",
   },
   aboutContainer: {
     padding: 10,
@@ -361,59 +343,6 @@ const styles = StyleSheet.create({
   },
   photosGrid: {
     padding: 0,
-  },
-  photo: {
-    width: 100,
-    height: 100,
-    margin: 5,
-    borderRadius: 5,
-  },
-  defaultLogo: {
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    backgroundColor: "#008080",
-    justifyContent: "center", // Center the text
-    alignItems: "center", // Center the text
-    borderWidth: 5, // Optional border
-    borderColor: "#fff", // White border to match design
-  },
-  defaultLogoText: {
-    color: "#fff", // White text for contrast
-    fontSize: 14,
-    fontWeight: "bold",
-    textAlign: "center",
-  },
-  editProfileButton: {
-    backgroundColor: "gray",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 5,
-    marginLeft: 10,
-    marginRight: 15,
-    height: 40,
-    alignSelf: 'flex-end'
-  },
-  editProfileButtonText: {
-    color: "white",
-    marginLeft: 5,
-    fontWeight: "bold",
-  },
-  favoriteButton: {
-    backgroundColor: "teal",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 5,
-    marginRight: 5,
-    height: 35,
-    alignSelf: 'flex-end',
-  },
-  isFavorited: {
-    backgroundColor: 'gray',
   },
   bottomModal: {
     justifyContent: "flex-end",
@@ -462,5 +391,19 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "bold",
     color: "#007bff",
+  },
+  itemCard: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderRadius: 5,
+    marginBottom: 10,
+    elevation: 2,
+    position: 'relative',
+    paddingBottom: 20,
+  },
+  itemInfo: {
+    flex: 1,
   },
 });

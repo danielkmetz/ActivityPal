@@ -241,6 +241,30 @@ export const updateAnyPrivacySettings = createAsyncThunk(
   }
 );
 
+export const fetchBusinessId = createAsyncThunk(
+  'user/fetchBusinessIdByPlaceId',
+  async (placeId, { rejectWithValue }) => {
+    try {
+      const token = await getUserToken();
+
+      const response = await axios.get(
+        `${BASE_URL}/businessUsers/id/${placeId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      return response.data.businessId; // Mongo _id
+    } catch (error) {
+      return rejectWithValue(
+        error.response?.data?.message || 'Failed to fetch business ID'
+      );
+    }
+  }
+);
+
 // User slice
 const userSlice = createSlice({
   name: "user",
@@ -260,6 +284,7 @@ const userSlice = createSlice({
     otherUserName: null,
     token: null, // JWT token (if applicable)
     isBusiness: false, // User type
+    businessId: null,
     loading: false, // Loading state
     error: null, // Error message
   },
@@ -275,6 +300,9 @@ const userSlice = createSlice({
     },
     resetBusinessName: (state) => {
       state.businessName = null;
+    },
+    resetBusinessId: (state) => {
+      state.businessId = null;
     },
   },
   extraReducers: (builder) => {
@@ -372,11 +400,22 @@ const userSlice = createSlice({
         state.loading = false;
         state.error = action.payload || 'Failed to update privacy settings';
       })
-
+      .addCase(fetchBusinessId.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchBusinessId.fulfilled, (state, action) => {
+        state.loading = false;
+        state.businessId = action.payload;
+      })
+      .addCase(fetchBusinessId.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload || 'Failed to fetch business ID';
+      })
   },
 });
 
-export const { logout } = userSlice.actions;
+export const { logout, resetBusinessId } = userSlice.actions;
 
 export const selectUser = (state) => state.user.user;
 export const selectLoading = (state) => state.user.loading;
@@ -386,6 +425,7 @@ export const selectOtherUserData = (state) => state.user.otherUserData || [];
 export const selectOtherUserSettings = (state) => state.user.otherUserSettings;
 export const selectPrivacySettings = (state) => state.user.privacySettings;
 export const selectOtherUserName = state => state.user.otherUserName;
+export const selectBusinessId = (state) => state.user.businessId;
 
 export default userSlice.reducer;
 

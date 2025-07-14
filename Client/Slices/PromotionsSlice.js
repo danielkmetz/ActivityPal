@@ -330,14 +330,14 @@ const promotionsSlice = createSlice({
       })
       .addCase(togglePromoLike.fulfilled, (state, action) => {
         state.loading = false;
-        const { promoId, updatedLikes } = action.payload;
+        const { promoId, likes } = action.payload;
 
         const index = state.promotions.findIndex((p) => p._id === promoId);
         if (index !== -1) {
-          state.promotions[index].likes = updatedLikes;
+          state.promotions[index].likes = likes;
         }
         if (state.selectedPromotion?._id === promoId) {
-          state.selectedPromotion.likes = updatedLikes;
+          state.selectedPromotion.likes = likes;
         }
       })
       .addCase(togglePromoLike.rejected, (state, action) => {
