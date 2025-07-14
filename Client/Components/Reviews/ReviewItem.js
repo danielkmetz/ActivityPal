@@ -23,6 +23,7 @@ import { handleFollowUserHelper } from "../../utils/followHelper";
 import { createNotification } from "../../Slices/NotificationsSlice";
 import RatingsBreakdownModal from "./metricRatings/RatingsBreakdownModal";
 import { declineFollowRequest, cancelFollowRequest, approveFollowRequest } from "../../Slices/friendsSlice";
+import { logEngagementIfNeeded } from "../../Slices/EngagementSlice";
 
 const screenWidth = Dimensions.get("window").width;
 
@@ -63,6 +64,16 @@ export default function ReviewItem({
         ])
     );
 
+    const navigateToBusiness = () => {
+        logEngagementIfNeeded(dispatch, {
+            targetType: 'place',
+            targetId: item.placeId,
+            placeId: item.placeId,
+            engagementType: 'click',
+        })
+        navigation.navigate("BusinessProfile", { business: item});
+    }
+
     const handleOpenFullScreen = (photo, index) => {
         navigation.navigate('FullScreenPhoto', {
             reviewId: item._id,
@@ -74,7 +85,6 @@ export default function ReviewItem({
     };
 
     const navigateToOtherUserProfile = (userId) => {
-        console.log(userId)
         if (userId !== user?.id) {
             navigation.navigate('OtherUserProfile', { userId }); // Pass user data to the new screen
         } else {
@@ -211,7 +221,9 @@ export default function ReviewItem({
                             {renderFollowButton()}
                         </View>
                     </View>
-                    <Text style={styles.business}>{item.businessName}</Text>
+                    <TouchableOpacity onPress={navigateToBusiness}>
+                        <Text style={styles.business}>{item.businessName}</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity onPress={() => setRatingsOpen(true)} activeOpacity={0.7}>
                         <View style={styles.ratingButton}>
                             <View style={styles.ratingStars}>
