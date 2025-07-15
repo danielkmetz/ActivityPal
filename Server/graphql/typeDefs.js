@@ -96,6 +96,59 @@ const typeDefs = gql`
     sortDate: String
   }
 
+  type Promotion {
+    _id: ID!
+    placeId: String!
+    businessName: String!
+    businessLogoUrl: String
+    title: String!
+    description: String
+    startDate: String
+    endDate: String
+    timeStart: String
+    timeEnd: String
+    recurrenceDays: [String]
+    media: [Media!]
+    likes: [Like]
+    comments: [Comment]
+    createdAt: String!
+    type: String!
+    sortDate: String
+  }
+
+  type Event {
+    _id: ID!
+    placeId: String!
+    businessName: String!
+    businessLogoUrl: String
+    title: String!
+    description: String
+    date: Date!
+    timeStart: String
+    timeEnd: String
+    recurrenceDays: [String]
+    media: [Media!]
+    likes: [Like]
+    comments: [Comment]
+    createdAt: String!
+    type: String!
+    sortDate: String
+  }
+
+  type SharedPost {
+    _id: ID!
+    user: User!
+    originalOwner: User!
+    postType: String!
+    originalPostId: ID!
+    caption: String
+    createdAt: String!
+    original: SharedContent
+    comments: [Comment]
+    type: String!
+    sortDate: String
+  }
+
   input ActivityCursor {
     sortDate: String!
     id: ID!
@@ -248,7 +301,8 @@ const typeDefs = gql`
     recommendPercentage: Int!
   }
 
-  union UserActivity = Review | CheckIn | ActivityInvite
+  union UserActivity = Review | CheckIn | ActivityInvite | SharedPost
+  union SharedContent = Review | CheckIn | ActivityInvite | Promotion | Event
   union UserPost = Review | CheckIn
 
   # ✅ Queries
@@ -263,6 +317,7 @@ const typeDefs = gql`
     userAndFollowingStories(userId: ID!): [Story]
     storiesByUser(userId: ID!): [Story]
     getBusinessRatingSummaries(placeIds: [String!]!): [BusinessRatingSummary!]!
+    getUserAndFollowingSharedPosts(userId: ID!): [SharedPost]
   }
 `;
 
