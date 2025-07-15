@@ -1,6 +1,9 @@
 import { gql } from "@apollo/client";
+import { COMMENTS_REPLIES_FRAGMENT } from "./commentsRepliesFragment";
 
 export const INVITE_FRAGMENT = gql`
+  ${COMMENTS_REPLIES_FRAGMENT}
+
   fragment InviteFields on ActivityInvite {
     _id
     sender {
@@ -42,148 +45,7 @@ export const INVITE_FRAGMENT = gql`
       fullName
     }
     comments {
-      _id
-      userId
-      fullName
-      commentText
-      likes {
-        userId
-        fullName
-      }
-        media {
-          photoKey
-          mediaType
-          mediaUrl
-        }
-      date
-      replies {
-        _id
-        userId
-        fullName
-        commentText
-        likes {
-          userId
-          fullName
-        }
-          media {
-            photoKey
-            mediaType
-            mediaUrl
-          }
-        date
-        replies {
-          _id
-          userId
-          fullName
-          commentText
-          likes {
-            userId
-            fullName
-          }
-            media {
-              photoKey
-              mediaType
-              mediaUrl
-            }
-          date
-          replies {
-            _id
-            userId
-            fullName
-            commentText
-            likes {
-              userId
-              fullName
-            }
-              media {
-                photoKey
-                mediaType
-                mediaUrl
-              }
-            date
-            replies {
-              _id
-              userId
-              fullName
-              commentText
-              likes {
-                userId
-                fullName
-              }
-                media {
-                  photoKey
-                  mediaType
-                  mediaUrl
-                }
-              date
-              replies {
-                _id
-                userId
-                fullName
-                commentText
-                likes {
-                  userId
-                  fullName
-                }
-                  media {
-                    photoKey
-                    mediaType
-                    mediaUrl
-                  }
-                date
-                replies {
-                  _id
-                  userId
-                  fullName
-                  commentText
-                  likes {
-                    userId
-                    fullName
-                  }
-                    media {
-                      photoKey
-                      mediaType
-                      mediaUrl
-                    }
-                  date
-                  replies {
-                    _id
-                    userId
-                    fullName
-                    commentText
-                    likes {
-                      userId
-                      fullName
-                    }
-                      media {
-                        photoKey
-                        mediaType
-                        mediaUrl
-                      }
-                    date
-                    replies {
-                      _id
-                      userId
-                      fullName
-                      commentText
-                      likes {
-                        userId
-                        fullName
-                      }
-                        media {
-                          photoKey
-                          mediaType
-                          mediaUrl
-                        }
-                      date
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
+      ...CommentsRepliesFields
     }
   }
 `;

@@ -8,6 +8,7 @@ const bodyParser = require('body-parser');
 const morgan = require('morgan');
 const { expressMiddleware } = require('@apollo/server/express4');
 const createApolloServer = require('./graphql/schema'); // Import GraphQL setup
+const { getUserFromToken } = require('./utils/auth');
 const setupDirectMessagingSocket = require('./socket/messagingSocket');
 
 // Import routes
@@ -34,6 +35,7 @@ const recentSearches = require('./routes/searchHistory');
 const stories = require('./routes/stories');
 const directMessages = require('./routes/directMessages');
 const engagement = require('./routes/engagement');
+const sharedPosts = require('./routes/sharedPosts');
 
 // Initialize app
 const app = express();
@@ -60,11 +62,45 @@ mongoose
   .then(() => console.log('MongoDB connected successfully'))
   .catch((err) => console.error('MongoDB connection error:', err));
 
-// Initialize and apply Apollo Server middleware
+// ✅ Initialize and apply Apollo Server middleware with context
 (async () => {
-  const apolloServer = createApolloServer();
-  await apolloServer.start();
-  app.use('/api/graphql', expressMiddleware(apolloServer));
+  try {
+    const apolloServer = createApolloServer({
+      formatError: (err) => err, // Retain default behavior without logging
+      plugins: [{
+        async requestDidStart() {
+          return {
+            async didResolveOperation() {
+              // No-op
+            },
+            async didEncounterErrors() {
+              // No-op
+            },
+          };
+        },
+      }],
+    });
+
+    await apolloServer.start();
+
+    app.use(
+      '/api/graphql',
+      expressMiddleware(apolloServer, {
+        context: async ({ req }) => {
+          const user = await getUserFromToken(req);
+          return { user };
+        },
+      })
+    );
+
+    console.log('✅ Apollo GraphQL server is running at /api/graphql');
+  } catch (error) {
+    console.error('❌ Failed to start Apollo Server:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+    });
+  }
 })();
 
 // Routes
@@ -91,6 +127,7 @@ app.use('/api/recent-searches', recentSearches);
 app.use('/api/stories', stories);
 app.use('/api/directMessages', directMessages);
 app.use('/api/engagement', engagement);
+app.use('/api/sharedPosts', sharedPosts);
 
 setupDirectMessagingSocket(io);
 

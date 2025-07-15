@@ -247,6 +247,7 @@ export default function BusinessProfile() {
       )}
       {activeSection === "photos" && <Photos photos={photos} />}
       {(activeSection === "events" || activeSection === "promotions") && (
+        <>
         <EventPromoFeed
           data={eventPromoData}
           scrollX={scrollX}
@@ -256,6 +257,8 @@ export default function BusinessProfile() {
           handleEventPromoLike={handleEventPromoLike}
           openPromoEventComments={openPromoEventComments}
         />
+        <View style={{ marginBottom: 40 }}/>
+        </>
       )}
     </>
   );

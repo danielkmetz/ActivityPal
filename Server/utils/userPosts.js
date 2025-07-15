@@ -2,7 +2,20 @@ const User = require("../models/User");
 const Business = require("../models/Business");
 const CheckIn = require('../models/CheckIns.js');
 const Review = require('../models/Reviews.js');
+const Promotion = require('../models/Promotions.js');
+const Event = require('../models/Events.js');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
+
+function getModelByType(type) {
+  switch (type) {
+    case 'review': return Review;
+    case 'checkin': return CheckIn;
+    case 'invite': return ActivityInvite;
+    case 'promotion': return Promotion;
+    case 'event': return Event;
+    default: return null;
+  }
+}
 
 async function enrichCommentMedia(media) {
   if (!media || !media.photoKey) {
@@ -245,6 +258,96 @@ async function resolveUserProfilePics(userIds) {
   return result;
 }
 
+async function enrichSharedPost(shared, profilePicMap = {}) {
+  try {
+    const { postType, originalPostId } = shared;
+    const Model = getModelByType(postType);
+    if (!Model) return null;
+
+    const original = await Model.findById(originalPostId).lean();
+    if (!original) return null;
+
+    switch (postType) {
+      case 'review': {
+        const taggedUsers = await resolveTaggedUsers(original.taggedUsers || []);
+        const rawPhotos = await resolveTaggedPhotoUsers(original.photos || []);
+        const business = await Business.findOne({ placeId: original.placeId }).select('businessName').lean();
+        const comments = await enrichComments(original.comments || []);
+
+        return {
+          __typename: "Review",
+          ...original,
+          businessName: business?.businessName || null,
+          date: new Date(original.date).toISOString(),
+          profilePic: profilePicMap[original.userId?.toString()]?.profilePic || null,
+          profilePicUrl: profilePicMap[original.userId?.toString()]?.profilePicUrl || null,
+          taggedUsers,
+          photos: rawPhotos.filter(p => p && p._id && p.photoKey),
+          comments,
+          type: "review",
+        };
+      }
+
+      case 'checkin': {
+        const taggedUsers = await resolveTaggedUsers(original.taggedUsers || []);
+        const rawPhotos = await resolveTaggedPhotoUsers(original.photos || []);
+        const business = await Business.findOne({ placeId: original.placeId }).select('businessName').lean();
+        const comments = await enrichComments(original.comments || []);
+
+        return {
+          __typename: "CheckIn",
+          ...original,
+          date: new Date(original.date).toISOString(),
+          profilePic: profilePicMap[original.userId?.toString()]?.profilePic || null,
+          profilePicUrl: profilePicMap[original.userId?.toString()]?.profilePicUrl || null,
+          businessName: business?.businessName || null,
+          photos: rawPhotos.filter(p => p && p._id && p.photoKey),
+          taggedUsers,
+          comments,
+          type: "check-in",
+        };
+      }
+
+      case 'invite': {
+        const business = await Business.findOne({ placeId: original.placeId }).lean();
+        const comments = await enrichComments(original.comments || []);
+        const logoUrl = business?.logoKey ? await getPresignedUrl(business.logoKey) : null;
+
+        return {
+          __typename: "ActivityInvite",
+          ...original,
+          businessName: business?.businessName || null,
+          businessLogoUrl: logoUrl,
+          comments,
+          type: "invite",
+        };
+      }
+
+      case 'promotion':
+      case 'event': {
+        const business = await Business.findOne({ placeId: original.placeId }).lean();
+        const comments = await enrichComments(original.comments || []);
+        const logoUrl = business?.logoKey ? await getPresignedUrl(business.logoKey) : null;
+
+        return {
+          __typename: postType === 'promotion' ? "Promotion" : "Event",
+          ...original,
+          businessName: business?.businessName || null,
+          businessLogoUrl: logoUrl,
+          comments,
+          type: postType,
+        };
+      }
+
+      default:
+        return null;
+    }
+  } catch (err) {
+    console.error("❌ Error enriching shared post:", err);
+    return null;
+  }
+}
+
 module.exports = {
   gatherUserReviews,
   gatherUserCheckIns,
@@ -252,4 +355,5 @@ module.exports = {
   resolveTaggedPhotoUsers,
   resolveUserProfilePics,
   enrichComments,
+  enrichSharedPost,
 };

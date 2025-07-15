@@ -67,6 +67,8 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
     const manualBudget = "$$$$";
     const listRef = useRef(null);
 
+    console.log(activities);
+
     useEffect(() => {
         if (!(scrollY instanceof Animated.Value)) return;
 
