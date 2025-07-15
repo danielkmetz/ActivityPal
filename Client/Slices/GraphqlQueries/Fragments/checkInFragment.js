@@ -1,6 +1,9 @@
 import { gql } from "@apollo/client";
+import { COMMENTS_REPLIES_FRAGMENT } from "./commentsRepliesFragment";
 
 export const CHECKIN_FRAGMENT = gql`
+  ${ COMMENTS_REPLIES_FRAGMENT }
+
   fragment CheckInFields on CheckIn {
     _id
     businessName
@@ -28,116 +31,7 @@ export const CHECKIN_FRAGMENT = gql`
       fullName
     }
     comments {
-      _id
-      commentText
-      userId
-      fullName
-      likes {
-        userId
-        fullName
-      }
-        media {
-          photoKey
-          mediaType
-          mediaUrl
-        }
-      date
-      replies {
-        _id
-        commentText
-        userId
-        fullName
-        likes {
-          userId
-          fullName
-        }
-          media {
-          photoKey
-          mediaType
-          mediaUrl
-        }
-        date
-        replies {
-          _id
-          commentText
-          userId
-          fullName
-          likes {
-            userId
-            fullName
-          }
-            media {
-              photoKey
-              mediaType
-              mediaUrl
-            }
-          date
-          replies {
-            _id
-            commentText
-            userId
-            fullName
-            likes {
-              userId
-              fullName
-            }
-              media {
-                photoKey
-                mediaType
-                mediaUrl
-              }
-            date
-            replies {
-              _id
-              commentText
-              userId
-              fullName
-              likes {
-                userId
-                fullName
-              }
-                media {
-                  photoKey
-                  mediaType
-                  mediaUrl
-                }
-              date
-              replies {
-                _id
-                commentText
-                userId
-                fullName
-                likes {
-                  userId
-                  fullName
-                }
-                  media {
-                    photoKey
-                    mediaType
-                    mediaUrl
-                  }
-                date
-                replies {
-                  _id
-                  commentText
-                  userId
-                  fullName
-                  likes {
-                    userId
-                    fullName
-                  }
-                    media {
-                      photoKey
-                      mediaType
-                      mediaUrl
-                    }
-                  date
-                }
-              }
-            }
-          }
-        }
-      }
+      ...CommentsRepliesFields
     }
     likes {
       userId
