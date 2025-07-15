@@ -21,6 +21,7 @@ import recentSearchesReducer from './Slices/RecentSearchesSlice';
 import storiesReducer from './Slices/StoriesSlice';
 import directMessagesReducer from './Slices/DirectMessagingSlice';
 import engagementReducer from './Slices/EngagementSlice';
+import sharedPostReducer from './Slices/SharedPostsSlice';
 
 const store = configureStore({
     reducer: combineReducers({
@@ -46,6 +47,7 @@ const store = configureStore({
        stories: storiesReducer,
        directMessages: directMessagesReducer,
        engagement: engagementReducer,
+       sharedPosts: sharedPostReducer,
     })
 });
 
