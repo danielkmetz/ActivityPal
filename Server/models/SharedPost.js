@@ -6,7 +6,7 @@ const SharedPostSchema = new mongoose.Schema({
   originalOwner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }, // original creator
   postType: {
     type: String,
-    enum: ['review', 'checkin', 'invite', 'promotion', 'event'],
+    enum: ['review', 'check-in', 'invite', 'promotion', 'event'],
     required: true
   },
   originalPostId: { type: mongoose.Schema.Types.ObjectId, required: true },
