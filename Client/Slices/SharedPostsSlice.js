@@ -1,17 +1,27 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import { getUserToken } from '../functions';
 import axios from 'axios';
 
 // 🔐 Base config
-const API_BASE = `${process.env.EXPO_PUBLIC_SERVER_URL}/api/shared`;
+const API_BASE = `${process.env.EXPO_PUBLIC_SERVER_URL}/sharedPosts`;
 
-// 🔄 Thunks
+const getAuthHeaders = async () => {
+  const token = await getUserToken();
+  return {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  };
+};
 
 // Create a shared post
 export const createSharedPost = createAsyncThunk(
   'sharedPosts/create',
   async ({ postType, originalPostId, caption }, { rejectWithValue }) => {
     try {
-      const res = await axios.post(API_BASE, { postType, originalPostId, caption });
+      const config = await getAuthHeaders();
+
+      const res = await axios.post(API_BASE, { postType, originalPostId, caption }, config);
       return res.data;
     } catch (err) {
       console.error('❌ Error creating shared post:', err.response?.data || err.message);
@@ -25,7 +35,9 @@ export const fetchSharedPostById = createAsyncThunk(
   'sharedPosts/fetchById',
   async (sharedPostId, { rejectWithValue }) => {
     try {
-      const res = await axios.get(`${API_BASE}/${sharedPostId}`);
+      const config = await getAuthHeaders();
+
+      const res = await axios.get(`${API_BASE}/${sharedPostId}`, config);
       return res.data;
     } catch (err) {
       console.error('❌ Error fetching shared post by ID:', err.response?.data || err.message);
@@ -39,7 +51,9 @@ export const fetchSharedPostsByUser = createAsyncThunk(
   'sharedPosts/fetchByUser',
   async (userId, { rejectWithValue }) => {
     try {
-      const res = await axios.get(`${API_BASE}/by-user/${userId}`);
+      const config = await getAuthHeaders();
+
+      const res = await axios.get(`${API_BASE}/by-user/${userId}`, config);
       return res.data;
     } catch (err) {
       console.error('❌ Error fetching shared posts by user:', err.response?.data || err.message);
@@ -53,7 +67,9 @@ export const deleteSharedPost = createAsyncThunk(
   'sharedPosts/delete',
   async (sharedPostId, { rejectWithValue }) => {
     try {
-      await axios.delete(`${API_BASE}/${sharedPostId}`);
+      const config = await getAuthHeaders();
+
+      await axios.delete(`${API_BASE}/${sharedPostId}`, config);
       return sharedPostId;
     } catch (err) {
       console.error('❌ Error deleting shared post:', err.response?.data || err.message);
@@ -94,11 +110,9 @@ const sharedPostsSlice = createSlice({
         state.loading = false;
         state.error = action.payload?.error || 'Failed to create shared post';
       })
-
       .addCase(fetchSharedPostById.fulfilled, (state, action) => {
         state.byId[action.payload._id] = action.payload;
       })
-
       .addCase(fetchSharedPostsByUser.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -114,7 +128,6 @@ const sharedPostsSlice = createSlice({
         state.loading = false;
         state.error = action.payload?.error || 'Failed to fetch shared posts';
       })
-
       .addCase(deleteSharedPost.fulfilled, (state, action) => {
         const id = action.payload;
         delete state.byId[id];

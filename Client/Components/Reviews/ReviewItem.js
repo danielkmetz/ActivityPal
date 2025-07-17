@@ -38,6 +38,7 @@ export default function ReviewItem({
     handleDelete,
     following,
     followRequests,
+    onShare,
 }) {
     const dispatch = useDispatch();
     const navigation = useNavigation();
@@ -291,6 +292,7 @@ export default function ReviewItem({
                         handleOpenComments={handleOpenComments}
                         toggleTaggedUsers={toggleTaggedUsers}
                         photo={currentPhoto}
+                        onShare={onShare}
                     />
                 </View>
             </View>
