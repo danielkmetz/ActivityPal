@@ -15,7 +15,7 @@ import { useNavigation } from '@react-navigation/native';
 import StoryAvatar from '../Stories/StoryAvatar';
 import { TouchableWithoutFeedback } from 'react-native-web';
 
-const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments }) => {
+const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onShare }) => {
     const dispatch = useDispatch();
     const navigation = useNavigation();
     const [timeLeft, setTimeLeft] = useState(getTimeLeft(invite.dateTime));
@@ -201,6 +201,7 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments }) => 
                             item={invite}
                             handleLikeWithAnimation={handleLikeWithAnimation}
                             handleOpenComments={handleOpenComments}
+                            onShare={onShare}
                         />
                     </View>
                     <View style={styles.requestsAttendance}>

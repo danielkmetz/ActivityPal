@@ -38,6 +38,7 @@ export default function CheckInItem({
     handleEdit,
     following,
     followRequests,
+    onShare,
 }) {
     const dispatch = useDispatch();
     const navigation = useNavigation();
@@ -288,6 +289,7 @@ export default function CheckInItem({
                     handleOpenComments={handleOpenComments}
                     toggleTaggedUsers={toggleTaggedUsers}
                     photo={currentPhoto}
+                    onShare={onShare}
                 />
             </View>
         </View>

@@ -7,12 +7,13 @@ const CheckIn = require('../models/CheckIns');
 const ActivityInvite = require('../models/ActivityInvites');
 const Promotion = require('../models/Promotions');
 const Event = require('../models/Events');
+const { resolveUserProfilePics, enrichSharedPost } = require('../utils/userPosts');
 
 // Utility to map postType to model
 const getModelByType = (type) => {
   switch (type) {
     case 'review': return Review;
-    case 'checkin': return CheckIn;
+    case 'check-in': return CheckIn;
     case 'invite': return ActivityInvite;
     case 'promotion': return Promotion;
     case 'event': return Event;
@@ -23,38 +24,76 @@ const getModelByType = (type) => {
 // ✅ CREATE a shared post
 router.post('/', verifyToken, async (req, res) => {
   try {
-    const { postType, originalPostId, caption } = req.body;
-    const userId = req.user._id;
+    console.log('📥 Incoming shared post request:', req.body);
 
-    if (!['review', 'checkin', 'invite', 'promotion', 'event'].includes(postType)) {
+    const { postType, originalPostId, caption } = req.body;
+    const userId = req.user?.id;
+    console.log('👤 Authenticated user:', userId);
+
+    if (!userId) {
+      console.warn('⚠️ No user ID found in token');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    if (!['review', 'check-in', 'invite', 'promotion', 'event'].includes(postType)) {
+      console.warn('⚠️ Invalid postType:', postType);
       return res.status(400).json({ error: 'Invalid postType' });
     }
 
     const Model = getModelByType(postType);
+    console.log('📘 Resolved model for postType:', postType);
+
     const original = await Model.findById(originalPostId);
     if (!original) {
+      console.warn('⚠️ Original post not found:', originalPostId);
       return res.status(404).json({ error: 'Original post not found' });
+    }
+
+    console.log('✅ Found original post:', original._id);
+
+    // 🧠 Determine originalOwner based on postType
+    let originalOwner;
+
+    switch (postType) {
+      case 'review':
+      case 'check-in':
+      case 'invite':
+        originalOwner = original.userId;
+        break;
+      case 'promotion':
+      case 'event':
+        originalOwner = original.placeId;
+        break;
+      default:
+        return res.status(400).json({ error: 'Unsupported postType for ownership resolution' });
+    }
+
+    if (!originalOwner) {
+      console.warn('⚠️ Could not resolve originalOwner for post:', original._id);
+      return res.status(500).json({ error: 'Unable to determine original owner of post' });
     }
 
     const sharedPost = await SharedPost.create({
       user: userId,
-      originalOwner: original.user || original.creator, // varies by model
+      originalOwner,
       postType,
       originalPostId,
       caption,
     });
 
-    // 🧠 Resolve profile pics for both user and original owner
+    console.log('📝 Created shared post:', sharedPost._id);
+
     const profilePicMap = await resolveUserProfilePics([
       sharedPost.user.toString(),
-      sharedPost.originalOwner.toString()
+      sharedPost.originalOwner.toString(),
     ]);
+    console.log('🧠 Profile pics resolved');
 
-    // 🧠 Enrich the shared post
     const enrichedOriginal = await enrichSharedPost(sharedPost, profilePicMap);
+    console.log('🔗 Enriched original post');
 
     res.status(201).json({
-      ...sharedPost,
+      ...sharedPost.toObject(), // 👈 important to use .toObject() to avoid Mongoose prototype in response
       user: {
         _id: userId,
         ...profilePicMap[userId.toString()],
@@ -67,7 +106,7 @@ router.post('/', verifyToken, async (req, res) => {
       type: 'sharedPost',
     });
   } catch (err) {
-    console.error('Error creating shared post:', err);
+    console.error('❌ Error creating shared post:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

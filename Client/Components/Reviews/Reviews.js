@@ -18,6 +18,7 @@ import { useLikeAnimations } from "../../utils/LikeHandlers/LikeAnimationContext
 import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from "../../utils/LikeHandlers";
 import { useNavigation } from "@react-navigation/native";
 import { selectFollowing, selectFollowRequests } from "../../Slices/friendsSlice";
+import SharePostModal from "./SharePostModal";
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
@@ -28,6 +29,8 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
   const following = useSelector(selectFollowing);
   const followRequests = useSelector(selectFollowRequests);
   const [photoTapped, setPhotoTapped] = useState(null);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [selectedPostForShare, setSelectedPostForShare] = useState(null);
   const lastTapRef = useRef({});
   const [likedAnimations, setLikedAnimations] = useState({});
   const { registerAnimation, getAnimation } = useLikeAnimations();
@@ -126,6 +129,16 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
     }
   };
 
+  const openShareModal = (post) => {
+    setShareModalVisible(true);
+    setSelectedPostForShare(post);
+  };
+
+  const closeShareModal = () => {
+    setShareModalVisible(false);
+    setSelectedPostForShare(null);
+  };
+
   useEffect(() => {
     reviews?.forEach(post => {
       if (post?._id) {
@@ -181,6 +194,7 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
                 invite={item}
                 handleLikeWithAnimation={handleLikeWithAnimation}
                 handleOpenComments={handleOpenComments}
+                onShare={openShareModal}
               />
             )
           }
@@ -201,6 +215,7 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
                 handleEdit={handleEditPost}
                 following={following}
                 followRequests={followRequests}
+                onShare={openShareModal}
               />
             );
           }
@@ -209,6 +224,7 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
             return (
               <SuggestionItem
                 suggestion={item}
+                onShare={openShareModal}
               />
             );
           }
@@ -226,9 +242,15 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
               handleEdit={handleEditPost}
               following={following}
               followRequests={followRequests}
+              onShare={openShareModal}
             />
           );
         }}
+      />
+      <SharePostModal
+        visible={shareModalVisible}
+        onClose={closeShareModal}
+        post={selectedPostForShare}
       />
     </>
   )

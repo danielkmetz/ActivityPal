@@ -20,10 +20,11 @@ import { eventPromoLikeWithAnimation } from "../../utils/LikeHandlers/promoEvent
 import PostActions from "./PostActions";
 import { selectUser } from "../../Slices/UserSlice";
 import { logEngagementIfNeeded, getEngagementTarget } from "../../Slices/EngagementSlice";
+import profilePicPlaceholder from "../../assets/pics/profile-pic-placeholder.jpg";
 
 const screenWidth = Dimensions.get("window").width;
 
-export default function SuggestionItem({ suggestion }) {
+export default function SuggestionItem({ suggestion, onShare }) {
     const navigation = useNavigation();
     const dispatch = useDispatch();
     const user = useSelector(selectUser);
@@ -197,7 +198,7 @@ export default function SuggestionItem({ suggestion }) {
                         <Avatar
                             size={45}
                             rounded
-                            source={logoUrl ? { uri: logoUrl } : require("../../assets/pics/profile-pic-placeholder.jpg")}
+                            source={logoUrl ? { uri: logoUrl } : profilePicPlaceholder}
                             containerStyle={styles.overlayAvatar}
                         />
                         <View style={styles.overlayTextContainer}>
@@ -206,6 +207,14 @@ export default function SuggestionItem({ suggestion }) {
                                 {distance ? `${(distance / 1609).toFixed(1)} mi away` : null}
                             </Text>
                         </View>
+                        <TouchableOpacity
+                            style={styles.inviteButton}
+                            onPress={inviteCreationEditing}
+                        >
+                            <Text style={styles.inviteText}>
+                                {existingInvite ? "Edit Invite" : "Invite"}
+                            </Text>
+                        </TouchableOpacity>
                     </View>
                 </View>
             ) : (
@@ -217,7 +226,7 @@ export default function SuggestionItem({ suggestion }) {
                         <Avatar
                             size={45}
                             rounded
-                            source={logoUrl ? { uri: logoUrl } : require("../../assets/pics/profile-pic-placeholder.jpg")}
+                            source={logoUrl ? { uri: logoUrl } : profilePicPlaceholder}
                             containerStyle={styles.overlayAvatar}
                         />
                         <View style={styles.overlayTextContainer}>
@@ -226,23 +235,26 @@ export default function SuggestionItem({ suggestion }) {
                                 {distance ? `${(distance / 1609).toFixed(1)} mi away` : null}
                             </Text>
                         </View>
+                        <TouchableOpacity
+                            style={styles.inviteButton}
+                            onPress={inviteCreationEditing}
+                        >
+                            <Text style={styles.inviteText}>
+                                {existingInvite ? "Edit Invite" : "Invite"}
+                            </Text>
+                        </TouchableOpacity>
                     </View>
                 </View>
             )}
-            <View style={{ flexDirection: 'row', marginBottom: -30, marginTop: -10, padding: 15 }}>
+            <View style={{ marginBottom: -30, marginTop: -5, padding: 15 }}>
                 <PostActions
                     item={suggestion}
                     handleOpenComments={handleOpenComments}
                     handleLikeWithAnimation={handleLikeWithAnimation}
+                    inviteCreationEditing={inviteCreationEditing}
+                    existingInvite={existingInvite}
+                    onShare={onShare}
                 />
-                <TouchableOpacity
-                    style={styles.inviteButton}
-                    onPress={inviteCreationEditing}
-                >
-                    <Text style={styles.inviteText}>
-                        {existingInvite ? "Edit Invite" : "Invite"}
-                    </Text>
-                </TouchableOpacity>
             </View>
             <InviteModal
                 visible={inviteModalVisible}
@@ -340,8 +352,7 @@ const styles = StyleSheet.create({
     },
     inviteButton: {
         position: 'absolute',
-        bottom: 10,
-        right: 12,
+        right: 10,
         backgroundColor: '#1E88E5',
         paddingVertical: 8,
         paddingHorizontal: 16,
