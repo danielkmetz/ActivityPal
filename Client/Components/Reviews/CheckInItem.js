@@ -39,6 +39,7 @@ export default function CheckInItem({
     following,
     followRequests,
     onShare,
+    sharedPost = false,
 }) {
     const dispatch = useDispatch();
     const navigation = useNavigation();
@@ -53,6 +54,14 @@ export default function CheckInItem({
     const currentPhoto = item.photos?.[currentPhotoIndex];
     const postOwnerId = item?.userId;
     const fullName = `${user.firstName} ${user.lastName}`;
+    const businessName = item?.businessName;
+    const postName = item?.fullName;
+    const taggedUsers = item.taggedUsers;
+    const userId = item?.userId;
+    const profilePicUrl = item?.profilePicUrl;
+    const postPhotos = item?.photos;
+    const message = item?.message;
+    const placeId =  item?.placeId;
     const { isSuggestedFollowPost } = item;
 
     const handleOpenFullScreen = (photo, index) => {
@@ -68,12 +77,12 @@ export default function CheckInItem({
     const navigateToBusiness = () => {
         logEngagementIfNeeded(dispatch, {
             targetType: 'place',
-            targetId: item.placeId,
-            placeId: item.placeId,
+            targetId: placeId,
+            placeId: placeId,
             engagementType: 'click',
         })
 
-        navigation.navigate("BusinessProfile", { business: item.placeId })
+        navigation.navigate("BusinessProfile", { business: item });
     };
 
     const navigateToOtherUserProfile = (userId) => {
@@ -87,7 +96,7 @@ export default function CheckInItem({
     const handleFollowUser = () => {
         handleFollowUserHelper({
             isPrivate,
-            userId: item.userId,
+            userId,
             mainUser: user,
             dispatch,
             setIsFollowing,
@@ -96,22 +105,22 @@ export default function CheckInItem({
     };
 
     const handleAcceptRequest = async () => {
-        await dispatch(approveFollowRequest(item.userId));
+        await dispatch(approveFollowRequest(userId));
 
         // ✅ Create a notification for the original sender
         await dispatch(createNotification({
-            userId: item.userId,
+            userId,
             type: 'followAccepted',
             message: `${fullName} accepted your follow request!`,
-            relatedId: item.userId,
+            relatedId: userId,
             typeRef: 'User'
         }));
     };
 
-    const handleDenyRequest = () => dispatch(declineFollowRequest({ requesterId: item.userId }));
+    const handleDenyRequest = () => dispatch(declineFollowRequest({ requesterId: userId }));
 
     const handleCancelRequest = async () => {
-        await dispatch(cancelFollowRequest({ recipientId: item.userId }));
+        await dispatch(cancelFollowRequest({ recipientId: userId }));
         // ✅ Explicitly update the state to ensure UI reflects the change
         setIsRequestSent(false);
     };
@@ -134,7 +143,7 @@ export default function CheckInItem({
                 return (
                     <TouchableOpacity
                         style={styles.followButton}
-                        onPress={() => navigateToOtherUserProfile(item.userId)}
+                        onPress={() => navigateToOtherUserProfile(userId)}
                     >
                         <Text style={styles.friendsText}>Following</Text>
                     </TouchableOpacity>
@@ -168,52 +177,56 @@ export default function CheckInItem({
     };
 
     return (
-        <View style={styles.reviewCard}>
-            <PostOptionsMenu
-                isSender={isSender}
-                dropdownVisible={dropdownVisible}
-                setDropdownVisible={setDropdownVisible}
-                handleEdit={handleEdit}
-                handleDelete={handleDelete}
-                postData={item}
-            />
+        <View style={[styles.reviewCard, sharedPost && styles.sharedHeader]}>
+            {!sharedPost && (
+                <PostOptionsMenu
+                    isSender={isSender}
+                    dropdownVisible={dropdownVisible}
+                    setDropdownVisible={setDropdownVisible}
+                    handleEdit={handleEdit}
+                    handleDelete={handleDelete}
+                    postData={item}
+                />
+            )}
             <View style={styles.section}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={styles.header}>
                     <View style={styles.userPicAndName}>
-                        <StoryAvatar userId={item?.userId} profilePicUrl={item.profilePicUrl} />
+                        <StoryAvatar userId={userId} profilePicUrl={profilePicUrl} />
                         <View style={{ flexShrink: 1 }}>
                             <Text style={styles.userEmailText}>
                                 <TouchableWithoutFeedback >
-                                    <Text 
+                                    <Text
                                         style={styles.name}
-                                        onPress={() => navigateToOtherUserProfile(item.userId)}    
+                                        onPress={() => navigateToOtherUserProfile(userId)}
                                     >
-                                        {item.fullName}
+                                        {postName}
                                     </Text>
                                 </TouchableWithoutFeedback>
-                                {item.taggedUsers?.length > 0 ? (
+                                {taggedUsers?.length > 0 ? (
                                     <>
                                         <Text style={styles.business}> is with </Text>
-                                        {item.taggedUsers.map((user, index) => (
-                                                <Text 
-                                                    onPress={() => navigateToOtherUserProfile(user.userId)} 
-                                                    suppressHighlighting={true}
-                                                    style={styles.name}
-                                                >
-                                                    {user.fullName}
-                                                    {index < item.taggedUsers.length - 1 ? ", " : ""}
-                                                </Text>
+                                        {taggedUsers.map((user, index) => (
+                                            <Text
+                                                onPress={() => navigateToOtherUserProfile(user.userId)}
+                                                suppressHighlighting={true}
+                                                style={styles.name}
+                                            >
+                                                {fullName}
+                                                {index < taggedUsers?.length - 1 ? ", " : ""}
+                                            </Text>
                                         ))}
                                         <Text style={styles.business}> at </Text>
-                                        <Text style={styles.business}>{item.businessName}</Text>
+                                        <Text style={styles.business}>{businessName}</Text>
                                     </>
                                 ) : (
                                     <>
                                         <Text style={styles.business}> is at </Text>
-                                        <Text onPress={navigateToBusiness} suppressHighlighting={true} style={styles.business}>{item.businessName}</Text>
+                                        <Text onPress={navigateToBusiness} suppressHighlighting={true} style={styles.business}>
+                                            {businessName}
+                                        </Text>
                                     </>
                                 )}
-                                {item.photos.length > 0 && (
+                                {postPhotos?.length > 0 && (
                                     <Image
                                         source={{ uri: pinPic }}
                                         style={styles.smallPinIcon}
@@ -227,7 +240,7 @@ export default function CheckInItem({
                     </View>
                     {renderFollowButton()}
                 </View>
-                <Text style={styles.message}>{item.message || null}</Text>
+                <Text style={styles.message}>{message || null}</Text>
                 {item.photos?.length === 0 && (
                     <Image
                         source={{
@@ -237,15 +250,15 @@ export default function CheckInItem({
                     />
                 )}
             </View>
-            {item.photos?.length > 0 && (
-                <View>
+            {postPhotos?.length > 0 && (
+                <>
                     <FlatList
-                        data={item.photos}
+                        data={postPhotos}
                         horizontal
                         pagingEnabled
                         showsHorizontalScrollIndicator={false}
                         keyExtractor={(photo, index) => index.toString()}
-                        scrollEnabled={item.photos.length > 1}
+                        scrollEnabled={postPhotos?.length > 1}
                         onScroll={Animated.event(
                             [{ nativeEvent: { contentOffset: { x: scrollX } } }],
                             {
@@ -271,8 +284,8 @@ export default function CheckInItem({
                             />
                         )}
                     />
-                    <PhotoPaginationDots photos={item.photos} scrollX={scrollX} />
-                </View>
+                    <PhotoPaginationDots photos={postPhotos} scrollX={scrollX} />
+                </>
             )}
             <Text style={styles.date}>
                 <Text>Posted: </Text>
@@ -282,16 +295,18 @@ export default function CheckInItem({
                         : "Now"}
                 </Text>
             </Text>
-            <View style={{ padding: 15 }}>
-                <PostActions
-                    item={item}
-                    handleLikeWithAnimation={handleLikeWithAnimation}
-                    handleOpenComments={handleOpenComments}
-                    toggleTaggedUsers={toggleTaggedUsers}
-                    photo={currentPhoto}
-                    onShare={onShare}
-                />
-            </View>
+            {!sharedPost && (
+                <View style={{ padding: 15 }}>
+                    <PostActions
+                        item={item}
+                        handleLikeWithAnimation={handleLikeWithAnimation}
+                        handleOpenComments={handleOpenComments}
+                        toggleTaggedUsers={toggleTaggedUsers}
+                        photo={currentPhoto}
+                        onShare={onShare}
+                    />
+                </View>
+            )}
         </View>
     );
 }
@@ -302,6 +317,19 @@ const styles = StyleSheet.create({
         borderRadius: 5,
         marginBottom: 10,
         elevation: 2,
+    },
+    header: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    sharedHeader: {
+        borderWidth: 1,
+        borderColor: '#ccc',
+        borderRadius: 8,
+        padding: 8,
+        backgroundColor: '#f9f9f9', // optional for "Facebook shared" look
+        marginBottom: 10,
     },
     section: {
         padding: 10,

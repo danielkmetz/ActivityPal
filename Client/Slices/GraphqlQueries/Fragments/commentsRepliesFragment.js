@@ -14,7 +14,7 @@ export const COMMENTS_REPLIES_FRAGMENT = gql`
     media {
       photoKey
       mediaType
-      mediaUrl
+      url
     }
     replies {
       _id
@@ -28,7 +28,7 @@ export const COMMENTS_REPLIES_FRAGMENT = gql`
       media {
         photoKey
         mediaType
-        mediaUrl
+        url
       }
       date
       replies {
@@ -43,7 +43,7 @@ export const COMMENTS_REPLIES_FRAGMENT = gql`
         media {
           photoKey
           mediaType
-          mediaUrl
+          url
         }
         date
         replies {
@@ -58,7 +58,7 @@ export const COMMENTS_REPLIES_FRAGMENT = gql`
           media {
             photoKey
             mediaType
-            mediaUrl
+            url
           }
           date
           replies {
@@ -73,7 +73,7 @@ export const COMMENTS_REPLIES_FRAGMENT = gql`
             media {
               photoKey
               mediaType
-              mediaUrl
+              url
             }
             date
             replies {
@@ -88,7 +88,7 @@ export const COMMENTS_REPLIES_FRAGMENT = gql`
               media {
                 photoKey
                 mediaType
-                mediaUrl
+                url
               }
               date
             }

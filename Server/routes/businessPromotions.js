@@ -71,21 +71,16 @@ router.get("/promotion/:promotionId", async (req, res) => {
 router.get('/:placeId', async (req, res) => {
   try {
     const { placeId } = req.params;
-    console.log(`🔍 Received request for promotions at placeId: ${placeId}`);
-
+    
     const business = await Business.findOne({ placeId }).lean();
     if (!business) {
       console.warn(`⚠️ Business not found for placeId: ${placeId}`);
       return res.status(404).json({ message: 'Business not found' });
     }
-    console.log(`✅ Found business: ${business.businessName} (${business._id})`);
-
+    
     const promotions = await Promotion.find({ placeId }).lean();
-    console.log(`📦 Found ${promotions.length} promotions for placeId ${placeId}`);
-
+    
     const enhanced = await Promise.all(promotions.map(async (promo, index) => {
-      console.log(`➡️ Processing promo ${index + 1}/${promotions.length}: ${promo._id}`);
-
       const photos = await Promise.all((promo.photos || []).map(async (photo, i) => {
         if (!photo?.photoKey) {
           console.warn(`⚠️ Promo ${promo._id} has invalid photo at index ${i}`);
