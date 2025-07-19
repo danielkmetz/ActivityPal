@@ -375,6 +375,31 @@ const reviewsSlice = createSlice({
     error: null,
   },
   reducers: {
+    updateReviewFieldsById: (state, action) => {
+      const { postId, updates } = action.payload;
+
+      const updateInArray = (array) => {
+        const index = array.findIndex(post => post._id === postId);
+        if (index !== -1) {
+          array[index] = {
+            ...array[index],
+            ...updates,
+          };
+        }
+      };
+      updateInArray(state.userAndFriendsReviews);
+      updateInArray(state.profileReviews);
+      updateInArray(state.otherUserReviews);
+      updateInArray(state.businessReviews);
+      updateInArray(state.suggestedPosts); // ✅ included for shared/suggested content
+      // Also update selectedReview if it's currently selected
+      if (state.selectedReview?._id === postId) {
+        state.selectedReview = {
+          ...state.selectedReview,
+          ...updates,
+        };
+      }
+    },
     resetProfileReviews: (state) => {
       state.profileReviews = [];
       state.loading = "idle";
@@ -385,7 +410,7 @@ const reviewsSlice = createSlice({
     },
     setHasFetchedOnce: (state, action) => {
       state.hasFetchedOnce = action.payload;
-    },  
+    },
     setLocalReviews: (state, action) => {
       state.localReviews = action.payload;
     },
@@ -470,6 +495,19 @@ const reviewsSlice = createSlice({
       updateInArray(state.otherUserReviews);
       updateInArray(state.businessReviews);
       updateInArray(state.suggestedPosts);
+    },
+    pushSharedPostToUserAndFriends: (state, action) => {
+      const sharedPost = action.payload;
+      if (sharedPost && sharedPost._id) {
+        state.userAndFriendsReviews = [sharedPost, ...state.userAndFriendsReviews];
+      }
+    },
+
+    pushSharedPostToProfileReviews: (state, action) => {
+      const sharedPost = action.payload;
+      if (sharedPost && sharedPost._id) {
+        state.profileReviews = [sharedPost, ...state.profileReviews];
+      }
     },
     resetAllReviews: (state) => {
       state.profileReviews = [];
@@ -869,6 +907,9 @@ export const {
   setHasFetchedOnce,
   setSuggestedPosts,
   updatePostInReviewState,
+  pushSharedPostToProfileReviews,
+  pushSharedPostToUserAndFriends,
+  updateReviewFieldsById,
 } = reviewsSlice.actions;
 
 export const selectProfileReviews = (state) => state.reviews.profileReviews || [];

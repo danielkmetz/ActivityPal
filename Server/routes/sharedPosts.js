@@ -4,6 +4,7 @@ const SharedPost = require('../models/SharedPost');
 const verifyToken = require('../middleware/verifyToken');
 const Review = require('../models/Reviews');
 const CheckIn = require('../models/CheckIns');
+const Business = require('../models/Business');
 const ActivityInvite = require('../models/ActivityInvites');
 const Promotion = require('../models/Promotions');
 const Event = require('../models/Events');
@@ -16,6 +17,7 @@ const getModelByType = (type) => {
     case 'check-in': return CheckIn;
     case 'invite': return ActivityInvite;
     case 'promotion': return Promotion;
+    case 'promo': return Promotion;
     case 'event': return Event;
     default: return null;
   }
@@ -24,83 +26,75 @@ const getModelByType = (type) => {
 // ✅ CREATE a shared post
 router.post('/', verifyToken, async (req, res) => {
   try {
-    console.log('📥 Incoming shared post request:', req.body);
-
     const { postType, originalPostId, caption } = req.body;
     const userId = req.user?.id;
-    console.log('👤 Authenticated user:', userId);
 
     if (!userId) {
-      console.warn('⚠️ No user ID found in token');
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
     if (!['review', 'check-in', 'invite', 'promotion', 'event'].includes(postType)) {
-      console.warn('⚠️ Invalid postType:', postType);
       return res.status(400).json({ error: 'Invalid postType' });
     }
 
     const Model = getModelByType(postType);
-    console.log('📘 Resolved model for postType:', postType);
-
     const original = await Model.findById(originalPostId);
     if (!original) {
       console.warn('⚠️ Original post not found:', originalPostId);
       return res.status(404).json({ error: 'Original post not found' });
     }
 
-    console.log('✅ Found original post:', original._id);
+    let originalOwnerId;
+    let originalOwnerModel;
 
-    // 🧠 Determine originalOwner based on postType
-    let originalOwner;
+    if (['review', 'check-in', 'invite'].includes(postType)) {
+      originalOwnerId = original.userId;
+      originalOwnerModel = 'User';
+    } else if (['promotion', 'event'].includes(postType)) {
+      const placeId = original.placeId;
+      if (!placeId) {
+        console.warn('⚠️ Missing placeId on original promotion/event post');
+        return res.status(500).json({ error: 'Promotion or Event is missing placeId' });
+      }
 
-    switch (postType) {
-      case 'review':
-      case 'check-in':
-      case 'invite':
-        originalOwner = original.userId;
-        break;
-      case 'promotion':
-      case 'event':
-        originalOwner = original.placeId;
-        break;
-      default:
-        return res.status(400).json({ error: 'Unsupported postType for ownership resolution' });
-    }
+      const business = await Business.findOne({ placeId });
+      if (!business) {
+        console.warn('⚠️ Business not found for placeId:', placeId);
+        return res.status(404).json({ error: 'Business not found for this promotion/event' });
+      }
 
-    if (!originalOwner) {
-      console.warn('⚠️ Could not resolve originalOwner for post:', original._id);
-      return res.status(500).json({ error: 'Unable to determine original owner of post' });
+      originalOwnerId = business._id;
+      originalOwnerModel = 'Business';
     }
 
     const sharedPost = await SharedPost.create({
       user: userId,
-      originalOwner,
+      originalOwner: originalOwnerId,
+      originalOwnerModel,
       postType,
       originalPostId,
       caption,
     });
 
-    console.log('📝 Created shared post:', sharedPost._id);
-
     const profilePicMap = await resolveUserProfilePics([
       sharedPost.user.toString(),
-      sharedPost.originalOwner.toString(),
-    ]);
-    console.log('🧠 Profile pics resolved');
+      originalOwnerModel === 'User' ? sharedPost.originalOwnerId.toString() : null,
+    ].filter(Boolean));
 
     const enrichedOriginal = await enrichSharedPost(sharedPost, profilePicMap);
-    console.log('🔗 Enriched original post');
 
     res.status(201).json({
-      ...sharedPost.toObject(), // 👈 important to use .toObject() to avoid Mongoose prototype in response
+      ...sharedPost.toObject(),
       user: {
-        _id: userId,
+        id: userId,
         ...profilePicMap[userId.toString()],
       },
       originalOwner: {
-        _id: sharedPost.originalOwner,
-        ...profilePicMap[sharedPost.originalOwner.toString()],
+        id: sharedPost.originalOwner,
+        model: originalOwnerModel,
+        ...(originalOwnerModel === 'User'
+          ? profilePicMap[sharedPost.originalOwner.toString()]
+          : {}), // skip photo info for businesses
       },
       original: enrichedOriginal,
       type: 'sharedPost',
@@ -153,6 +147,48 @@ router.get('/:sharedPostId', verifyToken, async (req, res) => {
   }
 });
 
+//toggle like
+router.post("/:postId/like", verifyToken, async (req, res) => {
+  const { postId } = req.params;
+  const { userId, fullName } = req.body;
+
+  if (!userId || !fullName) {
+    console.warn("⚠️ Missing userId or fullName in request body.");
+    return res.status(400).json({ message: "Missing userId or fullName" });
+  }
+
+  try {
+    const sharedPost = await SharedPost.findById(postId);
+    if (!sharedPost) {
+      return res.status(404).json({ message: "Shared post not found" });
+    }
+
+    sharedPost.likes = sharedPost.likes || [];
+    const existingIndex = sharedPost.likes.findIndex(like => like.userId.toString() === userId);
+    const isUnliking = existingIndex > -1;
+
+    if (isUnliking) {
+      sharedPost.likes.splice(existingIndex, 1);
+    } else {
+      sharedPost.likes.push({
+        userId,
+        fullName,
+        date: new Date(),
+      });
+    }
+
+    await sharedPost.save();
+
+    res.status(200).json({
+      message: "Like toggled successfully",
+      likes: sharedPost.likes,
+    });
+  } catch (error) {
+    console.error("❌ Error toggling shared post like:", error.message, error.stack);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+});
+
 // ✅ GET shared posts by user
 router.get('/by-user/:userId', verifyToken, async (req, res) => {
   try {
@@ -182,16 +218,23 @@ router.get('/by-user/:userId', verifyToken, async (req, res) => {
 router.delete('/:sharedPostId', verifyToken, async (req, res) => {
   try {
     const { sharedPostId } = req.params;
-    const userId = req.user._id;
+    const userId = req.user.id;
 
     const post = await SharedPost.findById(sharedPostId);
-    if (!post) return res.status(404).json({ error: 'Shared post not found' });
-    if (!post.user.equals(userId)) return res.status(403).json({ error: 'Not authorized' });
 
-    await post.remove();
+    if (!post) {
+      return res.status(404).json({ error: 'Shared post not found' });
+    }
+
+    if (!post.user.equals(userId)) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
+    await SharedPost.deleteOne({ _id: sharedPostId });
+    
     res.status(200).json({ message: 'Shared post deleted' });
   } catch (err) {
-    console.error('Error deleting shared post:', err);
+    console.error('❌ Error deleting shared post:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

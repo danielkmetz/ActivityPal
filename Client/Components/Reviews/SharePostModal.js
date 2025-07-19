@@ -48,9 +48,15 @@ export default function SharePostModal({ visible, onClose, post }) {
             console.warn("Missing post ID or type for sharing");
             return;
         }
+        let suggestionType;
+        if (post.kind.includes('promo')) {
+            suggestionType = 'promotion';
+        } else {
+            suggestionType = 'event';
+        }
 
         dispatch(createSharedPost({
-            postType: post.type,
+            postType: post.type === 'suggestion' ? suggestionType : post.type,
             originalPostId: post._id,
             caption: comment.trim(),
         }));
