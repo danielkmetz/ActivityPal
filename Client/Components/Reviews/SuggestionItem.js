@@ -24,7 +24,7 @@ import profilePicPlaceholder from "../../assets/pics/profile-pic-placeholder.jpg
 
 const screenWidth = Dimensions.get("window").width;
 
-export default function SuggestionItem({ suggestion, onShare }) {
+export default function SuggestionItem({ suggestion, onShare, sharedPost }) {
     const navigation = useNavigation();
     const dispatch = useDispatch();
     const user = useSelector(selectUser);
@@ -37,9 +37,10 @@ export default function SuggestionItem({ suggestion, onShare }) {
     const tapTimeoutRef = useRef(null);
     const scrollX = useRef(new Animated.Value(0)).current;
     const placeId = suggestion?.placeId;
-
-    const { businessName, logoUrl, distance, title } = suggestion;
-    const photos = suggestion?.photos || [];
+    const { businessName, logoUrl, businessLogoUrl, distance, title, media, photos } = suggestion || {};
+    const resolvedLogoUrl = logoUrl || businessLogoUrl;
+    const resolvedMedia = photos || media || [];
+    const overlayTextSize = sharedPost ? 14 : 16;
 
     const rawInvite = invites.find(invite => {
         if (!invite.placeId || !invite.dateTime) return false;
@@ -70,7 +71,7 @@ export default function SuggestionItem({ suggestion, onShare }) {
         startTime: suggestion.startTime,
         note: `Lets go to ${businessName} for ${title}`
     };
-    
+
     const inviteCreationEditing = () => {
         if (existingInvite) {
             navigation.navigate('CreatePost', {
@@ -146,6 +147,8 @@ export default function SuggestionItem({ suggestion, onShare }) {
         };
     }, []);
 
+    console.log('resolved media', distance)
+
     return (
         <View style={styles.card}>
             {suggestion.kind && (
@@ -162,15 +165,15 @@ export default function SuggestionItem({ suggestion, onShare }) {
                     </Text>
                 </View>
             )}
-            {photos.length > 0 ? (
+            {resolvedMedia?.length > 0 ? (
                 <View style={styles.photoWrapper}>
                     <FlatList
-                        data={photos}
+                        data={resolvedMedia}
                         horizontal
                         pagingEnabled
                         showsHorizontalScrollIndicator={false}
                         keyExtractor={(photo, index) => index.toString()}
-                        scrollEnabled={photos.length > 1}
+                        scrollEnabled={resolvedMedia?.length > 1}
                         onScroll={Animated.event(
                             [{ nativeEvent: { contentOffset: { x: scrollX } } }],
                             {
@@ -193,12 +196,12 @@ export default function SuggestionItem({ suggestion, onShare }) {
                             </View>
                         )}
                     />
-                    <PhotoPaginationDots photos={photos} scrollX={scrollX} />
+                    <PhotoPaginationDots photos={resolvedMedia} scrollX={scrollX} />
                     <View style={styles.overlayTopText}>
                         <Avatar
                             size={45}
                             rounded
-                            source={logoUrl ? { uri: logoUrl } : profilePicPlaceholder}
+                            source={resolvedLogoUrl ? { uri: resolvedLogoUrl } : profilePicPlaceholder}
                             containerStyle={styles.overlayAvatar}
                         />
                         <View style={styles.overlayTextContainer}>
@@ -226,11 +229,11 @@ export default function SuggestionItem({ suggestion, onShare }) {
                         <Avatar
                             size={45}
                             rounded
-                            source={logoUrl ? { uri: logoUrl } : profilePicPlaceholder}
+                            source={resolvedLogoUrl ? { uri: resolvedLogoUrl } : profilePicPlaceholder}
                             containerStyle={styles.overlayAvatar}
                         />
                         <View style={styles.overlayTextContainer}>
-                            <Text style={styles.overlayText}>{businessName}</Text>
+                            <Text style={[styles.overlayText, { fontSize: sharedPost ? 14 : 16 }]}>{businessName}</Text>
                             <Text style={styles.overlaySubText}>
                                 {distance ? `${(distance / 1609).toFixed(1)} mi away` : null}
                             </Text>
@@ -246,16 +249,18 @@ export default function SuggestionItem({ suggestion, onShare }) {
                     </View>
                 </View>
             )}
-            <View style={{ marginBottom: -30, marginTop: -5, padding: 15 }}>
-                <PostActions
-                    item={suggestion}
-                    handleOpenComments={handleOpenComments}
-                    handleLikeWithAnimation={handleLikeWithAnimation}
-                    inviteCreationEditing={inviteCreationEditing}
-                    existingInvite={existingInvite}
-                    onShare={onShare}
-                />
-            </View>
+            {!sharedPost && (
+                <View style={{ marginBottom: -30, marginTop: -5, padding: 15 }}>
+                    <PostActions
+                        item={suggestion}
+                        handleOpenComments={handleOpenComments}
+                        handleLikeWithAnimation={handleLikeWithAnimation}
+                        inviteCreationEditing={inviteCreationEditing}
+                        existingInvite={existingInvite}
+                        onShare={onShare}
+                    />
+                </View>
+            )}
             <InviteModal
                 visible={inviteModalVisible}
                 onClose={() => setInviteModalVisible(false)}
@@ -387,7 +392,6 @@ const styles = StyleSheet.create({
     },
     overlayText: {
         color: 'white',
-        fontSize: 16,
         fontWeight: 'bold',
     },
     overlaySubText: {

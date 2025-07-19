@@ -36,7 +36,7 @@ const typeDefs = gql`
   # ✅ Review Type
   type Review {
     _id: ID!
-    businessName: String! 
+    businessName: String 
     placeId: String! 
     rating: Int!
     priceRating: Int         
@@ -44,7 +44,7 @@ const typeDefs = gql`
     serviceRating: Int       
     wouldRecommend: Boolean
     reviewText: String!
-    date: Date!
+    date: Date
     likes: [Like]
     comments: [Comment]
     userId: ID!
@@ -60,11 +60,11 @@ const typeDefs = gql`
   # ✅ Check-In Type
   type CheckIn {
     _id: ID!
-    date: Date!
+    date: Date
     userId: ID!
     fullName: String!
     placeId: String!
-    businessName: String!
+    businessName: String
     message: String
     photos: [Photo!]
     profilePic: ProfilePic
@@ -81,7 +81,7 @@ const typeDefs = gql`
     sender: InviteUser!
     recipients: [InviteRecipient!]!
     placeId: String!
-    businessName: String!
+    businessName: String
     businessLogoUrl: String
     note: String
     dateTime: String!
@@ -99,7 +99,7 @@ const typeDefs = gql`
   type Promotion {
     _id: ID!
     placeId: String!
-    businessName: String!
+    businessName: String
     businessLogoUrl: String
     title: String!
     description: String
@@ -119,11 +119,11 @@ const typeDefs = gql`
   type Event {
     _id: ID!
     placeId: String!
-    businessName: String!
+    businessName: String
     businessLogoUrl: String
     title: String!
     description: String
-    date: Date!
+    date: Date
     timeStart: String
     timeEnd: String
     recurrenceDays: [String]
@@ -178,22 +178,22 @@ const typeDefs = gql`
   # ✅ Photo Type
   type Photo {
     _id: ID!
-    photoKey: String!
+    photoKey: String
     uploadedBy: String!
     description: String
     taggedUsers: [TaggedUser]
-    uploadDate: Date!
+    uploadDate: Date
     url: String # ✅ Added field for pre-signed URL
   }
 
   # ✅ Profile Picture Type
   type ProfilePic {
     _id: ID!
-    photoKey: String!
+    photoKey: String
     uploadedBy: String!
     description: String
     tags: [String]
-    uploadDate: String!
+    uploadDate: String
   }
 
   type TaggedUser {
@@ -212,7 +212,7 @@ const typeDefs = gql`
   type Media {
     photoKey: String
     mediaType: String # "image" or "video"
-    mediaUrl: String
+    url: String
   }
 
   # ✅ Comments & Replies (Nested)
@@ -224,7 +224,7 @@ const typeDefs = gql`
     replies: [Reply!]
     likes: [Like]
     media: Media
-    date: Date!
+    date: Date
   }
 
   type Reply {
@@ -234,7 +234,7 @@ const typeDefs = gql`
     fullName: String!
     replies: [Reply!]
     likes: [Like]
-    date: Date!
+    date: Date
     media: Media
   }
 

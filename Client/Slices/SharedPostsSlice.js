@@ -1,5 +1,7 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { getUserToken } from '../functions';
+import { pushSharedPostToProfileReviews, pushSharedPostToUserAndFriends } from './ReviewsSlice';
+import { updateReviewFieldsById } from './ReviewsSlice';
 import axios from 'axios';
 
 // 🔐 Base config
@@ -17,15 +19,45 @@ const getAuthHeaders = async () => {
 // Create a shared post
 export const createSharedPost = createAsyncThunk(
   'sharedPosts/create',
-  async ({ postType, originalPostId, caption }, { rejectWithValue }) => {
+  async ({ postType, originalPostId, caption }, { dispatch, rejectWithValue }) => {
     try {
       const config = await getAuthHeaders();
 
       const res = await axios.post(API_BASE, { postType, originalPostId, caption }, config);
-      return res.data;
+      const sharedPost = res.data;
+
+      dispatch(pushSharedPostToUserAndFriends(sharedPost));
+      dispatch(pushSharedPostToProfileReviews(sharedPost));
+
+      return sharedPost;
     } catch (err) {
       console.error('❌ Error creating shared post:', err.response?.data || err.message);
       return rejectWithValue(err.response?.data || { error: 'Failed to create shared post' });
+    }
+  }
+);
+
+export const toggleLikeOnSharedPost = createAsyncThunk(
+  'sharedPosts/toggleLike',
+  async ({ postId, userId, fullName }, { dispatch, rejectWithValue }) => {
+    try {
+      const config = await getAuthHeaders();
+      const res = await axios.post(`${API_BASE}/${postId}/like`, {
+        userId,
+        fullName,
+      }, config);
+
+      const updatedLikes = res.data.likes;
+
+      dispatch(updateReviewFieldsById({
+        postId,
+        updates: { likes: updatedLikes },
+      }));
+
+      return { postId, likes: updatedLikes };
+    } catch (err) {
+      console.error('❌ Error toggling like on shared post:', err.response?.data || err.message);
+      return rejectWithValue(err.response?.data || { error: 'Failed to toggle like' });
     }
   }
 );
@@ -132,7 +164,18 @@ const sharedPostsSlice = createSlice({
         const id = action.payload;
         delete state.byId[id];
         state.userPosts = state.userPosts.filter((post) => post._id !== id);
-      });
+      })
+      .addCase(toggleLikeOnSharedPost.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(toggleLikeOnSharedPost.fulfilled, (state) => {
+        state.loading = false;
+      })
+      .addCase(toggleLikeOnSharedPost.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload?.error || 'Failed to toggle like';
+      })
   },
 });
 

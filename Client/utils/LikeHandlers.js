@@ -1,6 +1,12 @@
 import { Animated } from 'react-native';
 import { toggleLike } from '../Slices/ReviewsSlice';
-import { createNotification } from '../Slices/NotificationsSlice';
+import { toggleLikeOnSharedPost } from '../Slices/SharedPostsSlice';
+import {
+  createNotification,
+  deleteNotification,
+  selectNotificationByFields,
+} from '../Slices/NotificationsSlice';
+import store from '../store';
 
 export const handleLike = async ({
   postType,
@@ -12,37 +18,68 @@ export const handleLike = async ({
 }) => {
   if (!review) {
     console.warn(`handleLike: No review provided for postId ${postId}`);
+    return;
   }
 
-  const placeId = review?.placeId || null;
-
   let ownerId = null;
+  let placeId = review?.placeId || null;
+
   if (postType === 'invite') {
     ownerId = review?.sender?.id || review?.senderId;
+  } else if (postType === 'sharedPost') {
+    ownerId = review?.originalOwner?.id || review?.originalOwner;
   } else {
     ownerId = review?.userId;
   }
 
   try {
-    const { payload } = await dispatch(toggleLike({ postType, postId, placeId, userId, fullName }));
+    let payload;
+
+    console.log(postId)
+    if (postType === 'sharedPost') {
+      const result = await dispatch(toggleLikeOnSharedPost({ postId, userId, fullName }));
+      payload = result?.payload;
+    } else {
+      const result = await dispatch(toggleLike({ postType, postId, placeId, userId, fullName }));
+      payload = result?.payload;
+    }
 
     const userLiked = payload?.likes?.some(like => like.userId === userId);
 
-    if (userLiked && ownerId && ownerId !== userId) {
+    if (!ownerId || ownerId === userId) return;
+
+    const typeRef =
+      postType === 'review'
+        ? 'Review'
+        : postType === 'check-in'
+          ? 'CheckIn'
+          : postType === 'invite'
+            ? 'ActivityInvite'
+            : 'SharedPost';
+
+    if (userLiked) {
+      // ✅ Send like notification
       await dispatch(createNotification({
         userId: ownerId,
         type: 'like',
-        message: `${fullName} liked your ${postType}.`,
+        message: `${fullName} liked your ${postType === 'sharedPost' ? 'shared post' : postType}.`,
         relatedId: userId,
-        typeRef:
-          postType === 'review'
-            ? 'Review'
-            : postType === 'check-in'
-              ? 'CheckIn'
-              : 'ActivityInvite',
+        typeRef,
         targetId: postId,
         postType,
       }));
+    } else {
+      // ❌ Remove like notification if unliked
+      const state = store.getState();
+      const existingNotification = selectNotificationByFields(state, {
+        relatedId: userId,
+        targetId: postId,
+        typeRef,
+      });
+
+      if (existingNotification?._id) {
+        await dispatch(deleteNotification({ userId: ownerId, notificationId: existingNotification._id }));
+      }
     }
   } catch (error) {
     console.error(`Error toggling like for ${postType} (${postId}):`, error);
@@ -74,7 +111,7 @@ export const handleLikeWithAnimation = async ({
   postId,
   review,
   user,
-  animation,        // ✅ Now passed directly
+  animation,
   lastTapRef,
   dispatch,
   force = false,
@@ -101,7 +138,6 @@ export const handleLikeWithAnimation = async ({
     dispatch,
   });
 
-  // ✅ Animate only if it wasn’t previously liked and the animation is valid
   if (!wasLikedBefore && animation instanceof Animated.Value) {
     runLikeAnimation(animation);
   }

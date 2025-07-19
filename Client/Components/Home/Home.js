@@ -240,29 +240,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#008080',
         paddingTop: 190,
     },
-    buttonRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-around',
-        width: '90%',
-    },
-    actionButton: {
-        backgroundColor: '#d9d9d9',
-        paddingVertical: 5,
-        paddingHorizontal: 20,
-        borderRadius: 8,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.5,
-        shadowRadius: 2,
-        elevation: 3,
-        marginHorizontal: 5,
-    },
-    buttonText: {
-        fontSize: 15,
-        color: '#333',
-        fontWeight: 'bold'
-    },
-    bottom: {
+       bottom: {
         marginBottom: 30,
     },
 });

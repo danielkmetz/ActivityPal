@@ -51,19 +51,20 @@ const resolvers = {
     }
   },
   SharedContent: {
-  __resolveType(obj) {
-    switch (obj.type) {
-      case 'review': return 'Review';
-      case 'checkin': return 'CheckIn';
-      case 'invite': return 'ActivityInvite';
-      case 'promotion': return 'Promotion';
-      case 'event': return 'Event';
-      default:
-        console.error('❌ Unknown type for SharedContent:', obj?.type, obj);
-        return null;
+    __resolveType(obj) {
+      if (obj.__typename) return obj.__typename;
+
+      // Fallbacks for safety
+      if (obj.originalPostType === 'review') return 'Review';
+      if (obj.originalPostType === 'check-in') return 'CheckIn';
+      if (obj.originalPostType === 'invite') return 'ActivityInvite';
+      if (obj.originalPostType === 'promotion') return 'Promotion';
+      if (obj.originalPostType === 'event') return 'Event';
+
+      console.error('❌ Cannot resolve SharedContent type:', obj);
+      return null;
     }
   },
-},
   UserPost: {
     __resolveType(obj) {
       if (obj.type === 'review' || obj.reviewText !== undefined) {

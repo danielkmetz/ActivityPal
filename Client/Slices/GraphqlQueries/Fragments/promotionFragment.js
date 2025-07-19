@@ -19,7 +19,7 @@ export const PROMOTION_FRAGMENT = gql`
     media {
       photoKey
       mediaType
-      mediaUrl
+      url
     }
     likes {
       userId

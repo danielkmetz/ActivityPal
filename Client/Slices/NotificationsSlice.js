@@ -120,5 +120,11 @@ export default notificationsSlice.reducer;
 export const selectNotifications = (state) => state.notifications.list;
 export const selectUnreadCount = (state) => state.notifications.unreadCount;
 export const selectStatus = (state) => state.notifications.status;
+export const selectNotificationByFields = (state, { relatedId, targetId, typeRef }) =>
+  state.notifications.list.find(n =>
+    n.relatedId === relatedId &&
+    n.targetId === targetId &&
+    n.typeRef === typeRef
+  );
 
 export const {resetNotifications, resetUnreadCount, setNotifications} = notificationsSlice.actions;

@@ -19,6 +19,8 @@ import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from "../../
 import { useNavigation } from "@react-navigation/native";
 import { selectFollowing, selectFollowRequests } from "../../Slices/friendsSlice";
 import SharePostModal from "./SharePostModal";
+import SharedPostItem from "./SharedPostItem";
+import { deleteSharedPost } from "../../Slices/SharedPostsSlice";
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
@@ -76,7 +78,14 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
   const handleDeletePost = (post) => {
     Alert.alert(
       "Delete Post",
-      `Are you sure you want to delete this ${post.type === "review" ? "review" : "check-in"}?`,
+      `Are you sure you want to delete this ${post.type === "review"
+        ? "review"
+        : post.type === "check-in"
+          ? "check-in"
+          : post.type === "sharedPost"
+            ? "shared post"
+            : "post"
+      }?`,
       [
         {
           text: "Cancel",
@@ -87,9 +96,9 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
           style: "destructive",
           onPress: async () => {
             try {
-              if (post.type === 'review') {
+              if (post.type === "review") {
                 await dispatch(deleteReview({ placeId: post.placeId, reviewId: post._id }));
-              } else if (post.type === 'check-in') {
+              } else if (post.type === "check-in") {
                 await dispatch(deleteCheckIn({ userId, checkInId: post._id }));
 
                 dispatch(setUserAndFriendsReviews(
@@ -99,11 +108,21 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
                 dispatch(setProfileReviews(
                   (profileReviews || []).filter(p => p._id !== post._id)
                 ));
+              } else if (post.type === "sharedPost") {
+                await dispatch(deleteSharedPost(post._id));
+
+                dispatch(setUserAndFriendsReviews(
+                  (userAndFriendsReviews || []).filter(p => p._id !== post._id)
+                ));
+
+                dispatch(setProfileReviews(
+                  (profileReviews || []).filter(p => p._id !== post._id)
+                ));
               } else {
-                console.warn('Unsupported post type:', post.type);
+                console.warn("Unsupported post type:", post.type);
               }
             } catch (error) {
-              console.error('Error deleting post:', error);
+              console.error("Error deleting post:", error);
               Alert.alert("Error", "Something went wrong while deleting the post.");
             }
           },
@@ -224,6 +243,27 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
             return (
               <SuggestionItem
                 suggestion={item}
+                onShare={openShareModal}
+              />
+            );
+          }
+
+          if (item.type === "sharedPost") {
+            return (
+              <SharedPostItem
+                item={item}
+                animation={getAnimation(item._id)}
+                setLikedAnimations={setLikedAnimations}
+                photoTapped={photoTapped}
+                toggleTaggedUsers={toggleTaggedUsers}
+                handleLikeWithAnimation={handleLikeWithAnimation}
+                handleLike={handleLikeWithAnimation}
+                handleOpenComments={handleOpenComments}
+                lastTapRef={lastTapRef}
+                handleDelete={handleDeletePost}
+                handleEdit={handleEditPost}
+                following={following}
+                followRequests={followRequests}
                 onShare={openShareModal}
               />
             );

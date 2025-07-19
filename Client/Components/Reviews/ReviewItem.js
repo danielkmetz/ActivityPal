@@ -39,6 +39,7 @@ export default function ReviewItem({
     following,
     followRequests,
     onShare,
+    sharedPost,
 }) {
     const dispatch = useDispatch();
     const navigation = useNavigation();
@@ -55,11 +56,15 @@ export default function ReviewItem({
     const currentPhoto = item.photos?.[currentPhotoIndex];
     const { isSuggestedFollowPost } = item;
     const isPrivate = item?.profileVisibility === 'private';
-    const postOwnerId = item?.userId;
     const fullName = `${user.firstName} ${user.lastName}`;
+    const postPhotos = item?.photos;
+    const placeId = item?.placeId;
+    const postOwnerId = item?.userId;
+
+    //sconsole.log(item)
 
     const taggedUsersByPhotoKey = Object.fromEntries(
-        (item.photos || []).map((photo) => [
+        (postPhotos || []).map((photo) => [
             photo.photoKey,
             photo.taggedUsers || [],
         ])
@@ -68,11 +73,11 @@ export default function ReviewItem({
     const navigateToBusiness = () => {
         logEngagementIfNeeded(dispatch, {
             targetType: 'place',
-            targetId: item.placeId,
-            placeId: item.placeId,
+            targetId: placeId,
+            placeId,
             engagementType: 'click',
         })
-        navigation.navigate("BusinessProfile", { business: item});
+        navigation.navigate("BusinessProfile", { business: item });
     }
 
     const handleOpenFullScreen = (photo, index) => {
@@ -96,7 +101,7 @@ export default function ReviewItem({
     const handleFollowUser = () => {
         handleFollowUserHelper({
             isPrivate,
-            userId: item.userId,
+            userId: postOwnerId,
             mainUser: user,
             dispatch,
             setIsFollowing,
@@ -105,22 +110,22 @@ export default function ReviewItem({
     };
 
     const handleAcceptRequest = async () => {
-        await dispatch(approveFollowRequest(item.userId));
+        await dispatch(approveFollowRequest(postOwnerId));
 
         // ✅ Create a notification for the original sender
         await dispatch(createNotification({
-            userId: item.userId,
+            userId: postOwnerId,
             type: 'followAccepted',
             message: `${fullName} accepted your follow request!`,
-            relatedId: item.userId,
+            relatedId: postOwnerId,
             typeRef: 'User'
         }));
     };
 
-    const handleDenyRequest = () => dispatch(declineFollowRequest({ requesterId: item.userId }));
+    const handleDenyRequest = () => dispatch(declineFollowRequest({ requesterId: postOwnerId }));
 
     const handleCancelRequest = async () => {
-        await dispatch(cancelFollowRequest({ recipientId: item.userId }));
+        await dispatch(cancelFollowRequest({ recipientId: postOwnerId }));
         // ✅ Explicitly update the state to ensure UI reflects the change
         setIsRequestSent(false);
     };
@@ -143,7 +148,7 @@ export default function ReviewItem({
                 return (
                     <TouchableOpacity
                         style={styles.followButton}
-                        onPress={() => navigateToOtherUserProfile(item.userId)}
+                        onPress={() => navigateToOtherUserProfile(postOwnerId)}
                     >
                         <Text style={styles.friendsText}>Following</Text>
                     </TouchableOpacity>
@@ -178,20 +183,22 @@ export default function ReviewItem({
 
     return (
         <>
-            <View style={styles.reviewCard}>
-                <PostOptionsMenu
-                    isSender={isSender}
-                    dropdownVisible={dropdownVisible}
-                    setDropdownVisible={setDropdownVisible}
-                    handleEdit={handleEdit}
-                    handleDelete={handleDelete}
-                    postData={item}
-                />
+            <View style={[styles.reviewCard, sharedPost && styles.sharedHeader]}>
+                {!sharedPost && (
+                    <PostOptionsMenu
+                        isSender={isSender}
+                        dropdownVisible={dropdownVisible}
+                        setDropdownVisible={setDropdownVisible}
+                        handleEdit={handleEdit}
+                        handleDelete={handleDelete}
+                        postData={item}
+                    />
+                )}
                 <View style={styles.section}>
                     <View >
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                             <View style={[styles.userPicAndName, { flex: 1, flexShrink: 1 }]}>
-                                <StoryAvatar userId={item?.userId} profilePicUrl={item.profilePicUrl} />
+                                <StoryAvatar userId={postOwnerId} profilePicUrl={item.profilePicUrl} />
                                 <View style={{ flexShrink: 1 }}>
                                     <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
                                         <TouchableWithoutFeedback onPress={() => navigateToOtherUserProfile(item.userId)}>
@@ -285,16 +292,18 @@ export default function ReviewItem({
                 <Text style={styles.date}>
                     Posted: {item.date ? new Date(item.date).toISOString().split("T")[0] : "Now"}
                 </Text>
-                <View style={{ padding: 15 }}>
-                    <PostActions
-                        item={item}
-                        handleLikeWithAnimation={handleLikeWithAnimation}
-                        handleOpenComments={handleOpenComments}
-                        toggleTaggedUsers={toggleTaggedUsers}
-                        photo={currentPhoto}
-                        onShare={onShare}
-                    />
-                </View>
+                {!sharedPost && (
+                    <View style={{ padding: 15 }}>
+                        <PostActions
+                            item={item}
+                            handleLikeWithAnimation={handleLikeWithAnimation}
+                            handleOpenComments={handleOpenComments}
+                            toggleTaggedUsers={toggleTaggedUsers}
+                            photo={currentPhoto}
+                            onShare={onShare}
+                        />
+                    </View>
+                )}
             </View>
             <RatingsBreakdownModal
                 visible={ratingsOpen}
@@ -321,6 +330,14 @@ const styles = StyleSheet.create({
     section: {
         padding: 10,
         flexShrink: 1,
+    },
+    sharedHeader: {
+        borderWidth: 1,
+        borderColor: '#ccc',
+        borderRadius: 8,
+        padding: 8,
+        backgroundColor: '#f9f9f9', // optional for "Facebook shared" look
+        marginBottom: 10,
     },
     profilePic: {
         marginRight: 10,

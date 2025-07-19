@@ -21,7 +21,7 @@ export const EVENT_FRAGMENT = gql`
     media {
       photoKey
       mediaType
-      mediaUrl
+      url
     }
     likes {
       userId

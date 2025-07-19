@@ -9,9 +9,10 @@ const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 function getModelByType(type) {
   switch (type) {
     case 'review': return Review;
-    case 'checkin': return CheckIn;
+    case 'check-in': return CheckIn;
     case 'invite': return ActivityInvite;
     case 'promotion': return Promotion;
+    case 'promo': return Promotion;
     case 'event': return Event;
     default: return null;
   }
@@ -23,7 +24,7 @@ async function enrichCommentMedia(media) {
   }
 
   const url = await getPresignedUrl(media.photoKey);
-  
+
   return {
     photoKey: media.photoKey,
     mediaType: media.mediaType,
@@ -36,7 +37,7 @@ async function enrichReplies(replies = []) {
     replies.map(async reply => {
       const enrichedMedia = await enrichCommentMedia(reply.media);
       const nestedReplies = await enrichReplies(reply.replies || []);
-      
+
       return {
         ...reply,
         media: enrichedMedia,
@@ -51,7 +52,7 @@ async function enrichComments(comments = []) {
     comments.map(async comment => {
       const enrichedMedia = await enrichCommentMedia(comment.media);
       const enrichedReplies = await enrichReplies(comment.replies || []);
-      
+
       return {
         ...comment,
         media: enrichedMedia,
@@ -261,91 +262,90 @@ async function resolveUserProfilePics(userIds) {
 async function enrichSharedPost(shared, profilePicMap = {}) {
   try {
     const { postType, originalPostId } = shared;
+    console.log(`🧪 Enriching shared post: ${shared._id} [${postType}]`);
+
     const Model = getModelByType(postType);
-    if (!Model) return null;
+    if (!Model) {
+      console.warn(`❌ No model found for postType: ${postType}`);
+      return null;
+    }
 
     const original = await Model.findById(originalPostId).lean();
-    if (!original) return null;
-
-    switch (postType) {
-      case 'review': {
-        const taggedUsers = await resolveTaggedUsers(original.taggedUsers || []);
-        const rawPhotos = await resolveTaggedPhotoUsers(original.photos || []);
-        const business = await Business.findOne({ placeId: original.placeId }).select('businessName').lean();
-        const comments = await enrichComments(original.comments || []);
-
-        return {
-          __typename: "Review",
-          ...original,
-          businessName: business?.businessName || null,
-          date: new Date(original.date).toISOString(),
-          profilePic: profilePicMap[original.userId?.toString()]?.profilePic || null,
-          profilePicUrl: profilePicMap[original.userId?.toString()]?.profilePicUrl || null,
-          taggedUsers,
-          photos: rawPhotos.filter(p => p && p._id && p.photoKey),
-          comments,
-          type: "review",
-        };
-      }
-
-      case 'checkin': {
-        const taggedUsers = await resolveTaggedUsers(original.taggedUsers || []);
-        const rawPhotos = await resolveTaggedPhotoUsers(original.photos || []);
-        const business = await Business.findOne({ placeId: original.placeId }).select('businessName').lean();
-        const comments = await enrichComments(original.comments || []);
-
-        return {
-          __typename: "CheckIn",
-          ...original,
-          date: new Date(original.date).toISOString(),
-          profilePic: profilePicMap[original.userId?.toString()]?.profilePic || null,
-          profilePicUrl: profilePicMap[original.userId?.toString()]?.profilePicUrl || null,
-          businessName: business?.businessName || null,
-          photos: rawPhotos.filter(p => p && p._id && p.photoKey),
-          taggedUsers,
-          comments,
-          type: "check-in",
-        };
-      }
-
-      case 'invite': {
-        const business = await Business.findOne({ placeId: original.placeId }).lean();
-        const comments = await enrichComments(original.comments || []);
-        const logoUrl = business?.logoKey ? await getPresignedUrl(business.logoKey) : null;
-
-        return {
-          __typename: "ActivityInvite",
-          ...original,
-          businessName: business?.businessName || null,
-          businessLogoUrl: logoUrl,
-          comments,
-          type: "invite",
-        };
-      }
-
-      case 'promotion':
-      case 'event': {
-        const business = await Business.findOne({ placeId: original.placeId }).lean();
-        const comments = await enrichComments(original.comments || []);
-        const logoUrl = business?.logoKey ? await getPresignedUrl(business.logoKey) : null;
-
-        return {
-          __typename: postType === 'promotion' ? "Promotion" : "Event",
-          ...original,
-          businessName: business?.businessName || null,
-          businessLogoUrl: logoUrl,
-          comments,
-          type: postType,
-        };
-      }
-
-      default:
-        return null;
+    if (!original) {
+      console.warn(`❌ Original ${postType} not found with ID: ${originalPostId}`);
+      return null;
     }
+
+    console.log(`✅ Found original ${postType}: ${original._id}`);
+
+    const profile = profilePicMap[original.userId?.toString()];
+    const profilePic = profile?.profilePic?.photoKey ? profile.profilePic : null;
+    const profilePicUrl = profile?.profilePicUrl || null;
+
+    let taggedUsers = [];
+    let rawPhotos = [];
+    let business = null;
+    let comments = [];
+
+    if (['review', 'check-in', 'promotion', 'event'].includes(postType)) {
+      taggedUsers = await resolveTaggedUsers(original.taggedUsers || []);
+    }
+
+    if (['review', 'check-in'].includes(postType)) {
+      rawPhotos = await resolveTaggedPhotoUsers(original.photos || []);
+    }
+
+    if (['promotion', 'event'].includes(postType)) {
+      rawPhotos = await resolveTaggedPhotoUsers(original.photos || []);
+    }
+
+    if (['review', 'check-in', 'promotion', 'event', 'invite'].includes(postType)) {
+      business = await Business.findOne({ placeId: original.placeId }).select('businessName logoKey').lean();
+    }
+
+    if (original.comments) {
+      comments = await enrichComments(original.comments);
+    }
+
+    const baseOriginal = {
+      __typename: capitalizeFirstLetter(postType),
+      ...original,
+      businessName: business?.businessName || null,
+      businessLogoUrl: business?.logoKey ? await getPresignedUrl(business.logoKey) : null,
+      type: postType,
+      profilePic,
+      profilePicUrl,
+      taggedUsers,
+      photos: rawPhotos.filter(p => p && p._id && p.photoKey),
+      media: rawPhotos.filter(p => p && p._id && p.photoKey),
+      comments,
+      date: original.date ? new Date(original.date).toISOString() : new Date().toISOString(),
+    };
+
+    if (postType === 'check-in') {
+      const user = original.userId
+        ? await User.findById(original.userId).select('firstName lastName').lean()
+        : null;
+      baseOriginal.fullName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : null;
+    }
+
+    return {
+      ...shared,
+      original: baseOriginal,
+      originalPostType: postType,
+    };
   } catch (err) {
-    console.error("❌ Error enriching shared post:", err);
+    console.error('❌ Error enriching shared post:', err);
     return null;
   }
+}
+
+// Utility to ensure GraphQL-friendly __typename
+function capitalizeFirstLetter(type) {
+  if (!type) return '';
+  if (type === 'check-in') return 'CheckIn';
+  if (type === 'invite') return 'ActivityInvite';
+  return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
 module.exports = {

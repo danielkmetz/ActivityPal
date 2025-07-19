@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import InviteeModal from '../ActivityInvites/InviteeModal';
 import { formatEventDate, getTimeLeft } from '../../functions';
 import { requestInvite } from '../../Slices/InvitesSlice';
@@ -13,9 +13,8 @@ import PostActions from './PostActions';
 import PostOptionsMenu from './PostOptionsMenu';
 import { useNavigation } from '@react-navigation/native';
 import StoryAvatar from '../Stories/StoryAvatar';
-import { TouchableWithoutFeedback } from 'react-native-web';
 
-const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onShare }) => {
+const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onShare, sharedPost }) => {
     const dispatch = useDispatch();
     const navigation = useNavigation();
     const [timeLeft, setTimeLeft] = useState(getTimeLeft(invite.dateTime));
@@ -161,14 +160,16 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onSha
     return (
         <>
             <View style={styles.card}>
-                <PostOptionsMenu
-                    isSender={isSender}
-                    dropdownVisible={dropdownVisible}
-                    setDropdownVisible={setDropdownVisible}
-                    handleEdit={handleEdit}
-                    handleDelete={handleDelete}
-                    postData={invite}
-                />
+                {!sharedPost && (
+                    <PostOptionsMenu
+                        isSender={isSender}
+                        dropdownVisible={dropdownVisible}
+                        setDropdownVisible={setDropdownVisible}
+                        handleEdit={handleEdit}
+                        handleDelete={handleDelete}
+                        postData={invite}
+                    />
+                )}
                 <View style={styles.header}>
                     <StoryAvatar userId={invite.sender.id} profilePicUrl={invite.sender?.profilePicUrl} />
                     <View style={styles.headerText}>
@@ -180,30 +181,28 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onSha
                         </Text>
                     </View>
                 </View>
-
                 <Text style={styles.businessName}>{businessName}</Text>
                 {invite.dateTime ? (
                     <Text style={styles.datetime}>On {formatEventDate(invite.dateTime)}</Text>
                 ) : null}
-
                 {invite.note ? (
                     <Text style={styles.note}>{invite.note}</Text>
                 ) : null}
-
                 <View style={styles.countdownContainer}>
                     <Text style={styles.countdownLabel}>Starts in:</Text>
                     <Text style={styles.countdownText}>{timeLeft}</Text>
                 </View>
-
                 <View style={styles.actionsContainer}>
-                    <View style={{ paddding: 15 }}>
-                        <PostActions
-                            item={invite}
-                            handleLikeWithAnimation={handleLikeWithAnimation}
-                            handleOpenComments={handleOpenComments}
-                            onShare={onShare}
-                        />
-                    </View>
+                    {!sharedPost && (
+                        <View style={{ paddding: 15 }}>
+                            <PostActions
+                                item={invite}
+                                handleLikeWithAnimation={handleLikeWithAnimation}
+                                handleOpenComments={handleOpenComments}
+                                onShare={onShare}
+                            />
+                        </View>
+                    )}
                     <View style={styles.requestsAttendance}>
                         {!isRecipient || !isSender && (
                             hasRequested ? (
