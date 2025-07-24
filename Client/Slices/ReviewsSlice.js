@@ -2,6 +2,7 @@ import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import { GET_USER_ACTIVITY_QUERY } from "./GraphqlQueries/Queries/getUserActivity";
 import { GET_USER_POSTS_QUERY } from "./GraphqlQueries/Queries/getUserPosts";
 import { GET_BUSINESS_REVIEWS_QUERY } from "./GraphqlQueries/Queries/getBusinessReviews";
+import { updatePostCollections } from "../utils/posts/UpdatePostCollections";
 import client from "../apolloClient";
 import axios from "axios";
 
@@ -204,11 +205,11 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
 
 export const fetchReviewsByUserAndFriends = createAsyncThunk(
   "reviews/fetchUserActivity",
-  async ({ userId, limit = 15, after }, { rejectWithValue }) => {
+  async ({ userId, limit = 15, after, userLat, userLng }, { rejectWithValue }) => {
     try {
       const { data, errors } = await client.query({
         query: GET_USER_ACTIVITY_QUERY,
-        variables: { userId, limit, after },
+        variables: { userId, limit, after, userLat, userLng },
         fetchPolicy: 'network-only', // optional: avoids caching issues
       });
 
@@ -375,30 +376,21 @@ const reviewsSlice = createSlice({
     error: null,
   },
   reducers: {
-    updateReviewFieldsById: (state, action) => {
+    updateSharedPostInReviews: (state, action) => {
       const { postId, updates } = action.payload;
 
-      const updateInArray = (array) => {
-        const index = array.findIndex(post => post._id === postId);
-        if (index !== -1) {
-          array[index] = {
-            ...array[index],
-            ...updates,
-          };
-        }
-      };
-      updateInArray(state.userAndFriendsReviews);
-      updateInArray(state.profileReviews);
-      updateInArray(state.otherUserReviews);
-      updateInArray(state.businessReviews);
-      updateInArray(state.suggestedPosts); // ✅ included for shared/suggested content
-      // Also update selectedReview if it's currently selected
-      if (state.selectedReview?._id === postId) {
-        state.selectedReview = {
-          ...state.selectedReview,
-          ...updates,
-        };
-      }
+      updatePostCollections({
+        state,
+        postId,
+        updates,
+        postKeys: [
+          "userAndFriendsReviews",
+          "profileReviews",
+          "otherUserReviews",
+          "businessReviews",
+          "suggestedPosts"
+        ],
+      });
     },
     resetProfileReviews: (state) => {
       state.profileReviews = [];
@@ -502,7 +494,6 @@ const reviewsSlice = createSlice({
         state.userAndFriendsReviews = [sharedPost, ...state.userAndFriendsReviews];
       }
     },
-
     pushSharedPostToProfileReviews: (state, action) => {
       const sharedPost = action.payload;
       if (sharedPost && sharedPost._id) {
@@ -910,6 +901,7 @@ export const {
   pushSharedPostToProfileReviews,
   pushSharedPostToUserAndFriends,
   updateReviewFieldsById,
+  updateSharedPostInReviews,
 } = reviewsSlice.actions;
 
 export const selectProfileReviews = (state) => state.reviews.profileReviews || [];

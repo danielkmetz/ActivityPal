@@ -1,8 +1,8 @@
 import React from 'react';
 import { View, FlatList, Dimensions, Animated, StyleSheet } from 'react-native';
 import EventDetailsCard from './EventDetailsCard';
-import PhotoItem from '../Reviews/PhotoItem';
-import PhotoPaginationDots from '../Reviews/PhotoPaginationDots';
+import PhotoItem from '../Reviews/Photos/PhotoItem';
+import PhotoPaginationDots from '../Reviews/Photos/PhotoPaginationDots';
 import PostActions from '../Reviews/PostActions';
 
 export default function EventPromoFeed({

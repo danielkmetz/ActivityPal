@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FlatList, StyleSheet, Animated, Easing, InteractionManager, Keyboard, View } from 'react-native';
+import { FlatList, StyleSheet, Animated, Easing, InteractionManager, Keyboard } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
-import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useRoute } from '@react-navigation/native';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import CommentModalHeader from './CommentModalHeader';
@@ -21,11 +21,11 @@ import { selectUser } from '../../Slices/UserSlice';
 import { formatEventDate, getTimeLeft } from '../../functions';
 import { selectReviewById } from '../../utils/reviewSelectors';
 import { uploadReviewPhotos } from '../../Slices/PhotosSlice';
+import { addCommentToSharedPost } from '../../Slices/SharedPostsSlice';
 
 dayjs.extend(relativeTime);
 
 export default function CommentScreen() {
-    const navigation = useNavigation();
     const route = useRoute();
     const {
         reviewId,
@@ -35,6 +35,7 @@ export default function CommentScreen() {
         lastTapRef,
         targetId,
         photoTapped,
+        sharedPost,
     } = route.params;
     const dispatch = useDispatch();
     const review = useSelector(selectReviewById(reviewId));
@@ -47,10 +48,6 @@ export default function CommentScreen() {
     const userId = user?.id;
     const dateTime = review?.dateTime || review?.date;
     const isInvite = review?.type === "invite";
-    const postOwnerPic = isInvite ? review?.sender?.profilePicUrl || review?.profilePicUrl : review?.profilePicUrl;
-    const postOwnerName = isInvite && review?.sender?.firstName ? `${review?.sender?.firstName} ${review?.sender?.lastName}` : review?.fullName;
-    const totalInvited = review?.recipients?.length || 0;
-    const hasTaggedUsers = Array.isArray(review?.taggedUsers) && review.taggedUsers.length > 0;
 
     const [commentText, setCommentText] = useState('');
     const [keyboardHeight, setKeyboardHeight] = useState(null);
@@ -118,12 +115,9 @@ export default function CommentScreen() {
 
         let media = null;
 
-        if (selectedMedia && selectedMedia.length > 0) {
+        if (selectedMedia?.length > 0) {
             const mediaFile = selectedMedia[0];
-            console.log('📎 Selected Media:', mediaFile);
-
             try {
-                console.log('⬆️ Uploading media...');
                 const result = await dispatch(
                     uploadReviewPhotos({
                         placeId: review.placeId,
@@ -131,40 +125,50 @@ export default function CommentScreen() {
                     })
                 ).unwrap();
 
-                console.log('✅ Media upload result:', result);
-
                 if (result?.length > 0) {
                     media = {
                         photoKey: result[0],
                         mediaType: mediaFile.type.startsWith('video') ? 'video' : 'image',
                     };
-                    console.log('🖼️ Media object to attach:', media);
                 }
             } catch (error) {
                 console.error('❌ Media upload failed:', error);
             }
         }
 
-        console.log('📨 Dispatching addNewComment...');
-        await dispatch(
-            addNewComment({
-                review,
-                userId,
-                fullName,
-                commentText: commentText?.trim() || '', // fallback to empty string
-                ...(media && { media }),
-            })
-        );
+        try {
+            if (sharedPost) {
+                await dispatch(
+                    addCommentToSharedPost({
+                        sharedPostId: review._id,
+                        userId,
+                        fullName,
+                        commentText: commentText.trim(),
+                        media,
+                    })
+                ).unwrap();
+            } else {
+                await dispatch(
+                    addNewComment({
+                        review,
+                        userId,
+                        fullName,
+                        commentText: commentText.trim(),
+                        ...(media && { media }),
+                    })
+                );
+            }
 
-        console.log('🧹 Resetting state...');
-        dispatch(setReplyingTo(null));
-        setCommentText('');
-        setSelectedMedia([]);
+            dispatch(setReplyingTo(null));
+            setCommentText('');
+            setSelectedMedia([]);
 
-        setTimeout(() => {
-            console.log('📜 Scrolling to bottom of comments...');
-            flatListRef.current?.scrollToEnd({ animated: true });
-        }, 100);
+            setTimeout(() => {
+                flatListRef.current?.scrollToEnd({ animated: true });
+            }, 100);
+        } catch (error) {
+            console.error('🚫 Failed to submit comment:', error);
+        }
     };
 
     const waitForRefsAndScroll = (targetId, parentChain) => {
@@ -310,22 +314,15 @@ export default function CommentScreen() {
                 ListHeaderComponent={
                     <CommentModalHeader
                         review={review}
-                        isInvite={isInvite}
-                        hasTaggedUsers={hasTaggedUsers}
-                        postOwnerPic={postOwnerPic}
-                        postOwnerName={postOwnerName}
-                        totalInvited={totalInvited}
                         timeLeft={timeLeft}
-                        dateTime={dateTime}
                         formatEventDate={formatEventDate}
                         likedAnimations={likedAnimations}
                         photoTapped={photoTapped}
                         toggleTaggedUsers={toggleTaggedUsers}
                         handleLikeWithAnimation={handleLikeWithAnimation}
                         lastTapRef={lastTapRef}
-                        getTimeSincePosted={(date) => dayjs(date).fromNow(true)}
-                        onClose={() => navigation.goBack()}
                         setIsPhotoListActive={setIsPhotoListActive}
+                        sharedPost={sharedPost}
                     />
                 }
                 renderItem={({ item }) => (
@@ -338,6 +335,7 @@ export default function CommentScreen() {
                         setCommentText={setCommentText}
                         selectedMedia={selectedMedia}
                         setSelectedMedia={setSelectedMedia}
+                        sharedPost={sharedPost}
                     />
                 )}
             />

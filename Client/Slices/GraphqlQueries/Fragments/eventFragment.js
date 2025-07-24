@@ -12,9 +12,12 @@ export const EVENT_FRAGMENT = gql`
     businessName
     businessLogoUrl
     date
-    timeStart
-    timeEnd
-    recurrenceDays
+    startTime
+    endTime
+    allDay
+    distance
+    recurringDays
+    formattedAddress
     sortDate
     createdAt
     type

@@ -1,65 +1,11 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
 import { getUserToken } from '../functions';
+import { STORIES_QUERY, STORIES_BY_USER_QUERY } from './GraphqlQueries/Fragments/storiesFragments';
 import client from '../apolloClient';
-import { gql } from '@apollo/client';
 
 // BASE URL
 const BASE_URL = `${process.env.EXPO_PUBLIC_SERVER_URL}/stories`;
-
-const STORIES_QUERY = gql`
-  query UserAndFollowingStories($userId: ID!) {
-    userAndFollowingStories(userId: $userId) {
-      _id
-      mediaKey
-      mediaType
-      caption
-      visibility
-      expiresAt
-      mediaUrl
-      profilePicUrl
-      isViewed
-      viewedBy {
-        _id
-        firstName
-        lastName
-        profilePicUrl
-      }
-      user {
-        _id
-        firstName
-        lastName
-      }
-    }
-  }
-`;
-
-const STORIES_BY_USER_QUERY = gql`
-  query StoriesByUser($userId: ID!) {
-    storiesByUser(userId: $userId) {
-      _id
-      mediaKey
-      mediaType
-      caption
-      visibility
-      expiresAt
-      mediaUrl
-      profilePicUrl
-      isViewed
-      viewedBy {
-        _id
-        firstName
-        lastName
-        profilePicUrl
-      }
-      user {
-        _id
-        firstName
-        lastName
-      }
-    }
-  }
-`;
 
 export const getUploadUrls = createAsyncThunk(
   'stories/getUploadUrls',
@@ -200,6 +146,33 @@ export const postStory = createAsyncThunk(
   }
 );
 
+export const postSharedStory = createAsyncThunk(
+  'stories/postSharedStory',
+  async ({ postType, originalPostId, caption = '', visibility = 'public' }, { rejectWithValue }) => {
+    try {
+      const token = await getUserToken();
+
+      const response = await axios.post(
+        `${BASE_URL}/from-post`,
+        { postType, originalPostId, caption, visibility },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      return response.data; // story response from the backend
+    } catch (error) {
+      console.error('❌ postSharedStory error:', error?.response?.data || error.message);
+
+      return rejectWithValue(
+        error?.response?.data?.error || 'Failed to share post to story'
+      );
+    }
+  }
+);
+
 // Edit an existing story
 export const editStory = createAsyncThunk(
   'stories/editStory',
@@ -295,6 +268,12 @@ const storiesSlice = createSlice({
         state.storiesByUser[userId] = stories;
       })
       .addCase(fetchStoriesByUserId.rejected, (state, action) => {
+        state.error = action.payload;
+      })
+      .addCase(postSharedStory.fulfilled, (state, action) => {
+        state.stories.unshift(action.payload); // optional: update local cache
+      })
+      .addCase(postSharedStory.rejected, (state, action) => {
         state.error = action.payload;
       })
   },

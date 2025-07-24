@@ -6,23 +6,23 @@ import {
     StyleSheet,
     TouchableWithoutFeedback,
 } from 'react-native';
-import Animated, { useSharedValue, withTiming, useAnimatedStyle } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import useSlideDownDismiss from '../../utils/useSlideDown';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { Avatar } from '@rneui/themed';
 import Notch from '../Notch/Notch';
 import { getTimeLabel } from '../../utils/formatEventPromoTime';
+import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 
 const SuggestionDetailsModal = ({ visible, onClose, suggestion }) => {
-    const { businessName, logoUrl, distance, title } = suggestion;
+    const { businessName, distance, title } = suggestion;
+    const logoUrl = suggestion?.logoUrl || suggestion?.businessLogoUrl || profilePicPlaceholder;
+    const address = suggestion?.location?.formattedAddress || suggestion?.formattedAddress; 
     const { gesture, animateIn, animateOut, animatedStyle, } = useSlideDownDismiss(onClose);
-    const fadeAnim = useSharedValue(0);
-
+    
     useEffect(() => {
-        fadeAnim.value = withTiming(visible ? 1 : 0, { duration: 100 });
-
         if (visible) {
-            animateIn();            
+            animateIn();
         } else {
             (async () => {
                 await animateOut();
@@ -31,9 +31,7 @@ const SuggestionDetailsModal = ({ visible, onClose, suggestion }) => {
         }
     }, [visible]);
 
-    const fadeStyle = useAnimatedStyle(() => ({
-        opacity: fadeAnim.value,
-    }));
+    console.log(suggestion.startTime)
 
     return (
         <Modal
@@ -42,7 +40,7 @@ const SuggestionDetailsModal = ({ visible, onClose, suggestion }) => {
             onRequestClose={onClose}
         >
             <TouchableWithoutFeedback onPress={animateOut}>
-                <Animated.View style={[styles.modalOverlay, fadeStyle]}>
+                <Animated.View style={styles.modalOverlay}>
                     <GestureDetector gesture={gesture}>
                         <TouchableWithoutFeedback>
                             <Animated.View style={[styles.modalContent, animatedStyle]}>
@@ -51,12 +49,12 @@ const SuggestionDetailsModal = ({ visible, onClose, suggestion }) => {
                                     <Avatar
                                         size={45}
                                         rounded
-                                        source={logoUrl ? { uri: logoUrl } : require("../../assets/pics/profile-pic-placeholder.jpg")}
+                                        source={{ uri: logoUrl }}
                                         containerStyle={{ backgroundColor: "#ccc", marginRight: 10 }}
                                     />
                                     <View style={{ flexShrink: 1 }}>
                                         <Text style={styles.businessName}>{businessName}</Text>
-                                        <Text style={[styles.distance, { marginTop: 5,}]}>{suggestion?.location?.formattedAddress}</Text>
+                                        <Text style={[styles.distance, { marginTop: 5, }]}>{address}</Text>
                                         <Text style={styles.distance}>
                                             {distance ? `${(distance / 1609).toFixed(1)} mi away` : null}
                                         </Text>

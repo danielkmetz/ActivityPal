@@ -5,6 +5,7 @@ const Review = require('../models/Reviews.js');
 const Promotion = require('../models/Promotions.js');
 const Event = require('../models/Events.js');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
+const haversineDistance = require('../utils/haversineDistance.js');
 
 function getModelByType(type) {
   switch (type) {
@@ -136,6 +137,7 @@ async function gatherUserCheckIns(user, profilePicUrl) {
             photos,
             likes: checkIn.likes || [],
             comments,
+            distance,
             type: "check-in",
           };
         } catch {
@@ -259,24 +261,15 @@ async function resolveUserProfilePics(userIds) {
   return result;
 }
 
-async function enrichSharedPost(shared, profilePicMap = {}) {
+async function enrichSharedPost(shared, profilePicMap = {}, userLat = null, userLng = null) {
   try {
-    const { postType, originalPostId } = shared;
-    console.log(`🧪 Enriching shared post: ${shared._id} [${postType}]`);
+    const { postType, originalPostId, original: providedOriginal } = shared;
 
     const Model = getModelByType(postType);
-    if (!Model) {
-      console.warn(`❌ No model found for postType: ${postType}`);
-      return null;
-    }
+    if (!Model) return null;
 
-    const original = await Model.findById(originalPostId).lean();
-    if (!original) {
-      console.warn(`❌ Original ${postType} not found with ID: ${originalPostId}`);
-      return null;
-    }
-
-    console.log(`✅ Found original ${postType}: ${original._id}`);
+    const original = providedOriginal || await Model.findById(originalPostId).lean();
+    if (!original) return null;
 
     const profile = profilePicMap[original.userId?.toString()];
     const profilePic = profile?.profilePic?.photoKey ? profile.profilePic : null;
@@ -291,20 +284,37 @@ async function enrichSharedPost(shared, profilePicMap = {}) {
       taggedUsers = await resolveTaggedUsers(original.taggedUsers || []);
     }
 
-    if (['review', 'check-in'].includes(postType)) {
-      rawPhotos = await resolveTaggedPhotoUsers(original.photos || []);
-    }
-
-    if (['promotion', 'event'].includes(postType)) {
+    if (['review', 'check-in', 'promotion', 'event'].includes(postType)) {
       rawPhotos = await resolveTaggedPhotoUsers(original.photos || []);
     }
 
     if (['review', 'check-in', 'promotion', 'event', 'invite'].includes(postType)) {
-      business = await Business.findOne({ placeId: original.placeId }).select('businessName logoKey').lean();
+      business = await Business.findOne({ placeId: original.placeId })
+        .select('businessName logoKey location')
+        .lean();
     }
 
     if (original.comments) {
       comments = await enrichComments(original.comments);
+    }
+
+    // ✅ Calculate distance if applicable
+    let distance = null;
+    if (
+      (postType === 'event' || postType === 'promotion' || postType === 'promo') &&
+      userLat != null &&
+      userLng != null &&
+      business?.location?.coordinates?.length === 2
+    ) {
+      const [bizLng, bizLat] = business.location.coordinates;
+      
+      if (!isNaN(bizLat) && !isNaN(bizLng)) {
+        distance = haversineDistance(userLat, userLng, bizLat, bizLng);
+      } else {
+        console.warn("❌ Invalid coordinates: Not a number");
+      }
+    } else {
+      console.warn("⚠️ Skipping distance calculation due to missing values or postType mismatch");
     }
 
     const baseOriginal = {
@@ -322,6 +332,16 @@ async function enrichSharedPost(shared, profilePicMap = {}) {
       date: original.date ? new Date(original.date).toISOString() : new Date().toISOString(),
     };
 
+    // ✅ Only add distance for event or promotion
+    if ((postType === 'event' || postType === 'promotion' || postType === 'promo') && distance !== null) {
+      baseOriginal.distance = distance;
+      baseOriginal.formattedAddress = business.location.formattedAddress;
+      baseOriginal.recurringDays = original.recurringDays;
+      baseOriginal.startTime = original.startTime;
+      baseOriginal.endTime = original.endTime;
+      baseOriginal.allDay = original.allDay;
+    }
+
     if (postType === 'check-in') {
       const user = original.userId
         ? await User.findById(original.userId).select('firstName lastName').lean()
@@ -329,13 +349,14 @@ async function enrichSharedPost(shared, profilePicMap = {}) {
       baseOriginal.fullName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : null;
     }
 
+    if (!baseOriginal.__typename) return null;
+
     return {
-      ...shared,
-      original: baseOriginal,
+      ...shared.toObject?.() ?? shared,
+      original: { ...baseOriginal },
       originalPostType: postType,
     };
   } catch (err) {
-    console.error('❌ Error enriching shared post:', err);
     return null;
   }
 }
@@ -344,7 +365,10 @@ async function enrichSharedPost(shared, profilePicMap = {}) {
 function capitalizeFirstLetter(type) {
   if (!type) return '';
   if (type === 'check-in') return 'CheckIn';
+  if (type === 'checkIn') return 'CheckIn';
   if (type === 'invite') return 'ActivityInvite';
+  if (type === 'promotion') return 'Promotion';
+  if (type === 'event') return 'Event';
   return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
