@@ -14,11 +14,20 @@ const CaptionSchema = new mongoose.Schema(
 );
 
 const StorySchema = new mongoose.Schema({
-  mediaKey: { type: String, required: true }, // e.g., S3 key for photo or video
+  mediaKey: {
+    type: String,
+    required: function () {
+      // Only required if it's not a shared post (i.e., no originalPostId)
+      return !this.originalPostId;
+    }
+  },
   mediaType: {
     type: String,
     enum: ['photo', 'video'],
-    required: true
+    required: function () {
+      // Only required if it's not a shared post (i.e., no originalPostId)
+      return !this.originalPostId;
+    }
   },
   caption: { type: String, default: null },
   captions: [CaptionSchema],
@@ -29,6 +38,18 @@ const StorySchema = new mongoose.Schema({
       y: { type: Number, default: 0 },
     },
   ],
+  originalPostId: { type: mongoose.Schema.Types.ObjectId },
+  postType: {
+    type: String,
+    enum: ['review', 'check-in', 'invite', 'promotion', 'event'],
+  },
+  originalOwner: {
+    type: mongoose.Schema.Types.ObjectId,
+  },
+  originalOwnerModel: {
+    type: String,
+    enum: ['User', 'Business'],
+  },
   createdAt: { type: Date, default: Date.now },
   expiresAt: { type: Date }, // Auto-calculate 24h expiry when creating story
   visibility: {

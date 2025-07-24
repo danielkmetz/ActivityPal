@@ -4,7 +4,6 @@ import {
   PanResponder,
   View,
   Text,
-  Image,
   TouchableOpacity,
   StyleSheet,
   Dimensions,
@@ -12,12 +11,12 @@ import {
   Alert,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { Video } from 'expo-av';
 import { useSelector } from 'react-redux';
 import { selectUser } from '../../Slices/UserSlice';
 import { deleteStory } from '../../Slices/StoriesSlice';
 import { Ionicons } from '@expo/vector-icons';
 import { useDispatch } from 'react-redux';
+import StoryMediaRenderer from './StoryMediaRenderer';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -39,6 +38,7 @@ export default function StoryViewer() {
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(0)).current;
+  const imageWithCaptionsRef = useRef(null);
   const progress = useRef(stories.map(() => new Animated.Value(0))).current;
   const animationRef = useRef(null);
   const hasSyncedRef = useRef(false);
@@ -131,17 +131,17 @@ export default function StoryViewer() {
     })
   ).current;
 
-  if (!story?.mediaKey) {
+  const goBack = () => {
+    navigation.goBack();
+  };
+
+  if (!story?.original && !story?.mediaKey) {
     return (
       <View style={styles.container}>
         <Text style={{ color: 'white' }}>Invalid story data</Text>
       </View>
     );
-  };
-
-  const goBack = () => {
-    navigation.goBack();
-  };
+  }
 
   return (
     <Animated.View
@@ -182,34 +182,19 @@ export default function StoryViewer() {
       {/* Media */}
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
         <Animated.View style={[StyleSheet.absoluteFill, { opacity: fadeAnim }]}>
-          {story.mediaType === 'video' ? (
-            <Video
-              key={mediaUrl}
-              source={{ uri: mediaUrl }}
-              resizeMode="cover"
-              shouldPlay
-              isMuted
-              style={StyleSheet.absoluteFill}
-              onPlaybackStatusUpdate={(status) => {
-                if (!status.isLoaded || hasSyncedRef.current) return;
-
-                if (status.durationMillis && status.positionMillis < 500) {
-                  hasSyncedRef.current = true;
-                  animationRef.current?.stop();
-                  startProgressAnimation(status.durationMillis);
-
-                  // Show the video by fading in
-                  Animated.timing(fadeAnim, {
-                    toValue: 1,
-                    duration: 300,
-                    useNativeDriver: true,
-                  }).start();
-                }
-              }}
-            />
-          ) : (
-            <Image source={{ uri: mediaUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-          )}
+          <StoryMediaRenderer
+            isSharedPost={!!story.original}
+            post={story.original}
+            mediaUri={videoUri || story.mediaUrl}
+            currentSegment={null} // or your segment logic if needed
+            mediaType={story.mediaType}
+            segments={[]} // or [] if unused here
+            currentSegmentIndex={0} // default value
+            setCurrentSegmentIndex={() => { }} // no-op if unused
+            captions={story.captions || []}
+            isSubmitting={false}
+            imageWithCaptionsRef={imageWithCaptionsRef}
+          />
         </Animated.View>
 
         {story.user?._id === userId && (
@@ -227,7 +212,7 @@ export default function StoryViewer() {
                     onPress: async () => {
                       try {
                         await dispatch(deleteStory(story._id)).unwrap();
-                        goBack;
+                        goBack();
                       } catch (err) {
                         console.error('🗑️ Failed to delete story:', err);
                       }

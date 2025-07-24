@@ -13,7 +13,7 @@ export default function PostActions({
   handleOpenComments, 
   toggleTaggedUsers, 
   photo, 
-  isCommentScreen = false 
+  isCommentScreen = false, 
 }) {
   const navigation = useNavigation();
   const user = useSelector(selectUser);

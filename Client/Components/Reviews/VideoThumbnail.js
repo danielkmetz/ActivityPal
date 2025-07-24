@@ -4,7 +4,7 @@ import { VideoView } from 'expo-video';
 import { useSmartVideoPlayer } from '../../utils/useSmartVideoPlayer';
 
 export default function VideoThumbnail({ file, width, height, shouldPlay = true }) {
-  if (!file) return null;
+  if (!file || !VideoView ) return null;
   
   const player = useSmartVideoPlayer(file, shouldPlay);
   

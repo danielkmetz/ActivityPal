@@ -101,18 +101,21 @@ const typeDefs = gql`
     placeId: String!
     businessName: String
     businessLogoUrl: String
+    formattedAddress: String
     title: String!
     description: String
     startDate: String
     endDate: String
-    timeStart: String
-    timeEnd: String
-    recurrenceDays: [String]
+    startTime: String
+    endTime: String
+    recurringDays: [String]
     media: [Media!]
     likes: [Like]
+    allDay: Boolean
     comments: [Comment]
     createdAt: String!
     type: String!
+    distance: Float
     sortDate: String
   }
 
@@ -121,26 +124,29 @@ const typeDefs = gql`
     placeId: String!
     businessName: String
     businessLogoUrl: String
+    formattedAddress: String
     title: String!
     description: String
     date: Date
-    timeStart: String
-    timeEnd: String
-    recurrenceDays: [String]
+    startTime: String
+    endTime: String
+    allDay: Boolean
+    recurringDays: [String]
     media: [Media!]
     likes: [Like]
     comments: [Comment]
     createdAt: String!
     type: String!
+    distance: Float
     sortDate: String
   }
 
   type SharedPost {
     _id: ID!
     user: User!
-    originalOwner: User!
-    postType: String!
-    originalPostId: ID!
+    originalOwner: User
+    postType: String
+    originalPostId: ID
     caption: String
     createdAt: String!
     original: SharedContent
@@ -266,8 +272,8 @@ const typeDefs = gql`
 
   type Story {
     _id: ID!
-    mediaKey: String!
-    mediaType: String!
+    mediaKey: String
+    mediaType: String
     caption: String
     visibility: String
     expiresAt: String
@@ -276,6 +282,11 @@ const typeDefs = gql`
     profilePicUrl: String
     user: UserSummary!
     viewedBy: [UserSummary!]           # Array of user IDs who have viewed the story
+    type: String                # "story" or "sharedStory"
+    postType: String            # "review", "check-in", "invite", "promotion", "event"
+    originalPostId: ID
+    originalOwner: User
+    original: SharedContent
     isViewed: Boolean         # Derived field, based on current user context
   }
 
@@ -303,7 +314,7 @@ const typeDefs = gql`
 
   union UserActivity = Review | CheckIn | ActivityInvite | SharedPost
   union SharedContent = Review | CheckIn | ActivityInvite | Promotion | Event
-  union UserPost = Review | CheckIn
+  union UserPost = Review | CheckIn | SharedPost
 
   # ✅ Queries
   type Query {
@@ -312,12 +323,12 @@ const typeDefs = gql`
     getBusinessReviews(placeId: String!, limit: Int, after: ActivityCursor): [UserPost!]
     getUserAndFollowingCheckIns(userId: String!): [CheckIn!]
     getUserAndFollowingInvites(userId: ID!): UserAndFriendsInvites
-    getUserActivity(userId: ID!, limit: Int, after: ActivityCursor): [UserActivity!]
+    getUserActivity(userId: ID!, limit: Int, after: ActivityCursor, userLat: Float, userLng: Float): [UserActivity!]
     getSuggestedFollows(userId: ID!): [SuggestedUser!]!
     userAndFollowingStories(userId: ID!): [Story]
     storiesByUser(userId: ID!): [Story]
     getBusinessRatingSummaries(placeIds: [String!]!): [BusinessRatingSummary!]!
-    getUserAndFollowingSharedPosts(userId: ID!): [SharedPost]
+    getUserAndFollowingSharedPosts(userId: ID!, userLat: Float, userLng: Float): [SharedPost]
   }
 `;
 

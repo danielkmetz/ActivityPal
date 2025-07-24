@@ -6,7 +6,6 @@ import {
     TouchableOpacity,
     Alert,
     ActivityIndicator,
-    Image,
     Dimensions,
     TouchableWithoutFeedback,
     Keyboard,
@@ -16,10 +15,11 @@ import { useDispatch, useSelector } from 'react-redux';
 import { postStory, getUploadUrls } from '../../Slices/StoriesSlice';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { selectPrivacySettings } from '../../Slices/UserSlice';
-import { Video } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import CaptionInput from './CaptionInput';
 import { burnCaptionsToImage } from '../../utils/burnCaptionsToImages';
+import StoryMediaRenderer from './StoryMediaRenderer';
+import { postSharedStory } from '../../Slices/StoriesSlice';
 
 const screenHeight = Dimensions.get('window').height;
 
@@ -29,8 +29,10 @@ const StoryPreview = () => {
     const dispatch = useDispatch();
     const privacySettings = useSelector(selectPrivacySettings);
     const contentVisibility = privacySettings?.contentVisibility;
-
-    const { file: fileParam = {} } = route.params || {};
+    const { file: fileParam = {}, post } = route.params || {};
+    const postType = post?.type;
+    const originalPostId = post?._id;
+    const isSharedPost = !!postType && !!originalPostId;
     const segments = fileParam?.segments;
     const file = fileParam;
     const mediaUri = file?.uri;
@@ -52,6 +54,8 @@ const StoryPreview = () => {
 
     const createCaption = () => ({ id: `${Date.now()}`, text: '', y: screenHeight * 0.4 });
 
+    //console.log(post);
+
     const addNewCaption = () => {
         const hasEmptyCaption = captions.some(c => c.text.trim() === '');
         if (hasEmptyCaption) return; // Don't add another empty one
@@ -70,6 +74,24 @@ const StoryPreview = () => {
             const isMultiPartVideo = mediaType === 'video' && Array.isArray(file?.segments);
             const isPhoto = mediaType === 'photo';
 
+            if (isSharedPost) {
+                // Use the shared post thunk
+                const sharedRes = await dispatch(postSharedStory({
+                    postType,
+                    originalPostId,
+                    caption: captions.length > 0 ? captions[0].text : '', // use first caption if available
+                    visibility: contentVisibility || 'public',
+                }));
+
+                if (!postSharedStory.fulfilled.match(sharedRes)) {
+                    throw new Error(sharedRes.payload || 'Failed to share post to story');
+                }
+
+                Alert.alert('Success', 'Your story has been posted!');
+                navigation.navigate('TabNavigator', { screen: 'Home' });
+                return;
+            }
+
             console.log('🔍 isPhoto:', isPhoto);
             console.log('🔍 isMultiPartVideo:', isMultiPartVideo);
 
@@ -83,8 +105,6 @@ const StoryPreview = () => {
                 })
             );
 
-            console.log('📦 uploadRes:', uploadRes);
-
             if (!getUploadUrls.fulfilled.match(uploadRes)) {
                 console.error('❌ Failed to get upload URLs:', uploadRes.payload);
                 throw new Error(uploadRes.payload || 'Failed to get upload URL(s)');
@@ -92,12 +112,9 @@ const StoryPreview = () => {
 
             const { uploadData } = uploadRes.payload;
             const { mediaKey } = uploadData;
-            console.log('📥 uploadData:', uploadData);
-            console.log('📥 mediaKey:', mediaKey);
 
             if (isPhoto) {
                 let finalUploadUri = mediaUri;
-                console.log('🖼️ mediaUri (before burn):', mediaUri);
 
                 if (captions.length > 0 && imageWithCaptionsRef.current) {
                     console.log('🖊️ Burning captions into image...');
@@ -108,12 +125,8 @@ const StoryPreview = () => {
                 const uploadResult = await FileSystem.uploadAsync(uploadData.uploadUrl, finalUploadUri, {
                     httpMethod: 'PUT',
                     uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-                    headers: {
-                        'Content-Type': 'image/jpeg',
-                    },
+                    headers: { 'Content-Type': 'image/jpeg' },
                 });
-
-                console.log('📤 uploadResult:', uploadResult);
 
                 if (uploadResult.status !== 200) {
                     throw new Error('Upload failed. Please try again.');
@@ -129,17 +142,11 @@ const StoryPreview = () => {
                     const segment = uploadData[i];
                     const localSegment = file.segments[i];
 
-                    console.log(`📤 Uploading segment ${i}`, { localSegment, segment });
-
                     const uploadResult = await FileSystem.uploadAsync(segment.uploadUrl, localSegment.uri, {
                         httpMethod: 'PUT',
                         uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-                        headers: {
-                            'Content-Type': 'video/mp4',
-                        },
+                        headers: { 'Content-Type': 'video/mp4' },
                     });
-
-                    console.log(`✅ Segment ${i} uploaded`, uploadResult);
 
                     if (uploadResult.status !== 200) {
                         throw new Error(`Upload failed for segment ${i + 1}`);
@@ -151,7 +158,7 @@ const StoryPreview = () => {
                     };
                 }
             }
-            console.log('media type', mediaType)
+
             const postPayload = {
                 mediaType,
                 visibility: contentVisibility,
@@ -180,14 +187,11 @@ const StoryPreview = () => {
             console.log('📤 Posting final story:', postPayload);
 
             const postRes = await dispatch(postStory(postPayload));
-            console.log('📥 postRes:', postRes);
-
             if (!postStory.fulfilled.match(postRes)) {
                 throw new Error(postRes.payload || 'Failed to post story');
             }
 
             Alert.alert('Success', 'Your story has been posted!');
-            setIsSubmitting(false);
             navigation.navigate('TabNavigator', { screen: 'Home' });
 
         } catch (err) {
@@ -195,6 +199,7 @@ const StoryPreview = () => {
             Alert.alert('Error', err.message || 'Something went wrong.');
         } finally {
             console.log('✅ handlePost: finished');
+            setIsSubmitting(false);
             setLoading(false);
         }
     };
@@ -234,66 +239,19 @@ const StoryPreview = () => {
                 }}
             >
                 <View style={styles.container}>
-                    {(mediaUri || currentSegment.uri) && (
-                        <View
-                            ref={mediaType === 'photo' ? imageWithCaptionsRef : null}
-                            collapsable={false}
-                            style={styles.captureContainer}
-                        >
-                            {mediaType === 'photo' ? (
-                                <Image
-                                    source={{ uri: mediaUri }}
-                                    style={StyleSheet.absoluteFill}
-                                    resizeMode="cover"
-                                />
-                            ) : (
-                                <View style={styles.video}>
-                                    <Video
-                                        source={{ uri: currentSegment.uri }}
-                                        shouldPlay
-                                        isLooping
-                                        isMuted
-                                        resizeMode="cover"
-                                        useNativeControls={false}
-                                        style={StyleSheet.absoluteFill}
-                                        onPlaybackStatusUpdate={({ didJustFinish }) => {
-                                            if (
-                                                didJustFinish &&
-                                                Array.isArray(segments) &&
-                                                currentSegmentIndex < segments.length - 1
-                                            ) {
-                                                setCurrentSegmentIndex(prev => prev + 1);
-                                            } else {
-                                                setCurrentSegmentIndex(0);
-                                            }
-                                        }}
-                                    />
-                                </View>
-                            )}
-                            {captions.map((caption) => {
-                                if (isSubmitting) {
-                                    return (
-                                        <View
-                                            key={caption.id}
-                                            style={{
-                                                position: 'absolute',
-                                                top: caption.y ?? 100 + 40 * captions.indexOf(caption),
-                                                left: Dimensions.get('window').width / 2,
-                                                transform: [{ translateX: -Dimensions.get('window').width / 2 }],
-                                                width: '100%',
-                                                alignItems: 'center',
-                                            }}
-                                        >
-                                            <Text style={styles.captionInputOverlay}>
-                                                {caption.text}
-                                            </Text>
-                                        </View>
-                                    );
-                                }
-                                return null;
-                            })}
-                        </View>
-                    )}
+                    <StoryMediaRenderer
+                        isSharedPost={isSharedPost}
+                        post={post}
+                        mediaUri={mediaUri}
+                        currentSegment={currentSegment}
+                        mediaType={mediaType}
+                        segments={segments}
+                        currentSegmentIndex={currentSegmentIndex}
+                        setCurrentSegmentIndex={setCurrentSegmentIndex}
+                        captions={captions}
+                        isSubmitting={isSubmitting}
+                        imageWithCaptionsRef={imageWithCaptionsRef}
+                    />
                     <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()}>
                         <Ionicons name="close" size={40} color="#fff" />
                     </TouchableOpacity>
@@ -356,9 +314,6 @@ const styles = StyleSheet.create({
         justifyContent: 'flex-end',
         paddingBottom: 30,
     },
-    video: {
-        ...StyleSheet.absoluteFillObject,
-    },
     closeButton: {
         position: 'absolute',
         top: 60,
@@ -377,28 +332,6 @@ const styles = StyleSheet.create({
         fontSize: 30,
         fontWeight: 'bold',
     },
-    draggableCaption: {
-        position: 'absolute',
-        top: 0,
-        zIndex: 15,
-        width: '100%',
-    },
-    captionInputOverlay: {
-        fontSize: 24,
-        color: '#fff',
-        paddingVertical: 8,
-        paddingHorizontal: 16,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        textAlign: 'center',
-    },
-    captionInputOverlayActive: {
-        fontSize: 24,
-        color: '#fff',
-        paddingVertical: 8,
-        paddingHorizontal: 16,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        textAlign: 'left',
-    },
     buttonRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -409,17 +342,5 @@ const styles = StyleSheet.create({
         bottom: 40,
         right: 25,
         zIndex: 20,
-    },
-    captureContainer: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        width: Dimensions.get('window').width,
-        height: Dimensions.get('window').height,
-        opacity: 1, // Hidden
-        zIndex: -1,
-        textAlign: 'center',
-        pointerEvents: 'none', // ✅ Ensures it's not intercepting gestures
-        backgroundColor: 'black',
     },
 });

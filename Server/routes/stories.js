@@ -11,6 +11,8 @@ const { mergeSegmentsWithOverlays } = require('../helpers/ffmpegMergeUpload');
 const submitMediaConvertJob = require('../helpers/createMediaConvertJob');
 const waitForObjectReady = require('../utils/waitForObjectReady');
 const { processCaptionsToInsertableImages } = require('../utils/processCaptions');
+const { resolveSharedPostData } = require('../utils/resolveSharedPostType');
+const { enrichSharedPost, resolveUserProfilePics } = require('../utils/userPosts');
 
 const BUCKET_NAME = process.env.AWS_BUCKET_NAME_LOGOS;
 
@@ -173,7 +175,7 @@ router.post('/', verifyToken, async (req, res) => {
       } catch (err) {
         console.error('❌ Failed to process story:', err);
         res.status(500).json({ error: 'Story processing failed' });
-      }  
+      }
     } else if (mediaKey) {
       finalMediaKey = mediaKey;
       console.log('✅ Using original mediaKey without processing:', finalMediaKey);
@@ -223,6 +225,83 @@ router.post('/', verifyToken, async (req, res) => {
   } catch (err) {
     console.error('❌ Failed to process story:', err);
     return res.status(500).json({ error: 'Failed to create story' });
+  }
+});
+
+router.post('/from-post', verifyToken, async (req, res) => {
+  try {
+    const { postType, originalPostId, caption = '', visibility = 'public' } = req.body;
+    const userId = req.user?.id;
+
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    if (!['review', 'check-in', 'invite', 'promotion', 'event'].includes(postType)) {
+      return res.status(400).json({ error: 'Invalid postType' });
+    }
+
+    const { original, originalOwner, originalOwnerModel } =
+      await resolveSharedPostData(postType, originalPostId);
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    const story = {
+      mediaType: 'photo', // Placeholder
+      caption,
+      visibility,
+      originalPostId,
+      postType,
+      originalOwner,
+      originalOwnerModel,
+      expiresAt,
+      viewedBy: [],
+    };
+
+    user.stories.push(story);
+    await user.save();
+
+    const createdStory = user.stories[user.stories.length - 1].toObject();
+
+    const profilePicMap = await resolveUserProfilePics([
+      userId,
+      originalOwnerModel === 'User' ? originalOwner.toString() : null,
+    ].filter(Boolean));
+
+    const enrichedOriginal = await enrichSharedPost({
+      user: userId,
+      originalOwner,
+      originalOwnerModel,
+      postType,
+      originalPostId,
+      original,
+    }, profilePicMap);
+
+    const profilePicUrl = user.profilePic?.photoKey
+      ? await getPresignedUrl(user.profilePic.photoKey)
+      : null;
+
+    res.status(201).json({
+      ...createdStory,
+      user: {
+        id: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        ...profilePicMap[userId],
+      },
+      originalOwner: {
+        id: originalOwner,
+        model: originalOwnerModel,
+        ...(originalOwnerModel === 'User' ? profilePicMap[originalOwner.toString()] : {}),
+      },
+      original: enrichedOriginal.original,
+      type: 'sharedStory',
+      isViewed: false,
+    });
+  } catch (err) {
+    console.error('❌ Error creating shared story:', err);
+    res.status(500).json({ error: err.message || 'Internal server error' });
   }
 });
 

@@ -11,10 +11,16 @@ export const PROMOTION_FRAGMENT = gql`
     placeId
     businessName
     businessLogoUrl
+    formattedAddress
+    distance
     startDate
     endDate
     sortDate
     createdAt
+    recurringDays
+    startTime
+    endTime
+    allDay
     type
     media {
       photoKey

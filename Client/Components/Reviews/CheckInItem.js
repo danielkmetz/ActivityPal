@@ -10,8 +10,8 @@ import {
     TouchableWithoutFeedback,
     TouchableOpacity,
 } from "react-native";
-import PhotoItem from "./PhotoItem";
-import PhotoPaginationDots from "./PhotoPaginationDots";
+import PhotoItem from "./Photos/PhotoItem";
+import PhotoPaginationDots from "./Photos/PhotoPaginationDots";
 import PostActions from './PostActions';
 import { selectUser } from "../../Slices/UserSlice";
 import { useSelector, useDispatch } from "react-redux";
@@ -22,6 +22,7 @@ import { createNotification } from "../../Slices/NotificationsSlice";
 import { declineFollowRequest, cancelFollowRequest, approveFollowRequest } from "../../Slices/friendsSlice";
 import { handleFollowUserHelper } from "../../utils/followHelper";
 import { logEngagementIfNeeded } from "../../Slices/EngagementSlice";
+import PhotoFeed from "./Photos/PhotoFeed";
 
 const pinPic = "https://cdn-icons-png.flaticon.com/512/684/684908.png";
 
@@ -251,41 +252,12 @@ export default function CheckInItem({
                 )}
             </View>
             {postPhotos?.length > 0 && (
-                <>
-                    <FlatList
-                        data={postPhotos}
-                        horizontal
-                        pagingEnabled
-                        showsHorizontalScrollIndicator={false}
-                        keyExtractor={(photo, index) => index.toString()}
-                        scrollEnabled={postPhotos?.length > 1}
-                        onScroll={Animated.event(
-                            [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-                            {
-                                useNativeDriver: false,
-                                listener: (e) => {
-                                    const index = Math.round(e.nativeEvent.contentOffset.x / screenWidth);
-                                    setCurrentPhotoIndex(index);
-                                },
-                            }
-                        )}
-                        scrollEventThrottle={16}
-                        renderItem={({ item: photo, index }) => (
-                            <PhotoItem
-                                photo={photo}
-                                reviewItem={item}
-                                index={index}
-                                photoTapped={photoTapped}
-                                toggleTaggedUsers={toggleTaggedUsers}
-                                handleLikeWithAnimation={handleLikeWithAnimation}
-                                lastTapRef={lastTapRef}
-                                onOpenFullScreen={handleOpenFullScreen}
-                                isSuggestedPost={isSuggestedFollowPost}
-                            />
-                        )}
-                    />
-                    <PhotoPaginationDots photos={postPhotos} scrollX={scrollX} />
-                </>
+                <PhotoFeed 
+                    media={postPhotos}
+                    scrollX={scrollX}
+                    currentIndexRef={{ current: currentPhotoIndex, setCurrent: setCurrentPhotoIndex }}
+                    onPhotoTap={photoTapped}
+                />
             )}
             <Text style={styles.date}>
                 <Text>Posted: </Text>

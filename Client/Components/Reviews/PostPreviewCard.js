@@ -33,8 +33,6 @@ export default function PostPreviewCard({ post }) {
         }
     }, [placeId]);
 
-    console.log(post.title)
-
     return (
         <View style={styles.card}>
             <View style={styles.header}>

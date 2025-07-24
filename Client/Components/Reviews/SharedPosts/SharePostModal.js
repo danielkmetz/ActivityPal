@@ -13,14 +13,14 @@ import {
     Keyboard,
 } from 'react-native';
 import Animated from 'react-native-reanimated';
-import Notch from '../Notch/Notch';
-import useSlideDownDismiss from '../../utils/useSlideDown';
+import Notch from '../../Notch/Notch';
+import useSlideDownDismiss from '../../../utils/useSlideDown';
 import { GestureDetector } from 'react-native-gesture-handler';
-import PostPreviewCard from './PostPreviewCard';
+import PostPreviewCard from '../PostPreviewCard';
 import { useSelector } from 'react-redux';
-import { selectUser } from '../../Slices/UserSlice';
-import { selectProfilePic } from '../../Slices/PhotosSlice';
-import { createSharedPost } from '../../Slices/SharedPostsSlice';
+import { selectUser } from '../../../Slices/UserSlice';
+import { selectProfilePic } from '../../../Slices/PhotosSlice';
+import { createSharedPost } from '../../../Slices/SharedPostsSlice';
 import { useDispatch } from 'react-redux';
 
 export default function SharePostModal({ visible, onClose, post }) {
@@ -49,7 +49,7 @@ export default function SharePostModal({ visible, onClose, post }) {
             return;
         }
         let suggestionType;
-        if (post.kind.includes('promo')) {
+        if (post?.kind?.toLowerCase().includes('promo')) {
             suggestionType = 'promotion';
         } else {
             suggestionType = 'event';
@@ -62,7 +62,7 @@ export default function SharePostModal({ visible, onClose, post }) {
         }));
 
         setComment('');
-        onClose();
+        animateOut();
     };
 
     return (

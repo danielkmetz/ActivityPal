@@ -2,9 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { View, Image, Text, Animated, TouchableWithoutFeedback, Dimensions, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { VideoView } from 'expo-video';
-import { useSmartVideoPlayer } from '../../utils/useSmartVideoPlayer';
-import { isVideo } from '../../utils/isVideo';
-import { useLikeAnimations } from '../../utils/LikeHandlers/LikeAnimationContext';
+import { useSmartVideoPlayer } from '../../../utils/useSmartVideoPlayer';
+import { isVideo } from '../../../utils/isVideo';
+import { useLikeAnimations } from '../../../utils/LikeHandlers/LikeAnimationContext';
 
 const screenWidth = Dimensions.get("window").width;
 
@@ -73,13 +73,11 @@ const PhotoItem = ({
                     ) : (
                         <Image source={{ uri: photo.url || photo.uri || photo.bannerUrl }} style={styles.photo} />
                     )}
-
                     {isInteractive && animation && (
                         <Animated.View style={[styles.likeOverlay, { opacity: animation }]}>
                             <MaterialCommunityIcons name="thumb-up" size={80} color="#80E6D2" />
                         </Animated.View>
                     )}
-
                     {isInteractive && photoTapped === photo.photoKey &&
                         photo.taggedUsers?.map((taggedUser, index) => (
                             <View

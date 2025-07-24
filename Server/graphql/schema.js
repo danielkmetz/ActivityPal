@@ -55,41 +55,85 @@ const resolvers = {
       if (obj.__typename) return obj.__typename;
 
       // Fallbacks for safety
-      if (obj.originalPostType === 'review') return 'Review';
-      if (obj.originalPostType === 'check-in') return 'CheckIn';
-      if (obj.originalPostType === 'invite') return 'ActivityInvite';
-      if (obj.originalPostType === 'promotion') return 'Promotion';
-      if (obj.originalPostType === 'event') return 'Event';
+      const map = {
+        review: 'Review',
+        'check-in': 'CheckIn',
+        checkIn: 'CheckIn',
+        invite: 'ActivityInvite',
+        promotion: 'Promotion',
+        event: 'Event',
+      };
 
-      console.error('❌ Cannot resolve SharedContent type:', obj);
+      if (map[obj.originalPostType]) return map[obj.originalPostType];
+
+      console.error('❌ Cannot resolve SharedContent type:', JSON.stringify(obj, null, 2));
       return null;
     }
   },
-  UserPost: {
-    __resolveType(obj) {
-      if (obj.type === 'review' || obj.reviewText !== undefined) {
-        return 'Review';
-      }
-      if (obj.type === 'checkin' || obj.message !== undefined) {
-        return 'CheckIn';
-      }
-      throw new Error('Unknown type in UserPost resolver');
-    },
-  },
+ UserPost: {
+  __resolveType(obj) {
+    if (obj.type === 'review' || obj.reviewText !== undefined) return 'Review';
+    if (obj.type === 'check-in' || obj.message !== undefined) return 'CheckIn';
+    if (obj.type === 'checkIn' || obj.message !== undefined) return 'CheckIn'; 
+    if (obj.type === 'sharedPost' || obj.original !== undefined) return 'SharedPost';
+    if (obj.type === 'promotion' || obj.message !== undefined) return 'Promotion'; 
+    if (obj.type === 'event' || obj.original !== undefined) return 'Event';
+    return null; // ← THIS is what causes graphql-depth-limit to explode
+  }
+},
   Date: DateScalar,
 };
 
-// Export Apollo Server instance
+// Defensive wrapper around graphql-depth-limit
+const safeDepthLimit = (maxDepth, options) => {
+  const originalRule = depthLimit(maxDepth, options);
+  return (context) => {
+    const ruleVisitor = originalRule(context);
+    return {
+      ...ruleVisitor,
+      Field(node, ...rest) {
+        if (!node || typeof node.kind !== 'string') {
+          console.warn('⚠️ Skipping depth check on invalid AST node:', node);
+          return;
+        }
+        return ruleVisitor.Field?.(node, ...rest);
+      },
+    };
+  };
+};
+
 const createApolloServer = () => {
   return new ApolloServer({
     typeDefs,
     resolvers,
-    validationRules: [depthLimit(30)],
+    validationRules: [
+      (context) => {
+        try {
+          return safeDepthLimit(30)(context);
+        } catch (e) {
+          throw e;
+        }
+      }
+    ],
+    plugins: [{
+      async requestDidStart() {
+        return {
+          didEncounterErrors(ctx) {
+            ctx.errors.forEach((err) => {
+              console.error('[Apollo Error]', {
+                message: err.message,
+                locations: err.locations,
+                path: err.path,
+                stack: err.originalError?.stack,
+              });
+            });
+          },
+        };
+      }
+    }],
     context: async ({ req }) => {
       const user = await getUserFromToken(req);
-      return {
-        user, // inject into resolvers
-      };
+      return { user };
     },
   });
 };

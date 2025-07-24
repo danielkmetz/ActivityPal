@@ -18,8 +18,8 @@ import {
   deletePromotion,
   fetchPromotionById,
 } from "../../Slices/PromotionsSlice";
-import PhotoItem from "../Reviews/PhotoItem";
-import PhotoPaginationDots from '../Reviews/PhotoPaginationDots';
+import PhotoItem from "../Reviews/Photos/PhotoItem";
+import PhotoPaginationDots from '../Reviews/Photos/PhotoPaginationDots';
 import EventDetailsCard from "./EventDetailsCard";
 import { useNavigation } from "@react-navigation/native";
 import PostActions from "../Reviews/PostActions";

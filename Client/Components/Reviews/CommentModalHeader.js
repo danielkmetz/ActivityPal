@@ -1,96 +1,85 @@
 import React, { useRef } from "react";
-import { View, Text, Image, FlatList, Animated, StyleSheet, TouchableOpacity } from "react-native";
-import { Avatar } from "@rneui/themed";
+import { View, Text, Image, FlatList, Animated, StyleSheet, } from "react-native";
+import dayjs from 'dayjs';
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
-import profilePicPlaceholder from "../../assets/pics/profile-pic-placeholder.jpg";
-import PhotoItem from "./PhotoItem";
-import PhotoPaginationDots from "./PhotoPaginationDots";
+import PhotoItem from "./Photos/PhotoItem";
+import PhotoPaginationDots from "./Photos/PhotoPaginationDots";
 import { useNavigation } from "@react-navigation/native";
 import PostActions from './PostActions';
+import PostUserInfo from "./CommentScreen/PostUserInfo";
+import SharedPostContent from "./SharedPosts/SharedPostContent";
 
 const CommentModalHeader = ({
     review,
-    isInvite,
-    hasTaggedUsers,
-    postOwnerPic,
-    postOwnerName,
-    totalInvited,
     timeLeft,
-    dateTime,
     formatEventDate,
     likedAnimations,
     photoTapped,
     toggleTaggedUsers,
     handleLikeWithAnimation,
     lastTapRef,
-    getTimeSincePosted,
-    onClose,
     setIsPhotoListActive,
+    sharedPost,
 }) => {
     const navigation = useNavigation();
     const scrollX = useRef(new Animated.Value(0)).current;
+    const photos = review?.photos || review?.media;
+    const hasTaggedUsers = Array.isArray(review?.taggedUsers) && review.taggedUsers.length > 0;
+    const postOwnerPic = isInvite ? review?.sender?.profilePicUrl || review?.profilePicUrl : review?.profilePicUrl || review?.original?.profilePicUrl;
+    const postOwnerName = isInvite && review?.sender?.firstName ? `${review?.sender?.firstName} ${review?.sender?.lastName}` : review?.fullName || `${review?.user?.firstName} ${review?.user?.lastName}`;
+    const totalInvited = review?.recipients?.length || 0;
+    const dateTime = review?.dateTime || review?.date;
+    const isInvite = review?.type === "invite";
+
+    const getTimeSincePosted = (date) => {
+        return dayjs(date).fromNow(true);
+    };
+
+    const onClose = () => {
+        navigation.goBack();
+    };
 
     const onOpenFullScreen = (photo, index) => {
         navigation.navigate("FullScreenPhoto", {
             reviewId: review?._id,
             initialIndex: review.photos.findIndex(p => p._id === photo._id),
         })
-    }
+    };
 
     return (
         <View style={styles.header}>
             <View style={styles.headerText}>
-                <View style={styles.userInfo}>
-                    <View style={styles.headerBar}>
-                        <TouchableOpacity onPress={onClose} style={styles.backButton}>
-                            <MaterialCommunityIcons name="chevron-left" size={26} color="#000" />
-                        </TouchableOpacity>
-                    </View>
-                    <Avatar
-                        size={48}
-                        rounded
-                        source={postOwnerPic ? { uri: postOwnerPic } : profilePicPlaceholder}
-                        icon={!postOwnerPic ? { name: 'person', type: 'material', color: '#fff' } : null}
-                        containerStyle={{ backgroundColor: '#ccc' }}
+                <PostUserInfo
+                    onClose={onClose}
+                    isInvite={isInvite}
+                    hasTaggedUsers={hasTaggedUsers}
+                    postOwnerPic={postOwnerPic}
+                    postOwnerName={postOwnerName}
+                    totalInvited={totalInvited}
+                    review={review}
+                    sharedPost={sharedPost}
+                    getTimeSincePosted={getTimeSincePosted}
+                />
+                {sharedPost && review?.original && (
+                    <SharedPostContent
+                        sharedItem={review.original}
+                        likedAnimations={likedAnimations}
+                        photoTapped={photoTapped}
+                        toggleTaggedUsers={toggleTaggedUsers}
+                        handleLikeWithAnimation={handleLikeWithAnimation}
+                        lastTapRef={lastTapRef}
+                        setIsPhotoListActive={setIsPhotoListActive}
+                        onOpenFullScreen={(photo, index) => {
+                            navigation.navigate("FullScreenPhoto", {
+                                reviewId: review.original?._id,
+                                initialIndex: index,
+                            });
+                        }}
                     />
-                    <View style={{ flexDirection: 'column', flexShrink: 1 }}>
-                        <Text style={styles.reviewerName}>
-                            {isInvite ? (
-                                <Text style={styles.fullName}>
-                                    {postOwnerName} invited {totalInvited} friend
-                                    {totalInvited.length === 1 ? '' : 's'} to a Vybe
-                                </Text>
-                            ) : (
-                                <Text style={styles.fullName}>{postOwnerName}</Text>
-                            )}
-                            {!isInvite && hasTaggedUsers ? " is with " : !isInvite ? " is " : null}
-                            {Array.isArray(review?.taggedUsers) && review?.taggedUsers?.map((user, index) => (
-                                <Text key={user?.userId || `tagged-${index}`} style={styles.taggedUser}>
-                                    {user?.fullName}
-                                    {index !== review?.taggedUsers.length - 1 ? ", " : ""}
-                                </Text>
-                            ))}
-                            {review?.type === "check-in" && (
-                                <Text>
-                                    {" "}at{hasTaggedUsers ? <Text>{'\n'}</Text> : <Text>{" "}</Text>}
-                                    <Text style={styles.businessName}>{review?.businessName}</Text>
-                                    {review?.photos?.length > 0 && (
-                                        <Image
-                                            source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }}
-                                            style={styles.smallPinIcon}
-                                        />
-                                    )}
-                                </Text>
-                            )}
-                        </Text>
-                        <Text style={styles.reviewDate}>{getTimeSincePosted(review?.date)} ago</Text>
-                    </View>
-                </View>
-
+                )}
                 <Text style={styles.businessName}>
                     {review?.type === "review" || isInvite ? review?.businessName : ""}
                 </Text>
-
                 {(review?.dateTime || review?.date) && isInvite && (
                     <>
                         <Text style={styles.datetime}>On {formatEventDate(dateTime)}</Text>
@@ -101,7 +90,6 @@ const CommentModalHeader = ({
                         </View>
                     </>
                 )}
-
                 <View style={styles.rating}>
                     {Array.from({ length: review?.rating }).map((_, index) => (
                         <MaterialCommunityIcons
@@ -112,15 +100,14 @@ const CommentModalHeader = ({
                         />
                     ))}
                 </View>
-
                 <Text style={styles.reviewText}>
                     {review?.type === "review" ? review?.reviewText : review?.message}
                 </Text>
             </View>
-            {review?.photos?.length > 0 && (
+            {photos?.length > 0 && (
                 <View >
                     <FlatList
-                        data={review?.photos}
+                        data={photos}
                         horizontal
                         pagingEnabled
                         bounces={false}
@@ -150,8 +137,8 @@ const CommentModalHeader = ({
                             />
                         )}
                     />
-                    {review.photos?.length > 1 && (
-                        <PhotoPaginationDots photos={review.photos} scrollX={scrollX} />
+                    {photos?.length > 1 && (
+                        <PhotoPaginationDots photos={photos} scrollX={scrollX} />
                     )}
                 </View>
             )}
@@ -161,8 +148,8 @@ const CommentModalHeader = ({
                     style={styles.pinIcon}
                 />
             )}
-            <View style={{ paddingLeft: 15 }}>
-                <PostActions 
+            <View style={{ marginTop: -50 }}>
+                <PostActions
                     item={review}
                     handleLikeWithAnimation={handleLikeWithAnimation}
                     isCommentScreen={true}
@@ -270,6 +257,14 @@ const styles = StyleSheet.create({
     },
     backButton: {
         padding: 5,
+    },
+    sharedHeader: {
+        borderWidth: 1,
+        borderColor: '#ccc',
+        borderRadius: 8,
+        padding: 8,
+        backgroundColor: '#f9f9f9', // optional for "Facebook shared" look
+        marginBottom: 10,
     },
 });
 

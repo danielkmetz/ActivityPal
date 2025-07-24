@@ -27,6 +27,7 @@ import { fetchInvites } from "../../Slices/InvitesSlice";
 import { fetchConversations } from "../../Slices/DirectMessagingSlice";
 import ChangeLocationModal from "../Location/ChangeLocationModal";
 import { logEngagementIfNeeded } from "../../Slices/EngagementSlice";
+import { selectCoordinates } from "../../Slices/LocationSlice";
 
 const Home = ({ scrollY, onScroll, isAtEnd }) => {
     const dispatch = useDispatch();
@@ -43,6 +44,9 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
     const [updatedFeed, setUpdatedFeed] = useState([]);
     const hasFetchedOnce = useSelector(selectHasFetchedOnce);
     const suggestedPosts = useSelector(selectSuggestedPosts);
+    const coordinates = useSelector(selectCoordinates);
+    const userLat = coordinates?.lat;
+    const userLng = coordinates?.lng;
     const seenToday = useRef(new Set());
     const userId = user?.id;
 
@@ -55,7 +59,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
         fetchThunk: fetchReviewsByUserAndFriends,
         appendAction: appendUserAndFriendsReviews,
         resetAction: setUserAndFriendsReviews,
-        params: { userId },
+        params: { userId, userLat, userLng },
         limit: 5,
     });
 

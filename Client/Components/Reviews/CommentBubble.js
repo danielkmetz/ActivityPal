@@ -1,10 +1,11 @@
 import React from 'react';
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, Image, ScrollView } from 'react-native';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, Image, } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { hasLikedCheck } from '../../utils/LikeHandlers/hasLikedCheck';
 import { selectMediaFromGallery } from '../../utils/selectPhotos';
 import { isVideo } from '../../utils/isVideo';
 import VideoThumbnail from './VideoThumbnail';
+import MediaPreview from './Photos/MediaPreview';
 
 const CommentBubble = ({
   fullName,
@@ -40,27 +41,7 @@ const CommentBubble = ({
       {isEditing && isSelected ? (
         <View style={styles.inputWrapper}>
           <View style={styles.fakeInput}>
-            {selectedMedia?.length > 0 && (
-              <View style={styles.inlineMediaWrapper}>
-                {selectedMedia.map((file, idx) =>
-                  isVideo(file) ? (
-                    <VideoThumbnail
-                      key={idx}
-                      file={file}
-                      width={50}
-                      height={50}
-                      shouldPlay={false}
-                    />
-                  ) : (
-                    <Image
-                      key={idx}
-                      source={{ uri: file.uri || file.mediaUrl }}
-                      style={styles.inlineMedia}
-                    />
-                  )
-                )}
-              </View>
-            )}
+            <MediaPreview mediaFiles={selectedMedia} width={50} height={50} />
             <TextInput
               style={styles.inlineInput}
               value={editedText}
@@ -163,16 +144,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
     alignSelf: 'flex-start',
   },
-  previewContainer: {
-    marginTop: 8,
-    flexDirection: 'row',
-  },
-  mediaThumb: {
-    width: 70,
-    height: 70,
-    borderRadius: 8,
-    marginRight: 8,
-  },
   image: {
     width: 200,
     height: 200,
@@ -182,9 +153,6 @@ const styles = StyleSheet.create({
   },
   inputWrapper: {
     marginTop: 6,
-  },
-  inputWrapper: {
-    marginTop: 8,
   },
   fakeInput: {
     flexDirection: 'column',
@@ -196,17 +164,6 @@ const styles = StyleSheet.create({
     padding: 6,
     backgroundColor: '#fff',
     minHeight: 50,
-  },
-  inlineMediaWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    //marginRight: 6,
-  },
-  inlineMedia: {
-    width: 200,
-    height: 200,
-    borderRadius: 6,
-    //marginRight: 6,
   },
   inlineInput: {
     width: '100%',

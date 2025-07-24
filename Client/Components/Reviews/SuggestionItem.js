@@ -2,15 +2,13 @@ import React, { useState, useRef, useEffect } from "react";
 import {
     View,
     Text,
-    FlatList,
     StyleSheet,
     Animated,
     Dimensions,
     TouchableOpacity,
 } from "react-native";
 import { Avatar } from "@rneui/themed";
-import PhotoItem from "./PhotoItem";
-import PhotoPaginationDots from "./PhotoPaginationDots";
+import PhotoItem from "./Photos/PhotoItem";
 import InviteModal from "../ActivityInvites/InviteModal";
 import { selectInvites } from "../../Slices/InvitesSlice";
 import { useDispatch, useSelector } from "react-redux";
@@ -21,6 +19,7 @@ import PostActions from "./PostActions";
 import { selectUser } from "../../Slices/UserSlice";
 import { logEngagementIfNeeded, getEngagementTarget } from "../../Slices/EngagementSlice";
 import profilePicPlaceholder from "../../assets/pics/profile-pic-placeholder.jpg";
+import PhotoFeed from "./Photos/PhotoFeed";
 
 const screenWidth = Dimensions.get("window").width;
 
@@ -29,6 +28,7 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost }) {
     const dispatch = useDispatch();
     const user = useSelector(selectUser);
     const [currentIndex, setCurrentIndex] = useState(0);
+    const currentIndexRef = useRef(0);
     const [detailsModalVisible, setDetailsModalVisible] = useState(false);
     const [inviteModalVisible, setInviteModalVisible] = useState(false);
     const [likedAnimations, setLikedAnimations] = useState({});
@@ -41,6 +41,7 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost }) {
     const resolvedLogoUrl = logoUrl || businessLogoUrl;
     const resolvedMedia = photos || media || [];
     const overlayTextSize = sharedPost ? 14 : 16;
+    const dotsExist = photos?.length > 1;
 
     const rawInvite = invites.find(invite => {
         if (!invite.placeId || !invite.dateTime) return false;
@@ -114,7 +115,7 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost }) {
     const handlePhotoTap = (item) => {
         const now = Date.now();
         const lastTap = lastTapRef.current[item._id] || 0;
-        const DOUBLE_TAP_DELAY = 250;
+        const DOUBLE_TAP_DELAY = 100;
 
         if (now - lastTap < DOUBLE_TAP_DELAY) {
             clearTimeout(tapTimeoutRef.current);
@@ -147,8 +148,6 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost }) {
         };
     }, []);
 
-    console.log('resolved media', distance)
-
     return (
         <View style={styles.card}>
             {suggestion.kind && (
@@ -167,36 +166,15 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost }) {
             )}
             {resolvedMedia?.length > 0 ? (
                 <View style={styles.photoWrapper}>
-                    <FlatList
-                        data={resolvedMedia}
-                        horizontal
-                        pagingEnabled
-                        showsHorizontalScrollIndicator={false}
-                        keyExtractor={(photo, index) => index.toString()}
-                        scrollEnabled={resolvedMedia?.length > 1}
-                        onScroll={Animated.event(
-                            [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-                            {
-                                useNativeDriver: false,
-                                listener: (e) => {
-                                    const index = Math.round(e.nativeEvent.contentOffset.x / screenWidth);
-                                    setCurrentIndex(index);
-                                },
-                            }
-                        )}
-                        scrollEventThrottle={16}
-                        renderItem={({ item }) => (
-                            <View>
-                                <TouchableOpacity
-                                    activeOpacity={0.85}
-                                    onPress={() => handlePhotoTap(suggestion)}
-                                >
-                                    <PhotoItem photo={item} isInteractive={false} />
-                                </TouchableOpacity>
-                            </View>
-                        )}
+                    <PhotoFeed
+                        media={resolvedMedia}
+                        scrollX={scrollX}
+                        currentIndexRef={currentIndexRef}
+                        onOpenFullScreen={handlePhotoTap}
+                        handleLikeWithAnimation={handleLikeWithAnimation}
+                        lastTapRef={lastTapRef}
+                        reviewItem={suggestion}
                     />
-                    <PhotoPaginationDots photos={resolvedMedia} scrollX={scrollX} />
                     <View style={styles.overlayTopText}>
                         <Avatar
                             size={45}
@@ -205,7 +183,7 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost }) {
                             containerStyle={styles.overlayAvatar}
                         />
                         <View style={styles.overlayTextContainer}>
-                            <Text style={styles.overlayText}>{businessName}</Text>
+                            <Text style={[styles.overlayText, { fontSize: overlayTextSize }]}>{businessName}</Text>
                             <Text style={styles.overlaySubText}>
                                 {distance ? `${(distance / 1609).toFixed(1)} mi away` : null}
                             </Text>
@@ -250,7 +228,7 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost }) {
                 </View>
             )}
             {!sharedPost && (
-                <View style={{ marginBottom: -30, marginTop: -5, padding: 15 }}>
+                <View style={[{ padding: 15 }, dotsExist ? { marginTop: 5 } : { marginTop: -10 }]}>
                     <PostActions
                         item={suggestion}
                         handleOpenComments={handleOpenComments}
@@ -282,51 +260,6 @@ const styles = StyleSheet.create({
         borderRadius: 6,
         marginBottom: 10,
         elevation: 2,
-        paddingBottom: 35,
-    },
-    header: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginBottom: 10,
-        padding: 12,
-    },
-    title: {
-        fontSize: 18,
-        fontWeight: "bold",
-    },
-    sub: {
-        fontSize: 14,
-        color: "#555",
-    },
-    distance: {
-        fontSize: 12,
-        color: "#777",
-    },
-    description: {
-        fontSize: 15,
-        marginVertical: 5,
-        paddingHorizontal: 12,
-        paddingBottom: 12,
-    },
-    footer: {
-        fontSize: 12,
-        color: "#555",
-        marginTop: 10,
-    },
-    statusTitle: {
-        fontSize: 16,
-        fontWeight: "bold",
-        marginBottom: 2,
-    },
-    active: {
-        color: "#D32F2F", // red
-    },
-    upcoming: {
-        color: "#1976D2", // blue
-    },
-    businessName: {
-        fontSize: 15,
-        fontWeight: "600",
     },
     statusBanner: {
         paddingVertical: 6,
@@ -371,6 +304,7 @@ const styles = StyleSheet.create({
     },
     photoWrapper: {
         position: 'relative',
+        alignSelf: 'center',
     },
     overlayTopText: {
         position: 'absolute',
@@ -381,6 +315,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         backgroundColor: 'rgba(0,0,0,0.6)',
         padding: 8,
+        width: screenWidth,
         zIndex: 2,
     },
     overlayAvatar: {

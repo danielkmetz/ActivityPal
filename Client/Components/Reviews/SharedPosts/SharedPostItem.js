@@ -1,16 +1,13 @@
 import React, { useState } from 'react';
-import { View, Text, Image, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import StoryAvatar from '../Stories/StoryAvatar';
-import CheckInItem from './CheckInItem'; // or ReviewItem, etc.
-import ReviewItem from './ReviewItem';
-import SuggestionItem from './SuggestionItem';
-import InviteCard from './InviteCard';
-import PostActions from './PostActions';
-import ExpandableText from './ExpandableText';
-import PostOptionsMenu from './PostOptionsMenu';
+import StoryAvatar from '../../Stories/StoryAvatar';
+import PostActions from '../PostActions';
+import ExpandableText from '../ExpandableText';
+import PostOptionsMenu from '../PostOptionsMenu';
 import { useSelector } from 'react-redux';
-import { selectUser } from '../../Slices/UserSlice';
+import { selectUser } from '../../../Slices/UserSlice';
+import SharedPostContent from './SharedPostContent';
 
 export default function SharedPostItem({
     item,
@@ -36,7 +33,7 @@ export default function SharedPostItem({
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
     const [dropdownVisible, setDropdownVisible] = useState(false);
     const currentPhoto = item.photos?.[currentPhotoIndex];
-
+    
     const navigateToProfile = () => {
         if (item.user?.id) {
             navigation.navigate('OtherUserProfile', { userId: item.user.id });
@@ -44,8 +41,6 @@ export default function SharedPostItem({
     };
 
     const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim();
-
-    console.log(item)
 
     return (
         <View style={styles.sharedCard}>
@@ -78,63 +73,21 @@ export default function SharedPostItem({
             </View>
             {/* Render Shared Content */}
             <View style={{ marginTop: 10 }}>
-                {item.original?.type === 'check-in' && (
-                    <CheckInItem
-                        item={item.original}
-                        animation={animation}
-                        setLikedAnimations={setLikedAnimations}
-                        photoTapped={photoTapped}
-                        toggleTaggedUsers={toggleTaggedUsers}
-                        handleLikeWithAnimation={handleLikeWithAnimation}
-                        handleLike={handleLikeWithAnimation}
-                        handleOpenComments={handleOpenComments}
-                        lastTapRef={lastTapRef}
-                        handleDelete={handleDelete}
-                        handleEdit={handleEdit}
-                        following={following}
-                        followRequests={followRequests}
-                        onShare={onShare}
-                        sharedPost={true}
-                    />
-                )}
-                {item.original?.type === 'review' && (
-                    <ReviewItem
-                        item={item.original}
-                        animation={animation}
-                        photoTapped={photoTapped}
-                        toggleTaggedUsers={toggleTaggedUsers}
-                        handleLikeWithAnimation={handleLikeWithAnimation}
-                        handleOpenComments={handleOpenComments}
-                        lastTapRef={lastTapRef}
-                        handleDelete={handleDelete}
-                        handleEdit={handleEdit}
-                        following={following}
-                        followRequests={followRequests}
-                        onShare={onShare}
-                        sharedPost={true}
-                    />
-                )}
-                {
-                    item.original?.type === 'suggestion' ||
-                    item.original.type == "promotion" ||
-                    item.original.type === "promo" ||
-                    item.original.type === "event"
-                    && (
-                        <SuggestionItem
-                            suggestion={item.original}
-                            onShare={onShare}
-                            sharedPost={true}
-                        />
-                    )}
-                {item.original?.type === 'invite' && (
-                    <InviteCard
-                        invite={item.original}
-                        handleLikeWithAnimation={handleLikeWithAnimation}
-                        handleOpenComments={handleOpenComments}
-                        onShare={onShare}
-                        sharedPost={true}
-                    />
-                )}
+                <SharedPostContent
+                    sharedItem={item.original}
+                    animation={animation}
+                    setLikedAnimations={setLikedAnimations}
+                    photoTapped={photoTapped}
+                    toggleTaggedUsers={toggleTaggedUsers}
+                    handleLikeWithAnimation={handleLikeWithAnimation}
+                    handleOpenComments={handleOpenComments}
+                    lastTapRef={lastTapRef}
+                    handleEdit={handleEdit}
+                    handleDelete={handleDelete}
+                    following={following}
+                    followRequests={followRequests}
+                    onShare={onShare}
+                />
             </View>
             <View style={{ padding: 15 }}>
                 <PostActions
@@ -154,11 +107,11 @@ const styles = StyleSheet.create({
     sharedCard: {
         backgroundColor: '#fff',
         borderRadius: 8,
-        padding: 10,
         marginBottom: 16,
         elevation: 3,
     },
     header: {
+        padding: 10,
         flexDirection: 'row',
         marginVertical: 10,
     },
@@ -179,15 +132,5 @@ const styles = StyleSheet.create({
     caption: {
         fontSize: 16,
         marginTop: 5,
-    },
-    sharedHeaderWrapper: {
-        paddingBottom: 10,
-    },
-    sharedBorder: {
-        borderWidth: 1,
-        borderColor: '#ccc',
-        borderRadius: 6,
-        padding: 10,
-        marginBottom: 10,
     },
 });

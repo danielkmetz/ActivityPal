@@ -134,7 +134,7 @@ const InviteeModal = ({ visible, onClose, requests, recipients = [], isSender, i
     };
 
     return (
-        <Modal visible={visible} transparent animationType='slide'>
+        <Modal visible={visible} transparent>
             <TouchableWithoutFeedback onPress={onClose}>
                 <View style={styles.overlay}>
                     <GestureDetector
@@ -144,9 +144,7 @@ const InviteeModal = ({ visible, onClose, requests, recipients = [], isSender, i
                             <View style={styles.notchContainer}>
                                 <View style={styles.notch} />
                             </View>
-
                             <Text style={styles.title}>Who's Going</Text>
-
                             <View style={styles.toggleContainer}>
                                 <TouchableOpacity
                                     onPress={() => setSelectedTab('going')}
@@ -156,7 +154,6 @@ const InviteeModal = ({ visible, onClose, requests, recipients = [], isSender, i
                                         Going ({going.length})
                                     </Text>
                                 </TouchableOpacity>
-
                                 <TouchableOpacity
                                     onPress={() => setSelectedTab('invited')}
                                     style={[styles.toggleButton, selectedTab === 'invited' && styles.activeTab]}
@@ -195,7 +192,6 @@ const InviteeModal = ({ visible, onClose, requests, recipients = [], isSender, i
                                     <Text style={styles.userText}>No one has accepted yet.</Text>
                                 )
                             )}
-
                             {selectedTab === 'invited' && (
                                 invited.length > 0 ? (
                                     invited.map((user, idx) => (
@@ -216,7 +212,6 @@ const InviteeModal = ({ visible, onClose, requests, recipients = [], isSender, i
                                     <Text style={styles.userText}>No pending invites.</Text>
                                 )
                             )}
-
                             {selectedTab === 'requested' && (
                                 requests.length > 0 ? (
                                     requests.map((user, idx) => (

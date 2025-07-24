@@ -4,16 +4,16 @@ const { getUserAndFollowingCheckIns } = require('./getUserAndFollowingCheckIns')
 const { getUserAndFollowingInvites } = require('./getUserAndFollowingInvites');
 const { getUserAndFollowingSharedPosts } = require('./userAndFollowingSharedPosts')
 
-const getUserActivity = async (_, { userId, limit = 15, after }, { dataSources }) => {
+const getUserActivity = async (_, { userId, limit = 15, after, userLat, userLng }, { dataSources }) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       throw new Error("Invalid userId format");
-    }
+    };
 
     const reviews = await getUserAndFollowingReviews(_, { userId }, { dataSources }) || [];
     const checkIns = await getUserAndFollowingCheckIns(_, { userId }, { dataSources }) || [];
     const inviteData = await getUserAndFollowingInvites(_, { userId }, { dataSources }) || {};
-    const sharedPosts = await getUserAndFollowingSharedPosts(_, { userId }, { dataSources }) || [];
+    const sharedPosts = await getUserAndFollowingSharedPosts(_, { userId, userLat, userLng }, { dataSources }) || [];
 
     const invites = [
       ...(inviteData.userInvites || []),

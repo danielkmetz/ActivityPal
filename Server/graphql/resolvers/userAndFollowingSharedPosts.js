@@ -1,10 +1,10 @@
 const mongoose = require('mongoose');
 const SharedPost = require('../../models/SharedPost');
 const User = require('../../models/User');
-const { enrichSharedPost } = require('../../utils/userPosts');
+const { enrichSharedPost, enrichComments } = require('../../utils/userPosts');
 const { resolveUserProfilePics } = require('../../utils/userPosts');
 
-const getUserAndFollowingSharedPosts = async (_, { userId }) => {
+const getUserAndFollowingSharedPosts = async (_, { userId, userLat = null, userLng = null }) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       console.error('❌ Invalid userId format:', userId);
@@ -38,11 +38,13 @@ const getUserAndFollowingSharedPosts = async (_, { userId }) => {
 
     const enriched = await Promise.all(
       sharedPostsRaw.map(async (shared, idx) => {
-        const enrichedOriginal = await enrichSharedPost(shared, profilePicMap);
+        const enrichedOriginal = await enrichSharedPost(shared, profilePicMap, userLat, userLng);
         if (!enrichedOriginal) {
           console.warn(`⚠️ Skipped shared post at index ${idx} (enrichment failed)`, shared._id);
           return null;
         }
+
+        const enrichedComments = await enrichComments(shared.comments || []);
 
         console.log(`✅ Enriched shared post #${idx + 1}`, {
           sharedId: shared._id,
@@ -70,6 +72,8 @@ const getUserAndFollowingSharedPosts = async (_, { userId }) => {
           createdAt: shared.createdAt,
           updatedAt: shared.updatedAt,
           type: 'sharedPost',
+          likes: shared.likes || [],
+          comments: enrichedComments,
           original: enrichedOriginal.original,
         };
       })
