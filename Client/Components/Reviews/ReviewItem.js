@@ -10,8 +10,6 @@ import {
     TouchableOpacity,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import PhotoItem from "./PhotoItem";
-import PhotoPaginationDots from "./PhotoPaginationDots";
 import PostActions from "./PostActions";
 import PostOptionsMenu from "./PostOptionsMenu";
 import ExpandableText from "./ExpandableText";
@@ -24,6 +22,7 @@ import { createNotification } from "../../Slices/NotificationsSlice";
 import RatingsBreakdownModal from "./metricRatings/RatingsBreakdownModal";
 import { declineFollowRequest, cancelFollowRequest, approveFollowRequest } from "../../Slices/friendsSlice";
 import { logEngagementIfNeeded } from "../../Slices/EngagementSlice";
+import PhotoFeed from "./Photos/PhotoFeed";
 
 const screenWidth = Dimensions.get("window").width;
 
@@ -47,6 +46,7 @@ export default function ReviewItem({
     const isSender = item.userId === user?.id;
     const [dropdownVisible, setDropdownVisible] = useState(false);
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+    const currentIndexRef = useRef(0);
     const [isFollowing, setIsFollowing] = useState(false);
     const [ratingsOpen, setRatingsOpen] = useState(false);
     const [isRequestSent, setIsRequestSent] = useState(false);
@@ -60,8 +60,6 @@ export default function ReviewItem({
     const postPhotos = item?.photos;
     const placeId = item?.placeId;
     const postOwnerId = item?.userId;
-
-    //sconsole.log(item)
 
     const taggedUsersByPhotoKey = Object.fromEntries(
         (postPhotos || []).map((photo) => [
@@ -182,8 +180,8 @@ export default function ReviewItem({
     };
 
     return (
-        <>
-            <View style={[styles.reviewCard, sharedPost && styles.sharedHeader]}>
+        <View>
+            <View style={styles.reviewCard}>
                 {!sharedPost && (
                     <PostOptionsMenu
                         isSender={isSender}
@@ -195,7 +193,7 @@ export default function ReviewItem({
                     />
                 )}
                 <View style={styles.section}>
-                    <View >
+                    <View>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                             <View style={[styles.userPicAndName, { flex: 1, flexShrink: 1 }]}>
                                 <StoryAvatar userId={postOwnerId} profilePicUrl={item.profilePicUrl} />
@@ -254,40 +252,16 @@ export default function ReviewItem({
                 </View>
                 {/* ✅ Photos */}
                 {item.photos?.length > 0 && (
-                    <View>
-                        <FlatList
-                            data={item.photos}
-                            horizontal
-                            pagingEnabled
-                            showsHorizontalScrollIndicator={false}
-                            keyExtractor={(photo, index) => index.toString()}
-                            scrollEnabled={item.photos.length > 1}
-                            onScroll={Animated.event(
-                                [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-                                {
-                                    useNativeDriver: false,
-                                    listener: (e) => {
-                                        const index = Math.round(e.nativeEvent.contentOffset.x / screenWidth);
-                                        setCurrentPhotoIndex(index);
-                                    },
-                                }
-                            )}
-                            scrollEventThrottle={16}
-                            renderItem={({ item: photo, index }) => (
-                                <PhotoItem
-                                    photo={photo}
-                                    index={index}
-                                    reviewItem={item}
-                                    photoTapped={photoTapped}
-                                    toggleTaggedUsers={toggleTaggedUsers}
-                                    handleLikeWithAnimation={handleLikeWithAnimation}
-                                    lastTapRef={lastTapRef}
-                                    onOpenFullScreen={handleOpenFullScreen}
-                                />
-                            )}
-                        />
-                        <PhotoPaginationDots photos={item.photos} scrollX={scrollX} />
-                    </View>
+                    <PhotoFeed
+                        media={postPhotos}
+                        scrollX={scrollX}
+                        currentIndexRef={currentIndexRef}
+                        reviewItem={item}
+                        photoTapped={photoTapped}
+                        handleLikeWithAnimation={handleLikeWithAnimation}
+                        lastTapRef={lastTapRef}
+                        onOpenFullScreen={handleOpenFullScreen}
+                    />
                 )}
                 <Text style={styles.date}>
                     Posted: {item.date ? new Date(item.date).toISOString().split("T")[0] : "Now"}
@@ -316,7 +290,7 @@ export default function ReviewItem({
                     wouldRecommend: item.wouldRecommend,
                 }}
             />
-        </>
+        </View>
     );
 }
 
@@ -327,15 +301,21 @@ const styles = StyleSheet.create({
         marginBottom: 10,
         elevation: 2,
     },
+    sharedPostWrapper: {
+        borderWidth: 1,
+        borderColor: '#ccc',
+        borderRadius: 8,
+        backgroundColor: '#f9f9f9',
+        marginBottom: 10,
+        overflow: 'hidden', // ensures border doesn't get clipped
+    },
     section: {
         padding: 10,
         flexShrink: 1,
     },
     sharedHeader: {
-        borderWidth: 1,
         borderColor: '#ccc',
         borderRadius: 8,
-        padding: 8,
         backgroundColor: '#f9f9f9', // optional for "Facebook shared" look
         marginBottom: 10,
     },

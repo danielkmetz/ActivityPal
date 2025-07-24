@@ -227,7 +227,6 @@ const InviteModal = ({
     return (
         <Modal
             visible={visible}
-            animationType="slide"
             transparent
             onRequestClose={onClose}
         >

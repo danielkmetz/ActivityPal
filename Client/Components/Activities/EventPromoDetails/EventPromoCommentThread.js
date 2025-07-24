@@ -7,7 +7,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import CommentBubble from '../../Reviews/CommentBubble';
 import CommentActions from '../../Reviews/CommentActions';
 import CommentOptionsModal from '../../Reviews/CommentOptionsModal';
-import Reply from '../../Reviews/Reply';
+import Reply from '../../Reviews/Replies/Reply';
 import {
     leaveEventReply,
     toggleEventCommentLike,

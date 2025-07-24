@@ -18,7 +18,6 @@ const getUserPosts = async (_, { userId, limit = 15, after }) => {
     );
 
     if (!user) {
-      console.warn('⚠️ User not found for ID:', userId);
       throw new Error('User not found');
     }
 
@@ -43,21 +42,26 @@ const getUserPosts = async (_, { userId, limit = 15, after }) => {
         if (!enrichedOriginal) return null;
 
         return {
-          ...shared,
-          original: enrichedOriginal,
+          _id: shared._id,
           user: {
-            _id: user._id,
+            id: user._id,
             firstName: user.firstName,
             lastName: user.lastName,
             profilePic: user.profilePic,
             profilePicUrl,
           },
           originalOwner: {
-            _id: shared.originalOwner,
+            id: shared.originalOwner,
             ...profilePicMap[shared.originalOwner?.toString()],
           },
-          sortDate: shared.createdAt?.toISOString(),
+          postType: shared.postType,
+          originalPostId: shared.originalPostId,
+          caption: shared.caption,
+          createdAt: shared.createdAt,
+          original: enrichedOriginal.original,
+          comments: shared.comments || [],
           type: 'sharedPost',
+          sortDate: shared.createdAt,
         };
       })
     );
@@ -95,7 +99,6 @@ const getUserPosts = async (_, { userId, limit = 15, after }) => {
 
     return sorted.slice(0, limit);
   } catch (error) {
-    console.error('[❌ Resolver Error] getUserPosts failed:', error);
     throw new Error(`[Resolver Error] ${error.message}`);
   }
 };
