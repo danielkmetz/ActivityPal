@@ -135,13 +135,13 @@ export default function StoryViewer() {
     navigation.goBack();
   };
 
-  if (!story?.original && !story?.mediaKey) {
-    return (
-      <View style={styles.container}>
-        <Text style={{ color: 'white' }}>Invalid story data</Text>
-      </View>
-    );
-  }
+  // if (!story?.post && !story?.mediaUrl && !story?.mediaUploadUrl) {
+  //   return (
+  //     <View style={styles.container}>
+  //       <Text style={{ color: 'white' }}>Invalid story data</Text>
+  //     </View>
+  //   );
+  // }
 
   return (
     <Animated.View

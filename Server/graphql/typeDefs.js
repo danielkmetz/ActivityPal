@@ -33,6 +33,23 @@ const typeDefs = gql`
     profilePic: ProfilePic
   }
 
+  type Business {
+    id: ID!
+    firstName: String
+    lastName: String
+    placeId: String!
+    businessName: String
+    location: Location
+    logoKey: String
+    logoUrl: String
+  }
+
+  type Location {
+    type: String!
+    coordinates: [Float!]   # [longitude, latitude]
+    formattedAddress: String
+  }
+
   # ✅ Review Type
   type Review {
     _id: ID!
@@ -280,12 +297,10 @@ const typeDefs = gql`
     taggedUsers: [TaggedUser]
     mediaUrl: String
     profilePicUrl: String
-    user: UserSummary!
-    viewedBy: [UserSummary!]           # Array of user IDs who have viewed the story
+    user: OriginalOwner
+    viewedBy: [User!]           # Array of user IDs who have viewed the story
     type: String                # "story" or "sharedStory"
     postType: String            # "review", "check-in", "invite", "promotion", "event"
-    originalPostId: ID
-    originalOwner: User
     original: SharedContent
     isViewed: Boolean         # Derived field, based on current user context
   }
@@ -315,6 +330,7 @@ const typeDefs = gql`
   union UserActivity = Review | CheckIn | ActivityInvite | SharedPost
   union SharedContent = Review | CheckIn | ActivityInvite | Promotion | Event
   union UserPost = Review | CheckIn | SharedPost
+  union OriginalOwner = User | Business
 
   # ✅ Queries
   type Query {

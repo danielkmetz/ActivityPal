@@ -50,6 +50,18 @@ const resolvers = {
       }
     }
   },
+  OriginalOwner: {
+    __resolveType(obj) {
+      if (obj.businessName || obj.placeId || obj.logoUrl) {
+        return 'Business';
+      }
+      if (obj.firstName || obj.lastName || obj.profilePicUrl) {
+        return 'User';
+      }
+
+      return null;
+    }
+  },
   SharedContent: {
     __resolveType(obj) {
       if (obj.__typename) return obj.__typename;
@@ -70,17 +82,17 @@ const resolvers = {
       return null;
     }
   },
- UserPost: {
-  __resolveType(obj) {
-    if (obj.type === 'review' || obj.reviewText !== undefined) return 'Review';
-    if (obj.type === 'check-in' || obj.message !== undefined) return 'CheckIn';
-    if (obj.type === 'checkIn' || obj.message !== undefined) return 'CheckIn'; 
-    if (obj.type === 'sharedPost' || obj.original !== undefined) return 'SharedPost';
-    if (obj.type === 'promotion' || obj.message !== undefined) return 'Promotion'; 
-    if (obj.type === 'event' || obj.original !== undefined) return 'Event';
-    return null; // ← THIS is what causes graphql-depth-limit to explode
-  }
-},
+  UserPost: {
+    __resolveType(obj) {
+      if (obj.type === 'review' || obj.reviewText !== undefined) return 'Review';
+      if (obj.type === 'check-in' || obj.message !== undefined) return 'CheckIn';
+      if (obj.type === 'checkIn' || obj.message !== undefined) return 'CheckIn';
+      if (obj.type === 'sharedPost' || obj.original !== undefined) return 'SharedPost';
+      if (obj.type === 'promotion' || obj.message !== undefined) return 'Promotion';
+      if (obj.type === 'event' || obj.original !== undefined) return 'Event';
+      return null; // ← THIS is what causes graphql-depth-limit to explode
+    }
+  },
   Date: DateScalar,
 };
 
