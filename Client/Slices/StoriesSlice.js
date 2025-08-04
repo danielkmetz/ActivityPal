@@ -82,11 +82,11 @@ export const fetchStories = createAsyncThunk(
         return thunkAPI.rejectWithValue(errors[0]?.message || 'GraphQL error fetching stories');
       }
 
-      if (!data?.getStories) {
+      if (!data?.userAndFollowingStories || data.userAndFollowingStories.length === 0) {
         return thunkAPI.rejectWithValue('No stories returned');
       }
 
-      return data.getStories;
+      return data.userAndFollowingStories;
     } catch (err) {
       console.error('❗ Apollo Client error in fetchStories:', err);
       return thunkAPI.rejectWithValue(err.message || 'Failed to fetch stories');

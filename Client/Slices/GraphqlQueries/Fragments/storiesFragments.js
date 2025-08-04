@@ -20,18 +20,6 @@ export const STORIES_QUERY = gql`
       isViewed
       type
       postType
-      originalPostId
-      originalOwner {
-        id
-        firstName
-        lastName
-        profilePic {
-          photoKey
-          uploadDate
-          description
-        }
-        profilePicUrl
-      }
       original {
         __typename
         ... on Review {
@@ -51,15 +39,24 @@ export const STORIES_QUERY = gql`
         }
       }
       viewedBy {
-        _id
+        id
         firstName
         lastName
         profilePicUrl
       }
       user {
-        _id
-        firstName
-        lastName
+         __typename
+        ... on User {
+          id
+          firstName
+          lastName
+          profilePicUrl
+        }
+        ... on Business {
+          id
+          businessName
+          logoUrl
+        }
       }
     }
   }
@@ -86,18 +83,6 @@ export const STORIES_BY_USER_QUERY = gql`
       isViewed
       type
       postType
-      originalPostId
-      originalOwner {
-        id
-        firstName
-        lastName
-        profilePic {
-          photoKey
-          uploadDate
-          description
-        }
-        profilePicUrl
-      }
       original {
         __typename
         ... on Review {
@@ -117,15 +102,24 @@ export const STORIES_BY_USER_QUERY = gql`
         }
       }
       viewedBy {
-        _id
+        id
         firstName
         lastName
         profilePicUrl
       }
       user {
-        _id
-        firstName
-        lastName
+         __typename
+        ... on User {
+          id
+          firstName
+          lastName
+          profilePicUrl
+        }
+        ... on Business {
+          id
+          businessName
+          logoUrl
+        }
       }
     }
   }

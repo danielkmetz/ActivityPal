@@ -1,18 +1,15 @@
 const { getPresignedUrl } = require('./cachePresignedUrl');
 const User = require('../models/User');
 
-const enrichStory = async (story, user, currentUserId = null) => {
-  const storyObj = story.toObject();
+const enrichStory = async (story, uploaderUser, currentUserId = null, originalOwner = null) => {
+  const storyObj = story.toObject ? story.toObject() : story;
 
-  // Enrich media URL
-  const mediaUrl = await getPresignedUrl(storyObj.mediaKey);
+  const mediaUrl = storyObj.mediaKey ? await getPresignedUrl(storyObj.mediaKey) : null;
 
-  // Enrich uploader's profile picture
-  const profilePicUrl = user.profilePic?.photoKey
-    ? await getPresignedUrl(user.profilePic.photoKey)
+  const profilePicUrl = uploaderUser?.profilePic?.photoKey
+    ? await getPresignedUrl(uploaderUser.profilePic.photoKey)
     : null;
 
-  // Enrich viewedBy user info
   let viewedBy = [];
   if (Array.isArray(storyObj.viewedBy) && storyObj.viewedBy.length > 0) {
     const viewerUsers = await User.find({ _id: { $in: storyObj.viewedBy } })
@@ -26,31 +23,67 @@ const enrichStory = async (story, user, currentUserId = null) => {
           : null;
 
         return {
-          _id: viewer._id,
+          id: viewer._id.toString(),
           firstName: viewer.firstName,
           lastName: viewer.lastName,
           profilePicUrl: viewerPicUrl,
+          __typename: 'User',
         };
       })
     );
   }
 
-   const isViewed = currentUserId
-    ? storyObj.viewedBy?.some(id => id.toString() === currentUserId.toString())
+  const isViewed = currentUserId
+    ? storyObj.viewedBy?.some((id) => id.toString() === currentUserId.toString())
     : false;
 
-  return {
+  let typedOriginalOwner = originalOwner;
+  if (
+    originalOwner &&
+    typeof originalOwner === 'object' &&
+    !originalOwner.__typename
+  ) {
+    const isBusiness = !!originalOwner.businessName;
+    typedOriginalOwner = {
+      ...originalOwner,
+      id: originalOwner._id?.toString?.() || originalOwner.id || 'MISSING_ID',
+      __typename: isBusiness ? 'Business' : 'User',
+    };
+  }
+
+ // 🚨 Validate fields
+  if (!typedOriginalOwner?.id) {
+    console.error(
+      `❌ [enrichStory] Missing required "id" for story ${storyObj._id} user:`,
+      typedOriginalOwner
+    );
+  }
+
+  if (!typedOriginalOwner?.__typename) {
+    console.error(
+      `❌ [enrichStory] Missing __typename for story ${storyObj._id} user:`,
+      typedOriginalOwner
+    );
+  }
+
+  if (
+    !typedOriginalOwner ||
+    typeof typedOriginalOwner === 'string' ||
+    typedOriginalOwner._bsontype === 'ObjectId'
+  ) {
+    console.warn('❌ [enrichStory] originalOwner not valid object:', story._id, originalOwner);
+  }
+
+  const enriched = {
     ...storyObj,
     mediaUrl,
     profilePicUrl,
-    viewedBy, // enriched viewer data
+    viewedBy,
     isViewed,
-    user: {
-      _id: user._id,
-      firstName: user.firstName,
-      lastName: user.lastName,
-    },
+    user: typedOriginalOwner,
   };
+
+  return enriched;
 };
 
 module.exports = { enrichStory };
