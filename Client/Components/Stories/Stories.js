@@ -22,6 +22,8 @@ const Stories = ({ stories = [] }) => {
     }
   };
 
+  console.log('stories', stories)
+
   // 🧠 Group stories by user._id
   const grouped = {};
   stories.forEach((story) => {

@@ -27,7 +27,6 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost }) {
     const navigation = useNavigation();
     const dispatch = useDispatch();
     const user = useSelector(selectUser);
-    const [currentIndex, setCurrentIndex] = useState(0);
     const currentIndexRef = useRef(0);
     const [detailsModalVisible, setDetailsModalVisible] = useState(false);
     const [inviteModalVisible, setInviteModalVisible] = useState(false);
