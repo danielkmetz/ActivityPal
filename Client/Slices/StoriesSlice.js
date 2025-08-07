@@ -66,29 +66,43 @@ export const fetchStoriesByUserId = createAsyncThunk(
   }
 );
 
-// Fetch all active stories
 export const fetchStories = createAsyncThunk(
   'stories/fetchStories',
   async (userId, thunkAPI) => {
+    console.log('📥 [fetchStories] Fetching stories for userId:', userId);
+
     try {
       const { data, errors } = await client.query({
         query: STORIES_QUERY,
         variables: { userId },
-        fetchPolicy: 'network-only', // optional but recommended for real-time content like stories
+        fetchPolicy: 'network-only', // ensures fresh data
       });
 
-      if (errors) {
-        console.error('❌ GraphQL errors in fetchStories:', errors);
+      if (errors && errors.length > 0) {
+        console.error('❌ [fetchStories] GraphQL errors:', errors);
         return thunkAPI.rejectWithValue(errors[0]?.message || 'GraphQL error fetching stories');
       }
 
-      if (!data?.userAndFollowingStories || data.userAndFollowingStories.length === 0) {
+      if (!data) {
+        console.error('⚠️ [fetchStories] No data returned from Apollo query');
+        return thunkAPI.rejectWithValue('No data returned from server');
+      }
+
+      if (!data.userAndFollowingStories || data.userAndFollowingStories.length === 0) {
+        console.warn('⚠️ [fetchStories] Stories array is empty or missing:', data.userAndFollowingStories);
         return thunkAPI.rejectWithValue('No stories returned');
       }
 
+      console.log(`✅ [fetchStories] Fetched ${data.userAndFollowingStories.length} grouped story entries`);
       return data.userAndFollowingStories;
     } catch (err) {
-      console.error('❗ Apollo Client error in fetchStories:', err);
+      console.error('❗ [fetchStories] Apollo Client error:', {
+        message: err.message,
+        stack: err.stack,
+        name: err.name,
+        cause: err.cause,
+      });
+
       return thunkAPI.rejectWithValue(err.message || 'Failed to fetch stories');
     }
   }
@@ -148,13 +162,13 @@ export const postStory = createAsyncThunk(
 
 export const postSharedStory = createAsyncThunk(
   'stories/postSharedStory',
-  async ({ postType, originalPostId, caption = '', visibility = 'public' }, { rejectWithValue }) => {
+  async ({ postType, originalPostId, caption = '', visibility = 'public', captions = [] }, { rejectWithValue }) => {
     try {
       const token = await getUserToken();
 
       const response = await axios.post(
         `${BASE_URL}/from-post`,
-        { postType, originalPostId, caption, visibility },
+        { postType, originalPostId, caption, visibility, captions },
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -237,9 +251,23 @@ const storiesSlice = createSlice({
         state.error = action.payload;
       })
 
-      // Post
+      // Post Story
       .addCase(postStory.fulfilled, (state, action) => {
-        state.stories.unshift(action.payload);
+        const newStory = action.payload;
+        const groupIndex = state.stories.findIndex(
+          (group) => group._id === newStory.user.id
+        );
+
+        if (groupIndex !== -1) {
+          state.stories[groupIndex].stories.unshift(newStory);
+        } else {
+          state.stories.unshift({
+            _id: newStory.user.id,
+            user: newStory.user,
+            profilePicUrl: newStory.profilePicUrl || null,
+            stories: [newStory],
+          });
+        }
       })
       .addCase(postStory.rejected, (state, action) => {
         state.error = action.payload;
@@ -255,10 +283,16 @@ const storiesSlice = createSlice({
       .addCase(editStory.rejected, (state, action) => {
         state.error = action.payload;
       })
-
       // Delete
       .addCase(deleteStory.fulfilled, (state, action) => {
-        state.stories = state.stories.filter((story) => story._id !== action.payload);
+        const storyId = action.payload;
+
+        state.stories = state.stories
+          .map((group) => ({
+            ...group,
+            stories: group.stories.filter((story) => story._id !== storyId),
+          }))
+          .filter((group) => group.stories.length > 0); // Optionally remove empty groups
       })
       .addCase(deleteStory.rejected, (state, action) => {
         state.error = action.payload;
@@ -270,8 +304,22 @@ const storiesSlice = createSlice({
       .addCase(fetchStoriesByUserId.rejected, (state, action) => {
         state.error = action.payload;
       })
-      .addCase(postSharedStory.fulfilled, (state, action) => {
-        state.stories.unshift(action.payload); // optional: update local cache
+       .addCase(postSharedStory.fulfilled, (state, action) => {
+        const newStory = action.payload;
+        const groupIndex = state.stories.findIndex(
+          (group) => group._id === newStory.user.id
+        );
+
+        if (groupIndex !== -1) {
+          state.stories[groupIndex].stories.unshift(newStory);
+        } else {
+          state.stories.unshift({
+            _id: newStory.user.id,
+            user: newStory.user,
+            profilePicUrl: newStory.profilePicUrl || null,
+            stories: [newStory],
+          })
+        }
       })
       .addCase(postSharedStory.rejected, (state, action) => {
         state.error = action.payload;

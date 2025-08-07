@@ -287,11 +287,21 @@ const typeDefs = gql`
     checkIns: [CheckIn!]!
   }
 
+  type Caption {
+    text: String!
+    x: Float!
+    fontSize: Int
+    backgroundColor: String
+    color: String
+    width: Float!
+  }
+
   type Story {
     _id: ID!
     mediaKey: String
     mediaType: String
     caption: String
+    captions: [Caption]
     visibility: String
     expiresAt: String
     taggedUsers: [TaggedUser]
@@ -303,6 +313,13 @@ const typeDefs = gql`
     postType: String            # "review", "check-in", "invite", "promotion", "event"
     original: SharedContent
     isViewed: Boolean         # Derived field, based on current user context
+  }
+
+  type StoryGroup {
+    _id: ID!
+    user: User!
+    profilePicUrl: String
+    stories: [Story!]!
   }
 
   type UserSummary {
@@ -341,8 +358,8 @@ const typeDefs = gql`
     getUserAndFollowingInvites(userId: ID!): UserAndFriendsInvites
     getUserActivity(userId: ID!, limit: Int, after: ActivityCursor, userLat: Float, userLng: Float): [UserActivity!]
     getSuggestedFollows(userId: ID!): [SuggestedUser!]!
-    userAndFollowingStories(userId: ID!): [Story]
-    storiesByUser(userId: ID!): [Story]
+    userAndFollowingStories(userId: ID!): [StoryGroup]
+    storiesByUser(userId: ID!): [StoryGroup]
     getBusinessRatingSummaries(placeIds: [String!]!): [BusinessRatingSummary!]!
     getUserAndFollowingSharedPosts(userId: ID!, userLat: Float, userLng: Float): [SharedPost]
   }

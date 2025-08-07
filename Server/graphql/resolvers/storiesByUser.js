@@ -1,5 +1,6 @@
 const User = require('../../models/User');
 const { enrichStory } = require('../../utils/enrichStories');
+const { getPresignedUrl } = require('../../utils/cachePresignedUrl');
 
 const storiesByUser = async (_, { userId }, context) => {
   try {
@@ -10,13 +11,31 @@ const storiesByUser = async (_, { userId }, context) => {
 
     const now = new Date();
 
-    const stories = await Promise.all(
-      (user.stories || [])
-        .filter(story => new Date(story.expiresAt) > now && story.visibility === 'public')
-        .map(story => enrichStory(story, user, currentUserId))
+    const validStories = (user.stories || []).filter(
+      story => new Date(story.expiresAt) > now && story.visibility === 'public'
     );
 
-    return stories;
+    const enrichedStories = await Promise.all(
+      validStories.map(story => enrichStory(story, user, currentUserId))
+    );
+
+    // Resolve profilePicUrl if not already on the user object
+    let profilePicUrl = user.profilePicUrl || null;
+    if (!profilePicUrl && user.profilePic?.photoKey) {
+      profilePicUrl = await getPresignedUrl(user.profilePic.photoKey);
+    }
+
+    return {
+      _id: user._id.toString(),
+      user: {
+        id: user._id.toString(),
+        firstName: user.firstName,
+        lastName: user.lastName,
+        profilePicUrl,
+      },
+      profilePicUrl,
+      stories: enrichedStories,
+    };
   } catch (err) {
     console.error('Error in storiesByUser resolver:', err);
     throw new Error('Failed to fetch user stories');

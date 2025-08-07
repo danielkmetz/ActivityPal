@@ -20,6 +20,7 @@ import CaptionInput from './CaptionInput';
 import { burnCaptionsToImage } from '../../utils/burnCaptionsToImages';
 import StoryMediaRenderer from './StoryMediaRenderer';
 import { postSharedStory } from '../../Slices/StoriesSlice';
+import { getValidPostType } from '../../utils/posts/getValidPostType';
 
 const screenHeight = Dimensions.get('window').height;
 
@@ -54,8 +55,6 @@ const StoryPreview = () => {
 
     const createCaption = () => ({ id: `${Date.now()}`, text: '', y: screenHeight * 0.4 });
 
-    //console.log(post);
-
     const addNewCaption = () => {
         const hasEmptyCaption = captions.some(c => c.text.trim() === '');
         if (hasEmptyCaption) return; // Don't add another empty one
@@ -75,13 +74,25 @@ const StoryPreview = () => {
             const isPhoto = mediaType === 'photo';
 
             if (isSharedPost) {
-                // Use the shared post thunk
-                const sharedRes = await dispatch(postSharedStory({
-                    postType,
+                const derivedPostType = getValidPostType(post);
+
+                const sharedPayload = {
+                    postType: derivedPostType,
                     originalPostId,
-                    caption: captions.length > 0 ? captions[0].text : '', // use first caption if available
+                    captions: captions.map(c => ({
+                        text: c.text,
+                        y: c.y,
+                        fontSize: 24,
+                        backgroundColor: 'rgba(0,0,0,0.5)',
+                        color: '#fff',
+                        width: Dimensions.get('window').width,
+                    })),
                     visibility: contentVisibility || 'public',
-                }));
+                };
+
+                console.log('📦 Payload for postSharedStory:', sharedPayload);
+
+                const sharedRes = await dispatch(postSharedStory(sharedPayload));
 
                 if (!postSharedStory.fulfilled.match(sharedRes)) {
                     throw new Error(sharedRes.payload || 'Failed to share post to story');
@@ -251,6 +262,7 @@ const StoryPreview = () => {
                         captions={captions}
                         isSubmitting={isSubmitting}
                         imageWithCaptionsRef={imageWithCaptionsRef}
+                        isPreview={true}
                     />
                     <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()}>
                         <Ionicons name="close" size={40} color="#fff" />

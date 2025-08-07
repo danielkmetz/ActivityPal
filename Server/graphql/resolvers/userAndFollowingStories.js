@@ -1,45 +1,100 @@
 const User = require('../../models/User');
+const Business = require('../../models/Business');
 const { enrichStory } = require('../../utils/enrichStories');
 const { enrichSharedPost, resolveUserProfilePics } = require('../../utils/userPosts');
 const { resolveSharedPostData } = require('../../utils/resolveSharedPostType');
 
 const userAndFollowingStories = async (_, { userId }, context) => {
   try {
-    const currentUserId = context?.user?._id || userId;
+    console.log('👋 Starting userAndFollowingStories for userId:', userId);
 
-    const user = await User.findById(userId).populate('following');
-    if (!user) throw new Error('User not found');
+    const currentUserId = context?.user?._id || userId;
+    console.log('🔍 currentUserId resolved to:', currentUserId);
+
+    const user = await User.findById(userId)
+      .select('firstName lastName profilePic stories following')
+      .populate({
+        path: 'following',
+        select: 'firstName lastName profilePic stories',
+      });
+
+    if (!user) {
+      console.error('❌ User not found:', userId);
+      throw new Error('User not found');
+    }
 
     const now = new Date();
     const usersToCheck = [user, ...(user.following || [])];
-    const stories = [];
+    console.log(`👥 Found ${usersToCheck.length} users to check for stories`);
 
-    // Step 1: Gather all unique userIds for profile picture resolution
+    // Step 1: Collect originalOwner IDs for both Users and Businesses
     const userIdsToResolve = new Set();
+    const userOwnerIds = new Set();
+    const businessOwnerIds = new Set();
+
     for (const u of usersToCheck) {
       userIdsToResolve.add(u._id.toString());
       for (const story of u.stories || []) {
         if (
           new Date(story.expiresAt) > now &&
           story.visibility === 'public' &&
-          story.originalOwnerModel === 'User' &&
           story.originalOwner
         ) {
           userIdsToResolve.add(story.originalOwner.toString());
+
+          if (story.originalOwnerModel === 'Business') {
+            businessOwnerIds.add(story.originalOwner.toString());
+          } else {
+            userOwnerIds.add(story.originalOwner.toString());
+          }
         }
       }
     }
 
+    console.log('📸 Resolving profile pics for user IDs:', [...userIdsToResolve]);
     const profilePicMap = await resolveUserProfilePics([...userIdsToResolve]);
+    console.log('✅ Profile pics resolved');
 
-    // Step 2: Enrich each story
+    // Step 2: Fetch all original owners in bulk
+    const [userDocs, businessDocs] = await Promise.all([
+      User.find({ _id: { $in: [...userOwnerIds] } })
+        .select('firstName lastName profilePic profilePicUrl')
+        .lean(),
+      Business.find({ _id: { $in: [...businessOwnerIds] } })
+        .select('businessName logoKey profilePic profilePicUrl')
+        .lean()
+    ]);
+
+    const originalOwnerMap = new Map();
+    for (const userDoc of userDocs) {
+      originalOwnerMap.set(userDoc._id.toString(), { ...userDoc, __model: 'User' });
+    }
+    for (const bizDoc of businessDocs) {
+      originalOwnerMap.set(bizDoc._id.toString(), { ...bizDoc, __model: 'Business' });
+    }
+
+    // Step 3: Group stories by uploader
+    const groupedStoriesMap = new Map();
+
     for (const u of usersToCheck) {
+      const uploaderId = u._id.toString();
+      const uploaderProfile = profilePicMap[uploaderId] || {};
+
+      const userInfo = {
+        id: uploaderId,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        profilePicUrl: uploaderProfile.profilePicUrl || null,
+      };
+
       for (const story of u.stories || []) {
         if (new Date(story.expiresAt) <= now || story.visibility !== 'public') continue;
 
         const isSharedPost = story.originalPostId && story.postType;
         const originalOwnerId = story.originalOwner?.toString();
-        const originalOwner = profilePicMap?.[originalOwnerId];
+        const originalOwner = originalOwnerMap.get(originalOwnerId) || null;
+
+        let enrichedStory;
 
         if (isSharedPost) {
           const { original } = await resolveSharedPostData(
@@ -47,7 +102,6 @@ const userAndFollowingStories = async (_, { userId }, context) => {
             story.originalPostId
           );
 
-          // Guard against deleted or missing original post
           if (!original || !original._id) {
             console.warn(`⚠️ Skipping story with missing original post: ${story.originalPostId}`);
             continue;
@@ -72,39 +126,50 @@ const userAndFollowingStories = async (_, { userId }, context) => {
               ...normalizedStory,
               original,
               user: u,
-              storyMeta: normalizedStory, // for story-specific metadata
+              storyMeta: normalizedStory,
             },
             profilePicMap,
             null,
             currentUserId
           );
 
-          console.log('story', story);
-          console.log('original', original);
-
           const baseEnriched = await enrichStory(story, u, currentUserId, originalOwner);
-          console.log('✅ Final shared story includes original:', !!enrichedSharedStory.original, enrichedSharedStory.original?._id);
 
-          stories.push({
+          enrichedStory = {
             ...enrichedSharedStory,
             ...baseEnriched,
             _id: story._id,
             type: 'sharedStory',
             original: enrichedSharedStory.original,
-          });
+          };
+
         } else {
-          const enriched = await enrichStory(story, u, currentUserId, originalOwner);
-          stories.push({
-            ...enriched,
+          console.log('📝 Story is a regular story:', story._id);
+          enrichedStory = await enrichStory(story, u, currentUserId, originalOwner);
+          enrichedStory = {
+            ...enrichedStory,
             type: 'story',
+          };
+        }
+
+        if (!groupedStoriesMap.has(uploaderId)) {
+          groupedStoriesMap.set(uploaderId, {
+            _id: uploaderId,
+            user: userInfo,
+            profilePicUrl: userInfo.profilePicUrl,
+            stories: [],
           });
         }
+
+        groupedStoriesMap.get(uploaderId).stories.push(enrichedStory);
       }
     }
 
-    return stories;
+    const result = Array.from(groupedStoriesMap.values());
+    console.log(`🎉 Returning ${result.length} grouped story sets`);
+    return result;
   } catch (err) {
-    console.error('Error in userAndFollowingStories resolver:', err);
+    console.error('🔥 Error in userAndFollowingStories resolver:', err);
     throw new Error('Failed to fetch stories');
   }
 };
