@@ -230,8 +230,11 @@ router.post('/', verifyToken, async (req, res) => {
 
 router.post('/from-post', verifyToken, async (req, res) => {
   try {
-    const { postType, originalPostId, caption = '', visibility = 'public' } = req.body;
+    const { postType, originalPostId, caption = '', visibility = 'public', captions = [] } = req.body;
     const userId = req.user?.id;
+
+    console.log('📥 Incoming /from-post request body:', req.body);
+    console.log('📝 Captions received in body:', captions);
 
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -256,11 +259,16 @@ router.post('/from-post', verifyToken, async (req, res) => {
       originalOwner,
       originalOwnerModel,
       expiresAt,
+      captions,
       viewedBy: [],
     };
 
+    console.log('🧱 Constructed story object:', story);
+
     user.stories.push(story);
     await user.save();
+
+    console.log('💾 User story saved. Total stories now:', user.stories.length);
 
     const createdStory = user.stories[user.stories.length - 1].toObject();
 
@@ -283,11 +291,12 @@ router.post('/from-post', verifyToken, async (req, res) => {
       : null;
 
     res.status(201).json({
-      ...createdStory,
+      ...createdStory.toObject?.() || createdStory,
       user: {
         id: user._id,
         firstName: user.firstName,
         lastName: user.lastName,
+        profilePicUrl,
         ...profilePicMap[userId],
       },
       originalOwner: {
@@ -295,7 +304,7 @@ router.post('/from-post', verifyToken, async (req, res) => {
         model: originalOwnerModel,
         ...(originalOwnerModel === 'User' ? profilePicMap[originalOwner.toString()] : {}),
       },
-      original: enrichedOriginal.original,
+      original: enrichedOriginal.original?.toObject?.() || enrichedOriginal.original,
       type: 'sharedStory',
       isViewed: false,
     });

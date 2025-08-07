@@ -8,20 +8,16 @@ import {
   StyleSheet,
   Dimensions,
   Pressable,
-  Alert,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSelector } from 'react-redux';
 import { selectUser } from '../../Slices/UserSlice';
-import { deleteStory } from '../../Slices/StoriesSlice';
-import { Ionicons } from '@expo/vector-icons';
-import { useDispatch } from 'react-redux';
 import StoryMediaRenderer from './StoryMediaRenderer';
+import DeleteStoryButton from './DeleteStoryButton';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export default function StoryViewer() {
-  const dispatch = useDispatch();
   const navigation = useNavigation();
   const route = useRoute();
   const user = useSelector(selectUser);
@@ -32,10 +28,7 @@ export default function StoryViewer() {
   const [duration, setDuration] = useState(4000);
   const [paused, setPaused] = useState(false);
   const [videoUri, setVideoUri] = useState(null);
-
   const story = stories[currentIndex];
-  const mediaUrl = story?.mediaUrl || story?.mediaUploadUrl;
-
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(0)).current;
   const imageWithCaptionsRef = useRef(null);
@@ -43,6 +36,9 @@ export default function StoryViewer() {
   const animationRef = useRef(null);
   const hasSyncedRef = useRef(false);
   const previousStoryRef = useRef(null);
+  const elapsedTimeRef = useRef(0);       // time passed before pause
+  const animationStartTimeRef = useRef(0); // timestamp when animation started
+  const currentAnimRef = useRef(null);     // to hold current animation instance
 
   useEffect(() => {
     if (story?.mediaUrl) {
@@ -54,14 +50,20 @@ export default function StoryViewer() {
     previousStoryRef.current = story;
   }, [currentIndex]);
 
-  const startProgressAnimation = (ms) => {
-    progress[currentIndex].setValue(0);
-    animationRef.current = Animated.timing(progress[currentIndex], {
+  const startProgressAnimation = (ms, fromValue = 0) => {
+    const remaining = ms * (1 - fromValue);
+
+    progress[currentIndex].setValue(fromValue);
+    animationStartTimeRef.current = Date.now();
+    elapsedTimeRef.current = ms * fromValue;
+
+    currentAnimRef.current = Animated.timing(progress[currentIndex], {
       toValue: 1,
-      duration: ms,
+      duration: remaining,
       useNativeDriver: false,
     });
-    animationRef.current.start(({ finished }) => {
+
+    currentAnimRef.current.start(({ finished }) => {
       if (finished) handleNext();
     });
   };
@@ -90,11 +92,13 @@ export default function StoryViewer() {
 
   useEffect(() => {
     resetAllBars();
-    hasSyncedRef.current = false;
     fadeAnim.setValue(0);
+    hasSyncedRef.current = false;
 
     const defaultDuration = story.mediaType === 'video' ? 10000 : 4000;
     setDuration(defaultDuration);
+    elapsedTimeRef.current = 0;
+    animationStartTimeRef.current = Date.now();
 
     if (!paused && story.mediaType !== 'video') {
       Animated.timing(fadeAnim, {
@@ -106,9 +110,28 @@ export default function StoryViewer() {
     }
 
     return () => {
-      animationRef.current?.stop();
+      currentAnimRef.current?.stop();
     };
-  }, [currentIndex, paused]);
+  }, [currentIndex]);
+
+  useEffect(() => {
+    if (story.mediaType === 'video') return;
+
+    if (paused) {
+      currentAnimRef.current?.stop();
+
+      // calculate elapsed time
+      const now = Date.now();
+      elapsedTimeRef.current += now - animationStartTimeRef.current;
+    } else {
+      const fromValue = progress[currentIndex]._value ?? 0;
+      const remainingDuration = duration - elapsedTimeRef.current;
+
+      if (remainingDuration > 0) {
+        startProgressAnimation(duration, fromValue);
+      }
+    }
+  }, [paused]);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -153,80 +176,61 @@ export default function StoryViewer() {
       ]}
       {...panResponder.panHandlers}
     >
-      <Pressable style={styles.leftTapZone} onPress={handlePrev} />
-      <Pressable style={styles.rightTapZone} onPress={handleNext} />
-
-      <TouchableOpacity style={styles.closeButton} onPress={goBack}>
-        <Text style={styles.closeText}>✕</Text>
-      </TouchableOpacity>
-
-      {/* Status Bar */}
-      <View style={styles.progressBarContainer}>
-        {stories.map((_, i) => (
-          <Animated.View
-            key={i}
-            style={[
-              styles.segment,
-              {
-                flex: 1,
-                marginHorizontal: 2,
-                backgroundColor: i < currentIndex ? 'white' : 'rgba(255,255,255,0.3)',
-                transform: [{ scaleX: progress[i] }],
-                transformOrigin: 'left',
-              },
-            ]}
-          />
-        ))}
-      </View>
-
-      {/* Media */}
-      <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-        <Animated.View style={[StyleSheet.absoluteFill, { opacity: fadeAnim }]}>
-          <StoryMediaRenderer
-            isSharedPost={!!story.original}
-            post={story.original}
-            mediaUri={videoUri || story.mediaUrl}
-            currentSegment={null} // or your segment logic if needed
-            mediaType={story.mediaType}
-            segments={[]} // or [] if unused here
-            currentSegmentIndex={0} // default value
-            setCurrentSegmentIndex={() => { }} // no-op if unused
-            captions={story.captions || []}
-            isSubmitting={false}
-            imageWithCaptionsRef={imageWithCaptionsRef}
-          />
-        </Animated.View>
-
-        {story.user?._id === userId && (
-          <TouchableOpacity
-            style={styles.deleteButton}
-            onPress={() => {
-              Alert.alert(
-                'Delete Story',
-                'Are you sure you want to delete this story? This action cannot be undone.',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Delete',
-                    style: 'destructive',
-                    onPress: async () => {
-                      try {
-                        await dispatch(deleteStory(story._id)).unwrap();
-                        goBack();
-                      } catch (err) {
-                        console.error('🗑️ Failed to delete story:', err);
-                      }
-                    },
-                  },
-                ]
-              );
-            }}
-          >
-            <Ionicons name="trash" size={26} color="white" />
-          </TouchableOpacity>
-        )}
-      </View>
-
+      <Pressable
+        style={StyleSheet.absoluteFill}
+        onPressIn={() => setPaused(true)}
+        onPressOut={() => setPaused(false)}
+      >
+        <Pressable style={styles.leftTapZone} onPress={handlePrev} />
+        <Pressable style={styles.rightTapZone} onPress={handleNext} />
+        <TouchableOpacity style={styles.closeButton} onPress={goBack}>
+          <Text style={styles.closeText}>✕</Text>
+        </TouchableOpacity>
+        {/* Status Bar */}
+        <View style={styles.progressBarContainer}>
+          {stories.map((_, i) => (
+            <Animated.View
+              key={i}
+              style={[
+                styles.segment,
+                {
+                  flex: 1,
+                  marginHorizontal: 2,
+                  backgroundColor: i < currentIndex ? 'white' : 'rgba(255,255,255,0.3)',
+                  transform: [{ scaleX: progress[i] }],
+                  transformOrigin: 'left',
+                },
+              ]}
+            />
+          ))}
+        </View>
+        {/* Media */}
+        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+          <Animated.View style={[StyleSheet.absoluteFill, { opacity: fadeAnim }]}>
+            <StoryMediaRenderer
+              isSharedPost={!!story.original}
+              post={story.original}
+              mediaUri={videoUri || story.mediaUrl}
+              currentSegment={null} // or your segment logic if needed
+              mediaType={story.mediaType}
+              segments={[]} // or [] if unused here
+              currentSegmentIndex={0} // default value
+              setCurrentSegmentIndex={() => { }} // no-op if unused
+              captions={story.captions || []}
+              isSubmitting={false}
+              imageWithCaptionsRef={imageWithCaptionsRef}
+              onPressIn={() => setPaused(true)}
+              onPressOut={() => setPaused(false)}
+            />
+          </Animated.View>
+          {story?.user?.id === userId && (
+            <DeleteStoryButton
+              storyId={story._id}
+              onDelete={goBack}
+            />
+          )}
+        </View>
+      </Pressable>
     </Animated.View>
   );
 }
@@ -277,14 +281,5 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: SCREEN_WIDTH * 0.3,
     zIndex: 5,
-  },
-  deleteButton: {
-    position: 'absolute',
-    bottom: 60,
-    right: 20,
-    zIndex: 10,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 20,
-    padding: 10,
   },
 });

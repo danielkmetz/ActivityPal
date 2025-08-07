@@ -1,11 +1,9 @@
 import React from 'react';
-import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, Image, StyleSheet } from 'react-native';
 import VideoThumbnail from '../Reviews/VideoThumbnail';
 
 const PostPreview = ({
     postPreview,
-    onPress,
-    onLongPress,
     width = 200,
     height = 200,
     showOverlay = true,
@@ -13,35 +11,33 @@ const PostPreview = ({
     showPostText = false,
 }) => {
     if (!postPreview) return null;
-    const displayName = postPreview?.business?.businessName || postPreview?.fullName;
+    const displayName = postPreview?.business?.businessName || postPreview?.businessName || postPreview?.fullName;
     const label = overlayText || `${displayName}'s ${postPreview.postType}`;
 
     return (
-        <TouchableOpacity onPress={onPress} onLongPress={onLongPress} activeOpacity={0.9}>
-            <View style={[styles.wrapper, { width, height }]}>
-                {showOverlay && (
-                    <View style={styles.overlay}>
-                        <Text style={styles.overlayText}>{label}</Text>
-                    </View>
-                )}
-                {postPreview.mediaType === 'image' ? (
-                    <Image
-                        source={{ uri: postPreview.mediaUrl }}
-                        style={styles.media}
-                        resizeMode="cover"
-                    />
-                ) : (
-                    <VideoThumbnail file={{ uri: postPreview.mediaUrl }} width={width} height={height} shouldPlay={false} />
-                )}
-                {showPostText && postPreview?.reviewText && (
-                    <View style={styles.reviewOverlay}>
-                        <Text numberOfLines={2} ellipsizeMode="tail" style={styles.reviewText}>
-                            {postPreview.reviewText}
-                        </Text>
-                    </View>
-                )}
-            </View>
-        </TouchableOpacity>
+        <View style={[styles.wrapper, { width, height }]}>
+            {showOverlay && (
+                <View style={styles.overlay}>
+                    <Text style={styles.overlayText}>{label}</Text>
+                </View>
+            )}
+            {postPreview.mediaType === 'image' ? (
+                <Image
+                    source={{ uri: postPreview.mediaUrl }}
+                    style={styles.media}
+                    resizeMode="cover"
+                />
+            ) : (
+                <VideoThumbnail file={{ uri: postPreview.mediaUrl }} width={width} height={height} shouldPlay={false} />
+            )}
+            {showPostText && postPreview?.reviewText && (
+                <View style={styles.reviewOverlay}>
+                    <Text numberOfLines={2} ellipsizeMode="tail" style={styles.reviewText}>
+                        {postPreview.reviewText}
+                    </Text>
+                </View>
+            )}
+        </View>
     );
 };
 

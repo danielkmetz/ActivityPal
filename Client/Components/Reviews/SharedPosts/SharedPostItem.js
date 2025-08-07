@@ -12,7 +12,6 @@ import SharedPostContent from './SharedPostContent';
 export default function SharedPostItem({
     item,
     animation,
-    setLikedAnimations,
     photoTapped,
     toggleTaggedUsers,
     handleLikeWithAnimation,
@@ -76,7 +75,6 @@ export default function SharedPostItem({
                 <SharedPostContent
                     sharedItem={item.original}
                     animation={animation}
-                    setLikedAnimations={setLikedAnimations}
                     photoTapped={photoTapped}
                     toggleTaggedUsers={toggleTaggedUsers}
                     handleLikeWithAnimation={handleLikeWithAnimation}

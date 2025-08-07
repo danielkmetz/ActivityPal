@@ -96,11 +96,11 @@ const MessageItem = ({
                     )}
 
                     {item.messageType === 'post' && item.postPreview ? (
-                        <PostPreview
-                            postPreview={item.postPreview}
-                            onLongPress={handleLongPress}
-                            onPress={handleNavigation}
-                        />
+                        <TouchableOpacity onPress={handleNavigation} onLongPress={handleLongPress}>
+                            <PostPreview
+                                postPreview={item.postPreview}
+                            />
+                        </TouchableOpacity>
                     ) : (
                         !!item.content && item.content !== '[media]' && (
                             <Text style={styles.messageText}>{item.content}</Text>

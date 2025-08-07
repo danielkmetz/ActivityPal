@@ -10,52 +10,61 @@ export const STORIES_QUERY = gql`
   query UserAndFollowingStories($userId: ID!) {
     userAndFollowingStories(userId: $userId) {
       _id
-      mediaKey
-      mediaType
-      caption
-      visibility
-      expiresAt
-      mediaUrl
       profilePicUrl
-      isViewed
-      type
-      postType
-      original {
-        __typename
-        ... on Review {
-          ...ReviewFields
-        }
-        ... on CheckIn {
-          ...CheckInFields
-        }
-        ... on ActivityInvite {
-          ...InviteFields
-        }
-        ... on Promotion {
-          ...PromotionFields
-        }
-        ... on Event {
-          ...EventFields
-        }
-      }
-      viewedBy {
+      user {
         id
         firstName
         lastName
         profilePicUrl
       }
-      user {
-         __typename
-        ... on User {
+      stories {
+        _id
+        mediaKey
+        mediaType
+        caption
+        visibility
+        expiresAt
+        mediaUrl
+        type
+        postType
+        profilePicUrl
+        original {
+          __typename
+          ... on Review {
+            ...ReviewFields
+          }
+          ... on CheckIn {
+            ...CheckInFields
+          }
+          ... on ActivityInvite {
+            ...InviteFields
+          }
+          ... on Promotion {
+            ...PromotionFields
+          }
+          ... on Event {
+            ...EventFields
+          }
+        }
+        viewedBy {
           id
           firstName
           lastName
           profilePicUrl
         }
-        ... on Business {
-          id
-          businessName
-          logoUrl
+        user {
+          __typename
+          ... on User {
+            id
+            firstName
+            lastName
+            profilePicUrl
+          }
+          ... on Business {
+            id
+            businessName
+            logoUrl
+          }
         }
       }
     }
@@ -80,7 +89,6 @@ export const STORIES_BY_USER_QUERY = gql`
       expiresAt
       mediaUrl
       profilePicUrl
-      isViewed
       type
       postType
       original {
@@ -108,7 +116,7 @@ export const STORIES_BY_USER_QUERY = gql`
         profilePicUrl
       }
       user {
-         __typename
+        __typename
         ... on User {
           id
           firstName

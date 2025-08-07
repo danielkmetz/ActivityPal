@@ -30,7 +30,9 @@ const getUserAndFollowingSharedPosts = async (_, { userId, userLat = null, userL
     const uniqueUserIds = [
       ...new Set([
         ...allUserIds.map(id => id.toString()),
-        ...sharedPostsRaw.map(sp => sp.originalOwner?._id?.toString()).filter(Boolean),
+        ...sharedPostsRaw
+          .map(sp => sp.originalOwner?._id?.toString())
+          .filter(Boolean),
       ]),
     ];
 
@@ -38,9 +40,16 @@ const getUserAndFollowingSharedPosts = async (_, { userId, userLat = null, userL
 
     const enriched = await Promise.all(
       sharedPostsRaw.map(async (shared, idx) => {
+        // Validate presence of populated user and originalOwner
+        if (!shared.user || !shared.originalOwner) {
+          console.warn(`⚠️ Skipping shared post due to missing user or originalOwner: ${shared._id}`);
+          return null;
+        }
+
+        // Skip if enrichSharedPost fails
         const enrichedOriginal = await enrichSharedPost(shared, profilePicMap, userLat, userLng);
         if (!enrichedOriginal) {
-          console.warn(`⚠️ Skipped shared post at index ${idx} (enrichment failed)`, shared._id);
+          console.warn(`⚠️ Skipped shared post at index ${idx} (enrichment failed): ${shared._id}`);
           return null;
         }
 
@@ -55,16 +64,16 @@ const getUserAndFollowingSharedPosts = async (_, { userId, userLat = null, userL
         return {
           _id: shared._id,
           user: {
-            id: shared.user._id.toString(),
-            firstName: shared.user.firstName,
-            lastName: shared.user.lastName,
-            ...profilePicMap[shared.user._id.toString()],
+            id: shared.user._id?.toString?.() || 'UNKNOWN_ID',
+            firstName: shared.user.firstName || null,
+            lastName: shared.user.lastName || null,
+            ...profilePicMap[shared.user._id?.toString?.()],
           },
           originalOwner: {
-            id: shared.originalOwner._id.toString(),
-            firstName: shared.originalOwner.firstName,
-            lastName: shared.originalOwner.lastName,
-            ...profilePicMap[shared.originalOwner._id.toString()],
+            id: shared.originalOwner._id?.toString?.() || 'UNKNOWN_ID',
+            firstName: shared.originalOwner.firstName || null,
+            lastName: shared.originalOwner.lastName || null,
+            ...profilePicMap[shared.originalOwner._id?.toString?.()],
           },
           originalPostId: shared.originalPostId,
           postType: shared.postType,

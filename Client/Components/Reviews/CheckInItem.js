@@ -10,8 +10,6 @@ import {
     TouchableWithoutFeedback,
     TouchableOpacity,
 } from "react-native";
-import PhotoItem from "./Photos/PhotoItem";
-import PhotoPaginationDots from "./Photos/PhotoPaginationDots";
 import PostActions from './PostActions';
 import { selectUser } from "../../Slices/UserSlice";
 import { useSelector, useDispatch } from "react-redux";
@@ -64,16 +62,6 @@ export default function CheckInItem({
     const message = item?.message;
     const placeId =  item?.placeId;
     const { isSuggestedFollowPost } = item;
-
-    const handleOpenFullScreen = (photo, index) => {
-        navigation.navigate('FullScreenPhoto', {
-            reviewId: item._id,
-            initialIndex: index,
-            lastTapRef,
-            taggedUsersByPhotoKey: item.taggedUsersByPhotoKey || {}, // or however you pass it
-            isSuggestedPost: isSuggestedFollowPost
-        });
-    };
 
     const navigateToBusiness = () => {
         logEngagementIfNeeded(dispatch, {

@@ -20,7 +20,7 @@ const MediaRenderer = ({ media, width = 300, height = 300 }) => {
         ) : (
           <Image
             key={idx}
-            source={{ uri: file.uri || file.mediaUrl }}
+            source={{ uri: file.uri || file.mediaUrl || file.url }}
             style={[styles.image, { width, height }]}
             resizeMode="cover"
           />

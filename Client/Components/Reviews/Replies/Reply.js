@@ -48,6 +48,7 @@ const Reply = ({
   const user = useSelector(selectUser);
   const userId = user?.id;
   const media = reply?.media;
+  const mediaUrl = media?.url;
 
   const setNativeRef = (node) => {
     if (node) {
@@ -134,7 +135,7 @@ const Reply = ({
                 {media && media.photoKey && (
                   isVideo(media)
                     ? <VideoThumbnail file={media} width={200} height={200} />
-                    : <Image source={{ uri: media?.mediaUrl }} style={styles.image} />
+                    : <Image source={{ uri: mediaUrl }} style={styles.image} />
                 )}
                 <Text style={styles.commentText}>{reply.commentText}</Text>
               </View>

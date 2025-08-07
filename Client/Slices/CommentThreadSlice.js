@@ -150,6 +150,8 @@ export const removeCommentOrReply = createAsyncThunk(
     } else if (selectedReply) {
       commentId = selectedReply._id;
       relatedId = selectedReply.parentCommentUserId || review.userId;
+    } else {
+      return;
     }
 
     await dispatch(deleteCommentOrReply({

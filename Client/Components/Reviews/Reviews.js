@@ -36,7 +36,6 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
   const [shareToFeedVisible, setShareToFeedVisible] = useState(false);
   const [selectedPostForShare, setSelectedPostForShare] = useState(null);
   const lastTapRef = useRef({});
-  const [likedAnimations, setLikedAnimations] = useState({});
   const { registerAnimation, getAnimation } = useLikeAnimations();
   const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
   const profileReviews = useSelector(selectProfileReviews);
@@ -52,7 +51,6 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
       setSelectedReview,
       handleLikeWithAnimation,
       toggleTaggedUsers,
-      likedAnimations,
       lastTapRef,
       photoTapped,
       isSuggestedFollowPost: review.isSuggestedFollowPost ? true : false,
@@ -243,7 +241,6 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
               <CheckInItem
                 item={item}
                 animation={getAnimation(item._id)}
-                setLikedAnimations={setLikedAnimations}
                 photoTapped={photoTapped}
                 toggleTaggedUsers={toggleTaggedUsers}
                 handleLikeWithAnimation={handleLikeWithAnimation}
@@ -271,7 +268,6 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
               <SharedPostItem
                 item={item}
                 animation={getAnimation(item._id)}
-                setLikedAnimations={setLikedAnimations}
                 photoTapped={photoTapped}
                 toggleTaggedUsers={toggleTaggedUsers}
                 handleLikeWithAnimation={handleLikeWithAnimation}

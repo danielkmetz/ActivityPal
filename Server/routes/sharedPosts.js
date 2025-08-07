@@ -7,7 +7,8 @@ const User = require('../models/User');
 const Business = require('../models/Business');
 const deleteS3Objects = require('../utils/deleteS3Objects.js');
 const { resolveUserProfilePics, enrichSharedPost } = require('../utils/userPosts');
-const { getModelByType } = require('../utils/getModelByType.js')
+const { getModelByType } = require('../utils/getModelByType.js');
+const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 
 // ✅ CREATE a shared post
 router.post('/', verifyToken, async (req, res) => {
@@ -278,7 +279,7 @@ router.post("/:sharedPostId/comment", async (req, res) => {
         ...newComment,
         media: mediaPayload.photoKey ? {
           ...mediaPayload,
-          mediaUrl: presignedUrl
+          url: presignedUrl
         } : null
       }
     });
@@ -354,7 +355,7 @@ router.post("/:sharedPostId/comments/:commentId/replies", async (req, res) => {
         ...newReply,
         media: mediaPayload.photoKey ? {
           ...mediaPayload,
-          mediaUrl: presignedUrl
+          url: presignedUrl
         } : null
       }
     });
@@ -412,7 +413,7 @@ router.patch("/:sharedPostId/edit-comment/:commentId", async (req, res) => {
         ...updatedComment,
         media: mediaPayload.photoKey ? {
           ...mediaPayload,
-          mediaUrl: presignedUrl
+          url: presignedUrl
         } : null
       }
     });

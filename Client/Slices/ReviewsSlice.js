@@ -243,10 +243,11 @@ export const deleteCommentOrReply = createAsyncThunk(
       const response = await axios.delete(`${BASE_URL}/reviews/${postType}/${postId}/${commentId}`, {
         data: { relatedId },
       });
-      return { commentId, postId }; // Returning deleted comment/reply ID for UI update
+
+      return { commentId, postId };
     } catch (error) {
-      console.error("Error deleting comment or reply:", error.response?.data || error.message);
-      return rejectWithValue(error.response?.data?.message || "Failed to delete comment or reply");
+      const message = error.response?.data?.message || error.message || "Unknown error";
+      return rejectWithValue(message);
     }
   }
 );

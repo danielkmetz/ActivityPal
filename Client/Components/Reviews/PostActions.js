@@ -37,29 +37,33 @@ export default function PostActions({
   return (
     <View style={styles.actionsContainer}>
       <View style={styles.actionButtons}>
-        <TouchableOpacity
-          onPress={() => handleLikeWithAnimation(item, true)}
-          style={styles.likeButton}
-        >
-          <MaterialCommunityIcons
-            name={hasLiked ? "thumb-up" : "thumb-up-outline"} // 👈 Conditional icon
-            size={20}
-            color={hasLiked ? "#00BFA6" : "#808080"} // 👈 Conditional color
-          />
-          <Text style={styles.likeCount}>{item?.likes?.length || 0}</Text>
-        </TouchableOpacity>
-        {!isCommentScreen && (
+        <View style={styles.likes}>
           <TouchableOpacity
-            onPress={() => handleOpenComments(item)}
-            style={styles.commentButton}
+            onPress={() => handleLikeWithAnimation(item, true)}
+            style={styles.likeButton}
           >
             <MaterialCommunityIcons
-              name="comment-outline"
+              name={hasLiked ? "thumb-up" : "thumb-up-outline"} // 👈 Conditional icon
               size={20}
-              color="#808080"
+              color={hasLiked ? "#00BFA6" : "#808080"} // 👈 Conditional color
             />
-            <Text style={styles.commentCount}>{item?.comments?.length || 0}</Text>
+            <Text style={styles.likeCount}>{item?.likes?.length || 0}</Text>
           </TouchableOpacity>
+        </View>
+        {!isCommentScreen && (
+          <View style={styles.comments}>
+            <TouchableOpacity
+              onPress={() => handleOpenComments(item)}
+              style={styles.commentButton}
+            >
+              <MaterialCommunityIcons
+                name="comment-outline"
+                size={20}
+                color="#808080"
+              />
+              <Text style={styles.commentCount}>{item?.comments?.length || 0}</Text>
+            </TouchableOpacity>
+          </View>
         )}
         <TouchableOpacity
           onPress={() => onShare(item)}
@@ -97,15 +101,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
   },
+  likes: {
+    marginLeft: -5,
+  },
   likeButton: {
     flexDirection: "row",
     alignItems: "center",
-    marginRight: 10,
   },
   likeCount: {
     fontSize: 14,
     color: "#555",
     marginLeft: 5,
+  },
+  comments: {
+    marginLeft: -5,
   },
   commentButton: {
     flexDirection: "row",
@@ -124,12 +133,10 @@ const styles = StyleSheet.create({
   sendButton: {
     flexDirection: "row",
     alignItems: "center",
-    marginLeft: 10,
     transform: [{ rotate: '15deg' }],
   },
   shareButton: {
     flexDirection: "row",
     alignItems: "center",
-    marginLeft: 10,
   },
 });

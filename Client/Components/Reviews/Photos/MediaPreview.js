@@ -12,7 +12,7 @@ const MediaPreview = ({ mediaFiles, width = 100, height = 100 }) => {
         isVideo(file) ? (
           <VideoThumbnail key={index} file={file} width={width} height={height} />
         ) : (
-          <Image key={index} source={{ uri: file.uri }} style={[styles.image, { width, height }]} />
+          <Image key={index} source={{ uri: file.url || file.uri || file.mediaUrl }} style={[styles.image, { width, height }]} />
         )
       )}
     </View>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, StyleSheet, } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, StyleSheet,   } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import CommentBubble from './CommentBubble';
@@ -228,11 +228,9 @@ export default function CommentThread({ item, review, commentRefs, commentText, 
       }));
     } else {
       dispatch(removeCommentOrReply({
-        postType: review.type || 'review',
-        placeId: review.placeId,
-        postId: review._id,
-        commentId: selectedComment._id,
-        relatedId: selectedReply?._id || null,
+        review,
+        selectedComment,
+        selectedReply,
       }));
     }
 
