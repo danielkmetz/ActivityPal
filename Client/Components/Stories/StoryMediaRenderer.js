@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, Image, StyleSheet, Dimensions } from 'react-native';
 import { Video } from 'expo-av';
-import PostPreview from '../DirectMessages/PostPreview';
+import SharedPostStoryContent from './SharedPostStoryContent';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -17,23 +17,19 @@ const StoryMediaRenderer = ({
   captions,
   isSubmitting,
   imageWithCaptionsRef,
+  onPressIn,
+  onPressOut,
+  isPreview,
 }) => {
+  
   if (isSharedPost && post) {
     return (
-      <View style={styles.sharedWrapper}>
-        <PostPreview
-          postPreview={{
-            ...post,
-            mediaType: post.photos?.length > 0 ? 'image' : 'video',
-            mediaUrl: post.photos?.[0]?.url || post.video?.url,
-            postType: post.type,
-          }}
-          width={screenWidth - 32}
-          height={screenHeight * .5}
-          showOverlay={true}
-          showPostText={true}
-        />
-      </View>
+      <SharedPostStoryContent
+        post={post}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+        isPreview={isPreview}
+      />
     );
   }
 
@@ -75,7 +71,6 @@ const StoryMediaRenderer = ({
           />
         </View>
       )}
-
       {isSubmitting && captions.map((caption, index) => (
         <View
           key={caption.id}
@@ -98,15 +93,6 @@ const StoryMediaRenderer = ({
 export default StoryMediaRenderer;
 
 const styles = StyleSheet.create({
-  sharedWrapper: {
-    padding: 16,
-    bottom: '20%',
-  },
-  label: {
-    color: '#fff',
-    fontSize: 16,
-    marginBottom: 10,
-  },
   video: {
     ...StyleSheet.absoluteFillObject,
   },

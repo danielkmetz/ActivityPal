@@ -22,6 +22,8 @@ import { formatEventDate, getTimeLeft } from '../../functions';
 import { selectReviewById } from '../../utils/reviewSelectors';
 import { uploadReviewPhotos } from '../../Slices/PhotosSlice';
 import { addCommentToSharedPost } from '../../Slices/SharedPostsSlice';
+import { useLikeAnimations } from '../../utils/LikeHandlers/LikeAnimationContext';
+import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from '../../utils/LikeHandlers';
 
 dayjs.extend(relativeTime);
 
@@ -29,10 +31,7 @@ export default function CommentScreen() {
     const route = useRoute();
     const {
         reviewId,
-        handleLikeWithAnimation,
         toggleTaggedUsers,
-        likedAnimations,
-        lastTapRef,
         targetId,
         photoTapped,
         sharedPost,
@@ -57,10 +56,12 @@ export default function CommentScreen() {
     const [inputHeight, setInputHeight] = useState(40);
     const [contentHeight, setContentHeight] = useState(40);
     const [selectedMedia, setSelectedMedia] = useState([]);
-
+    
+    const { registerAnimation, getAnimation } = useLikeAnimations();
     const shiftAnim = useRef(new Animated.Value(0)).current;
     const flatListRef = useRef(null);
     const commentRefs = useRef({});
+    const lastTapRef = useRef({})
     const hasScrolledToTarget = useRef(false);
 
     useEffect(() => {
@@ -103,6 +104,20 @@ export default function CommentScreen() {
     useEffect(() => {
         setInputHeight(Math.min(Math.max(40, contentHeight), 150));
     }, [contentHeight]);
+
+    const handleLikeWithAnimation = () => {
+        const animation = getAnimation(review._id);
+        return sharedHandleLikeWithAnimation({
+            postType: review.type,
+            postId: review._id,
+            review,
+            user,
+            animation,
+            dispatch,
+            lastTapRef,
+            force: false,
+        });
+    };
 
     const handleAddComment = async () => {
         if ((!commentText || commentText.trim() === '') && (!selectedMedia || selectedMedia.length === 0)) {
@@ -296,6 +311,12 @@ export default function CommentScreen() {
         }, [review?.comments, targetId])
     );
 
+    useEffect(() => {
+        if (review?._id) {
+            registerAnimation(review._id);
+        }
+    }, [review?._id]);
+
     if (!review) {
         return null;
     };
@@ -316,7 +337,6 @@ export default function CommentScreen() {
                         review={review}
                         timeLeft={timeLeft}
                         formatEventDate={formatEventDate}
-                        likedAnimations={likedAnimations}
                         photoTapped={photoTapped}
                         toggleTaggedUsers={toggleTaggedUsers}
                         handleLikeWithAnimation={handleLikeWithAnimation}

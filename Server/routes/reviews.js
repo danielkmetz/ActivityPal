@@ -8,8 +8,48 @@ const CheckIn = require('../models/CheckIns.js');
 const mongoose = require('mongoose');
 const { handleNotification } = require('../utils/notificationHandler.js');
 const deleteS3Objects = require('../utils/deleteS3Objects.js');
-const { resolveTaggedPhotoUsers, resolveTaggedUsers, resolveUserProfilePics } = require('../utils/userPosts.js')
+const { resolveTaggedPhotoUsers, resolveTaggedUsers, resolveUserProfilePics, enrichComments } = require('../utils/userPosts.js')
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
+
+async function formatPhotoWithTaggedUsers(photo) {
+  const taggedUsers = await User.find(
+    { _id: { $in: photo.taggedUsers.map(tag => tag.userId) } },
+    { firstName: 1, lastName: 1 }
+  ).lean();
+
+  return {
+    _id: photo._id,
+    photoKey: photo.photoKey,
+    uploadedBy: photo.uploadedBy,
+    description: photo.description || null,
+    uploadDate: photo.uploadDate,
+    url: await getPresignedUrl(photo.photoKey),
+    taggedUsers: taggedUsers.map(user => {
+      const match = photo.taggedUsers.find(tag => tag.userId.toString() === user._id.toString());
+      return {
+        userId: user._id,
+        fullName: `${user.firstName} ${user.lastName}`,
+        x: match?.x,
+        y: match?.y,
+      };
+    }),
+  };
+}
+
+async function getTaggedUsers(userIds = []) {
+  const users = await User.find({ _id: { $in: userIds } }, { firstName: 1, lastName: 1 }).lean();
+  return users.map(user => ({
+    userId: user._id,
+    fullName: `${user.firstName} ${user.lastName}`,
+  }));
+}
+
+async function getProfilePicUrl(user) {
+  if (user?.profilePic?.photoKey) {
+    return await getPresignedUrl(user.profilePic.photoKey);
+  }
+  return null;
+}
 
 /////// Retrieve a review by its reviewId
 router.get('/:postType/:postId', async (req, res) => {
@@ -17,147 +57,78 @@ router.get('/:postType/:postId', async (req, res) => {
 
   try {
     let post = null;
-    let profilePicUrl = null;
-    let business = null;
-    let businessName = null;
     let user = null;
     let sender = null;
-    let taggedUsers = [];
+    let business = null;
+    let profilePicUrl = null;
     let photosWithUrls = [];
+    let taggedUsers = [];
+    let enrichedComments = [];
 
     if (postType === 'review') {
       post = await Review.findById(postId).lean();
       if (!post) return res.status(404).json({ message: "Review not found" });
 
-      // ⏩ Start parallel data fetches
-      const [business, postUser, taggedUsersRaw, profileMap, photoResults] = await Promise.all([
-        Business.findOne({ placeId: post.placeId }).lean(),
+      const [userDoc, businessDoc, comments, profileMap] = await Promise.all([
         User.findById(post.userId).select("firstName lastName profilePic").lean(),
-        User.find({ _id: { $in: post.taggedUsers || [] } }, { firstName: 1, lastName: 1 }).lean(),
+        Business.findOne({ placeId: post.placeId }).lean(),
+        enrichComments(post.comments || []),
         resolveUserProfilePics([post.userId]),
-        Promise.all(
-          (post.photos || []).map(async (photo) => {
-            const taggedUsersRaw = await User.find(
-              { _id: { $in: photo.taggedUsers.map(tag => tag.userId) } },
-              { firstName: 1, lastName: 1 }
-            ).lean();
-
-            return {
-              _id: photo._id,
-              photoKey: photo.photoKey,
-              uploadedBy: photo.uploadedBy,
-              description: photo.description || null,
-              uploadDate: photo.uploadDate,
-              url: await getPresignedUrl(photo.photoKey),
-              taggedUsers: taggedUsersRaw.map(user => {
-                const match = photo.taggedUsers.find(tag => tag.userId.toString() === user._id.toString());
-                return {
-                  userId: user._id,
-                  fullName: `${user.firstName} ${user.lastName}`,
-                  x: match?.x,
-                  y: match?.y,
-                };
-              }),
-            };
-          })
-        ),
       ]);
 
-      taggedUsers = taggedUsersRaw.map(user => ({
-        userId: user._id,
-        fullName: `${user.firstName} ${user.lastName}`,
-      }));
-
+      user = userDoc;
+      business = businessDoc;
       profilePicUrl = profileMap[post.userId?.toString()]?.profilePicUrl || null;
-      businessName = business?.businessName || null;
-      placeId = post.placeId || business?.placeId || null;
-      photosWithUrls = photoResults;
+      taggedUsers = await getTaggedUsers(post.taggedUsers || []);
+      photosWithUrls = await Promise.all((post.photos || []).map(formatPhotoWithTaggedUsers));
+      enrichedComments = comments;
+
     } else if (postType === 'check-in') {
-      user = await User.findOne({ "checkIns._id": postId });
-      if (!user) return res.status(404).json({ message: "Check-in not found" });
+      const userWithCheckIn = await User.findOne({ "checkIns._id": postId });
+      if (!userWithCheckIn) return res.status(404).json({ message: "Check-in not found" });
 
-      post = user.checkIns.id(postId);
-      if (!post) return res.status(404).json({ message: "Check-in not found" });
+      post = userWithCheckIn.checkIns.id(postId);
+      user = await User.findById(post.userId).select("firstName lastName profilePic").lean();
+      business = post.placeId ? await Business.findOne({ placeId: post.placeId }).lean() : null;
 
-      if (post.placeId) {
-        business = await Business.findOne({ placeId: post.placeId }).lean();
-      }
-
-      if (post.taggedUsers && post.taggedUsers.length > 0) {
-        taggedUsers = await User.find(
-          { _id: { $in: post.taggedUsers } },
-          { firstName: 1, lastName: 1 }
-        ).lean();
-
-        taggedUsers = taggedUsers.map(user => ({
-          userId: user._id,
-          fullName: `${user.firstName} ${user.lastName}`,
-        }));
-      }
-
-      const postUser = await User.findById(post.userId).select("profilePic firstName lastName").lean();
-      if (postUser?.profilePic?.photoKey) {
-        profilePicUrl = await getPresignedUrl(postUser.profilePic.photoKey);
-      }
+      profilePicUrl = await getProfilePicUrl(user);
+      taggedUsers = await getTaggedUsers(post.taggedUsers || []);
+      photosWithUrls = await Promise.all((post.photos || []).map(formatPhotoWithTaggedUsers));
+      enrichedComments = await enrichComments(post.comments || []);
 
     } else if (postType === 'invite') {
       post = await ActivityInvite.findById(postId).lean();
       if (!post) return res.status(404).json({ message: "Invite not found" });
 
-      sender = await User.findById(post.senderId).select('firstName lastName profilePic').lean();
-      if (sender?.profilePic?.photoKey) {
-        profilePicUrl = await getPresignedUrl(sender.profilePic.photoKey);
-      }
-
+      sender = await User.findById(post.senderId).select("firstName lastName profilePic").lean();
+      profilePicUrl = await getProfilePicUrl(sender);
       business = await Business.findOne({ placeId: post.placeId }).lean();
+      enrichedComments = await enrichComments(post.comments || []);
+
     } else {
       return res.status(400).json({ message: "Invalid post type" });
     }
 
-    if ((postType === 'review' || postType === 'check-in') && Array.isArray(post.photos)) {
-      photosWithUrls = await Promise.all(
-        post.photos.map(async (photo) => {
-          const photoTaggedUsers = await User.find(
-            { _id: { $in: photo.taggedUsers.map(tag => tag.userId) } },
-            { firstName: 1, lastName: 1 }
-          ).lean();
+    const fullName =
+      postType === 'invite'
+        ? `${sender?.firstName || ''} ${sender?.lastName || ''}`.trim()
+        : post.fullName || `${user?.firstName || ''} ${user?.lastName || ''}`.trim();
 
-          return {
-            _id: photo._id,
-            photoKey: photo.photoKey,
-            uploadedBy: photo.uploadedBy,
-            description: photo.description || null,
-            uploadDate: photo.uploadDate,
-            url: await getPresignedUrl(photo.photoKey),
-            taggedUsers: photoTaggedUsers.map(user => ({
-              userId: user._id,
-              fullName: `${user.firstName} ${user.lastName}`,
-              x: photo.taggedUsers.find(tag => tag.userId.toString() === user._id.toString())?.x,
-              y: photo.taggedUsers.find(tag => tag.userId.toString() === user._id.toString())?.y,
-            }))
-          };
-        })
-      );
-    }
-
-    const formattedPost = {
+    res.status(200).json({
       _id: post._id,
       userId: postType === 'invite' ? post.senderId : post.userId,
-      fullName:
-        postType === 'invite'
-          ? `${sender?.firstName || ''} ${sender?.lastName || ''}`.trim()
-          : post.fullName || `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
+      fullName,
       rating: postType === 'review' ? post.rating : null,
       priceRating: postType === 'review' ? post.priceRating : null,
       atmosphereRating: postType === 'review' ? post.atmosphereRating : null,
       serviceRating: postType === 'review' ? post.serviceRating : null,
       wouldRecommend: postType === 'review' ? post.wouldRecommend : null,
       reviewText: postType === 'review' ? post.reviewText : null,
-      message: postType === 'invite' ? post.message : postType === 'check-in' ? post.message : null,
+      message: post.message || null,
       date: post.timestamp || post.date || post.dateTime,
       photos: photosWithUrls,
       likes: post.likes || [],
-      comments: post.comments || [],
+      comments: enrichedComments,
       profilePicUrl,
       businessName: business?.businessName || null,
       placeId: post.placeId || business?.placeId || null,
@@ -165,11 +136,9 @@ router.get('/:postType/:postId', async (req, res) => {
       requests: postType === 'invite' ? post.requests || [] : undefined,
       note: postType === 'invite' ? post.note : undefined,
       isPublic: postType === 'invite' ? post.isPublic : undefined,
-      taggedUsers: taggedUsers.length > 0 ? taggedUsers : [],
+      taggedUsers,
       type: postType,
-    };
-
-    res.status(200).json(formattedPost);
+    });
   } catch (error) {
     console.error("❌ Error Fetching Post:", error);
     res.status(500).json({ message: "Server error", error: error.message });

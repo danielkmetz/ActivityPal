@@ -25,6 +25,7 @@ const CommentBubble = ({
   setSelectedEditMedia = () => { }, 
 }) => {
   const hasLiked = hasLikedCheck(likes, userId);
+  const mediaUrl = media?.url;
 
   const handleSelectMedia = async () => {
     const files = await selectMediaFromGallery();
@@ -41,7 +42,7 @@ const CommentBubble = ({
       {isEditing && isSelected ? (
         <View style={styles.inputWrapper}>
           <View style={styles.fakeInput}>
-            <MediaPreview mediaFiles={selectedMedia} width={50} height={50} />
+            <MediaPreview mediaFiles={selectedMedia} width={150} height={150} />
             <TextInput
               style={styles.inlineInput}
               value={editedText}
@@ -71,7 +72,7 @@ const CommentBubble = ({
             {media && media.photoKey && (
               isVideo(media)
                 ? <VideoThumbnail file={media} width={200} height={200} />
-                : <Image source={{ uri: media?.mediaUrl }} style={styles.image} />
+                : <Image source={{ uri: mediaUrl }} style={styles.image} />
             )}
             <Text style={styles.comment}>{commentText}</Text>
           </View>

@@ -13,7 +13,6 @@ const CommentModalHeader = ({
     review,
     timeLeft,
     formatEventDate,
-    likedAnimations,
     photoTapped,
     toggleTaggedUsers,
     handleLikeWithAnimation,
@@ -30,6 +29,7 @@ const CommentModalHeader = ({
     const totalInvited = review?.recipients?.length || 0;
     const dateTime = review?.dateTime || review?.date;
     const isInvite = review?.type === "invite";
+    const commentActionsMargin = sharedPost ? -50 : 10;
 
     const getTimeSincePosted = (date) => {
         return dayjs(date).fromNow(true);
@@ -63,7 +63,6 @@ const CommentModalHeader = ({
                 {sharedPost && review?.original && (
                     <SharedPostContent
                         sharedItem={review.original}
-                        likedAnimations={likedAnimations}
                         photoTapped={photoTapped}
                         toggleTaggedUsers={toggleTaggedUsers}
                         handleLikeWithAnimation={handleLikeWithAnimation}
@@ -128,7 +127,6 @@ const CommentModalHeader = ({
                             <PhotoItem
                                 photo={photo}
                                 reviewItem={review}
-                                likedAnimations={likedAnimations}
                                 photoTapped={photoTapped}
                                 toggleTaggedUsers={toggleTaggedUsers}
                                 handleLikeWithAnimation={handleLikeWithAnimation}
@@ -148,7 +146,7 @@ const CommentModalHeader = ({
                     style={styles.pinIcon}
                 />
             )}
-            <View style={{ marginTop: -50 }}>
+            <View style={{ marginTop: commentActionsMargin, justifyContent: 'center' }}>
                 <PostActions
                     item={review}
                     handleLikeWithAnimation={handleLikeWithAnimation}

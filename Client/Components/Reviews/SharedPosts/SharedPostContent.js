@@ -8,7 +8,6 @@ import InviteCard from '../InviteCard';
 export default function SharedPostContent({
   sharedItem,
   animation,
-  setLikedAnimations,
   photoTapped,
   toggleTaggedUsers,
   handleLikeWithAnimation,
@@ -31,7 +30,6 @@ export default function SharedPostContent({
           <CheckInItem
             item={sharedItem}
             animation={animation}
-            setLikedAnimations={setLikedAnimations}
             photoTapped={photoTapped}
             toggleTaggedUsers={toggleTaggedUsers}
             handleLikeWithAnimation={handleLikeWithAnimation}

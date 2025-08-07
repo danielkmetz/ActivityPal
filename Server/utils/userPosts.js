@@ -16,7 +16,7 @@ async function enrichCommentMedia(media) {
   return {
     photoKey: media.photoKey,
     mediaType: media.mediaType,
-    mediaUrl: url,
+    url,
   };
 }
 
@@ -28,6 +28,10 @@ async function enrichReplies(replies = []) {
 
       return {
         ...reply,
+        _id: reply._id?.toString?.() || reply._id,
+        userId: reply.userId,
+        fullName: reply.fullName,
+        commentText: reply.commentText,
         media: enrichedMedia,
         replies: nestedReplies,
       };
@@ -43,7 +47,7 @@ async function enrichComments(comments = []) {
 
       return {
         ...comment,
-        _id: comment._id,
+        _id: comment._id?.toString?.() || comment._id,
         userId: comment.userId,
         fullName: comment.fullName,
         commentText: comment.commentText,
@@ -268,35 +272,21 @@ async function enrichSharedPost(shared, profilePicMap = {}, userLat = null, user
       storyMeta = {},
     } = shared;
 
-    console.log('shared from helper', shared);
-
-    console.log('📥 Starting enrichSharedPost', {
-      postType,
-      originalPostId,
-      hasProvidedOriginal: !!providedOriginal,
-    });
-
     const Model = getModelByType(postType);
-    if (!Model) {
-      console.error('❌ No model found for postType:', postType);
-      return null;
-    }
+    if (!Model) return null;
 
-    const original = providedOriginal || await Model.findById(originalPostId).lean();
+    // ✅ Ensure original is a plain object
+    let original = providedOriginal;
     if (!original) {
-      console.warn('❌ Original post not found for ID:', originalPostId, 'and type:', postType);
-      return null;
+      original = await Model.findById(originalPostId).lean();
+    } else if (typeof original.toObject === 'function') {
+      original = original.toObject();
     }
 
-    if (!original._id) {
-      console.warn('⚠️ Original post exists but missing _id:', original);
+    if (!original || !original._id) {
+      console.warn(`[❌ MISSING ORIGINAL DOC] type: ${postType}, originalPostId: ${originalPostId}, sharedId: ${shared._id}`);
       return null;
     }
-
-    console.log('✅ Found original post:', {
-      id: original._id?.toString?.(),
-      userId: original.userId?.toString?.(),
-    });
 
     original._id = original._id.toString?.() || original._id;
     original.userId = original.userId?.toString?.() || original.userId;
@@ -338,7 +328,7 @@ async function enrichSharedPost(shared, profilePicMap = {}, userLat = null, user
     const baseOriginal = {
       __typename: capitalizeFirstLetter(postType),
       _id: original._id,
-      ...original,
+      ...original, // allow all original props (you could spread this earlier if preferred)
       businessName: business?.businessName || null,
       businessLogoUrl: business?.logoKey ? await getPresignedUrl(business.logoKey) : null,
       placeId: original.placeId,
@@ -356,97 +346,72 @@ async function enrichSharedPost(shared, profilePicMap = {}, userLat = null, user
       date: original.date ? new Date(original.date).toISOString() : new Date().toISOString(),
     };
 
-    if (['event', 'promotion', 'promo'].includes(postType) && distance !== null) {
-      baseOriginal.distance = distance;
-      baseOriginal.formattedAddress = business?.location?.formattedAddress || null;
-      baseOriginal.recurringDays = original.recurringDays || [];
-      baseOriginal.startTime = original.startTime || null;
-      baseOriginal.endTime = original.endTime || null;
-      baseOriginal.allDay = original.allDay || false;
+    if (['event', 'promotion', 'promo'].includes(postType)) {
+      Object.assign(baseOriginal, {
+        distance,
+        formattedAddress: business?.location?.formattedAddress || null,
+        recurringDays: original.recurringDays || [],
+        startTime: original.startTime || null,
+        endTime: original.endTime || null,
+        allDay: original.allDay || false,
+        createdAt: original.createdAt || null,
+        title: original.title || null,
+      });
     }
 
     if (postType === 'check-in') {
-      const checkInUser = original.userId
-        ? await User.findById(original.userId).select('firstName lastName').lean()
-        : null;
+      const checkInUser = await User.findById(original.userId).select('firstName lastName').lean();
       baseOriginal.fullName = checkInUser
         ? `${checkInUser.firstName || ''} ${checkInUser.lastName || ''}`.trim()
         : null;
     }
 
-    // 🔄 Enrich original owner
     let enrichedOriginalOwner = null;
-    const originalOwnerId =
-      typeof shared.originalOwner === 'object'
-        ? shared.originalOwner._id
-        : shared.originalOwner;
+    const originalOwnerId = typeof originalOwner === 'object' ? originalOwner._id : originalOwner;
 
-    console.log('👤 Resolving originalOwner:', {
-      model: shared.originalOwnerModel,
-      id: originalOwnerId,
-    });
-
-    if (shared.originalOwnerModel === 'User') {
-      const user = await User.findById(originalOwnerId).lean();
-      if (user) {
+    if (originalOwnerModel === 'User') {
+      const ownerUser = await User.findById(originalOwnerId).lean();
+      if (ownerUser) {
         enrichedOriginalOwner = {
           __typename: 'User',
-          id: user._id.toString?.() || user._id,
-          firstName: user.firstName || '',
-          lastName: user.lastName || '',
-          profilePicUrl:
-            user.profilePic?.photoKey
-              ? await getPresignedUrl(user.profilePic.photoKey)
-              : null,
+          id: ownerUser._id.toString(),
+          firstName: ownerUser.firstName || '',
+          lastName: ownerUser.lastName || '',
+          profilePicUrl: ownerUser.profilePic?.photoKey
+            ? await getPresignedUrl(ownerUser.profilePic.photoKey)
+            : null,
         };
-      } else {
-        console.warn('⚠️ User not found for originalOwnerId:', originalOwnerId);
       }
-    } else if (shared.originalOwnerModel === 'Business') {
-      const biz = await Business.findById(originalOwnerId).lean();
-      if (biz) {
+    } else if (originalOwnerModel === 'Business') {
+      const ownerBiz = await Business.findById(originalOwnerId).lean();
+      if (ownerBiz) {
         enrichedOriginalOwner = {
           __typename: 'Business',
-          id: biz._id.toString?.() || biz._id,
-          businessName: biz.businessName || '',
-          logoUrl: biz.logoKey ? await getPresignedUrl(biz.logoKey) : null,
+          id: ownerBiz._id.toString(),
+          businessName: ownerBiz.businessName || '',
+          logoUrl: ownerBiz.logoKey
+            ? await getPresignedUrl(ownerBiz.logoKey)
+            : null,
         };
-      } else {
-        console.warn('⚠️ Business not found for originalOwnerId:', originalOwnerId);
       }
-    } else {
-      console.warn('❓ Unrecognized originalOwnerModel:', shared.originalOwnerModel);
     }
 
-    let enrichedStoryUser = null;
-    if (shared.user?.businessName || shared.user?.placeId) {
-      enrichedStoryUser = {
-        __typename: 'Business',
-        id: shared.user?._id?.toString?.() || shared.user?.id,
-        businessName: shared.user?.businessName || '',
-        logoUrl: shared.user?.logoKey
-          ? await getPresignedUrl(shared.user.logoKey)
-          : null,
-      };
-    } else {
-      enrichedStoryUser = {
-        __typename: 'User',
-        id: shared.user?._id?.toString?.() || shared.user?.id,
-        firstName: shared.user?.firstName || '',
-        lastName: shared.user?.lastName || '',
-        profilePicUrl: shared.user?.profilePic?.photoKey
-          ? await getPresignedUrl(shared.user.profilePic.photoKey)
-          : null,
-      };
-    }
-
-    console.log('✅ Returning enriched shared post:', {
-      storyId: storyMeta._id,
-      originalId: baseOriginal._id,
-      originalType: baseOriginal.__typename,
-      enrichedOriginalOwner: enrichedOriginalOwner?.__typename,
-      enrichedStoryUser: enrichedStoryUser?.__typename,
-    });
+    const enrichedStoryUser = user?.businessName || user?.placeId
+      ? {
+          __typename: 'Business',
+          id: user._id?.toString?.() || user.id,
+          businessName: user.businessName || '',
+          logoUrl: user.logoKey ? await getPresignedUrl(user.logoKey) : null,
+        }
+      : {
+          __typename: 'User',
+          id: user._id?.toString?.() || user.id,
+          firstName: user.firstName || '',
+          lastName: user.lastName || '',
+          profilePicUrl: user.profilePic?.photoKey
+            ? await getPresignedUrl(user.profilePic.photoKey)
+            : null,
+        };
 
     return {
       _id: storyMeta._id?.toString?.() || storyMeta._id,
@@ -456,18 +421,15 @@ async function enrichSharedPost(shared, profilePicMap = {}, userLat = null, user
       visibility: storyMeta.visibility,
       expiresAt: storyMeta.expiresAt,
       viewedBy: storyMeta.viewedBy,
-      isViewed: storyMeta.viewedBy?.some(id =>
-        id?.toString?.() === shared.user?._id?.toString?.()
-      ),
       user: enrichedStoryUser,
       original: baseOriginal,
       originalPostType: postType,
       originalPostId: originalPostId?.toString?.(),
       originalOwner: enrichedOriginalOwner,
-      originalOwnerModel: shared.originalOwnerModel,
+      originalOwnerModel,
     };
   } catch (err) {
-    console.error('🔥 Error in enrichSharedPost:', err);
+    console.error('[❌ enrichSharedPost failed]', err);
     return null;
   }
 }

@@ -10,6 +10,7 @@ const deleteS3Objects = require('../utils/deleteS3Objects.js');
 const { enrichComments } = require('../utils/userPosts.js');
 const { isPromoActive, isPromoLaterToday } = require('../utils/enrichBusinesses.js');
 
+//retrieve a single promo by ID
 router.get("/promotion/:promotionId", async (req, res) => {
   const { promotionId } = req.params;
 
