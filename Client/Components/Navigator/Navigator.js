@@ -155,7 +155,7 @@ function TabNavigator({
                     {isBusiness ? (
                         // Business-specific Screens
                         <>
-                            {/* <Tab.Screen name="Insights" component={Insights} /> */}
+                            <Tab.Screen name="Insights" component={Insights} />
                             <Tab.Screen name="My Events">
                                 {(props) => (
                                     <MyEventsPage

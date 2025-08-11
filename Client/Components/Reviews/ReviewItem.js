@@ -140,6 +140,16 @@ export default function ReviewItem({
         setIsFollowing(followingIds.includes(postOwnerId));
     }, [user, following, followRequests]);
 
+    useEffect(() => {
+        const interval = setInterval(() => {
+            if (currentPhotoIndex !== currentIndexRef.current) {
+                setCurrentPhotoIndex(currentIndexRef.current);
+            }
+        }, 100);
+
+        return () => clearInterval(interval);
+    }, [currentPhotoIndex]);
+
     const renderFollowButton = () => {
         if (isSuggestedFollowPost) {
             if (isFollowing) {
@@ -251,7 +261,7 @@ export default function ReviewItem({
                     />
                 </View>
                 {/* ✅ Photos */}
-                {item.photos?.length > 0 && (
+                {postPhotos.length > 0 && (
                     <PhotoFeed
                         media={postPhotos}
                         scrollX={scrollX}
@@ -261,6 +271,7 @@ export default function ReviewItem({
                         handleLikeWithAnimation={handleLikeWithAnimation}
                         lastTapRef={lastTapRef}
                         onOpenFullScreen={handleOpenFullScreen}
+                        setCurrentPhotoIndex={setCurrentPhotoIndex}
                     />
                 )}
                 <Text style={styles.date}>

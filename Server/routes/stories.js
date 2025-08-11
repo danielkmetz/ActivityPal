@@ -233,9 +233,6 @@ router.post('/from-post', verifyToken, async (req, res) => {
     const { postType, originalPostId, caption = '', visibility = 'public', captions = [] } = req.body;
     const userId = req.user?.id;
 
-    console.log('📥 Incoming /from-post request body:', req.body);
-    console.log('📝 Captions received in body:', captions);
-
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
     if (!['review', 'check-in', 'invite', 'promotion', 'event'].includes(postType)) {
@@ -263,12 +260,8 @@ router.post('/from-post', verifyToken, async (req, res) => {
       viewedBy: [],
     };
 
-    console.log('🧱 Constructed story object:', story);
-
     user.stories.push(story);
     await user.save();
-
-    console.log('💾 User story saved. Total stories now:', user.stories.length);
 
     const createdStory = user.stories[user.stories.length - 1].toObject();
 

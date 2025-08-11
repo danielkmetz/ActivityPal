@@ -21,7 +21,14 @@ export const STORIES_QUERY = gql`
         _id
         mediaKey
         mediaType
-        caption
+        captions {
+          text
+          y
+          fontSize
+          backgroundColor
+          color
+          width
+        }
         visibility
         expiresAt
         mediaUrl
@@ -84,7 +91,7 @@ export const STORIES_BY_USER_QUERY = gql`
       _id
       mediaKey
       mediaType
-      caption
+      captions
       visibility
       expiresAt
       mediaUrl

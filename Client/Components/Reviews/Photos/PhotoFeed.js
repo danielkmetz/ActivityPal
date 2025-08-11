@@ -15,6 +15,7 @@ export default function PhotoFeed({
     media = [],
     scrollX,
     currentIndexRef,
+    setCurrentPhotoIndex,
     reviewItem,
     photoTapped,
     handleLikeWithAnimation,
@@ -40,6 +41,9 @@ export default function PhotoFeed({
                             );
                             if (currentIndexRef?.current !== undefined) {
                                 currentIndexRef.current = index;
+                            }
+                            if (typeof setCurrentPhotoIndex === 'function') {
+                                setCurrentPhotoIndex(index);
                             }
                         },
                     }

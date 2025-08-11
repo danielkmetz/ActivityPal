@@ -69,8 +69,6 @@ export const fetchStoriesByUserId = createAsyncThunk(
 export const fetchStories = createAsyncThunk(
   'stories/fetchStories',
   async (userId, thunkAPI) => {
-    console.log('📥 [fetchStories] Fetching stories for userId:', userId);
-
     try {
       const { data, errors } = await client.query({
         query: STORIES_QUERY,
@@ -79,30 +77,19 @@ export const fetchStories = createAsyncThunk(
       });
 
       if (errors && errors.length > 0) {
-        console.error('❌ [fetchStories] GraphQL errors:', errors);
         return thunkAPI.rejectWithValue(errors[0]?.message || 'GraphQL error fetching stories');
       }
 
       if (!data) {
-        console.error('⚠️ [fetchStories] No data returned from Apollo query');
         return thunkAPI.rejectWithValue('No data returned from server');
       }
 
       if (!data.userAndFollowingStories || data.userAndFollowingStories.length === 0) {
-        console.warn('⚠️ [fetchStories] Stories array is empty or missing:', data.userAndFollowingStories);
         return thunkAPI.rejectWithValue('No stories returned');
       }
 
-      console.log(`✅ [fetchStories] Fetched ${data.userAndFollowingStories.length} grouped story entries`);
       return data.userAndFollowingStories;
     } catch (err) {
-      console.error('❗ [fetchStories] Apollo Client error:', {
-        message: err.message,
-        stack: err.stack,
-        name: err.name,
-        cause: err.cause,
-      });
-
       return thunkAPI.rejectWithValue(err.message || 'Failed to fetch stories');
     }
   }

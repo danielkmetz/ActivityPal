@@ -14,6 +14,7 @@ import { openLocationModal } from '../../Slices/LocationSlice';
 import { selectGooglePlaces } from '../../Slices/GooglePlacesSlice';
 import { resetPagination } from '../../Slices/PaginationSlice';
 import { clearGooglePlaces } from '../../Slices/GooglePlacesSlice';
+import { selectIsBusiness } from '../../Slices/UserSlice';
 import { selectCategoryFilter, selectIsMapView, toggleMapView, openPreferences } from '../../Slices/PlacesSlice';
 
 export default function Header({ currentRoute, notificationsSeen, setNotificationsSeen, newUnreadCount }) {
@@ -21,6 +22,7 @@ export default function Header({ currentRoute, notificationsSeen, setNotificatio
     const navigation = useNavigation();
     const userToMessage = useSelector(selectUserToMessage);
     const activities = useSelector(selectGooglePlaces);
+    const isBusiness = useSelector(selectIsBusiness);
     const activitiesRendered = activities.length > 0;
     const conversations = useSelector(selectConversations) || [];
     const categoryFilter = useSelector(selectCategoryFilter);
@@ -158,7 +160,7 @@ export default function Header({ currentRoute, notificationsSeen, setNotificatio
                             currentRoute === "SearchFollowing" ||
                             currentRoute === "MessageThread" ||
                             currentRoute === "FilterSort" ||
-                            currentRoute === "EventDetails" || 
+                            currentRoute === "EventDetails" ||
                             currentRoute === "Settings"
                         ) && (
                                 <TouchableOpacity onPress={goBack} style={{ marginLeft: -10 }}>
@@ -190,12 +192,14 @@ export default function Header({ currentRoute, notificationsSeen, setNotificatio
                                                     <MaterialCommunityIcons name="message-text-outline" size={22} color="white" />
                                                     {hasUnreadMessages && <View style={styles.redDot} />}
                                                 </TouchableOpacity>
-                                                <TouchableOpacity onPress={handleOpenLocationModal}>
-                                                    <Image
-                                                        source={{ uri: pinIcon }}
-                                                        style={styles.pinIcon}
-                                                    />
-                                                </TouchableOpacity>
+                                                {!isBusiness && (
+                                                    <TouchableOpacity onPress={handleOpenLocationModal}>
+                                                        <Image
+                                                            source={{ uri: pinIcon }}
+                                                            style={styles.pinIcon}
+                                                        />
+                                                    </TouchableOpacity>
+                                                )}
                                             </>
                                         ) : (
                                             <TouchableOpacity onPress={handleOpenFollowingModal}>

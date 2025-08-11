@@ -3,11 +3,15 @@ const User = require('../models/User');
 
 const enrichStory = async (story, uploaderUser, currentUserId = null, originalOwner = null) => {
   const storyObj = story.toObject ? story.toObject() : story;
-  const safeUploaderUser = uploaderUser?.toObject ? uploaderUser.toObject() : uploaderUser;
+  const rawUploader = uploaderUser?.toObject ? uploaderUser.toObject() : uploaderUser;
 
-  console.log(`📸 [enrichStory] Processing story ${storyObj._id}`);
-  console.log(`👤 uploaderUser:`, uploaderUser);
-  console.log(`📦 originalOwner (raw):`, originalOwner);
+  const safeUploaderUser = {
+    ...rawUploader,
+    id: rawUploader._id?.toString?.() || rawUploader.id,
+  };
+
+  // Optional: remove `_id` to avoid confusion
+  delete safeUploaderUser._id;
 
   const mediaUrl = storyObj.mediaKey ? await getPresignedUrl(storyObj.mediaKey) : null;
 
@@ -51,16 +55,6 @@ const enrichStory = async (story, uploaderUser, currentUserId = null, originalOw
   ) {
     const isBusiness = !!originalOwner.businessName;
 
-    console.log(`🔍 [typedOriginalOwner] Detected as ${isBusiness ? 'Business' : 'User'}`);
-    console.log('🧩 Fields on originalOwner before mapping:', {
-      id: originalOwner._id || originalOwner.id,
-      firstName: originalOwner.firstName,
-      lastName: originalOwner.lastName,
-      businessName: originalOwner.businessName,
-      profilePicUrl: originalOwner.profilePicUrl,
-      logoKey: originalOwner.logoKey,
-    });
-
     typedOriginalOwner = {
       ...originalOwner,
       id: originalOwner._id?.toString?.() || originalOwner.id || 'MISSING_ID',
@@ -73,8 +67,6 @@ const enrichStory = async (story, uploaderUser, currentUserId = null, originalOw
         ? await getPresignedUrl(originalOwner.logoKey)
         : null,
     };
-
-    console.log('✅ [typedOriginalOwner] After mapping:', typedOriginalOwner);
   }
 
   if (!typedOriginalOwner?.id) {
@@ -107,8 +99,6 @@ const enrichStory = async (story, uploaderUser, currentUserId = null, originalOw
     isViewed,
     user: safeUploaderUser,
   };
-
-  console.log('🎁 [enrichStory] Final enriched object:', enriched);
 
   return enriched;
 };

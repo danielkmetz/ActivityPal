@@ -50,5 +50,6 @@ const EngagementSchema = new mongoose.Schema({
 
 EngagementSchema.index({ targetType: 1, targetId: 1, engagementType: 1, timestamp: -1 });
 EngagementSchema.index({ userId: 1, engagementType: 1, timestamp: -1 });
+EngagementSchema.index({ placeId: 1, engagementType: 1, timestamp: 1 });
 
 module.exports = mongoose.model('Engagement', EngagementSchema);

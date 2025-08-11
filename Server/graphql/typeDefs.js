@@ -289,7 +289,7 @@ const typeDefs = gql`
 
   type Caption {
     text: String!
-    x: Float!
+    y: Float!
     fontSize: Int
     backgroundColor: String
     color: String
