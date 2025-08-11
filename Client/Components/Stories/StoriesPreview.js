@@ -90,8 +90,6 @@ const StoryPreview = () => {
                     visibility: contentVisibility || 'public',
                 };
 
-                console.log('📦 Payload for postSharedStory:', sharedPayload);
-
                 const sharedRes = await dispatch(postSharedStory(sharedPayload));
 
                 if (!postSharedStory.fulfilled.match(sharedRes)) {

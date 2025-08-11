@@ -67,6 +67,7 @@ const styles = StyleSheet.create({
         borderTopLeftRadius: 15,
         borderTopRightRadius: 15,
         alignItems: 'center',
+        paddingBottom: 30,
     },
     modalButton: {
         flexDirection: 'row',

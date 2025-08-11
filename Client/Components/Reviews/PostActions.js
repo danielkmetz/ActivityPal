@@ -1,33 +1,40 @@
 import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet, TouchableWithoutFeedback } from "react-native";
+import { View, StyleSheet, TouchableWithoutFeedback } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { selectUser } from "../../Slices/UserSlice";
 import { useSelector } from "react-redux";
+import LikeButton from "./PostActions/LikeButton";
+import CommentButton from "./PostActions/CommentButton";
+import SendButton from './PostActions/SendButton';
+import ShareButton from './PostActions/ShareButton';
 
-export default function PostActions({ 
-  item, 
-  onShare, 
-  handleLikeWithAnimation, 
-  handleOpenComments, 
-  toggleTaggedUsers, 
-  photo, 
-  isCommentScreen = false, 
+export default function PostActions({
+  item,
+  onShare,
+  handleLikeWithAnimation,
+  handleOpenComments,
+  toggleTaggedUsers,
+  photo,
+  isCommentScreen = false,
+  orientation = "row",
 }) {
   const navigation = useNavigation();
   const user = useSelector(selectUser);
   const currentUserId = user?.id;
-  const hasLiked = item?.likes?.some(like => like.userId === currentUserId);
+  const hasLiked = item?.likes?.some((like) => like.userId === currentUserId);
+  const shouldRenderTagButton =
+    item?.type !== "invite" && photo?.taggedUsers?.length > 0;
 
   const handleSend = () => {
-    // Determine postType from kind if present
     const kind = item?.kind?.toLowerCase();
-    const derivedType =
-      kind?.includes('event') ? 'event' :
-        kind?.includes('promo') ? 'promotion' : item?.type;
+    const derivedType = kind?.includes("event")
+      ? "event"
+      : kind?.includes("promo")
+        ? "promotion"
+        : item?.type;
 
-    navigation.navigate('SearchFollowing', {
+    navigation.navigate("SearchFollowing", {
       postId: item._id,
       postType: derivedType,
       placeId: item.placeId || item.business?.placeId || null,
@@ -35,57 +42,77 @@ export default function PostActions({
   };
 
   return (
-    <View style={styles.actionsContainer}>
-      <View style={styles.actionButtons}>
-        <View style={styles.likes}>
-          <TouchableOpacity
-            onPress={() => handleLikeWithAnimation(item, true)}
-            style={styles.likeButton}
-          >
-            <MaterialCommunityIcons
-              name={hasLiked ? "thumb-up" : "thumb-up-outline"} // 👈 Conditional icon
-              size={20}
-              color={hasLiked ? "#00BFA6" : "#808080"} // 👈 Conditional color
-            />
-            <Text style={styles.likeCount}>{item?.likes?.length || 0}</Text>
-          </TouchableOpacity>
-        </View>
+    <View
+      style={[
+        styles.actionsContainer,
+        orientation === "column" && styles.actionsContainerColumn,
+      ]}
+    >
+      <View
+        style={[
+          styles.actionButtons,
+          orientation === "column"
+            ? styles.actionButtonsColumn
+            : styles.actionButtonsRow,
+        ]}
+      >
+        {/* Like */}
+        <LikeButton
+          hasLiked={hasLiked}
+          count={item?.likes?.length || 0}
+          onPress={() => handleLikeWithAnimation(item, true)}
+          orientation={orientation}
+        />
+        {/* Comment */}
         {!isCommentScreen && (
-          <View style={styles.comments}>
-            <TouchableOpacity
+          <View
+            style={[
+              styles.actionItem,
+              orientation === "column" && styles.actionItemColumn,
+            ]}
+          >
+            <CommentButton
+              count={item?.comments?.length || 0}
               onPress={() => handleOpenComments(item)}
-              style={styles.commentButton}
-            >
-              <MaterialCommunityIcons
-                name="comment-outline"
-                size={20}
-                color="#808080"
-              />
-              <Text style={styles.commentCount}>{item?.comments?.length || 0}</Text>
-            </TouchableOpacity>
+              orientation={orientation}
+            />
           </View>
         )}
-        <TouchableOpacity
-          onPress={() => onShare(item)}
-          style={[styles.shareButton, isCommentScreen && { marginLeft: -2 }]}
+        {/* Share */}
+        <View
+          style={[
+            styles.actionItem,
+            orientation === "column" && styles.actionItemColumn,
+          ]}
         >
-          <MaterialCommunityIcons name="share-all-outline" size={30} color="#808080" />
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={handleSend}
-          style={[styles.sendButton, isCommentScreen && { marginLeft: -2 }]}
+          <ShareButton
+            onPress={() => onShare(item)}
+            orientation={orientation}
+          />
+        </View>
+        {/* Send */}
+        <View
+          style={[
+            styles.actionItem,
+            orientation === "column" && styles.actionItemColumn,
+          ]}
         >
-          <Feather name="send" size={20} color="#808080" />
-        </TouchableOpacity>
+          <SendButton
+            onPress={handleSend}
+            orientation={orientation}
+          />
+        </View>
       </View>
-      {item?.type !== 'invite' &&
-        photo?.taggedUsers?.length > 0 && (
-          <TouchableWithoutFeedback onPress={() => toggleTaggedUsers(photo.photoKey)}>
-            <View style={styles.tagIcon}>
-              <MaterialCommunityIcons name="tag" size={24} color="white" />
-            </View>
-          </TouchableWithoutFeedback>
-        )}
+      {/* Tagged Users Button (row mode only) */}
+      {shouldRenderTagButton && orientation !== "column" && (
+        <TouchableWithoutFeedback
+          onPress={() => toggleTaggedUsers(photo.photoKey)}
+        >
+          <View style={styles.tagIcon}>
+            <MaterialCommunityIcons name="tag" size={24} color="white" />
+          </View>
+        </TouchableWithoutFeedback>
+      )}
     </View>
   );
 }
@@ -93,34 +120,33 @@ export default function PostActions({
 const styles = StyleSheet.create({
   actionsContainer: {
     flexDirection: "row",
-    alignItems: 'center',
-  },
-  actionButtons: {
-    width: '100%',
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-  },
-  likes: {
-    marginLeft: -5,
-  },
-  likeButton: {
-    flexDirection: "row",
     alignItems: "center",
   },
-  likeCount: {
-    fontSize: 14,
-    color: "#555",
-    marginLeft: 5,
+  actionsContainerColumn: {
+    position: "absolute",
+    right: 20,
+    top: "45%",
+    transform: [{ translateY: -50 }],
+    zIndex: 10,
   },
-  comments: {
-    marginLeft: -5,
+  actionButtons: {
+    alignItems: "center",
+    justifyContent: "space-around",
   },
-  commentButton: {
+  actionButtonsRow: {
+    width: "100%",
     flexDirection: "row",
   },
-  commentCount: {
-    marginLeft: 5,
+  actionButtonsColumn: {
+    flexDirection: "column",
+    gap: 20,
+  },
+  actionItem: {
+    marginHorizontal: 10,
+  },
+  actionItemColumn: {
+    marginVertical: 10,
+    alignItems: "center",
   },
   tagIcon: {
     position: "absolute",
@@ -129,14 +155,5 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.6)",
     padding: 6,
     borderRadius: 20,
-  },
-  sendButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    transform: [{ rotate: '15deg' }],
-  },
-  shareButton: {
-    flexDirection: "row",
-    alignItems: "center",
   },
 });

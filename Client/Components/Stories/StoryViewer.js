@@ -14,6 +14,7 @@ import { useSelector } from 'react-redux';
 import { selectUser } from '../../Slices/UserSlice';
 import StoryMediaRenderer from './StoryMediaRenderer';
 import DeleteStoryButton from './DeleteStoryButton';
+import { isVideo } from '../../utils/isVideo';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -39,9 +40,12 @@ export default function StoryViewer() {
   const elapsedTimeRef = useRef(0);       // time passed before pause
   const animationStartTimeRef = useRef(0); // timestamp when animation started
   const currentAnimRef = useRef(null);     // to hold current animation instance
+  const captions = story?.captions || [];
+  const videoCheck = isVideo(story);
+
 
   useEffect(() => {
-    if (story?.mediaUrl) {
+    if (story?.mediaUrl && videoCheck) {
       setVideoUri(`${story.mediaUrl}&cacheBuster=${Date.now()}`); // 👈 forces video refresh
     }
   }, [story?.mediaUrl]);
@@ -223,6 +227,22 @@ export default function StoryViewer() {
               onPressOut={() => setPaused(false)}
             />
           </Animated.View>
+          {captions?.map((caption, index) => (
+            <View
+              key={index}
+              style={[ styles.caption, { top: caption.y }]}
+            >
+              <Text
+                style={{
+                  fontSize: caption.fontSize || 16,
+                  color: caption.color || 'white',
+                  textAlign: 'center',
+                }}
+              >
+                {caption.text}
+              </Text>
+            </View>
+          ))}
           {story?.user?.id === userId && (
             <DeleteStoryButton
               storyId={story._id}
@@ -282,4 +302,12 @@ const styles = StyleSheet.create({
     width: SCREEN_WIDTH * 0.3,
     zIndex: 5,
   },
+  caption: {
+    position: 'absolute',
+    width: '100%',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  }
 });

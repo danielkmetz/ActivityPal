@@ -17,6 +17,9 @@ import { useLikeAnimations } from '../../utils/LikeHandlers/LikeAnimationContext
 import { selectNearbySuggestionById } from '../../Slices/GooglePlacesSlice';
 import StoryAvatar from '../Stories/StoryAvatar';
 import ExpandableText from './ExpandableText';
+import ShareOptionsModal from './SharedPosts/ShareOptionsModal';
+import SharePostModal from './SharedPosts/SharePostModal';
+import PostActions from './PostActions';
 
 const { width, height } = Dimensions.get('window');
 
@@ -33,22 +36,22 @@ const FullScreenPhoto = () => {
   const user = useSelector(selectUser);
   const review = isEventPromo ?
     useSelector((state) => selectNearbySuggestionById(state, reviewId)) : useSelector(selectReviewById(reviewId));
-  const userId = user?.id;
   const flatListRef = useRef();
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [showTags, setShowTags] = useState(false);
   const [originalSize, setOriginalSize] = useState({ width: 1, height: 1 });
   const [renderedSize, setRenderedSize] = useState({ width, height });
+  const [selectedPostForShare, setSelectedPostForShare] = useState(null);
+  const [shareOptionsVisible, setShareOptionsVisible] = useState(false);
+  const [shareToFeedVisible, setShareToFeedVisible] = useState(false);
   const photos = review?.photos || [];
   const currentPhoto = photos[currentIndex];
   const { getAnimation, registerAnimation } = useLikeAnimations();
   const animation = getAnimation(review?._id);
   const lastTapRef = useRef({});
-  const hasLiked = Array.isArray(review?.likes) && review?.likes.some(like => like.userId === userId);
   const taggedUsers = taggedUsersByPhotoKey?.[currentPhoto?.photoKey] || [];
   const eventPromoType = ["activeEvent", "upcomingEvent"].includes(review.kind) ? "event" : "promo";
-  const likeCount = review?.likes?.length;
   const postText = review.reviewText || review.message || null;
 
   const likeWithAnimation = (force = false) => {
@@ -98,6 +101,33 @@ const FullScreenPhoto = () => {
         }
       }, 200);
     }
+  };
+
+  const openShareOptions = (post) => {
+    setShareOptionsVisible(true);
+    setSelectedPostForShare(post)
+  };
+
+  const openShareToFeedModal = () => {
+    setShareOptionsVisible(false);
+    setShareToFeedVisible(true);
+  };
+
+  const handleShareToStory = () => {
+    setShareOptionsVisible(false);
+
+    navigation.navigate('StoryPreview', {
+      post: selectedPostForShare,
+    })
+  };
+
+  const closeShareOptions = () => {
+    setShareOptionsVisible(false);
+  };
+
+  const closeShareToFeed = () => {
+    setShareToFeedVisible(false);
+    setSelectedPostForShare(null);
   };
 
   useEffect(() => {
@@ -185,20 +215,17 @@ const FullScreenPhoto = () => {
             )}
           />
         )}
-        {/* Like / Comment Buttons */}
         <View style={styles.actionsContainer}>
-          <TouchableOpacity onPress={() => setCommentsVisible(true)} style={styles.iconButton}>
-            <MaterialCommunityIcons name="comment-outline" size={28} color="white" />
-            <Text style={styles.countText}>{review?.comments?.length}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => likeWithAnimation(true)} style={styles.iconButton}>
-            <MaterialCommunityIcons
-              name={hasLiked ? "thumb-up" : "thumb-up-outline"}
-              size={28}
-              color={hasLiked ? "#009999" : "white"}
-            />
-            <Text style={styles.countText}>{likeCount}</Text>
-          </TouchableOpacity>
+        <PostActions
+          item={review}
+          onShare={openShareOptions}
+          handleLikeWithAnimation={() => likeWithAnimation(true)}
+          handleOpenComments={() => setCommentsVisible(true)}
+          toggleTaggedUsers={() => setShowTags((prev) => !prev)}
+          photo={currentPhoto}
+          isCommentScreen={false}
+          orientation="column"
+        />
         </View>
         <View style={styles.bottomOverlay}>
           <View style={styles.postOwner}>
@@ -222,6 +249,17 @@ const FullScreenPhoto = () => {
         visible={commentsVisible}
         onClose={() => setCommentsVisible(false)}
         review={review}
+      />
+      <SharePostModal
+        visible={shareToFeedVisible}
+        onClose={closeShareToFeed}
+        post={selectedPostForShare}
+      />
+      <ShareOptionsModal
+        visible={shareOptionsVisible}
+        onClose={closeShareOptions}
+        onShareToFeed={openShareToFeedModal}
+        onShareToStory={handleShareToStory}
       />
     </View>
   );
@@ -252,20 +290,11 @@ const styles = StyleSheet.create({
   },
   actionsContainer: {
     position: 'absolute',
-    right: 20,
-    top: height / 2 + 110,
+    right: 0,
+    top: height / 2 + 10,
     zIndex: 10,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  iconButton: {
-    marginVertical: 15,
-    alignItems: 'center',
-  },
-  countText: {
-    color: 'white',
-    fontSize: 14,
-    marginTop: 4,
   },
   likeOverlay: {
     position: 'absolute',
