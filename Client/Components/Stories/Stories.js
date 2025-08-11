@@ -41,7 +41,7 @@ const Stories = ({ stories = [] }) => {
         contentContainerStyle={styles.scrollContainer}
         renderItem={({ item }) => {
           const isCreate = item.type === 'create';
-
+          
           if (isCreate) {
             return (
               <TouchableOpacity style={styles.storyWrapper} onPress={handleCreateStory}>
@@ -59,14 +59,15 @@ const Stories = ({ stories = [] }) => {
             );
           }
 
-          const { user: storyUser = {}, profilePicUrl, stories: userStories = [] } = item;
+          const { user: storyUser = {}, profilePicUrl,  stories: userStories = [] } = item;
           const isViewed = userStories.every((s) => s.isViewed); // Optional, if `isViewed` is removed
           const borderColor = isViewed ? '#ccc' : '#1e90ff';
+          const picUrl = storyUser?.profilePicUrl || profilePicUrl;
 
           return (
             <TouchableOpacity style={styles.storyWrapper} onPress={() => handleViewStory(item)}>
               <View style={[styles.circle, { borderColor }]}>
-                <Image source={{ uri: profilePicUrl }} style={styles.profilePic} />
+                <Image source={{ uri: picUrl  }} style={styles.profilePic} />
               </View>
               <Text style={styles.username} numberOfLines={1}>
                 {`${storyUser?.firstName} ${storyUser?.lastName}` || 'User'}

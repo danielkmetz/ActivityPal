@@ -35,7 +35,6 @@ export const handleLike = async ({
   try {
     let payload;
 
-    console.log(postId)
     if (postType === 'sharedPost') {
       const result = await dispatch(toggleLikeOnSharedPost({ postId, userId, fullName }));
       payload = result?.payload;

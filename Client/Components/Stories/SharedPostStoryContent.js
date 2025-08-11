@@ -28,8 +28,6 @@ const SharedPostStoryContent = ({
     post?.mediaUrl;
   const postType = post?.type;
 
-  console.log(post)
-
   const handlePress = () => {
     if (!showBubble && !isPreview) {
       setShowBubble(true);

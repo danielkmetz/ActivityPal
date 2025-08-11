@@ -105,7 +105,7 @@ export default function CommentScreen() {
         setInputHeight(Math.min(Math.max(40, contentHeight), 150));
     }, [contentHeight]);
 
-    const handleLikeWithAnimation = () => {
+    const handleLikeWithAnimation = (_ignored, force) => {
         const animation = getAnimation(review._id);
         return sharedHandleLikeWithAnimation({
             postType: review.type,
@@ -115,7 +115,7 @@ export default function CommentScreen() {
             animation,
             dispatch,
             lastTapRef,
-            force: false,
+            force,
         });
     };
 
