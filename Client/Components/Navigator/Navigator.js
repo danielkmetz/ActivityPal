@@ -21,7 +21,7 @@ import { selectIsBusiness, selectUser } from '../../Slices/UserSlice';
 import { useSelector } from "react-redux";
 import CommentScreen from '../Reviews/CommentScreen';
 import StoryViewer from '../Stories/StoryViewer';
-import CreatePost from '../Reviews/CreatePost';
+import CreatePost from '../Reviews/CreatePost/CreatePost';
 import CreateEventPage from '../BusinessEvents/CreateEventPage';
 import CreatePromotionPage from '../BusinessEvents/CreatePromotionPage';
 import FullScreenPhoto from '../Reviews/FullScreenPhoto';
@@ -32,6 +32,7 @@ import FilterSortScreen from '../Activities/FilterSortScreen';
 import EventDetailsScreen from '../Activities/EventPromoDetails/EventDetailsScreen';
 import { selectProfilePic } from '../../Slices/PhotosSlice';
 import SettingsScreen from '../Profile/Settings/SettingsScreen';
+import GoLiveSetup from '../LiveStream/GoLiveSetup';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -245,10 +246,7 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
                     />
                 }
             </Stack.Screen>
-            <Stack.Screen
-                name="BusinessProfile"
-                component={BusinessProfile}
-            />
+            <Stack.Screen name="BusinessProfile" component={BusinessProfile} />
             <Stack.Screen name="CameraScreen" component={CameraScreen} />
             <Stack.Screen name="StoryPreview" component={StoryPreview} />
             <Stack.Screen name="StoryViewer" component={StoryViewer} />
@@ -264,6 +262,7 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
             <Stack.Screen name="FilterSort" component={FilterSortScreen} />
             <Stack.Screen name="EventDetails" component={EventDetailsScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
+            <Stack.Screen name="GoLiveSetup" component={GoLiveSetup} />
         </Stack.Navigator>
     )
 }

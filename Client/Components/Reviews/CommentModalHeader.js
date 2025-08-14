@@ -22,13 +22,18 @@ const CommentModalHeader = ({
 }) => {
     const navigation = useNavigation();
     const scrollX = useRef(new Animated.Value(0)).current;
+    const isInvite = review?.type === "invite";
+    const isShared = !!sharedPost || review?.type === 'sharedPost';
     const photos = review?.photos || review?.media;
     const hasTaggedUsers = Array.isArray(review?.taggedUsers) && review.taggedUsers.length > 0;
-    const postOwnerPic = isInvite ? review?.sender?.profilePicUrl || review?.profilePicUrl : review?.profilePicUrl || review?.original?.profilePicUrl;
+    const postOwnerPic = isShared
+        ? (review?.user?.profilePicUrl || review?.profilePicUrl)                // sharer
+        : isInvite
+            ? (review?.sender?.profilePicUrl || review?.profilePicUrl)            // invite creator
+            : (review?.profilePicUrl || review?.original?.profilePicUrl);
     const postOwnerName = isInvite && review?.sender?.firstName ? `${review?.sender?.firstName} ${review?.sender?.lastName}` : review?.fullName || `${review?.user?.firstName} ${review?.user?.lastName}`;
     const totalInvited = review?.recipients?.length || 0;
     const dateTime = review?.dateTime || review?.date;
-    const isInvite = review?.type === "invite";
     const commentActionsMargin = sharedPost ? -50 : 10;
 
     const getTimeSincePosted = (date) => {

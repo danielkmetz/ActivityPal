@@ -133,7 +133,6 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, onEdit, onDelete
                         <View style={styles.notch} />
                         <ScrollView>
                             <Text style={styles.title}>Invite Details</Text>
-
                             {invite?.sender?.userId && (
                                 <>
                                     <View style={styles.infoRow}>
@@ -156,21 +155,18 @@ const InviteDetailsModal = ({ visible, onClose, invite, userId, onEdit, onDelete
                                     </Text>
                                 </TouchableOpacity>
                             </View>
-
                             <View style={styles.infoRow}>
                                 <Text style={styles.label}>When:</Text>
                                 <Text style={[styles.text, { marginTop: 10 }]}>
                                     {new Date(invite.dateTime).toLocaleString().replace(/:\d{2}\s/, ' ')}
                                 </Text>
                             </View>
-
                             {invite?.note && invite?.sender?.firstName && (
                                 <>
                                     <Text style={styles.label}>{invite?.sender.firstName} said:</Text>
                                     <Text style={styles.note}>{invite?.note}</Text>
                                 </>
                             )}
-
                             {categorizedRecipients.confirmed.length > 0 && (
                                 <>
                                     <Text style={styles.label}>Accepted:</Text>

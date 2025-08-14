@@ -23,59 +23,88 @@ const getUserAndFollowingSharedPosts = async (_, { userId, userLat = null, userL
 
     const sharedPostsRaw = await SharedPost.find({ user: { $in: allUserIds } })
       .sort({ createdAt: -1 })
-      .populate('user', 'firstName lastName profilePic')
-      .populate('originalOwner', 'firstName lastName profilePic')
+      // keep _id explicit so it’s never excluded by accident
+      .populate('user', '_id firstName lastName profilePic')
+      .populate('originalOwner', '_id firstName lastName profilePic')
       .lean();
 
+    // collect IDs we can actually resolve pics for (only if present)
     const uniqueUserIds = [
       ...new Set([
         ...allUserIds.map(id => id.toString()),
-        ...sharedPostsRaw
-          .map(sp => sp.originalOwner?._id?.toString())
-          .filter(Boolean),
+        ...sharedPostsRaw.map(sp => sp.user?._id?.toString()).filter(Boolean),
+        ...sharedPostsRaw.map(sp => sp.originalOwner?._id?.toString()).filter(Boolean),
       ]),
     ];
 
     const profilePicMap = await resolveUserProfilePics(uniqueUserIds);
 
+    // simple helper to create a "tombstone" placeholder
+    const tombstone = (label = 'Deleted User') => ({
+      id: 'DELETED_USER',
+      firstName: label,
+      lastName: null,
+      profilePicUrl: null,
+      profilePic: null,
+    });
+
     const enriched = await Promise.all(
       sharedPostsRaw.map(async (shared, idx) => {
-        // Validate presence of populated user and originalOwner
-        if (!shared.user || !shared.originalOwner) {
-          console.warn(`⚠️ Skipping shared post due to missing user or originalOwner: ${shared._id}`);
-          return null;
-        }
-
-        // Skip if enrichSharedPost fails
+        // Run enrichment (still may return null for bad originals; we’ll skip then)
         const enrichedOriginal = await enrichSharedPost(shared, profilePicMap, userLat, userLng);
         if (!enrichedOriginal) {
           console.warn(`⚠️ Skipped shared post at index ${idx} (enrichment failed): ${shared._id}`);
           return null;
         }
 
+        // Enrich comments on the shared post itself
         const enrichedComments = await enrichComments(shared.comments || []);
 
+        // Build safe user block
+        let userBlock;
+        if (!shared.user) {
+          console.warn(`⚠️ Shared post ${shared._id} missing "user" — using tombstone`);
+          userBlock = tombstone('Deleted User');
+        } else {
+          const userIdStr = shared.user._id?.toString?.() || shared.user.id || 'UNKNOWN_ID';
+          const pic = profilePicMap[userIdStr] || {};
+          userBlock = {
+            id: userIdStr,
+            firstName: shared.user.firstName || null,
+            lastName: shared.user.lastName || null,
+            profilePicUrl: pic.profilePicUrl ?? null,
+            profilePic: pic.profilePic ?? null,
+          };
+        }
+
+        // Build safe originalOwner block
+        let ownerBlock;
+        if (!shared.originalOwner) {
+          console.warn(`⚠️ Shared post ${shared._id} missing "originalOwner" — using tombstone`);
+          ownerBlock = tombstone('Deleted User');
+        } else {
+          const ownerIdStr = shared.originalOwner._id?.toString?.() || shared.originalOwner.id || 'UNKNOWN_ID';
+          const pic = profilePicMap[ownerIdStr] || {};
+          ownerBlock = {
+            id: ownerIdStr,
+            firstName: shared.originalOwner.firstName || null,
+            lastName: shared.originalOwner.lastName || null,
+            profilePicUrl: pic.profilePicUrl ?? null,
+            profilePic: pic.profilePic ?? null,
+          };
+        }
+
         console.log(`✅ Enriched shared post #${idx + 1}`, {
-          sharedId: shared._id,
+          sharedId: String(shared._id),
           originalPostType: enrichedOriginal.originalPostType,
           typename: enrichedOriginal.__typename,
         });
 
         return {
           _id: shared._id,
-          user: {
-            id: shared.user._id?.toString?.() || 'UNKNOWN_ID',
-            firstName: shared.user.firstName || null,
-            lastName: shared.user.lastName || null,
-            ...profilePicMap[shared.user._id?.toString?.()],
-          },
-          originalOwner: {
-            id: shared.originalOwner._id?.toString?.() || 'UNKNOWN_ID',
-            firstName: shared.originalOwner.firstName || null,
-            lastName: shared.originalOwner.lastName || null,
-            ...profilePicMap[shared.originalOwner._id?.toString?.()],
-          },
-          originalPostId: shared.originalPostId,
+          user: userBlock,
+          originalOwner: ownerBlock,
+          originalPostId: shared.originalPostId?.toString?.() || shared.originalPostId,
           postType: shared.postType,
           caption: shared.caption,
           createdAt: shared.createdAt,
@@ -83,13 +112,12 @@ const getUserAndFollowingSharedPosts = async (_, { userId, userLat = null, userL
           type: 'sharedPost',
           likes: shared.likes || [],
           comments: enrichedComments,
-          original: enrichedOriginal.original,
+          original: enrichedOriginal.original, // Review / CheckIn / Event / Promotion / ActivityInvite
         };
       })
     );
 
-    const filtered = enriched.filter(Boolean);
-    return filtered;
+    return enriched.filter(Boolean);
   } catch (err) {
     console.error('❌ Error in getUserAndFollowingSharedPosts resolver:', err);
     throw new Error('Failed to fetch user and following shared posts');

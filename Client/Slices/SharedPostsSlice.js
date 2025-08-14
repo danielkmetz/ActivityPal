@@ -239,6 +239,28 @@ export const toggleLikeOnSharedPostComment = createAsyncThunk(
   }
 );
 
+export const editSharedPost = createAsyncThunk(
+  'sharedPosts/editSharedPost',
+  async ({ sharedPostId, caption }, { dispatch, rejectWithValue }) => {
+    try {
+      const config = await getAuthHeaders();
+      const { data } = await axios.put(`${API_BASE}/${sharedPostId}`, { caption }, config);
+
+      // Mirror the change into the reviews collections
+      dispatch(
+        updateSharedPostInReviews({
+          postId: data._id,
+          updates: { caption: data.caption },
+        })
+      );
+
+      return data;
+    } catch (err) {
+      return rejectWithValue(err?.response?.data?.message || 'Failed to edit shared post');
+    }
+  }
+);
+
 const updateSharedPostLocallyById = (state, sharedPostId, updaterFn) => {
   const post = state.byId[sharedPostId];
   if (post) updaterFn(post);
@@ -387,6 +409,19 @@ const sharedPostsSlice = createSlice({
           };
           update(post.comments || []);
         });
+      })
+      .addCase(editSharedPost.pending, (state) => {
+        state.status = 'loading';
+      })
+      .addCase(editSharedPost.fulfilled, (state, action) => {
+        state.status = 'succeeded';
+        // Optional: keep a cache in this slice as well
+        const idx = state.items.findIndex((p) => p._id === action.payload._id);
+        if (idx !== -1) state.items[idx] = action.payload;
+      })
+      .addCase(editSharedPost.rejected, (state, action) => {
+        state.status = 'failed';
+        state.error = action.payload || 'Failed to edit shared post';
       })
   },
 })

@@ -8,7 +8,7 @@ async function resolveSharedPostData(postType, originalPostId) {
 
   let originalOwner, originalOwnerModel;
   if (['review', 'check-in', 'invite'].includes(postType)) {
-    originalOwner = original.userId;
+    originalOwner = original.userId || original.senderId;
     originalOwnerModel = 'User';
   } else {
     const business = await Business.findOne({ placeId: original.placeId });
