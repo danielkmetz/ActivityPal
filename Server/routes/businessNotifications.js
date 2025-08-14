@@ -9,8 +9,6 @@ router.get('/:placeId/notifications', async (req, res) => {
         const business = await Business.findOne({ placeId }).select('notifications');
         if (!business) return res.status(404).json({ error: 'Business not found' });
 
-        console.log(business.notifications)
-
         res.json(business.notifications);
     } catch (error) {
         res.status(500).json({ error: 'Server error' });

@@ -8,6 +8,8 @@ export default function SelectorChips({
   emptyText = 'No items.',
   getId = (it) => it._id ?? it.id,
   getLabel = (it) => it.title ?? it.name ?? 'Untitled',
+  selectionMode = 'multiple',   // 'single' | 'multiple'
+  allowDeselect = true,         // only used in 'single' mode
   containerStyle,
   chipStyle,
   chipActiveStyle,
@@ -17,10 +19,21 @@ export default function SelectorChips({
 }) {
   if (!items?.length) return <Text style={styles.muted}>{emptyText}</Text>;
 
+  const toggleMultiple = (id) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const toggleSingle = (id) => {
+    setSelectedIds((prev) => {
+      const isActive = prev.length === 1 && prev[0] === id;
+      if (isActive && allowDeselect) return []; // deselect the only one
+      return [id]; // replace with just this id
+    });
+  };
+
   const toggle = (id) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+    if (selectionMode === 'single') toggleSingle(id);
+    else toggleMultiple(id);
   };
 
   return (
@@ -31,7 +44,7 @@ export default function SelectorChips({
         const active = selectedIds.includes(id);
         return (
           <Pressable
-            key={id}
+            key={String(id)}
             onPress={() => toggle(id)}
             style={[
               styles.chip,

@@ -4,19 +4,11 @@ const verifyToken = require('../middleware/verifyToken');
 const Engagement = require('../models/Engagement');
 const { parseRange, generateUtcBuckets } = require('../utils/insightsRange');
 
-// GET /api/engagement/insights
-// Query:
-//   interval=day|week|month (default day)
-//   rangeStart=2025-07-01
-//   rangeEnd=2025-08-09
-//   engagementTypes=view,click,join  (optional, default: all)
-//   placeId=abc123                 (optional)
-//   placeIds=abc123,def456         (optional, comma-separated)
-//   targetType=promo               (optional)
-//   targetId=685c05...             (optional)
+const MS_DAY = 24 * 60 * 60 * 1000;
+
 router.get('/', verifyToken, async (req, res) => {
   try {
-    const {
+    let {
       interval = 'day',
       rangeStart,
       rangeEnd,
@@ -25,108 +17,293 @@ router.get('/', verifyToken, async (req, res) => {
       placeIds,
       targetType,
       targetId,
-      // NEW (optional)
-      groupBy,        // "place" (split series per place); omit for default behavior
-      uniqueUsers     // "true" to count unique users instead of raw events
+      targetIds,
+      eventIds,
+      promotionIds,
+      groupBy,
+      uniqueUsers,
+      compare, // optional: "true" to include previous period series/totals
     } = req.query;
 
-    const { start, end, unit } = parseRange({ rangeStart, rangeEnd, interval });
-
-    // Build match
-    const match = { timestamp: { $gte: start, $lte: end } };
-    if (engagementTypes) {
-      const types = engagementTypes.split(',').map(s => s.trim()).filter(Boolean);
-      if (types.length) match.engagementType = { $in: types };
-    }
-    if (placeId) match.placeId = placeId;
-    if (placeIds) {
-      const arr = placeIds.split(',').map(s => s.trim()).filter(Boolean);
-      if (arr.length) match.placeId = { $in: arr };
-    }
-    if (targetType) match.targetType = targetType;
-    if (targetId) match.targetId = String(targetId);
+    // Back-compat
+    rangeStart = rangeStart || req.query.start;
+    rangeEnd   = rangeEnd   || req.query.end;
 
     const useDistinct = String(uniqueUsers).toLowerCase() === 'true';
+    const includeCompare = String(compare).toLowerCase() === 'true';
 
-    // Build group key
-    const groupKey = {
-      bucket: { $dateTrunc: { date: "$timestamp", unit: unit, timezone: "UTC" } },
-      engagementType: "$engagementType"
+    const csvToArr = (csv) => csv?.split(',').map(s => s.trim()).filter(Boolean) || [];
+
+    // Build match WITHOUT time for bounds probing and re-use
+    const matchNoTime = {};
+    if (engagementTypes) {
+      const types = csvToArr(engagementTypes);
+      if (types.length) matchNoTime.engagementType = { $in: types };
+    }
+    if (placeId) matchNoTime.placeId = placeId;
+    if (placeIds) {
+      const arr = csvToArr(placeIds);
+      if (arr.length) matchNoTime.placeId = { $in: arr };
+    }
+    if (targetType) matchNoTime.targetType = targetType;
+    if (targetId) matchNoTime.targetId = String(targetId);
+    const allTargetIds = [
+      ...csvToArr(targetIds),
+      ...csvToArr(eventIds),
+      ...csvToArr(promotionIds),
+    ];
+    if (allTargetIds.length) matchNoTime.targetId = { $in: allTargetIds };
+
+    // Derive start/end/unit (aligned to bucket boundaries)
+    let range = null;
+    if (rangeStart || rangeEnd) {
+      range = parseRange({ rangeStart, rangeEnd, interval });
+    } else {
+      // Discover dataset bounds for current filters
+      const [bounds] = await Engagement.aggregate([
+        { $match: matchNoTime },
+        { $group: { _id: null, min: { $min: '$timestamp' }, max: { $max: '$timestamp' } } },
+      ]).allowDiskUse(true);
+
+      if (!bounds?.min || !bounds?.max) {
+        return res.json({
+          range: { start: null, end: null, interval },
+          mode: useDistinct ? 'uniqueUsers' : 'events',
+          groupedBy: (groupBy || 'engagementType').toLowerCase(),
+          series: [],
+          totals: { view: 0, click: 0, join: 0 },
+          // compare fields omitted when no data
+        });
+      }
+
+      range = parseRange({
+        rangeStart: bounds.min.toISOString().slice(0, 10),
+        rangeEnd:   bounds.max.toISOString().slice(0, 10),
+        interval,
+      });
+    }
+
+    let { start, end, unit } = range;
+
+    // Auto-promote granularity for large spans
+    const spanDays = Math.max(1, Math.ceil((end - start) / MS_DAY) + 1);
+    if (unit === 'day' && spanDays > 370) {
+      interval = 'week';
+      ({ start, end, unit } = parseRange({
+        rangeStart: start.toISOString().slice(0, 10),
+        rangeEnd:   end.toISOString().slice(0, 10),
+        interval,
+      }));
+    } else if (unit === 'week' && spanDays > 5 * 365) {
+      interval = 'month';
+      ({ start, end, unit } = parseRange({
+        rangeStart: start.toISOString().slice(0, 10),
+        rangeEnd:   end.toISOString().slice(0, 10),
+        interval,
+      }));
+    }
+
+    // Time-bounded match
+    const match = { ...matchNoTime, timestamp: { $gte: start, $lte: end } };
+
+    // Normalize groupBy
+    const gb = (groupBy || '').toLowerCase();
+    const groupByMode =
+      gb === 'place' ? 'place'
+      : gb === 'target' || gb === 'event' || gb === 'promotion' ? 'target'
+      : 'engagementType';
+
+    // $dateTrunc aligned with utils: week starts Monday, UTC
+    const truncSpec = (unit === 'week')
+      ? { date: '$timestamp', unit, timezone: 'UTC', startOfWeek: 'monday' }
+      : { date: '$timestamp', unit, timezone: 'UTC' };
+
+    // Group key builder
+    const buildGroupKey = () => {
+      const gk = {
+        bucket: { $dateTrunc: truncSpec },
+        engagementType: '$engagementType',
+      };
+      if (groupByMode === 'place')  gk.placeId  = '$placeId';
+      if (groupByMode === 'target') gk.targetId = '$targetId';
+      return gk;
     };
-    if (groupBy === 'place') groupKey.placeId = "$placeId";
 
-    // Aggregation
-    const pipeline = [
-      { $match: match },
+    // Pipeline builder (current/previous share structure)
+    const buildPipeline = (timeMatch) => ([
+      { $match: timeMatch },
       useDistinct
-        ? { $group: { _id: groupKey, users: { $addToSet: "$userId" } } }
-        : { $group: { _id: groupKey, count: { $sum: 1 } } },
+        ? { $group: { _id: buildGroupKey(), users: { $addToSet: '$userId' } } }
+        : { $group: { _id: buildGroupKey(), count: { $sum: 1 } } },
       {
         $project: useDistinct
-          ? { _id: 0, bucket: "$_id.bucket", engagementType: "$_id.engagementType", placeId: "$_id.placeId", count: { $size: "$users" } }
-          : { _id: 0, bucket: "$_id.bucket", engagementType: "$_id.engagementType", placeId: "$_id.placeId", count: 1 }
+          ? {
+              _id: 0,
+              bucket: '$_id.bucket',
+              engagementType: '$_id.engagementType',
+              placeId: '$_id.placeId',
+              targetId: '$_id.targetId',
+              count: { $size: '$users' },
+            }
+          : {
+              _id: 0,
+              bucket: '$_id.bucket',
+              engagementType: '$_id.engagementType',
+              placeId: '$_id.placeId',
+              targetId: '$_id.targetId',
+              count: 1,
+            },
       },
-      { $sort: { bucket: 1 } }
-    ];
+      { $sort: { bucket: 1 } },
+    ]);
 
-    const rows = await Engagement.aggregate(pipeline).allowDiskUse(true);
+    // Run current aggregation
+    const rows = await Engagement.aggregate(buildPipeline(match)).allowDiskUse(true);
 
-    // Build zero-filled series
+    // ---- Helpers for shaping to series ----
     const bucketKeys = generateUtcBuckets(start, end, unit);
+    const indexByBucket = Object.fromEntries(bucketKeys.map((k, i) => [k, i]));
 
-    const keyOf = (r) => groupBy === 'place'
-      ? `${r.engagementType}::${r.placeId || 'unknown'}`
-      : r.engagementType;
-
+    const keyOf = (r) => {
+      if (groupByMode === 'place')  return `${r.engagementType}::place::${r.placeId || 'unknown'}`;
+      if (groupByMode === 'target') return `${r.engagementType}::target::${r.targetId || 'unknown'}`;
+      return r.engagementType;
+    };
     const labelOf = (k) => {
-      if (groupBy !== 'place') return k; // just the engagementType
-      const [etype, pid] = k.split('::');
-      return `${etype} — ${pid || 'unknown'}`;
+      const [etype, scope, id] = k.split('::');
+      if (scope === 'place')  return `${etype} — ${id}`;
+      if (scope === 'target') return `${etype} — ${id}`;
+      return etype;
     };
 
-    const explicitTypes = new Set(
-      engagementTypes ? engagementTypes.split(',').map(s => s.trim()).filter(Boolean) : []
-    );
-
-    // Seed with explicit types so they appear even if zero
+    const explicitTypes = new Set(csvToArr(engagementTypes));
     const seriesMap = new Map();
+
     const ensureSeries = (k) => {
       if (!seriesMap.has(k)) {
-        seriesMap.set(k, { name: labelOf(k), points: bucketKeys.map(ts => ({ t: ts, value: 0 })) });
+        seriesMap.set(k, {
+          name: labelOf(k),
+          points: bucketKeys.map(ts => ({ t: ts, value: 0 })),
+        });
       }
     };
 
-    if (groupBy === 'place') {
-      // With groupBy=place we only know exact keys from data; seed by type only for placeholder
-      for (const t of explicitTypes) ensureSeries(`${t}::__placeholder__`); // will be replaced by real place keys as they appear
-    } else {
-      // Default behavior: per engagementType
-      const typesSeen = new Set(rows.map(r => r.engagementType));
-      const allTypes = new Set([...typesSeen, ...explicitTypes]);
+    // Seed series for explicit engagement types when grouping by type
+    if (groupByMode === 'engagementType') {
+      const seen = new Set(rows.map(r => r.engagementType));
+      const allTypes = new Set([...seen, ...explicitTypes]);
       for (const t of allTypes) ensureSeries(t);
     }
 
-    // Materialize series keys from data
+    // Ensure series for all row keys
     for (const r of rows) ensureSeries(keyOf(r));
 
-    const indexByBucket = Object.fromEntries(bucketKeys.map((k,i)=>[k,i]));
+    // Fill series points
     for (const r of rows) {
       const ts = new Date(r.bucket).toISOString();
-      const k = keyOf(r);
-      const s = seriesMap.get(k);
-      const bi = indexByBucket[ts];
-      if (s && bi !== undefined) s.points[bi].value = r.count;
+      const sKey = keyOf(r);
+      const s = seriesMap.get(sKey);
+      const idx = indexByBucket[ts];
+      if (s && idx !== undefined) s.points[idx].value = r.count;
     }
 
     const series = [...seriesMap.values()];
-    const totals = Object.fromEntries(series.map(s => [s.name, s.points.reduce((sum,p)=>sum+p.value,0)]));
 
+    // Totals by engagement type (stable keys for frontend KPIs)
+    const totals = { view: 0, click: 0, join: 0 };
+    for (const r of rows) {
+      const k = String(r.engagementType || '').toLowerCase();
+      if (k === 'view' || k === 'click' || k === 'join') totals[k] += (r.count || 0);
+    }
+
+    // ----------------- Previous Period (optional) -----------------
+    let prevTotals, prevSeries, prevSeriesAligned, prevRange;
+    if (includeCompare) {
+      const spanMs   = end.getTime() - start.getTime();
+      const prevEnd  = new Date(start.getTime() - 1);
+      const prevStart= new Date(prevEnd.getTime() - spanMs);
+      prevRange = { start: prevStart, end: prevEnd };
+
+      const matchPrev = { ...matchNoTime, timestamp: { $gte: prevStart, $lte: prevEnd } };
+
+      const prevRows = await Engagement.aggregate(buildPipeline(matchPrev)).allowDiskUse(true);
+
+      const prevBucketKeys = generateUtcBuckets(prevStart, prevEnd, unit);
+      const prevIndexByBucket = Object.fromEntries(prevBucketKeys.map((k, i) => [k, i]));
+
+      const prevKeyOf = (r) => {
+        if (groupByMode === 'place')  return `${r.engagementType}::place::${r.placeId || 'unknown'}`;
+        if (groupByMode === 'target') return `${r.engagementType}::target::${r.targetId || 'unknown'}`;
+        return r.engagementType;
+      };
+      const prevLabelOf = (k) => {
+        const [etype, scope, id] = k.split('::');
+        if (scope === 'place')  return `${etype} — ${id}`;
+        if (scope === 'target') return `${etype} — ${id}`;
+        return etype;
+      };
+
+      const prevSeriesMap = new Map();
+
+      const ensurePrevSeries = (k) => {
+        if (!prevSeriesMap.has(k)) {
+          prevSeriesMap.set(k, {
+            name: prevLabelOf(k) + ' (prev)',
+            points: prevBucketKeys.map(ts => ({ t: ts, value: 0 })),
+          });
+        }
+      };
+
+      if (groupByMode === 'engagementType') {
+        const seenPrev = new Set(prevRows.map(r => r.engagementType));
+        const allTypesPrev = new Set([...seenPrev, ...explicitTypes]);
+        for (const t of allTypesPrev) ensurePrevSeries(t);
+      }
+
+      for (const r of prevRows) ensurePrevSeries(prevKeyOf(r));
+
+      for (const r of prevRows) {
+        const ts = new Date(r.bucket).toISOString();
+        const sKey = prevKeyOf(r);
+        const s = prevSeriesMap.get(sKey);
+        const idx = prevIndexByBucket[ts];
+        if (s && idx !== undefined) s.points[idx].value = r.count;
+      }
+
+      prevSeries = [...prevSeriesMap.values()];
+
+      // Aligned previous series for overlay on current x-axis
+      const offsetMs = start.getTime() - prevStart.getTime();
+      prevSeriesAligned = prevSeries.map(s => ({
+        name: s.name, // keep "(prev)" suffix; your client can style dashed/opacity
+        points: s.points.map(p => ({
+          t: new Date(new Date(p.t).getTime() + offsetMs).toISOString(),
+          value: p.value,
+        })),
+      }));
+
+      // Previous totals by engagement type
+      prevTotals = { view: 0, click: 0, join: 0 };
+      for (const r of prevRows) {
+        const key = String(r.engagementType || '').toLowerCase();
+        if (key === 'view' || key === 'click' || key === 'join') {
+          prevTotals[key] += (r.count || 0);
+        }
+      }
+    }
+
+    // ----------------- Response -----------------
     res.json({
       range: { start: start.toISOString(), end: end.toISOString(), interval: unit },
+      ...(includeCompare && prevRange ? {
+        prevRange: { start: prevRange.start.toISOString(), end: prevRange.end.toISOString() }
+      } : {}),
       mode: useDistinct ? 'uniqueUsers' : 'events',
-      groupedBy: groupBy || 'engagementType',
-      series,
-      totals
+      groupedBy: groupByMode,
+      series,               // current period series
+      ...(includeCompare ? { prevSeries, prevSeriesAligned } : {}),
+      totals,               // { view, click, join } for KPIs
+      ...(includeCompare ? { prevTotals } : {}),
     });
   } catch (err) {
     console.error('❌ Insights error:', err);

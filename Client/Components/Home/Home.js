@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
 import { View, StyleSheet } from "react-native";
-import WriteReviewModal from "../Reviews/CreatePost";
 import {
     selectUserAndFriendsReviews,
     fetchReviewsByUserAndFriends,
@@ -21,7 +20,7 @@ import usePaginatedFetch from '../../utils/usePaginatedFetch';
 import InviteModal from "../ActivityInvites/InviteModal";
 import { selectStories, fetchStories } from "../../Slices/StoriesSlice";
 import Stories from "../Stories/Stories";
-import { closeContentModal, closeInviteModal, contentModalStatus, inviteModalStatus } from "../../Slices/ModalSlice";
+import { closeInviteModal, inviteModalStatus } from "../../Slices/ModalSlice";
 import { selectNearbySuggestions } from "../../Slices/GooglePlacesSlice";
 import { fetchInvites } from "../../Slices/InvitesSlice";
 import { fetchConversations } from "../../Slices/DirectMessagingSlice";
@@ -36,11 +35,8 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
     const user = useSelector(selectUser);
     const suggestedFollows = useSelector(selectSuggestedUsers);
     const nearbySuggestions = useSelector(selectNearbySuggestions);
-    const contentModal = useSelector(contentModalStatus);
     const inviteModal = useSelector(inviteModalStatus);
     const stories = useSelector(selectStories);
-    const [business, setBusiness] = useState(null);
-    const [businessName, setBusinessName] = useState(null);
     const [updatedFeed, setUpdatedFeed] = useState([]);
     const hasFetchedOnce = useSelector(selectHasFetchedOnce);
     const suggestedPosts = useSelector(selectSuggestedPosts);
@@ -209,14 +205,6 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
                 }
             />
             {isAtEnd && <View style={styles.bottom} />}
-            <WriteReviewModal
-                visible={contentModal}
-                onClose={() => dispatch(closeContentModal())}
-                business={business}
-                setBusiness={setBusiness}
-                businessName={businessName}
-                setBusinessName={setBusinessName}
-            />
             <InviteModal
                 visible={inviteModal}
                 onClose={() => dispatch(closeInviteModal())}

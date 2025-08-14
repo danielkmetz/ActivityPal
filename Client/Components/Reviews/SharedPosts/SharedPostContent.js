@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 15,
     backgroundColor: '#f9f9f9',
-    width: '90%',
+    width: '95%',
     alignSelf: 'center',
   },
 });

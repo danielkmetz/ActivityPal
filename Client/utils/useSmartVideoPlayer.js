@@ -1,29 +1,35 @@
 import { useVideoPlayer } from "expo-video";
 
 export function useSmartVideoPlayer(file, shouldPlay = true) {
-  const uri = file?.uri || file?.url || file.mediaUrl || file.mediaUploadUrl || "";
+  // Safely resolve a URI from multiple possible shapes
+  const uri =
+    file?.uri ||
+    file?.url ||
+    file?.mediaUrl ||
+    file?.mediaUploadUrl ||
+    file?.signedUrl || // optional: cover more cases
+    "";
 
   const isVideo =
-    typeof file === "object" &&
-    (file?.type?.startsWith("video/") ||
-      file?.photoKey?.toLowerCase?.().endsWith(".mov") ||
-      file?.photoKey?.toLowerCase?.().endsWith(".mp4") ||
-      uri?.toLowerCase?.().includes(".mov") ||
-      uri?.toLowerCase?.().includes(".mp4"));
-  
-  // Always call the hook — pass null if not a video
-  return useVideoPlayer(uri || null, (player) => {
-    if (isVideo && uri) {
-      player.loop = true;
-      player.muted = true;
-      player.volume = 0;
-      player.audioMixingMode = 'mixWithOthers'; 
+    !!file &&
+    (
+      file?.type?.startsWith?.("video/") ||
+      file?.photoKey?.toLowerCase?.().endsWith?.(".mov") ||
+      file?.photoKey?.toLowerCase?.().endsWith?.(".mp4") ||
+      uri?.toLowerCase?.().includes?.(".mov") ||
+      uri?.toLowerCase?.().includes?.(".mp4")
+    );
 
-      if (shouldPlay) {
-        player.play();
-      } else {
-        player.pause(); // explicitly prevent autoplay
-      }
+  // Always call the hook; pass undefined when you have no source.
+  const player = useVideoPlayer(uri || undefined, (p) => {
+    if (isVideo && uri) {
+      p.loop = true;
+      p.muted = true;
+      p.volume = 0;
+      p.audioMixingMode = "mixWithOthers";
+      shouldPlay ? p.play() : p.pause();
     }
   });
+
+  return player;
 }

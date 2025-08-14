@@ -135,7 +135,7 @@ const InviteeModal = ({ visible, onClose, requests, recipients = [], isSender, i
 
     return (
         <Modal visible={visible} transparent>
-            <TouchableWithoutFeedback onPress={onClose}>
+            <TouchableWithoutFeedback onPress={animateOut}>
                 <View style={styles.overlay}>
                     <GestureDetector
                         gesture={gesture}

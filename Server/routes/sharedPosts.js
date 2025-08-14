@@ -9,6 +9,7 @@ const deleteS3Objects = require('../utils/deleteS3Objects.js');
 const { resolveUserProfilePics, enrichSharedPost } = require('../utils/userPosts');
 const { getModelByType } = require('../utils/getModelByType.js');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
+const { toInviteUserShape, toInviteRecipientsShape, lookupBusinessBits } = require('../utils/invites/enrichInviteBits.js');
 
 // ✅ CREATE a shared post
 router.post('/', verifyToken, async (req, res) => {
@@ -16,46 +17,46 @@ router.post('/', verifyToken, async (req, res) => {
     const { postType, originalPostId, caption } = req.body;
     const userId = req.user?.id;
 
-    console.log(postType);
-
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
     if (!['review', 'check-in', 'invite', 'promotion', 'event'].includes(postType)) {
       return res.status(400).json({ error: 'Invalid postType' });
     }
 
-    const Model = getModelByType(postType);
+    const Model = getModelByType(postType); // ⬅️ make sure 'invite' maps to ActivityInvite
     const original = await Model.findById(originalPostId);
     if (!original) {
-      console.warn('⚠️ Original post not found:', originalPostId);
       return res.status(404).json({ error: 'Original post not found' });
     }
 
-    let originalOwner;
-    let originalOwnerModel;
+    // ---------- Resolve original owner ----------
+    let originalOwner = null;
+    let originalOwnerModel = null;
 
-    if (['review', 'check-in', 'invite'].includes(postType)) {
-      originalOwner = original.userId;
+    if (postType === 'invite') {
+      // ✅ Your schema: owner is the user that created the invite
+      originalOwner = original.senderId; // ObjectId(User)
       originalOwnerModel = 'User';
-    } else if (['promotion', 'event'].includes(postType)) {
-      const placeId = original.placeId;
-      if (!placeId) {
-        console.warn('⚠️ Missing placeId on original promotion/event post');
-        return res.status(500).json({ error: 'Promotion or Event is missing placeId' });
+
+      if (!originalOwner) {
+        return res.status(500).json({ error: 'Invite is missing senderId' });
       }
+    } else if (postType === 'review' || postType === 'check-in') {
+      originalOwner = original?.userId || original?.user || null; // User
+      originalOwnerModel = 'User';
+      if (!originalOwner) return res.status(500).json({ error: `${postType} is missing user` });
+    } else if (postType === 'promotion' || postType === 'event') {
+      const placeId = original?.placeId || original?.business?.placeId || null;
+      if (!placeId) return res.status(500).json({ error: 'Promotion or Event is missing placeId' });
 
       const business = await Business.findOne({ placeId });
-      if (!business) {
-        console.warn('⚠️ Business not found for placeId:', placeId);
-        return res.status(404).json({ error: 'Business not found for this promotion/event' });
-      }
+      if (!business) return res.status(404).json({ error: 'Business not found for this promotion/event' });
 
-      originalOwner = business._id;
+      originalOwner = business._id;       // Business
       originalOwnerModel = 'Business';
     }
 
+    // ---------- Create shared post ----------
     const sharedPost = await SharedPost.create({
       user: userId,
       originalOwner,
@@ -65,29 +66,61 @@ router.post('/', verifyToken, async (req, res) => {
       caption,
     });
 
-    // Fetch user or business user info
+    // ---------- Enrich envelope (current user + owner pic) ----------
     const userDoc = await User.findById(userId).lean();
     const isBusinessUser = !!userDoc?.businessName;
 
-    const profilePicMap = await resolveUserProfilePics([
+    const profilePicTargets = [
       sharedPost.user.toString(),
       originalOwnerModel === 'User' ? sharedPost.originalOwner.toString() : null,
-    ].filter(Boolean));
+    ].filter(Boolean);
 
-    const enrichedOriginal = await enrichSharedPost(sharedPost, profilePicMap);
+    const profilePicMap = await resolveUserProfilePics(profilePicTargets);
 
-    res.status(201).json({
+    // ---------- Enrich "original" for invites using YOUR HELPERS ----------
+    let enrichedOriginal;
+    if (postType === 'invite') {
+      // Sender
+      const sender = await toInviteUserShape(original.senderId);
+      // Recipients
+      const recipients = await toInviteRecipientsShape(original.recipients || []);
+      // Business bits
+      const { businessName, businessLogoUrl } = await lookupBusinessBits(original.placeId);
+
+      enrichedOriginal = {
+        __typename: 'ActivityInvite',
+        _id: original._id.toString(),
+        type: 'invite',
+        sender,                 // { id, firstName, lastName, profilePicUrl }
+        recipients,             // [{ user: {…}, status }]
+        businessName,
+        businessLogoUrl,
+        placeId: original.placeId,
+        dateTime: original.dateTime,
+        note: original.note || '',
+        message: original.message || '',
+        isPublic: !!original.isPublic,
+        likes: original.likes || [],
+        comments: original.comments || [],
+        requests: original.requests || [],
+        createdAt: original.createdAt,
+        sortDate: original.createdAt,     // or keep a dedicated sortDate if you have one
+        status: original.status || 'pending',
+      };
+    } else {
+      // keep your existing enrichment for non-invites
+      const enriched = await enrichSharedPost(sharedPost, profilePicMap);
+      enrichedOriginal = enriched.original;
+    }
+
+    // ---------- Respond ----------
+    return res.status(201).json({
       ...sharedPost.toObject(),
       user: {
         id: userId,
         ...(isBusinessUser
-          ? {
-            businessName: userDoc.businessName,
-          }
-          : {
-            firstName: userDoc?.firstName || '',
-            lastName: userDoc?.lastName || '',
-          }),
+          ? { businessName: userDoc.businessName }
+          : { firstName: userDoc?.firstName || '', lastName: userDoc?.lastName || '' }),
         ...profilePicMap[userId.toString()],
       },
       originalOwner: {
@@ -97,12 +130,34 @@ router.post('/', verifyToken, async (req, res) => {
           ? profilePicMap[sharedPost.originalOwner.toString()]
           : {}),
       },
-      original: enrichedOriginal.original,
+      original: enrichedOriginal, // ✅ invite payload your UI expects
       type: 'sharedPost',
     });
   } catch (err) {
     console.error('❌ Error creating shared post:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Edit a shared post
+router.put('/:id', verifyToken, async (req, res) => {
+  try {
+    const { caption } = req.body;
+
+    const sharedPost = await SharedPost.findById(req.params.id);
+    if (!sharedPost) return res.status(404).json({ message: 'Shared post not found' });
+
+    if (sharedPost.user.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized to edit this post' });
+    }
+
+    sharedPost.caption = caption || '';
+    await sharedPost.save();
+
+    res.json(sharedPost);
+  } catch (err) {
+    console.error('[EditSharedPost] Error:', err);
+    res.status(500).json({ message: 'Server error editing shared post' });
   }
 });
 

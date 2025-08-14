@@ -232,7 +232,6 @@ router.post('/from-post', verifyToken, async (req, res) => {
   try {
     const { postType, originalPostId, caption = '', visibility = 'public', captions = [] } = req.body;
     const userId = req.user?.id;
-
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
     if (!['review', 'check-in', 'invite', 'promotion', 'event'].includes(postType)) {
@@ -242,19 +241,31 @@ router.post('/from-post', verifyToken, async (req, res) => {
     const { original, originalOwner, originalOwnerModel } =
       await resolveSharedPostData(postType, originalPostId);
 
-    const user = await User.findById(userId);
+    if (!original) {
+      return res.status(404).json({ error: 'Original post not found' });
+    }
+
+    // Fallback owner for invites
+    let ownerId = originalOwner;
+    let ownerModel = originalOwnerModel;
+    if (!ownerId && postType === 'invite') {
+      ownerId = original?.sender?._id || original?.sender?.id || null;
+      if (ownerId) ownerModel = 'User';
+    }
+
+    const user = await User.findById(userId);           // <-- pass full user below
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     const story = {
-      mediaType: 'photo', // Placeholder
+      mediaType: 'photo',
       caption,
       visibility,
       originalPostId,
       postType,
-      originalOwner,
-      originalOwnerModel,
+      originalOwner: ownerId || null,
+      originalOwnerModel: ownerModel || null,
       expiresAt,
       captions,
       viewedBy: [],
@@ -263,28 +274,39 @@ router.post('/from-post', verifyToken, async (req, res) => {
     user.stories.push(story);
     await user.save();
 
-    const createdStory = user.stories[user.stories.length - 1].toObject();
+    const createdStory = user.stories[user.stories.length - 1];
+    const createdStoryObj = createdStory.toObject?.() || createdStory;
 
-    const profilePicMap = await resolveUserProfilePics([
-      userId,
-      originalOwnerModel === 'User' ? originalOwner.toString() : null,
-    ].filter(Boolean));
+    const idsToResolve = [userId];
+    if (ownerModel === 'User' && ownerId) idsToResolve.push(ownerId.toString());
+    const profilePicMap = await resolveUserProfilePics(idsToResolve);
 
-    const enrichedOriginal = await enrichSharedPost({
-      user: userId,
-      originalOwner,
-      originalOwnerModel,
-      postType,
-      originalPostId,
-      original,
-    }, profilePicMap);
+    // ⚠️ Pass FULL user (not just id), and guard the return
+    const enrichedOriginal = await enrichSharedPost(
+      {
+        user,                             // full user doc
+        originalOwner: ownerId,
+        originalOwnerModel: ownerModel,
+        postType,
+        originalPostId,
+        original,
+      },
+      profilePicMap
+    );
 
     const profilePicUrl = user.profilePic?.photoKey
       ? await getPresignedUrl(user.profilePic.photoKey)
       : null;
 
-    res.status(201).json({
-      ...createdStory.toObject?.() || createdStory,
+    // Safe unwraps with fallbacks
+    const safeOriginal =
+      enrichedOriginal?.original?.toObject?.() ||
+      enrichedOriginal?.original ||
+      original?.toObject?.() ||
+      original;
+
+    return res.status(201).json({
+      ...createdStoryObj,
       user: {
         id: user._id,
         firstName: user.firstName,
@@ -293,11 +315,11 @@ router.post('/from-post', verifyToken, async (req, res) => {
         ...profilePicMap[userId],
       },
       originalOwner: {
-        id: originalOwner,
-        model: originalOwnerModel,
-        ...(originalOwnerModel === 'User' ? profilePicMap[originalOwner.toString()] : {}),
+        id: ownerId ?? null,
+        model: ownerModel ?? null,
+        ...(ownerModel === 'User' && ownerId ? profilePicMap[ownerId.toString()] : {}),
       },
-      original: enrichedOriginal.original?.toObject?.() || enrichedOriginal.original,
+      original: safeOriginal,                  // <-- guarded
       type: 'sharedStory',
       isViewed: false,
     });
