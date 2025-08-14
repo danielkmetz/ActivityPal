@@ -15,6 +15,7 @@ export default React.memo(function ChartsSection({
   pieData = [],                // [{ name, count, color, ... }]
   range,                       // { start, end, interval }
   screenWidth,
+  SERIES_COLORS,
   styles,
 }) {
   return (
@@ -27,6 +28,11 @@ export default React.memo(function ChartsSection({
           activeMap={activeMap}
           onToggle={onToggleSeries}
           getLabel={getSeriesLabel}
+          getColor={(s) => {
+            const key = (s.name || '').toLowerCase();
+            return SERIES_COLORS[key] || SERIES_COLORS.default;
+          }}
+          variant="swatch"  // or "fill"
         />
       )}
 

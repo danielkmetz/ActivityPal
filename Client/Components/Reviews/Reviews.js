@@ -35,6 +35,7 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
   const [shareOptionsVisible, setShareOptionsVisible] = useState(false);
   const [shareToFeedVisible, setShareToFeedVisible] = useState(false);
   const [selectedPostForShare, setSelectedPostForShare] = useState(null);
+  const [editingSharedPost, setEditingSharedPost] = useState(false);
   const lastTapRef = useRef({});
   const { registerAnimation, getAnimation } = useLikeAnimations();
   const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
@@ -139,12 +140,18 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
       return;
     }
 
-    if (post.type === "review" || post.type === "check-in") {
+    const lowerType = post.type.toLowerCase();
+
+    if (lowerType === "review" || lowerType === "check-in") {
       navigation.navigate("CreatePost", {
         postType: post.type,
         isEditing: true,
         initialPost: post,
       });
+    } else if (lowerType === "sharedpost" || lowerType === "shared") {
+      setEditingSharedPost(true);
+      setSelectedPostForShare(post);
+      setShareToFeedVisible(true);
     } else {
       console.warn("Unsupported post type for editing:", post.type);
     }
@@ -162,7 +169,7 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
 
   const handleShareToStory = () => {
     setShareOptionsVisible(false);
-    
+
     navigation.navigate('StoryPreview', {
       post: selectedPostForShare,
     })
@@ -304,8 +311,10 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
         visible={shareToFeedVisible}
         onClose={closeShareToFeed}
         post={selectedPostForShare}
+        isEditing={editingSharedPost}
+        setIsEditing={setEditingSharedPost}
       />
-      <ShareOptionsModal 
+      <ShareOptionsModal
         visible={shareOptionsVisible}
         onClose={closeShareOptions}
         onShareToFeed={openShareToFeedModal}
