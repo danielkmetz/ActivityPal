@@ -348,7 +348,7 @@ export default function CreatePost() {
                 )}
                 {postType !== "invite" && (
                   <>
-                    <TaggedFriendsSection taggedUsers={taggedUsers} onOpenTagModal={() => setTagFriendsModalVisible(true)}/>
+                    <TaggedFriendsSection taggedUsers={taggedUsers} onOpenTagModal={() => setTagFriendsModalVisible(true)} />
                     <SelectedMediaSection
                       selectedPhotos={selectedPhotos}
                       onOpenCamera={() => navigation.navigate('CameraScreen')}
@@ -356,7 +356,7 @@ export default function CreatePost() {
                       onOpenTagModal={() => setTagFriendsModalVisible(true)}
                       onOpenPhotoDetails={handleOpenPhotoDetails}
                     />
-                    <SubmitButton label={!isEditing ? 'Post' : 'Save changes'} onPress={handleSubmit}/>
+                    <SubmitButton label={!isEditing ? 'Post' : 'Save changes'} onPress={handleSubmit} />
                   </>
                 )}
               </>
@@ -364,7 +364,11 @@ export default function CreatePost() {
             ListHeaderComponent={
               <>
                 {!isEditing && (
-                  <PostTypeToggle postType={postType} setPostType={setPostType} />
+                  <PostTypeToggle
+                    postType={postType}
+                    setPostType={setPostType}
+                    onLivePress={() => navigation.navigate('GoLive')}
+                  />
                 )}
                 {postType !== "invite" && (
                   <View style={{ zIndex: 999, position: 'relative' }}>

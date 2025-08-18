@@ -1,5 +1,6 @@
 const { getPresignedUrl } = require('../cachePresignedUrl');
 const User = require('../../models/User');
+const Business = require('../../models/Business');
 
 async function enrichOriginalOwner(originalOwner, originalOwnerModel) {
   const originalOwnerId = typeof originalOwner === 'object' ? originalOwner?._id : originalOwner;

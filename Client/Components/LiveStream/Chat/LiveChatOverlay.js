@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView
 import io from 'socket.io-client';
 import { useSelector } from 'react-redux';
 import { selectUser } from '../../Slices/UserSlice';
+import { getUserToken } from '../../functions';
 
 const SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_URL;
 
@@ -14,102 +15,97 @@ export default function LiveChatOverlay({ liveId }) {
   const listRef = useRef(null);
 
   useEffect(() => {
-    const socket = io(SOCKET_URL, {
-      transports: ['websocket'],
-      forceNew: true,
-    });
-    socketRef.current = socket;
+    let mounted = true;
+    (async () => {
+      const token = await getUserToken();
+      const socket = io(SOCKET_URL, {
+        transports: ['websocket'],
+        auth: { token },
+        query: { liveId },
+      });
+      socketRef.current = socket;
 
-    socket.on('connect', () => {
-      socket.emit('live:join', { liveId, userId: user?.id, username: user?.username });
-    });
+      socket.on('connect', () => {
+        socket.emit('live:join', { liveId, userId: user?.id, username: user?.username });
+      });
 
-    socket.on('chat:message', (msg) => {
-      setMessages((prev) => [...prev, msg]);
-      // auto-scroll
-      requestAnimationFrame(() => listRef.current?.scrollToEnd?.({ animated: true }));
-    });
+      socket.on('chat:message', (msg) => {
+        if (!mounted) return;
+        setMessages((prev) => [...prev, msg]);
+        requestAnimationFrame(() => listRef.current?.scrollToEnd?.({ animated: true }));
+      });
+
+      socket.on('live:system', (msg) => {
+        if (!mounted) return;
+        setMessages((prev) => [...prev, { ...msg, system: true }]);
+      });
+
+      socket.on('disconnect', () => {
+        if (!mounted) return;
+        setMessages((prev) => [...prev, { text: 'Disconnected. Reconnecting…', system: true, ts: Date.now() }]);
+      });
+    })();
 
     return () => {
-      socket.emit('live:leave', { liveId });
-      socket.disconnect();
+      const s = socketRef.current;
+      s?.emit?.('live:leave', { liveId });
+      s?.disconnect?.();
+      mounted = false;
     };
   }, [liveId, user?.id, user?.username]);
 
   const send = () => {
     const text = draft.trim();
     if (!text) return;
-    const msg = {
+    socketRef.current?.emit('chat:send', {
       liveId,
       text,
       userId: user?.id,
       username: user?.username || 'Anon',
       ts: Date.now(),
-    };
-    socketRef.current?.emit('chat:send', msg);
+    });
     setDraft('');
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.select({ ios: 'padding', android: undefined })}
-      style={styles.wrapper}
-    >
-      <View style={styles.messages}>
+    <KeyboardAvoidingView behavior={Platform.select({ ios: 'padding', android: undefined })} style={S.wrapper}>
+      <View style={S.messages}>
         <FlatList
           ref={listRef}
           data={messages}
           keyExtractor={(m, i) => String(m.ts || i)}
           renderItem={({ item }) => (
-            <Text style={styles.msg}>
-              <Text style={styles.username}>{item.username}: </Text>
-              <Text style={styles.text}>{item.text}</Text>
+            <Text style={[S.msg, item.system && { opacity: 0.6 }]}>
+              {!item.system && <Text style={S.username}>{item.username}: </Text>}
+              <Text style={S.text}>{item.text}</Text>
             </Text>
           )}
         />
       </View>
-
-      <View style={styles.inputRow}>
+      <View style={S.inputRow}>
         <TextInput
-          style={styles.input}
+          style={S.input}
           value={draft}
           onChangeText={setDraft}
           placeholder="Say something…"
           placeholderTextColor="#bbb"
           onSubmitEditing={send}
         />
-        <TouchableOpacity onPress={send} style={styles.sendBtn}>
-          <Text style={styles.sendTxt}>Send</Text>
-        </TouchableOpacity>
+        <TouchableOpacity onPress={send} style={S.sendBtn}><Text style={S.sendTxt}>Send</Text></TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
-const styles = StyleSheet.create({
-  wrapper: { position: 'absolute', left: 0, right: 0, bottom: 0 },
-  messages: {
-    maxHeight: '45%',
-    paddingHorizontal: 10,
-    paddingBottom: 8,
-  },
-  msg: { color: '#fff', marginVertical: 2 },
-  username: { color: '#facc15', fontWeight: '700' },
-  text: { color: '#fff' },
-  inputRow: {
-    flexDirection: 'row',
-    padding: 10,
-    gap: 8,
-    alignItems: 'center',
-  },
-  input: {
-    flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    color: '#fff',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 18,
-  },
-  sendBtn: { paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#2563eb', borderRadius: 18 },
-  sendTxt: { color: '#fff', fontWeight: '700' },
+const S = StyleSheet.create({
+  wrapper:{ position:'absolute', left:0, right:0, bottom:0 },
+  messages:{ maxHeight:'45%', paddingHorizontal:10, paddingBottom:8 },
+  msg:{ color:'#fff', marginVertical:2 },
+  username:{ color:'#facc15', fontWeight:'700' },
+  text:{ color:'#fff' },
+  inputRow:{ flexDirection:'row', padding:10, gap:8, alignItems:'center' },
+  input:{ flex:1, backgroundColor:'rgba(255,255,255,0.1)', color:'#fff',
+          paddingHorizontal:12, paddingVertical:10, borderRadius:18 },
+  sendBtn:{ paddingHorizontal:12, paddingVertical:10, backgroundColor:'#2563eb', borderRadius:18 },
+  sendTxt:{ color:'#fff', fontWeight:'700' },
 });

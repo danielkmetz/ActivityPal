@@ -197,6 +197,8 @@ function MainApp() {
         currentRoute !== "CommentScreen" &&
         currentRoute !== "FullScreenPhoto" &&
         currentRoute !== "EventDetails" &&
+        currentRoute !== "GoLive" &&
+        currentRoute !== "LiveSummary" &&
         (
           <Animated.View style={[styles.header, { transform: [{ translateY: headerTranslateY }] }]}>
             <Header

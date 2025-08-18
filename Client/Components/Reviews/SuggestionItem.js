@@ -7,7 +7,7 @@ import {
     Dimensions,
     TouchableOpacity,
 } from "react-native";
-import { Avatar } from "@rneui/themed";
+import { Avatar } from "react-native-paper";
 import PhotoItem from "./Photos/PhotoItem";
 import InviteModal from "../ActivityInvites/InviteModal";
 import { selectInvites } from "../../Slices/InvitesSlice";
@@ -175,7 +175,7 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost }) {
                         reviewItem={suggestion}
                     />
                     <View style={styles.overlayTopText}>
-                        <Avatar
+                        <Avatar.Image
                             size={45}
                             rounded
                             source={resolvedLogoUrl ? { uri: resolvedLogoUrl } : profilePicPlaceholder}
@@ -203,7 +203,7 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost }) {
                         <PhotoItem photo={suggestion} isInteractive={false} />
                     </TouchableOpacity>
                     <View style={styles.overlayTopText}>
-                        <Avatar
+                        <Avatar.Image
                             size={45}
                             rounded
                             source={resolvedLogoUrl ? { uri: resolvedLogoUrl } : profilePicPlaceholder}

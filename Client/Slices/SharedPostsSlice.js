@@ -2,19 +2,11 @@ import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { getUserToken } from '../functions';
 import { pushSharedPostToProfileReviews, pushSharedPostToUserAndFriends } from './ReviewsSlice';
 import { updateSharedPostInReviews } from './ReviewsSlice';
+import { getAuthHeaders } from '../utils/Authorization/getAuthHeaders';
 import axios from 'axios';
 
 // 🔐 Base config
 const API_BASE = `${process.env.EXPO_PUBLIC_SERVER_URL}/sharedPosts`;
-
-const getAuthHeaders = async () => {
-  const token = await getUserToken();
-  return {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  };
-};
 
 // Create a shared post
 export const createSharedPost = createAsyncThunk(

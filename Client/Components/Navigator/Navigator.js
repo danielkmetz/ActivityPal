@@ -32,21 +32,23 @@ import FilterSortScreen from '../Activities/FilterSortScreen';
 import EventDetailsScreen from '../Activities/EventPromoDetails/EventDetailsScreen';
 import { selectProfilePic } from '../../Slices/PhotosSlice';
 import SettingsScreen from '../Profile/Settings/SettingsScreen';
-import GoLiveSetup from '../LiveStream/GoLiveSetup';
+import LiveSummary from '../LiveStream/Screens/LiveSummary';
+import LivePlayerScreen from '../LiveStream/LivePlayer/LivePlayerScreen';
+import GoLive from '../LiveStream/Screens/GoLive';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 const HomeStack = createStackNavigator();
 
-function HomeStackNavigator({ scrollY, onScroll, isAtEnd}) {
-  return (
-    <HomeStack.Navigator screenOptions={{ headerShown: false }}>
-      <HomeStack.Screen name="HomeMain">
-        {() => <Home scrollY={scrollY} onScroll={onScroll} isAtEnd={isAtEnd} />}
-      </HomeStack.Screen>
-      <HomeStack.Screen name="OtherUserProfile" component={OtherUserProfile} />
-    </HomeStack.Navigator>
-  );
+function HomeStackNavigator({ scrollY, onScroll, isAtEnd }) {
+    return (
+        <HomeStack.Navigator screenOptions={{ headerShown: false }}>
+            <HomeStack.Screen name="HomeMain">
+                {() => <Home scrollY={scrollY} onScroll={onScroll} isAtEnd={isAtEnd} />}
+            </HomeStack.Screen>
+            <HomeStack.Screen name="OtherUserProfile" component={OtherUserProfile} />
+        </HomeStack.Navigator>
+    );
 };
 
 function TabNavigator({
@@ -62,7 +64,7 @@ function TabNavigator({
     const isBusiness = useSelector(selectIsBusiness);
     const profilePic = useSelector(selectProfilePic);
     const profilePicUrl = profilePic?.url;
-    
+
     return (
         <Tab.Navigator
             initialRouteName={user ? (isBusiness ? "Reviews" : "Home") : "Activities"}
@@ -262,7 +264,9 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
             <Stack.Screen name="FilterSort" component={FilterSortScreen} />
             <Stack.Screen name="EventDetails" component={EventDetailsScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
-            <Stack.Screen name="GoLiveSetup" component={GoLiveSetup} />
+            <Stack.Screen name="LiveSummary" component={LiveSummary} options={{ title: 'Live summary' }} />
+            <Stack.Screen name="LivePlayer" component={LivePlayerScreen} />
+            <Stack.Screen name="GoLive" component={GoLive} />
         </Stack.Navigator>
     )
 }

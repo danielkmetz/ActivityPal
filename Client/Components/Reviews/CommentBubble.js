@@ -25,7 +25,7 @@ const CommentBubble = ({
   setSelectedEditMedia = () => { }, 
 }) => {
   const hasLiked = hasLikedCheck(likes, userId);
-  const mediaUrl = media?.url;
+  const mediaUrl = media?.url || media?.mediaUrl;
 
   const handleSelectMedia = async () => {
     const files = await selectMediaFromGallery();

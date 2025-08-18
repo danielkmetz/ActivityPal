@@ -3,41 +3,56 @@ import * as MediaLibrary from "expo-media-library";
 
 export const selectMediaFromGallery = async () => {
   try {
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (permissionResult.status !== "granted") {
+    // Request Image Picker's media library permission
+    const pickerPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (pickerPerm.status !== "granted") {
       alert("Permission to access media library is required!");
       return [];
     }
 
+    // (Optional but recommended) Ensure MediaLibrary permission before getAssetInfoAsync
+    let mediaPerm = await MediaLibrary.getPermissionsAsync();
+    if (mediaPerm.status !== "granted") {
+      mediaPerm = await MediaLibrary.requestPermissionsAsync();
+      if (mediaPerm.status !== "granted") {
+        // We'll still return basic assets without metadata
+        console.warn("MediaLibrary permission not granted; skipping metadata enrichment.");
+      }
+    }
+
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images', 'videos'], // Includes images & videos
+      mediaTypes: ["images", "videos"],
       allowsMultipleSelection: true,
       quality: 1,
+      // selectionLimit: 10, // (iOS 14+ only, if you want to cap selections)
     });
 
     if (result.canceled) return [];
 
     const enrichedAssets = await Promise.all(
-      result.assets.map(async (asset) => {
+      (result.assets || []).map(async (asset) => {
         const uri = asset.uri;
-        const fileName = uri.split("/").pop();
-        const extension = fileName?.split(".").pop()?.toLowerCase();
+        const fileName = uri?.split("/").pop() || "upload";
+        const ext = (fileName.split(".").pop() || "").toLowerCase();
 
-        let type = "image/jpeg";
-        if (extension === "mp4") type = "video/mp4";
-        else if (extension === "mov") type = "video/quicktime";
-        else if (extension === "jpg" || extension === "jpeg") type = "image/jpeg";
-        else if (extension === "png") type = "image/png";
+        let type = asset.type === "video" ? "video/mp4" : "image/jpeg";
+        if (ext === "mov") type = "video/quicktime";
+        if (ext === "png") type = "image/png";
+        if (ext === "jpg" || ext === "jpeg") type = "image/jpeg";
 
         let sizeMB = null;
         let durationSec = null;
 
-        try {
-          const assetInfo = await MediaLibrary.getAssetInfoAsync(asset.assetId || asset.id || "");
-          sizeMB = assetInfo.size ? assetInfo.size / (1024 * 1024) : null;
-          durationSec = assetInfo.duration || null;
-        } catch (error) {
-          console.warn("Failed to get media metadata:", error);
+        // Only call getAssetInfoAsync when we have a valid ID AND permission
+        const id = asset.assetId || asset.id;
+        if (id && mediaPerm.status === "granted") {
+          try {
+            const info = await MediaLibrary.getAssetInfoAsync(id);
+            sizeMB = info.size ? info.size / (1024 * 1024) : null;
+            durationSec = info.duration ?? null;
+          } catch (e) {
+            console.warn("Failed to get media metadata:", e);
+          }
         }
 
         return {
@@ -46,8 +61,8 @@ export const selectMediaFromGallery = async () => {
           type,
           sizeMB,
           durationSec,
-          description: "",     // For user to annotate later
-          taggedUsers: [],     // For tagging friends later
+          description: "",
+          taggedUsers: [],
         };
       })
     );

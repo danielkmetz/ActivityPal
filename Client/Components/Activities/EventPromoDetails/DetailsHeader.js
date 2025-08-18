@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, Animated } from 'react-native';
+import { Avatar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import profilePicPlaceholder from '../../../assets/pics/profile-pic-placeholder.jpg';
 import PhotoItem from '../../Reviews/Photos/PhotoItem';
@@ -7,7 +8,6 @@ import PhotoPaginationDots from '../../Reviews/Photos/PhotoPaginationDots';
 import { useNavigation } from '@react-navigation/native';
 import { useDispatch, useSelector } from 'react-redux';
 import { selectLogo, fetchLogo } from '../../../Slices/PhotosSlice';
-import { Avatar } from '@rneui/base';
 import { getTimeLabel } from '../../../utils/formatEventPromoTime';
 import PostActions from '../../Reviews/PostActions';
 import { resetSelectedEvent } from '../../../Slices/EventsSlice';
@@ -74,7 +74,7 @@ const DetailsHeader = ({ activity, getTimeSincePosted, handleLikeWithAnimation, 
                             <MaterialCommunityIcons name="chevron-left" size={26} color="#000" />
                         </TouchableOpacity>
                     </View>
-                    <Avatar
+                    <Avatar.Image
                         size={52}
                         rounded
                         source={cachedLogo ? { uri: cachedLogo } : profilePicPlaceholder}
