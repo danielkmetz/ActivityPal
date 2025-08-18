@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
-import { Avatar } from '@rneui/themed';
+import { Avatar } from 'react-native-paper';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import profilePicPlaceholder from "../../../assets/pics/profile-pic-placeholder.jpg";
 
@@ -22,7 +22,7 @@ const PostUserInfo = ({
           <MaterialCommunityIcons name="chevron-left" size={26} color="#000" />
         </TouchableOpacity>
       </View>
-      <Avatar
+      <Avatar.Image
         size={48}
         rounded
         source={postOwnerPic ? { uri: postOwnerPic } : profilePicPlaceholder}

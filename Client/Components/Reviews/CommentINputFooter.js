@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   Image,
-  ScrollView,
 } from 'react-native';
 import VideoThumbnail from './VideoThumbnail';
 import { isVideo } from '../../utils/isVideo';
@@ -32,7 +31,6 @@ const CommentInputFooter = ({
       <TouchableOpacity onPress={handleSelectMedia} style={styles.mediaIcon}>
         <Text style={styles.mediaIconText}>📷</Text>
       </TouchableOpacity>
-
       {/* Input wrapper with media and TextInput */}
       <View style={styles.fakeInputBox}>
         {selectedMedia?.length > 0 && (
@@ -44,7 +42,6 @@ const CommentInputFooter = ({
             )}
           </View>
         )}
-
         <TextInput
           style={styles.commentInput}
           placeholder="Write a comment..."
@@ -57,7 +54,6 @@ const CommentInputFooter = ({
           // }}
         />
       </View>
-
       {/* Post Button */}
       <TouchableOpacity style={styles.commentButton} onPress={handleAddComment}>
         <Text style={styles.commentButtonText}>Post</Text>
