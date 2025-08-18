@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, TouchableWithoutFeedback, StyleSheet } from 'react-native';
-import { Avatar } from '@rneui/themed';
+import { Avatar } from 'react-native-paper';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import { useNavigation } from '@react-navigation/native';
 import { useSelector } from 'react-redux';
@@ -22,7 +22,7 @@ const StoryAvatar = ({ userId, profilePicUrl }) => {
     return (
         <TouchableWithoutFeedback onPress={handleViewUserStory}>
             <View style={[styles.avatarContainer, hasUserStories && styles.storyBorder]}>
-                <Avatar
+                <Avatar.Image
                     size={45}
                     rounded
                     source={profilePicUrl ? { uri: profilePicUrl } : profilePicPlaceholder}

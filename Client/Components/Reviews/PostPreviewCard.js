@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
 import { View, Text, Image, StyleSheet, Dimensions } from 'react-native';
-import { Avatar } from '@rneui/base';
+import { Avatar } from 'react-native-paper';
 import { FontAwesome } from '@expo/vector-icons';
 import dayjs from 'dayjs';
 import { isVideo } from '../../utils/isVideo';
@@ -92,7 +92,7 @@ export default function PostPreviewCard({ post }) {
     return (
       <View style={styles.card}>
         <View style={styles.header}>
-          <Avatar
+          <Avatar.Image
             rounded
             size={40}
             source={
@@ -144,7 +144,7 @@ export default function PostPreviewCard({ post }) {
   return (
     <View style={styles.card}>
       <View style={styles.header}>
-        <Avatar
+        <Avatar.Image
           rounded
           size={40}
           source={

@@ -9,7 +9,7 @@ import {
 import Animated from 'react-native-reanimated';
 import useSlideDownDismiss from '../../utils/useSlideDown';
 import { GestureDetector } from 'react-native-gesture-handler';
-import { Avatar } from '@rneui/themed';
+import { Avatar } from 'react-native-paper';
 import Notch from '../Notch/Notch';
 import { getTimeLabel } from '../../utils/formatEventPromoTime';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
@@ -31,8 +31,6 @@ const SuggestionDetailsModal = ({ visible, onClose, suggestion }) => {
         }
     }, [visible]);
 
-    console.log(suggestion.startTime)
-
     return (
         <Modal
             transparent={true}
@@ -46,7 +44,7 @@ const SuggestionDetailsModal = ({ visible, onClose, suggestion }) => {
                             <Animated.View style={[styles.modalContent, animatedStyle]}>
                                 <Notch />
                                 <View style={styles.header}>
-                                    <Avatar
+                                    <Avatar.Image
                                         size={45}
                                         rounded
                                         source={{ uri: logoUrl }}
