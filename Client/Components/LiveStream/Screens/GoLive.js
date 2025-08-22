@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { View, Text, Pressable, StyleSheet, Alert, BackHandler, AppState } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Alert, BackHandler, AppState, ActivityIndicator, InteractionManager } from 'react-native';
 import { ApiVideoLiveStreamView } from '@api.video/react-native-livestream';
 import { useDispatch, useSelector } from 'react-redux';
 import {
@@ -8,14 +8,55 @@ import {
   selectCurrentLive,
   clearCurrentLive,
 } from '../../../Slices/LiveStreamSlice';
+import inCallManager from 'react-native-incall-manager';
 import { useFocusEffect } from '@react-navigation/native';
+import { deactivateExpoAudio, tick, resetTick } from '../../../utils/LiveStream/deactivateAudio';
+
+const settleFrames = async (ms = 120) => {
+  await new Promise(r => requestAnimationFrame(r));
+  await InteractionManager.runAfterInteractions(() => Promise.resolve());
+  await new Promise(r => setTimeout(r, ms));
+};
+
+const stopPublisherSafe = async (liveRef, L) => {
+  if (!liveRef.current?.stopStreaming) return;
+  let done = false;
+  const timeout = new Promise(r => setTimeout(() => { if (!done) r('timeout'); }, 1500));
+  const stop = (async () => {
+    try {
+      await liveRef.current.stopStreaming();
+      done = true;
+      return 'ok';
+    } catch (e) {
+      L?.('stopStreaming error', e?.message || e);
+      done = true;
+      return 'err';
+    }
+  })();
+  await Promise.race([stop, timeout]);
+};
+
+const stopPreviewSafe = async (liveRef, L) => {
+  try {
+    if (liveRef.current?.stopPreview) {
+      await liveRef.current.stopPreview();
+      L?.('stopPreview ok');
+    } else {
+      L?.('stopPreview not available');
+    }
+  } catch (e) {
+    L?.('stopPreview error', e?.message || e);
+  }
+};
 
 export default function GoLive({ navigation }) {
+  const InCallManager = inCallManager;
   // ---------- Logging ----------
   const instanceIdRef = useRef(Math.random().toString(36).slice(2, 8));
   const ts = () => new Date().toISOString().split('T')[1].replace('Z', '');
   const L = (...args) => console.log('[GoLive ' + instanceIdRef.current + '] ' + ts(), ...args);
 
+  const t0Ref = useRef(0);
   const dispatch = useDispatch();
   const live = useSelector(selectCurrentLive); // { liveId, rtmpUrl, streamKey, playbackUrl } | null
 
@@ -27,6 +68,14 @@ export default function GoLive({ navigation }) {
   const [front, setFront] = useState(true);
   const [arming, setArming] = useState(false);
   const [countdown, setCountdown] = useState(0);
+   const [isEnding, setIsEnding] = useState(false);
+
+  // Status machine (authoritative for UI)
+  // idle -> arming -> connecting -> live -> reconnecting (if drop) -> live
+  // Any failure: error (allows retry)
+  const [status, setStatus] = useState('idle');
+
+  // “publishing” means RTMP is confirmed up (used for timer)
   const [publishing, setPublishing] = useState(false);
   const [elapsed, setElapsed] = useState(0);
 
@@ -41,6 +90,21 @@ export default function GoLive({ navigation }) {
 
   // Durable live id that survives Redux clears
   const liveIdRef = useRef(null);
+  const audioDisabledRef = useRef(false);
+
+  const ensureAudioOff = useCallback(async (source) => {
+    if (audioDisabledRef.current) {
+      console.log('[AUDIO] already disabled via', audioDisabledRef.current);
+      return;
+    }
+    try {
+      await deactivateExpoAudio();
+      audioDisabledRef.current = source || 'unknown';
+      console.log('[AUDIO] disabled via', audioDisabledRef.current);
+    } catch (e) {
+      console.log('[AUDIO] deactivate error', e?.message);
+    }
+  }, []);
 
   useEffect(() => {
     L('MOUNT');
@@ -79,11 +143,10 @@ export default function GoLive({ navigation }) {
   }, []);
 
   const navAfterTeardown = useCallback(async (navFn, label = 'nav') => {
-    if (navPendingRef.current) return;
-    navPendingRef.current = true;
-    await new Promise(r => requestAnimationFrame(() => setTimeout(r, 50)));
-    L('NAV NOW - preview destroyed ->', label);
-    if (!unmountedRef.current) navFn();
+    tick('navAfterTeardown -> waiting settleFrames(60ms)');
+    await settleFrames(60);
+    console.log('[NAV] performing', label);
+    navFn?.();
   }, []);
 
   const resolveLiveId = useCallback(() => {
@@ -111,21 +174,67 @@ export default function GoLive({ navigation }) {
   }, []);
 
   // ---------- Start/Stop streaming ----------
-  const safeStart = useCallback((key, url) => withOpLock('startStreaming', async () => {
-    if (endedRef.current || !allowResumeRef.current || !isFocusedRef.current || !showCam) { L('safeStart blocked'); return; }
-    if (!key || !url) { L('safeStart missing creds'); return; }
-    L('CALL startStreaming()', { keyTail: key && key.slice(-4), hasUrl: !!url });
-    await (liveRef.current && liveRef.current.startStreaming && liveRef.current.startStreaming(key, url));
-    setPublishing(true);
-    L('AFTER startStreaming -> publishing=true');
-  }), [withOpLock, showCam]);
+  const safeStart = useCallback(
+    (key, url) =>
+      withOpLock('startStreaming', async () => {
+        console.log('[RTMP] start called; ref has start?', !!liveRef.current?.startStreaming);
+
+        // Block conditions
+        if (endedRef.current || !allowResumeRef.current || !isFocusedRef.current || !showCam) {
+          L('safeStart blocked', {
+            ended: endedRef.current,
+            allow: allowResumeRef.current,
+            focused: isFocusedRef.current,
+            showCam,
+          });
+          return;
+        }
+
+        // Missing creds
+        if (!key || !url) {
+          L('safeStart missing creds', {
+            keyPresent: !!key,
+            urlPresent: !!url,
+            keyLen: key ? key.length : 0,
+          });
+          return;
+        }
+
+        // Key + URL meta
+        L('CALL startStreaming()', {
+          keyLen: key.length,
+          keyLast4: key.slice(-4),
+          urlLen: url.length,
+        });
+
+        const t0 = Date.now();
+        try {
+          const result = await liveRef.current?.startStreaming?.(key, url);
+          const dt = Date.now() - t0;
+          L('startStreaming returned OK', { ms: dt, result });
+        } catch (err) {
+          const dt = Date.now() - t0;
+          L('startStreaming threw error', { ms: dt, err: err?.message || err });
+        }
+
+        // Status transition
+        setStatus((prev) => {
+          const next = prev === 'reconnecting' ? 'reconnecting' : 'connecting';
+          L('AFTER startStreaming -> status change', { from: prev, to: next });
+          return next;
+        });
+      }),
+    [withOpLock, showCam]
+  );
 
   const safeStop = useCallback(() => withOpLock('stopStreaming', async () => {
+    console.log('[RTMP] stop called; ref has stop?', !!liveRef.current?.stopStreaming);
     L('CALL stopStreaming()');
     try { await (liveRef.current && liveRef.current.stopStreaming && liveRef.current.stopStreaming()); }
     catch (e) { L('stopStreaming error:', e && (e.message || e)); }
     setPublishing(false);
-    L('AFTER stopStreaming -> publishing=false');
+    setStatus('idle');
+    L('AFTER stopStreaming -> publishing=false, status=idle');
   }), [withOpLock]);
 
   const scheduleRetry = useCallback(() => {
@@ -135,6 +244,7 @@ export default function GoLive({ navigation }) {
       retryTimerRef.current = null;
       if (wasPublishingRef.current && live && live.streamKey && live.rtmpUrl) {
         L('scheduleRetry firing safeStart');
+        setStatus('reconnecting');
         safeStart(live.streamKey, live.rtmpUrl);
       } else {
         L('scheduleRetry no-op');
@@ -159,10 +269,11 @@ export default function GoLive({ navigation }) {
   // ---------- Audio session nudge (optional lib) ----------
   const stopOSAudioSession = useCallback(() => {
     try {
-      const InCallManager = require('react-native-incall-manager');
       L('InCallManager present:', !!InCallManager?.stop);
       InCallManager.stop();
       InCallManager.setSpeakerphoneOn?.(false);
+      InCallManager.setForceSpeakerphoneOn?.(false);
+      InCallManager.stopProximitySensor?.();
       L('InCallManager.stop() called');
     } catch (e) {
       L('InCallManager not available', e?.message);
@@ -171,33 +282,98 @@ export default function GoLive({ navigation }) {
 
   // ---------- Centralized release ----------
   const releaseHardware = useCallback(async (label) => {
-    L('releaseHardware START', label);
+    resetTick();
+    console.log('──────── TEARDOWN BEGIN (' + label + ') ────────');
+    tick('flags:set end=true, allowResume=false');
     endedRef.current = true;
     allowResumeRef.current = false;
     wasPublishingRef.current = false;
-    try { clearTimeout(retryTimerRef.current); } catch { }
 
-    await safeStop();
+    try { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; } catch { }
 
-    if (showCam) {
-      L('unmountPreview(' + label + ') -> setShowCam(false)');
-      setShowCam(false);
+    // 1) Stop RTMP publisher first
+    tick('stopPublisherSafe -> begin');
+    await stopPublisherSafe(liveRef, console.log);
+    tick('stopPublisherSafe -> done');
+
+    // (Optional/harmless with current SDK)
+    tick('stopPreviewSafe -> begin');
+    await stopPreviewSafe(liveRef, console.log);
+    tick('stopPreviewSafe -> done');
+
+    // (Optional SDK-specific destroy/release; safe if absent)
+    try {
+      if (liveRef.current?.destroy) {
+        await liveRef.current.destroy();
+        console.log('publisher.destroy ok');
+      } else if (liveRef.current?.release) {
+        await liveRef.current.release();
+        console.log('publisher.release ok');
+      }
+    } catch (e) {
+      console.log('publisher destroy/release error', e?.message);
     }
 
-    await new Promise(r => setTimeout(r, 150));
-    stopOSAudioSession();
+    // 🔑 2) End the OS audio session BEFORE removing the preview from the tree
+    try {
+      console.log('[AUDIO] InCallManager.stop()');
+      InCallManager.stop();
+      InCallManager.setSpeakerphoneOn?.(false);
+      InCallManager.setForceSpeakerphoneOn?.(false);
+      InCallManager.stopProximitySensor?.();
+      tick('InCallManager stopped');
+    } catch (e) {
+      console.log('[AUDIO] InCallManager error', e?.message);
+    }
+
+    try {
+      console.log('[AUDIO] Expo AV deactivate');
+      await ensureAudioOff('releaseHardware');
+      tick('Expo AV disabled');
+    } catch (e) {
+      console.log('[AUDIO] Expo AV error', e?.message);
+    }
+
+    // 3) Now reflect idle state and unmount the preview
+    setPublishing(false);
+    setStatus('idle');
+
+    await settleFrames(180);
+
+    try {
+      if (liveRef.current?.destroy) {
+        L('[DISPOSE] calling destroy()');
+        await liveRef.current.destroy();
+      } else if (liveRef.current?.release) {
+        L('[DISPOSE] calling release()');
+        await liveRef.current.release();
+      } else {
+        L('[DISPOSE] no destroy/release available');
+      }
+    } catch (e) {
+      L('[DISPOSE] error', e?.message);
+    }
+
+    // 4) Finally clear the ref
     liveRef.current = null;
 
-    L('releaseHardware DONE', label);
-  }, [safeStop, showCam, stopOSAudioSession]);
+    console.log('──────── TEARDOWN END (' + label + ') ────────');
+  }, [showCam]);
 
   // ---------- End flow (stop + backend stop + clear + navigate) ----------
   const endLiveCore = useCallback(
     async ({ navigate } = { navigate: true }) => {
       L('endLiveCore START', { navigate });
       try {
+                setIsEnding(true);
+        setStatus('ending'); // optional badge/guard
+        endedRef.current = true;
+        allowResumeRef.current = false;
+        wasPublishingRef.current = false;
+        try { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; } catch {}
         // 1) Tear down camera/mic and stop local RTMP publisher
         await releaseHardware('end');
+        if (showCam) setShowCam(false)
 
         // 2) Resolve durable live id
         const targetId = resolveLiveId();
@@ -222,28 +398,23 @@ export default function GoLive({ navigation }) {
             });
             const data = await res.json().catch(() => ({}));
             L('HTTP forceStop result', { status: res.status, ok: res.ok, data });
-            // If forceStop failed at HTTP layer, also try your existing fallback
             if (!res.ok) await stopLiveHttpFallback(targetId);
           } catch (e) {
             L('HTTP forceStop ERR', e?.message || e);
-            // Last-ditch fallback
             await stopLiveHttpFallback(targetId);
           }
         }
 
         // 5) Clear client-side state
-        try {
-          dispatch(clearCurrentLive());
-        } catch { }
+        try { dispatch(clearCurrentLive()); } catch { }
 
         // 6) Navigate to summary after preview is destroyed
         if (navigate && !unmountedRef.current) {
           await navAfterTeardown(
-            () =>
-              navigation.replace('LiveSummary', {
-                liveId: targetId || live?.liveId,
-                title: 'Live',
-              }),
+            () => navigation.replace('LiveSummary', {
+              liveId: targetId || live?.liveId,
+              title: 'Live',
+            }),
             'replace(LiveSummary)'
           );
         }
@@ -254,32 +425,26 @@ export default function GoLive({ navigation }) {
         L('endLiveCore END');
       }
     },
-    [
-      dispatch,
-      live,
-      navigation,
-      releaseHardware,
-      navAfterTeardown,
-      resolveLiveId,
-      stopLiveHttpFallback,
-    ]
+    [dispatch, live, navigation, releaseHardware, navAfterTeardown, resolveLiveId, stopLiveHttpFallback]
   );
 
   const endLive = useCallback(() => endLiveCore({ navigate: true }), [endLiveCore]);
 
   // ---------- Close when idle ----------
   const onPressClose = useCallback(() => {
-    L('onPressClose publishing=', publishing);
-    if (publishing) {
+    L('onPressClose status=', status, 'publishing=', publishing);
+    if (status === 'live' || status === 'reconnecting' || publishing) {
+      setIsEnding(true); setStatus('ending'); // hide immediately
       endLive();
     } else {
       (async () => {
+        setIsEnding(true); setStatus('ending');
         await releaseHardware('closeIdle');
         try { dispatch(clearCurrentLive()); } catch { }
         await navAfterTeardown(() => navigation.goBack(), 'goBack()');
       })();
     }
-  }, [publishing, endLive, navigation, releaseHardware, dispatch, navAfterTeardown]);
+  }, [status, publishing, endLive, navigation, releaseHardware, dispatch, navAfterTeardown]);
 
   // ---------- Android back ----------
   const hardLeave = useCallback(() => {
@@ -292,8 +457,8 @@ export default function GoLive({ navigation }) {
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      L('hardwareBackPress publishing=', publishing);
-      if (publishing) {
+      L('hardwareBackPress status=', status, 'publishing=', publishing);
+      if (status === 'live' || status === 'reconnecting' || publishing) {
         Alert.alert('End live?', 'This will stop your stream.', [
           { text: 'Cancel', style: 'cancel' },
           { text: 'End & Leave', style: 'destructive', onPress: () => hardLeave() },
@@ -307,13 +472,13 @@ export default function GoLive({ navigation }) {
       return true; // we navigate ourselves
     });
     return () => sub.remove();
-  }, [publishing, hardLeave, releaseHardware, navAfterTeardown, navigation]);
+  }, [status, publishing, hardLeave, releaseHardware, navAfterTeardown, navigation]);
 
   // ---------- Intercept nav away ----------
   useEffect(() => {
     const unsub = navigation.addListener('beforeRemove', (e) => {
-      L('beforeRemove fired; publishing=', publishing);
-      if (!publishing) {
+      L('beforeRemove fired; status=', status, 'publishing=', publishing);
+      if (!(status === 'live' || status === 'reconnecting' || publishing)) {
         (async () => { await releaseHardware('navAwayIdle'); dispatch(clearCurrentLive()); })();
         return;
       }
@@ -333,14 +498,17 @@ export default function GoLive({ navigation }) {
       ]);
     });
     return unsub;
-  }, [navigation, publishing, endLiveCore, releaseHardware, dispatch]);
+  }, [navigation, status, publishing, endLiveCore, releaseHardware, dispatch]);
 
   // ---------- AppState ----------
   const pauseForBackground = useCallback(() => {
-    L('pauseForBackground; publishing=', publishing);
+    L('pauseForBackground; status=', status, 'publishing=', publishing);
     wasPublishingRef.current = publishing;
-    if (publishing) safeStop();
-  }, [publishing, safeStop]);
+    if (publishing) {
+      setStatus('reconnecting'); // we’ll try to come back as 'reconnecting'
+      safeStop();
+    }
+  }, [publishing, safeStop, status]);
 
   const tryResume = useCallback(() => {
     L('tryResume check', {
@@ -352,44 +520,50 @@ export default function GoLive({ navigation }) {
     });
     if (endedRef.current || !allowResumeRef.current || !isFocusedRef.current || !showCam) return;
     if (wasPublishingRef.current && live && live.streamKey && live.rtmpUrl) {
+      setStatus('reconnecting');
       safeStart(live.streamKey, live.rtmpUrl);
     }
   }, [live, safeStart, showCam]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
-      L('AppState change ->', state);
+      console.log('[APPSTATE]', state, 'ended=', endedRef.current, 'showCam=', showCam);
       appState.current = state;
-      if (state === 'active') tryResume();
-      else pauseForBackground();
+      if (state === 'active') {
+        tryResume();
+      } else if (state === 'background') {
+        // Only background warrants stopping RTMP
+        pauseForBackground();
+      } else {
+        // iOS 'inactive' — do nothing; keep preview alive
+      }
     });
     return () => sub.remove();
   }, [pauseForBackground, tryResume]);
 
-  // ---------- Focus ----------
-  useFocusEffect(
-    useCallback(() => {
-      L('FOCUS IN');
-      isFocusedRef.current = true;
-      allowResumeRef.current = true;
-      tryResume();
-      return () => {
-        L('FOCUS OUT');
-        isFocusedRef.current = false;
-        allowResumeRef.current = false;
-        pauseForBackground();
-      };
-    }, [pauseForBackground, tryResume])
-  );
+  useFocusEffect(useCallback(() => {
+    console.log('[FOCUS] IN');
+    isFocusedRef.current = true;
+    allowResumeRef.current = true;
+    tryResume();
+    return () => {
+      console.log('[FOCUS] OUT');
+      isFocusedRef.current = false;
+      allowResumeRef.current = false;
+      if (publishing) { safeStop(); }
+    };
+  }, [tryResume]));
 
   // ---------- Flip ----------
   const flip = useCallback(() => { setFront(v => !v); L('flip -> front=', !front); }, [front]);
 
   // ---------- Arm + countdown ----------
   const armAndCountdown = () => {
-    L('armAndCountdown; arming=', arming, 'publishing=', publishing);
-    if (arming || publishing) return;
-    setArming(true); setCountdown(3);
+    L('armAndCountdown; arming=', arming, 'status=', status);
+    if (arming || status === 'connecting' || status === 'live' || status === 'reconnecting') return;
+    setArming(true);
+    setStatus('arming');
+    setCountdown(3);
   };
 
   useEffect(() => {
@@ -418,16 +592,37 @@ export default function GoLive({ navigation }) {
 
       if (!url || !key) throw new Error('Missing RTMP credentials');
 
-      wasPublishingRef.current = true;
       setElapsed(0);
+      setStatus('connecting');
       await safeStart(key, url);
-      L('startLive END OK');
+      L('startLive END OK (awaiting onConnectionSuccess)');
     } catch (e) {
       L('startLive ERR', e && (e.message || e));
+      setStatus('error');
       Alert.alert('Start failed', (e && e.message) || 'Unable to start live');
+      setArming(false);
+    } finally {
       setArming(false);
     }
   }
+
+  useEffect(() => {
+    const offStart = navigation.addListener('transitionStart', ({ data }) => {
+      console.log('[NAV] transitionStart', data);
+    });
+    const offEnd = navigation.addListener('transitionEnd', ({ data }) => {
+      console.log('[NAV] transitionEnd', data);
+      if (data?.closing) {
+        console.log('[NAV] closing -> ensuring audio/cam killed');
+        (async () => {
+          try { await stopPublisherSafe(liveRef, console.log); } catch { }
+          try { InCallManager.stop(); } catch { }
+          await ensureAudioOff('nav.transitionEnd');
+        })();
+      }
+    });
+    return () => { offStart(); offEnd(); };
+  }, [navigation]);
 
   // ---------- Last-resort cleanup on unmount ----------
   useEffect(() => {
@@ -441,6 +636,7 @@ export default function GoLive({ navigation }) {
             L('UNMOUNT stopStreaming called');
           }
         } catch (e) { }
+        await ensureAudioOff('unmount');
       })();
       if (showCam) {
         L('UNMOUNT setShowCam(false)');
@@ -452,41 +648,138 @@ export default function GoLive({ navigation }) {
   }, [showCam, stopOSAudioSession]);
 
   // ---------- Render ----------
+  const showEndButton = status === 'live' || status === 'reconnecting';
+
+  const statusBadge = (() => {
+    switch (status) {
+      case 'connecting': return <Text style={S.badge}>Connecting…</Text>;
+      case 'reconnecting': return <Text style={S.badge}>Reconnecting…</Text>;
+      case 'live': return <Text style={[S.badge, S.badgeLive]}>LIVE</Text>;
+      case 'error': return <Text style={[S.badge, S.badgeError]}>Error</Text>;
+      default: return null;
+    }
+  })();
+
+  function PreviewSentinel({ onUnmount }) {
+    useEffect(() => {
+      console.log('[PREVIEW] mounted');
+      return () => {
+        console.log('[PREVIEW] unmounted');
+        onUnmount?.();
+      };
+    }, []);
+    return null;
+  }
+
+  useEffect(() => {
+    const onFocus = () => L('[NAV:LIFECYCLE] focus');
+    const onBlur = () => L('[NAV:LIFECYCLE] blur (stack-level)');
+    const onState = () => {
+      const state = navigation.getState?.();
+      L('[NAV:STATE]', JSON.stringify({ index: state?.index, routes: state?.routes?.map(r => r.name) }));
+    };
+
+    const subF = navigation.addListener('focus', onFocus);
+    const subB = navigation.addListener('blur', onBlur);
+    const subS = navigation.addListener('state', onState);
+
+    return () => { subF(); subB(); subS(); };
+  }, [navigation]);
+
+  useEffect(() => {
+    const wrap = (name) => {
+      const original = liveRef.current?.[name];
+      if (!original) { L(`[REF] ${name} not present`); return; }
+      liveRef.current[name] = async (...args) => {
+        L(`[REF] ${name} CALL →`, args);
+        const t0 = Date.now();
+        try {
+          const res = await original.apply(liveRef.current, args);
+          L(`[REF] ${name} OK (${Date.now() - t0}ms)`);
+          return res;
+        } catch (e) {
+          L(`[REF] ${name} ERR`, e?.message || e);
+          throw e;
+        }
+      };
+      L(`[REF] ${name} wrapped`);
+    };
+
+    if (liveRef.current) {
+      wrap('stopStreaming');
+      wrap('stopPreview');
+      wrap('destroy');
+      wrap('release');
+    } else {
+      L('[REF] liveRef.current is null at wrap time');
+    }
+  }, []);
+
   return (
     <View style={S.container}>
       {showCam && (
-        <ApiVideoLiveStreamView
-          ref={liveRef}
-          style={S.preview}
-          camera={front ? 'front' : 'back'}
-          enablePinchedZoom
-          video={{ fps: 30, resolution: '720p', bitrate: 1.5 * 1024 * 1024, gopDuration: 2 }}
-          audio={{ bitrate: 128000, sampleRate: 44100, isStereo: true }}
-          isMuted={false}
-          onConnectionSuccess={() => { L('RTMP onConnectionSuccess'); }}
-          onConnectionFailed={(code) => { L('RTMP onConnectionFailed', code); scheduleRetry(); }}
-          onDisconnect={() => { L('RTMP onDisconnect'); scheduleRetry(); }}
-        />
+        <View style={S.preview}>
+          <PreviewSentinel onUnmount={() => console.log('[PREVIEW] unmount callback fired')} />
+          <ApiVideoLiveStreamView
+            ref={liveRef}
+            style={S.preview}
+            camera={front ? 'front' : 'back'}
+            enablePinchedZoom
+            video={{ fps: 30, resolution: '720p', bitrate: 1.5 * 1024 * 1024, gopDuration: 2 }}
+            audio={{ bitrate: 128000, sampleRate: 44100, isStereo: true }}
+            isMuted={false}
+            // ====== CONNECTION GUARDS ======
+            onConnectionSuccess={() => {
+              L('RTMP onConnectionSuccess');
+              setPublishing(true);
+              setStatus('live');
+              wasPublishingRef.current = true;
+            }}
+            onConnectionFailed={() => {
+              if (endedRef.current) return;       // ✅ ignore after end
+              setPublishing(false);
+              setStatus('error');
+              scheduleRetry();
+            }}
+            onDisconnect={() => {
+              if (endedRef.current) return;       // ✅ ignore after we decided to end
+              setPublishing(false);
+              setStatus(wasPublishingRef.current ? 'reconnecting' : 'error');
+              scheduleRetry();
+            }}
+          />
+        </View>
       )}
-
       <View style={S.topBar}>
         <Pressable onPress={onPressClose} style={S.pill}>
-          <Text style={S.pillTxt}>{publishing ? 'End' : 'Close'}</Text>
+          <Text style={S.pillTxt}>{showEndButton ? 'End' : 'Close'}</Text>
         </Pressable>
+        {statusBadge}
         <Pressable onPress={flip} style={S.pill}><Text style={S.pillTxt}>Flip</Text></Pressable>
       </View>
-
       <View style={S.bottomBar}>
-        {publishing ? (
+        {showEndButton ? (
           <>
             <Text style={S.timer}>{formatTime(elapsed)}</Text>
             <Pressable onPress={endLive} style={[S.btn, S.end]}><Text style={S.btnTxt}>End</Text></Pressable>
           </>
         ) : countdown > 0 ? (
           <>
-            <Text onPress={() => { L('COUNTDOWN CANCEL'); setCountdown(0); setArming(false); }} style={S.cancel}>Cancel</Text>
+            <Text onPress={() => { L('COUNTDOWN CANCEL'); setCountdown(0); setArming(false); setStatus('idle'); }} style={S.cancel}>Cancel</Text>
             <Text style={S.count}>{countdown}</Text>
           </>
+        ) : status === 'connecting' || status === 'reconnecting' ? (
+          <View style={S.connectingWrap}>
+            <ActivityIndicator />
+            <Text style={S.connectingTxt}>{status === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}</Text>
+          </View>
+        ) : status === 'error' ? (
+          <Pressable
+            onPress={() => { setStatus('idle'); armAndCountdown(); }}
+            style={[S.btn, S.retry]}
+          >
+            <Text style={S.btnTxt}>Retry</Text>
+          </Pressable>
         ) : (
           <Pressable onPress={armAndCountdown} style={S.recordBtn}><View style={S.dot} /></Pressable>
         )}
@@ -510,6 +803,9 @@ const S = StyleSheet.create({
   },
   pill: { backgroundColor: 'rgba(0,0,0,0.5)', paddingVertical: 8, paddingHorizontal: 14, borderRadius: 18 },
   pillTxt: { color: '#fff', fontWeight: '700' },
+  badge: { color: '#ddd', fontWeight: '700' },
+  badgeLive: { color: '#ff4747' },
+  badgeError: { color: '#ff9e9e' },
   bottomBar: { position: 'absolute', bottom: 40, left: 0, right: 0, alignItems: 'center', justifyContent: 'center' },
   recordBtn: {
     width: 74, height: 74, borderRadius: 40,
@@ -523,5 +819,7 @@ const S = StyleSheet.create({
   timer: { color: '#fff', fontWeight: '800', marginBottom: 10 },
   btn: { backgroundColor: 'rgba(0,0,0,0.6)', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 28 },
   end: { backgroundColor: '#ef4444' },
-  btnTxt: { color: '#fff', fontWeight: '700' }
+  retry: { backgroundColor: '#0ea5e9' },
+  btnTxt: { color: '#fff', fontWeight: '700' },
+  connectingWrap: { alignItems: 'center', justifyContent: 'center', gap: 8 }
 });

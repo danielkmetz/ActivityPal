@@ -2,6 +2,8 @@ import React from 'react';
 import { createBottomTabNavigator, BottomTabBar } from '@react-navigation/bottom-tabs';
 import { View, Animated, Image } from 'react-native';
 import { createStackNavigator } from '@react-navigation/stack';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { enableScreens } from 'react-native-screens';
 import { FontAwesome, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Platform } from 'react-native';
 import Home from '../Home/Home';
@@ -35,14 +37,16 @@ import SettingsScreen from '../Profile/Settings/SettingsScreen';
 import LiveSummary from '../LiveStream/Screens/LiveSummary';
 import LivePlayerScreen from '../LiveStream/LivePlayer/LivePlayerScreen';
 import GoLive from '../LiveStream/Screens/GoLive';
+import GoLiveTest from '../LiveStream/Screens/GoLiveTest';
 
+enableScreens(true);
 const Tab = createBottomTabNavigator();
-const Stack = createStackNavigator();
-const HomeStack = createStackNavigator();
+const Stack = createNativeStackNavigator();
+const HomeStack = createNativeStackNavigator();
 
 function HomeStackNavigator({ scrollY, onScroll, isAtEnd }) {
     return (
-        <HomeStack.Navigator screenOptions={{ headerShown: false }}>
+        <HomeStack.Navigator screenOptions={{ headerShown: false, detachPreviousScreen: true, }}>
             <HomeStack.Screen name="HomeMain">
                 {() => <Home scrollY={scrollY} onScroll={onScroll} isAtEnd={isAtEnd} />}
             </HomeStack.Screen>
@@ -231,6 +235,7 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
                 gestureEnabled: true,
                 gestureDirection: 'horizontal',
                 headerShown: false,
+                detachPreviousScreen: true,
             }}>
             <Stack.Screen name="TabNavigator">
                 {() =>
@@ -267,6 +272,7 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
             <Stack.Screen name="LiveSummary" component={LiveSummary} options={{ title: 'Live summary' }} />
             <Stack.Screen name="LivePlayer" component={LivePlayerScreen} />
             <Stack.Screen name="GoLive" component={GoLive} />
+            <Stack.Screen name="GoLiveTest" component={GoLiveTest} options={{ unmountOnBlur: true }} />
         </Stack.Navigator>
     )
 }

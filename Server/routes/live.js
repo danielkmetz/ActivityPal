@@ -1,17 +1,19 @@
-// routes/live.js (refactored + extended logging + replay scoped by session window)
+// routes/live.js — sessions-only; IVS holds channel config; Mongo holds session rows
 const router = require('express').Router();
 const {
   IvsClient,
   CreateChannelCommand,
+  ListChannelsCommand,
   CreateStreamKeyCommand,
-  DeleteStreamKeyCommand,
   ListStreamKeysCommand,
+  DeleteStreamKeyCommand,
   GetStreamCommand,
   GetChannelCommand,
   GetRecordingConfigurationCommand,
   StopStreamCommand,
 } = require('@aws-sdk/client-ivs');
 const { ListObjectsV2Command, HeadObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
+
 const LiveStream = require('../models/LiveStream');
 const verifyToken = require('../middleware/verifyToken');
 const { liveStreamS3Client: s3 } = require('../liveStreamS3Config');
@@ -74,96 +76,61 @@ const timeAsync = async (label, fn, { log }) => {
 };
 
 const sendIvs = async (name, cmd, { log }) => timeAsync(`ivs:${name}`, () => ivs.send(cmd), { log });
-const sendS3 = async (name, cmd, { log }) => timeAsync(`s3:${name}`, () => s3.send(cmd), { log });
+const sendS3  = async (name, cmd, { log }) => timeAsync(`s3:${name}`,  () => s3.send(cmd),  { log });
 
-/* ---------------------- utils ---------------------- */
-function parseChannelArn(arn) {
-  // arn:aws:ivs:<region>:<accountId>:channel/<channelId>
-  const parts = (arn || '').split(':');
-  const accountId = parts[4];
-  const resource = parts[5] || '';
-  const channelId = resource.split('/')[1];
-  return { accountId, channelId };
-}
+/* ---------------------- ivs helpers (sessions only) ---------------------- */
+const channelNameFor = (hostUserId, placeId) =>
+  `ap-${String(hostUserId)}-${placeId ? String(placeId) : 'default'}`.slice(0, 128);
 
-// Ensure base channel + a usable stream key/secret for host/place
-async function ensureBaseWithKey({ hostUserId, placeId, recordingArn, log, warn }) {
-  const wherePlace = { hostUserId, placeId, channelArn: { $exists: true } };
-  const whereAny = { hostUserId, channelArn: { $exists: true } };
+async function resolveChannel({ hostUserId, placeId, recordingArn, log, warn }) {
+  // Try find channel by deterministic name; else create it (no DB writes).
+  const name = channelNameFor(hostUserId, placeId);
 
-  let base =
-    (await LiveStream.findOne(wherePlace).sort({ createdAt: -1 })) ||
-    (await LiveStream.findOne(whereAny).sort({ createdAt: -1 }));
+  let arn, ingestEndpoint, playbackUrl, recordingEnabled = false;
 
-  if (!base) {
-    log('no base channel found -> creating');
-    const ch = await sendIvs('CreateChannel', new CreateChannelCommand({
-      name: `ap-${hostUserId}-${placeId || 'no-place'}-${Date.now()}`,
-      latencyMode: 'LOW',
-      type: 'STANDARD',
-      recordingConfigurationArn: recordingArn || undefined,
-    }), { log });
+  const listed = await sendIvs(
+    'ListChannels',
+    new ListChannelsCommand({ filterByName: name, maxResults: 1 }),
+    { log }
+  );
 
-    base = await LiveStream.create({
-      hostUserId,
-      placeId,
-      channelArn: ch.channel.arn,
-      ingestEndpoint: ch.channel.ingestEndpoint,
-      playbackUrl: ch.channel.playbackUrl,
-      streamKeyArn: ch.streamKey.arn,
-      streamKeyLast4: ch.streamKey.value?.slice(-4),
-      streamKeySecret: ch.streamKey.value, // encrypt at rest in prod
-      status: 'idle',
-      isActive: false,
-      recording: { enabled: !!recordingArn },
+  if (listed?.channels?.length) {
+    arn = listed.channels[0].arn;
+    const ch = await sendIvs('GetChannel', new GetChannelCommand({ arn }), { log }).catch(() => null);
+    ingestEndpoint = ch?.channel?.ingestEndpoint || '';
+    playbackUrl    = ch?.channel?.playbackUrl || '';
+    recordingEnabled = !!ch?.channel?.recordingConfigurationArn;
+    log('resolveChannel reuse', { name, channelArnTail: short(arn), ingestEndpoint, recordingEnabled });
+  } else {
+    const created = await sendIvs(
+      'CreateChannel',
+      new CreateChannelCommand({
+        name,
+        latencyMode: 'LOW',
+        type: 'STANDARD',
+        recordingConfigurationArn: recordingArn || undefined,
+      }),
+      { log }
+    );
+
+    arn            = created?.channel?.arn;
+    ingestEndpoint = created?.channel?.ingestEndpoint;
+    playbackUrl    = created?.channel?.playbackUrl;
+    recordingEnabled = !!created?.channel?.recordingConfigurationArn;
+
+    log('resolveChannel create', {
+      name,
+      channelArnTail: short(arn),
+      ingestEndpoint,
+      recordingEnabled
     });
-
-    log('created base channel', {
-      channelArnTail: short(base.channelArn),
-      ingestEndpoint: base.ingestEndpoint,
-      last4: base.streamKeyLast4,
-      recordingEnabled: !!base.recording?.enabled,
-    });
-
-    return base;
   }
 
-  log('reusing base channel', {
-    channelArnTail: short(base.channelArn),
-    hasSecret: !!base.streamKeySecret,
-    last4: base.streamKeyLast4 || null,
-  });
-
-  // rotate if either the arn or secret is missing
-  if (!base.streamKeySecret || !base.streamKeyArn) {
-    warn('missing key/secret -> rotating');
-    const listed = await sendIvs('ListStreamKeys', new ListStreamKeysCommand({ channelArn: base.channelArn }), { log });
-    const existingArn = listed?.streamKeys?.[0]?.arn || null;
-    if (existingArn) {
-      await sendIvs('DeleteStreamKey', new DeleteStreamKeyCommand({ arn: existingArn }), { log });
-    }
-    const created = await sendIvs('CreateStreamKey', new CreateStreamKeyCommand({ channelArn: base.channelArn }), { log });
-    base.streamKeyArn = created.streamKey.arn;
-    base.streamKeyLast4 = created.streamKey.value?.slice(-4);
-    base.streamKeySecret = created.streamKey.value;
-    await base.save();
-    log('rotated stream key', { last4: base.streamKeyLast4 });
+  if (!arn || !ingestEndpoint || !playbackUrl) {
+    throw new Error('Failed to resolve IVS channel');
   }
 
-  return base;
-}
-
-// Mark any dangling sessions ended
-async function endDanglingSessions({ hostUserId, placeId = null, maxAgeMinutes = null, log }) {
-  const q = { hostUserId, isActive: true };
-  if (placeId !== null) q.placeId = placeId;
-  if (maxAgeMinutes) q.startedAt = { $lt: new Date(Date.now() - maxAgeMinutes * 60 * 1000) };
-  const res = await LiveStream.updateMany(q, {
-    $set: { isActive: false, status: 'ended', endedAt: new Date() },
-  });
-  const count = res?.modifiedCount || 0;
-  log('endDanglingSessions', { matched: res?.matchedCount, modified: count, query: q });
-  return count;
+  return { channelArn: arn, ingestEndpoint, playbackUrl, recordingEnabled };
 }
 
 async function isChannelOnline(channelArn) {
@@ -176,25 +143,61 @@ async function isChannelOnline(channelArn) {
       msg.includes('not currently online') ||
       e?.name === 'ResourceNotFoundException' ||
       e?.$metadata?.httpStatusCode === 404;
-    if (offlineLike) return false; // offline (expected), not an error
-    throw e; // real error
+    if (offlineLike) return false;
+    throw e;
   }
+}
+
+async function freshStreamKey({ channelArn, log, warn, safeRotate = true }) {
+  // Create and return a fresh key (with secret) for this start.
+  // Optionally delete old keys when offline to avoid leakage.
+  let liveNow = false;
+  try { liveNow = await isChannelOnline(channelArn); } catch (e) { warn('live check failed before rotate', { err: e?.message }); }
+
+  try {
+    const listed = await sendIvs('ListStreamKeys', new ListStreamKeysCommand({ channelArn }), { log });
+    const keys = listed?.streamKeys || [];
+
+    // If offline and we want to avoid accumulating keys, delete existing ones
+    if (safeRotate && !liveNow && keys.length) {
+      for (const k of keys) {
+        try { await sendIvs('DeleteStreamKey', new DeleteStreamKeyCommand({ arn: k.arn }), { log }); }
+        catch (e) { warn('DeleteStreamKey failed', { arnTail: short(k.arn), err: e?.message }); }
+      }
+    }
+  } catch (e) {
+    warn('ListStreamKeys failed (continuing)', { err: e?.message });
+  }
+
+  const created = await sendIvs('CreateStreamKey', new CreateStreamKeyCommand({ channelArn }), { log });
+  const keyArn = created?.streamKey?.arn;
+  const keyVal = created?.streamKey?.value; // <-- ONLY TIME we see the secret
+
+  if (!keyArn || !keyVal) throw new Error('Failed to create stream key');
+
+  return { streamKeyArn: keyArn, streamKeySecret: keyVal, streamKeyLast4: keyVal.slice(-4) };
+}
+
+function parseChannelArn(arn) {
+  // arn:aws:ivs:<region>:<accountId>:channel/<channelId>
+  const parts    = (arn || '').split(':');
+  const accountId= parts[4];
+  const resource = parts[5] || '';
+  const channelId= resource.split('/')[1];
+  return { accountId, channelId };
 }
 
 function parseIvsKeyTime(key) {
   if (!key) return null;
   const parts = key.split('/');
-  // We expect ... / YYYY / M / D / HH / mm / rand / media / hls / master.m3u8
   if (parts.length < 13) return null;
   const L = parts.length;
-  //                              -1            -2   -3    -4      -5     -6   -7   -8   -9
   const minute = +parts[L - 5];
-  const hour = +parts[L - 6];
-  const day = +parts[L - 7];
-  const month = +parts[L - 8];
-  const year = +parts[L - 9];
+  const hour   = +parts[L - 6];
+  const day    = +parts[L - 7];
+  const month  = +parts[L - 8];
+  const year   = +parts[L - 9];
   if ([year, month, day, hour, minute].some(n => Number.isNaN(n))) {
-    // Fallback: regex scan anywhere in the key (defensive)
     const m = key.match(/\/(\d{4})\/(\d{1,2})\/(\d{1,2})\/(\d{1,2})\/(\d{1,2})\//);
     if (!m) return null;
     const [, Y, Mo, D, H, Mi] = m.map(Number);
@@ -204,11 +207,25 @@ function parseIvsKeyTime(key) {
   return new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0));
 }
 
+/* ---------------------- util: mark dangling sessions ended ---------------------- */
+async function endDanglingSessions({ hostUserId, placeId = null, maxAgeMinutes = null, log }) {
+  const q = { hostUserId, isActive: true };
+  if (placeId !== null) q.placeId = placeId;
+  if (maxAgeMinutes) q.startedAt = { $lt: new Date(Date.now() - maxAgeMinutes * 60 * 1000) };
+
+  const res = await LiveStream.updateMany(q, {
+    $set: { isActive: false, status: 'ended', endedAt: new Date() },
+  });
+
+  const count = res?.modifiedCount || 0;
+  log('endDanglingSessions', { matched: res?.matchedCount, modified: count, query: q });
+  return count;
+}
 
 /* ---------------------- endpoints ---------------------- */
 
 /**
- * Optional bootstrap
+ * Optional bootstrap — resolves/creates IVS channel; returns endpoints only; no DB writes.
  */
 router.post('/streams/bootstrap', verifyToken, async (req, res) => {
   const rid = genRid('bootstrap');
@@ -220,7 +237,7 @@ router.post('/streams/bootstrap', verifyToken, async (req, res) => {
     const hostUserId = req.user?.id;
     if (!hostUserId) return res.status(401).json({ message: 'Unauthorized' });
 
-    const base = await ensureBaseWithKey({
+    const { channelArn, ingestEndpoint, playbackUrl, recordingEnabled } = await resolveChannel({
       hostUserId,
       placeId,
       recordingArn: recording ? process.env.IVS_RECORDING_ARN : undefined,
@@ -228,26 +245,26 @@ router.post('/streams/bootstrap', verifyToken, async (req, res) => {
     });
 
     const payload = {
-      id: base.id,
-      channelArn: base.channelArn,
-      ingestEndpoint: base.ingestEndpoint,
-      playbackUrl: base.playbackUrl,
-      recordingEnabled: !!base.recording?.enabled,
+      channelArn,
+      ingestEndpoint,
+      playbackUrl,
+      recordingEnabled,
     };
-    log('RESPONSE', { status: 200, payload: { ...payload, channelArn: `...${short(payload.channelArn)}` } });
+    log('RESPONSE', { status: 200, payload: { ...payload, channelArn: `...${short(channelArn)}` } });
     res.json(payload);
   } catch (e) {
     err('ERROR bootstrap', { msg: e?.message, stack: e?.stack });
-    res.status(500).json({ message: 'Failed to create/get channel' });
+    res.status(500).json({ message: 'Failed to resolve channel' });
   }
 });
 
 /**
- * Start live
+ * Start live — creates a session row (isActive=true). Does not persist key secret.
  */
 router.post('/live/start', verifyToken, async (req, res) => {
   const rid = genRid('start');
   const { log, warn, err } = mkLoggers(rid);
+
   try {
     log('REQUEST', { at: nowIso(), user: req.user?.id, body: req.body, query: req.query });
 
@@ -260,52 +277,96 @@ router.post('/live/start', verifyToken, async (req, res) => {
     const firstName = req.user?.firstName || req.user?.name || '';
     const title = requestedTitle || (firstName ? `Live with ${firstName}` : 'Live');
 
+    // Clean up stale sessions (optional)
     const autoEnded = await endDanglingSessions({ hostUserId /*, placeId*/, log });
 
-    const base = await ensureBaseWithKey({
+    // Resolve channel (no DB writes)
+    const { channelArn, ingestEndpoint, playbackUrl, recordingEnabled } = await resolveChannel({
       hostUserId,
       placeId,
       recordingArn: process.env.IVS_RECORDING_ARN || undefined,
       log, warn,
     });
 
-    // if already live, optionally stop
+    // If channel is already live, stop it before starting a new session (belt & suspenders)
     try {
-      const liveNow = await isChannelOnline(base.channelArn);
-      log('ivs live check', { liveNow, channelArnTail: short(base.channelArn) });
+      const liveNow = await isChannelOnline(channelArn);
+      log('ivs live check', { liveNow, channelArnTail: short(channelArn) });
       if (liveNow) {
-        await sendIvs('StopStream', new StopStreamCommand({ channelArn: base.channelArn }), { log });
+        await sendIvs('StopStream', new StopStreamCommand({ channelArn }), { log });
         warn('force-stopped live IVS stream before new session');
       }
     } catch (e) {
-      // Only logs on true errors (not the “offline” case)
       warn('ivs live check error', { err: e?.message });
     }
 
-    const session = await LiveStream.create({
-      channelArn: base.channelArn,
-      ingestEndpoint: base.ingestEndpoint,
-      playbackUrl: base.playbackUrl,
-      streamKeyArn: base.streamKeyArn,
-      streamKeyLast4: base.streamKeyLast4,
-      hostUserId,
-      placeId,
-      title,
-      status: 'live',
-      isActive: true,
-      startedAt: new Date(),
-      recording: base.recording,
+    // Idempotency: if an active session exists, return it (no new key).
+    const active = await LiveStream.findOne({ hostUserId, placeId, isActive: true }).lean();
+    if (active) {
+      log('reusing existing active session', { id: String(active._id) });
+      return res.json({
+        ok: true,
+        id: String(active._id),
+        liveId: String(active._id),
+        rtmpUrl: `rtmps://${ingestEndpoint}:443/app/`,
+        // streamKey intentionally omitted (client already has it from the first start)
+        streamKey: undefined,
+        playbackUrl,
+      });
+    }
+
+    // Fresh key for this session (do NOT save secret)
+    const { streamKeyArn, streamKeySecret, streamKeyLast4 } = await freshStreamKey({
+      channelArn,
+      log, warn, safeRotate: true,
     });
 
-    const rtmpsUrl = `rtmps://${base.ingestEndpoint}:443/app`;
+    // Create the session doc (sessions only; aligns with LiveStreamSchema)
+    let sessionDoc;
+    try {
+      sessionDoc = await LiveStream.findOneAndUpdate(
+        { hostUserId, placeId, isActive: true },
+        {
+          $setOnInsert: {
+            hostUserId,
+            placeId,
+            title,
+            status: 'live',
+            isActive: true,
+            startedAt: new Date(),
+
+            // snapshot channel data for this session (no separate base doc)
+            channelArn,
+            ingestEndpoint,
+            playbackUrl,
+
+            // key metadata only (NO secret)
+            streamKeyArn,
+            streamKeyLast4,
+
+            // recording snapshot
+            recording: { enabled: !!recordingEnabled },
+          },
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      ).lean();
+    } catch (e) {
+      if (e?.code !== 11000) throw e;
+      sessionDoc = await LiveStream.findOne({ hostUserId, placeId, isActive: true }).lean();
+      if (!sessionDoc) throw e;
+      log('race detected — returned existing active', { id: String(sessionDoc._id) });
+    }
+
+    const rtmpsUrl = `rtmps://${ingestEndpoint}:443/app/`;
     const resp = {
       ok: true,
-      id: session.id,
-      liveId: session.id,
+      id: String(sessionDoc._id),
+      liveId: String(sessionDoc._id),
       rtmpUrl: rtmpsUrl,
-      streamKey: base.streamKeySecret, // don't log this
-      playbackUrl: base.playbackUrl,
+      streamKey: streamKeySecret, // returned to client only; NOT persisted
+      playbackUrl,
     };
+
     log('RESPONSE', {
       status: 200,
       payload: {
@@ -314,19 +375,20 @@ router.post('/live/start', verifyToken, async (req, res) => {
         liveId: resp.liveId,
         rtmpUrl: resp.rtmpUrl,
         playbackUrl: resp.playbackUrl,
-        streamKeyLast4: short(base.streamKeySecret || '', 4),
+        streamKeyLast4,
         autoEnded,
       },
     });
-    res.json(resp);
+
+    return res.json(resp);
   } catch (e) {
     err('ERROR live/start', { msg: e?.message, stack: e?.stack });
-    res.status(500).json({ message: 'Failed to start live' });
+    return res.status(500).json({ message: 'Failed to start live' });
   }
 });
 
 /**
- * Stop live
+ * Stop live — finalizes the session (isActive=false, status=ended)
  */
 router.post('/live/stop', verifyToken, async (req, res) => {
   const rid = genRid('stop');
@@ -335,8 +397,6 @@ router.post('/live/stop', verifyToken, async (req, res) => {
     log('REQUEST', { at: nowIso(), user: req.user?.id, body: req.body, query: req.query });
 
     const id = req.body?.id || req.body?.liveId;
-    const forceStop = true;
-
     const hostUserId = req.user?.id;
     if (!hostUserId) return res.status(401).json({ message: 'Unauthorized' });
     if (!id) return res.status(400).json({ message: 'Missing id' });
@@ -354,7 +414,8 @@ router.post('/live/stop', verifyToken, async (req, res) => {
       channelArnTail: short(ls.channelArn),
     });
 
-    if (forceStop && ls.channelArn) {
+    // Best-effort stop IVS stream
+    if (ls.channelArn) {
       try {
         const status = await sendIvs('GetStream', new GetStreamCommand({ channelArn: ls.channelArn }), { log });
         if (status?.stream) {
@@ -367,8 +428,8 @@ router.post('/live/stop', verifyToken, async (req, res) => {
     }
 
     ls.isActive = false;
-    ls.status = 'ended';
-    ls.endedAt = new Date();
+    ls.status   = 'ended';
+    ls.endedAt  = new Date();
     await ls.save();
     log('stop: doc updated', { id: String(ls._id), isActive: !!ls.isActive, status: ls.status });
 
@@ -380,7 +441,7 @@ router.post('/live/stop', verifyToken, async (req, res) => {
 });
 
 /**
- * Live NOW
+ * Live NOW — list active sessions
  */
 router.get('/live/now', async (req, res) => {
   const rid = genRid('now');
@@ -433,7 +494,7 @@ router.get('/live/status/:id', verifyToken, async (req, res) => {
 });
 
 /**
- * Public viewer
+ * Public viewer — public metadata for a session
  */
 router.get('/live/public/:id', async (req, res) => {
   const rid = genRid('public');
@@ -453,6 +514,8 @@ router.get('/live/public/:id', async (req, res) => {
       playbackUrl: doc.playbackUrl,
       isActive: !!doc.isActive,
       placeId: doc.placeId || null,
+      durationSec: doc.durationSec || null,
+      recording: { enabled: !!doc?.recording?.enabled, vodUrl: doc?.recording?.vodUrl || null },
     };
     log('RESPONSE', { status: 200, id: payload.id, isActive: payload.isActive });
     res.json(payload);
@@ -463,7 +526,7 @@ router.get('/live/public/:id', async (req, res) => {
 });
 
 /**
- * Rotate stream key
+ * Rotate stream key — stateless against IVS; does not persist anything
  */
 router.post('/live/rotate-key', verifyToken, async (req, res) => {
   const rid = genRid('rotate');
@@ -475,23 +538,29 @@ router.post('/live/rotate-key', verifyToken, async (req, res) => {
     const placeId = req.body?.placeId ?? null;
     if (!hostUserId) return res.status(401).json({ message: 'Unauthorized' });
 
-    const base = await LiveStream.findOne({ hostUserId, placeId, channelArn: { $exists: true } });
-    if (!base) {
-      log('rotate: channel not found', { hostUserId, placeId });
-      return res.status(404).json({ message: 'Channel not found' });
+    const { channelArn } = await resolveChannel({
+      hostUserId, placeId, recordingArn: process.env.IVS_RECORDING_ARN || undefined, log, warn
+    });
+
+    // Be careful not to delete active keys while live.
+    const liveNow = await isChannelOnline(channelArn).catch(() => false);
+    if (!liveNow) {
+      try {
+        const listed = await sendIvs('ListStreamKeys', new ListStreamKeysCommand({ channelArn }), { log });
+        for (const k of (listed?.streamKeys || [])) {
+          try { await sendIvs('DeleteStreamKey', new DeleteStreamKeyCommand({ arn: k.arn }), { log }); }
+          catch (e) { warn('DeleteStreamKey failed', { arnTail: short(k.arn), err: e?.message }); }
+        }
+      } catch (e) {
+        warn('List/Delete keys failed', { err: e?.message });
+      }
     }
 
-    if (base.streamKeyArn) {
-      await sendIvs('DeleteStreamKey', new DeleteStreamKeyCommand({ arn: base.streamKeyArn }), { log });
-    }
-    const created = await sendIvs('CreateStreamKey', new CreateStreamKeyCommand({ channelArn: base.channelArn }), { log });
-    base.streamKeyArn = created.streamKey.arn;
-    base.streamKeyLast4 = created.streamKey.value?.slice(-4);
-    base.streamKeySecret = created.streamKey.value;
-    await base.save();
+    const created = await sendIvs('CreateStreamKey', new CreateStreamKeyCommand({ channelArn }), { log });
+    const last4 = created?.streamKey?.value?.slice(-4) || null;
 
-    log('RESPONSE', { status: 200, last4: base.streamKeyLast4 });
-    res.json({ ok: true, streamKeyLast4: base.streamKeyLast4 });
+    log('RESPONSE', { status: 200, last4 });
+    res.json({ ok: true, streamKeyLast4: last4 });
   } catch (e) {
     err('ERROR rotate-key', { msg: e?.message, stack: e?.stack });
     res.status(500).json({ message: 'Failed to rotate key' });
@@ -499,7 +568,7 @@ router.post('/live/rotate-key', verifyToken, async (req, res) => {
 });
 
 /**
- * Replay discovery — now strictly scoped to the session window, and never attaches while live.
+ * Replay discovery — windowed scan in S3; writes into recording.* on the session doc
  */
 router.get('/live/replay/:id', async (req, res) => {
   // prevent intermediary caching
@@ -513,7 +582,7 @@ router.get('/live/replay/:id', async (req, res) => {
   try {
     const bucket = process.env.IVS_RECORD_BUCKET;
     const region = process.env.AWS_LIVE_STREAM_REGION;
-    const useCF = !!process.env.CLOUDFRONT_DOMAIN;
+    const useCF  = !!process.env.CLOUDFRONT_DOMAIN;
 
     log('REQUEST', { at: nowIso(), params: req.params, env: { bucket: !!bucket, region, useCF } });
 
@@ -527,7 +596,7 @@ router.get('/live/replay/:id', async (req, res) => {
       id: String(doc._id || ''),
       isActive: !!doc.isActive,
       status: doc.status,
-      hasReplay: !!doc.replay,
+      hasRecording: !!doc.recording,
       hasChannelArn: !!doc.channelArn,
       hostUserId: doc.hostUserId || null,
       startedAt: doc.startedAt || null,
@@ -536,12 +605,12 @@ router.get('/live/replay/:id', async (req, res) => {
     });
 
     // If already cached, return it
-    if (doc?.replay?.ready && doc?.replay?.playbackUrl) {
+    if (doc?.recording?.vodUrl) {
       const payload = {
         ready: true,
-        type: doc.replay.type || 'hls',
-        playbackUrl: doc.replay.playbackUrl,
-        durationSec: doc?.metrics?.durationSec || null,
+        type: 'hls',
+        playbackUrl: doc.recording.vodUrl,
+        durationSec: doc?.durationSec || null,
         title: doc?.title || 'Live replay',
       };
       log('RESPONSE (cached)', { status: 200, playbackUrl: payload.playbackUrl });
@@ -562,7 +631,6 @@ router.get('/live/replay/:id', async (req, res) => {
       warn('invalid channelArn parse', { channelArn: doc.channelArn });
       return res.json({ ready: false });
     }
-    log('parsed channel', { accountIdTail: (accountId || '').slice(-6), channelIdTail: (channelId || '').slice(-6) });
 
     const startedAt = doc.startedAt ? new Date(doc.startedAt) : null;
     let endedAt = doc.endedAt ? new Date(doc.endedAt) : null;
@@ -572,7 +640,7 @@ router.get('/live/replay/:id', async (req, res) => {
       return res.json({ ready: false });
     }
 
-    // Check IVS live status; if live, never attach a replay
+    // Never attach replay while live; but we can best-effort StopStream then proceed
     let liveNow = false;
     try {
       liveNow = await isChannelOnline(doc.channelArn);
@@ -582,9 +650,11 @@ router.get('/live/replay/:id', async (req, res) => {
       return res.json({ ready: false });
     }
     if (liveNow) {
-      // Best effort: stop live and proceed
-      try { await sendIvs('StopStream', new StopStreamCommand({ channelArn: doc.channelArn }), { log }); }
-      catch (e) { warn('best-effort StopStream during replay failed', { err: e?.message }); }
+      try {
+        await sendIvs('StopStream', new StopStreamCommand({ channelArn: doc.channelArn }), { log });
+      } catch (e) {
+        warn('best-effort StopStream during replay failed', { err: e?.message });
+      }
     }
 
     // Auto-finalize if IVS is offline but DB still "live"
@@ -601,7 +671,6 @@ router.get('/live/replay/:id', async (req, res) => {
       }
     }
 
-    // If we still don't have an endedAt, wait for /live/stop to set it
     if (!endedAt) return res.json({ ready: false, live: false });
 
     // Optional: verify recording config for visibility
@@ -616,65 +685,53 @@ router.get('/live/replay/:id', async (req, res) => {
     }
 
     // ---- S3 scan within session window ----
-    const earliestAcceptable = new Date(startedAt.getTime() - 2 * 60 * 1000);
-    const latestAcceptable = new Date(endedAt.getTime() + 10 * 60 * 1000); // +5m buffer
+    const earliestAcceptable = new Date(startedAt.getTime() - 30 * 1000);
+    const latestAcceptable   = new Date(endedAt.getTime() + 5 * 60 * 1000);
 
     let ContinuationToken;
-    const candidates = [];
-    let latestAny = null;
+    const masters = [];
 
     do {
-      const out = await sendS3('ListObjectsV2', new ListObjectsV2Command({
-        Bucket: bucket,
-        Prefix: `ivs/v1/${accountId}/${channelId}/`,
-        MaxKeys: 1000,
-        ContinuationToken,
-      }), { log });
+      const out = await sendS3(
+        'ListObjectsV2',
+        new ListObjectsV2Command({
+          Bucket: bucket,
+          Prefix: `ivs/v1/${accountId}/${channelId}/`,
+          MaxKeys: 1000,
+          ContinuationToken,
+        }),
+        { log }
+      );
 
-      const contents = out.Contents || [];
-      for (const obj of contents) {
+      for (const obj of (out.Contents || [])) {
         if (!obj.Key.endsWith('/media/hls/master.m3u8')) continue;
-
-        // Track newest master for diagnostics
-        if (!latestAny || new Date(obj.LastModified) > new Date(latestAny.LastModified)) latestAny = obj;
-
         const lm = new Date(obj.LastModified);
-        // Primary filter by LastModified (ground truth for when the master appeared)
         if (lm < earliestAcceptable || lm > latestAcceptable) continue;
-
         const keyTime = parseIvsKeyTime(obj.Key);
-
-        candidates.push({ key: obj.Key, lm, keyTime });
+        masters.push({ key: obj.Key, lm, keyTime });
       }
 
       ContinuationToken = out.IsTruncated ? out.NextContinuationToken : undefined;
     } while (ContinuationToken);
 
-    // Prefer the earliest master by LastModified, with keyTime as a tiebreaker
-    candidates.sort((a, b) => {
-      const d = a.lm - b.lm;
-      if (d !== 0) return d;
-      // fall back to keyTime if both present
-      if (a.keyTime && b.keyTime) return a.keyTime - b.keyTime;
-      if (a.keyTime) return -1;
-      if (b.keyTime) return 1;
-      return 0;
-    });
-    const chosen = candidates[0] || null;
-
-    if (!chosen && latestAny) {
-      const latestKeyTime = parseIvsKeyTime(latestAny.Key);
-      log('latest master (any window)', {
-        latestTail: latestAny.Key.slice(-40),
-        latestLM: latestAny.LastModified,
-        latestKeyTime,
-        earliestAcceptable,
-        latestAcceptable,
-      });
+    // Pick best master for this session
+    const startedAtMs = +startedAt;
+    const endedAtMs   = +endedAt;
+    function score(m) {
+      const penalizeEarly = (m.keyTime && (+m.keyTime < startedAtMs)) ? 1e15 : 0;
+      const distToEnd = Math.abs(+m.lm - endedAtMs);
+      return penalizeEarly + distToEnd;
     }
+    masters.sort((a, b) => {
+      const s = score(a) - score(b);
+      if (s !== 0) return s;
+      return (+b.lm - +a.lm) || ((a.keyTime && b.keyTime) ? (+b.keyTime - +a.keyTime) : 0);
+    });
+
+    const chosen = masters[0] || null;
 
     log('replay candidates (filtered)', {
-      count: candidates.length,
+      count: masters.length,
       chosenTail: chosen ? chosen.key.slice(-40) : null,
       chosenKeyTime: chosen ? chosen.keyTime : null,
       chosenLM: chosen ? chosen.lm : null,
@@ -684,86 +741,43 @@ router.get('/live/replay/:id', async (req, res) => {
 
     if (!chosen) return res.json({ ready: false });
 
-    // HEAD sanity (non-fatal)
+    // VARIANT GATE
     try {
-      await sendS3('HeadObject', new HeadObjectCommand({ Bucket: bucket, Key: chosen.key }), { log });
-    } catch (e) {
-      warn('HEAD master failed', { keyTail: chosen.key.slice(-40), err: e?.name || e?.message });
-    }
-
-    try {
-      // 1) Fetch master.m3u8 via SDK (IAM auth)
-      const masterObj = await sendS3(
-        'GetObject',
-        new GetObjectCommand({ Bucket: bucket, Key: chosen.key }),
-        { log }
-      );
+      const masterObj = await sendS3('GetObject', new GetObjectCommand({ Bucket: bucket, Key: chosen.key }), { log });
       const masterText = await streamToString(masterObj.Body);
-
-      // 2) Find first variant "playlist.m3u8" line
-      const variantRel = masterText.split('\n')
+      const variantRel = masterText
+        .split('\n')
         .map(l => l.trim())
         .find(l => l && !l.startsWith('#') && l.endsWith('playlist.m3u8'));
 
       if (!variantRel) {
-        warn('diag: master has no variant line', { keyTail: chosen.key.slice(-60) });
-      } else {
-        const prefix = chosen.key.replace(/\/master\.m3u8$/, '/');
-        const variantKey = prefix + variantRel;
-        const variantUrl = `https://${bucket}.s3.${region}.amazonaws.com/${variantKey}`;
-
-        // 3) Anonymous HEAD to the public URL (what the phone will hit)
-        const headVariant = await fetch(variantUrl, { method: 'HEAD' });
-        log('diag: variant HEAD', {
-          urlTail: variantUrl.slice(-100),
-          status: headVariant.status,
-          ct: headVariant.headers.get('content-type') || null
-        });
-
-        if (headVariant.ok) {
-          // 4) If variant is good, peek the first segment in that playlist
-          const variantObj = await sendS3(
-            'GetObject',
-            new GetObjectCommand({ Bucket: bucket, Key: variantKey }),
-            { log }
-          );
-          const variantText = await streamToString(variantObj.Body);
-          const segRel = variantText.split('\n')
-            .map(l => l.trim())
-            .find(l => l && !l.startsWith('#') && (l.endsWith('.ts') || l.endsWith('.m4s')));
-
-          if (segRel) {
-            // resolve relative to the variant folder
-            const segKey = variantKey.replace(/\/[^/]+$/, '/') + segRel;
-            const segUrl = `https://${bucket}.s3.${region}.amazonaws.com/${segKey}`;
-            const headSeg = await fetch(segUrl, { method: 'HEAD' });
-            log('diag: segment HEAD', {
-              urlTail: segUrl.slice(-100),
-              status: headSeg.status,
-              ct: headSeg.headers.get('content-type') || null
-            });
-          } else {
-            warn('diag: no segment lines in variant', { variantTail: variantKey.slice(-60) });
-          }
-        }
+        log('diag: master has no variant line', { keyTail: chosen.key.slice(-60) });
+        return res.json({ ready: false, status: 'warming_up' });
       }
+
+      const variantKey = chosen.key.replace(/\/master\.m3u8$/, `/${variantRel}`);
+      const variantUrl = `https://${bucket}.s3.${region}.amazonaws.com/${variantKey}`;
+      const hv = await fetch(variantUrl, { method: 'HEAD' });
+      log('diag: variant HEAD', { urlTail: variantUrl.slice(-100), status: hv.status, ok: hv.ok });
+
+      if (!hv.ok) return res.json({ ready: false, status: 'warming_up' });
     } catch (e) {
-      warn('diag probe failed', { err: e?.message });
+      log('variant gate error', { err: e?.message });
+      return res.json({ ready: false, status: 'warming_up' });
     }
 
     const playbackUrl = useCF
       ? `https://${process.env.CLOUDFRONT_DOMAIN}/${chosen.key}`
       : `https://${bucket}.s3.${region}.amazonaws.com/${chosen.key}`;
 
-    // Persist replay; session is ended
+    // Persist into recording.* and finalize session
     const update = {
       $set: {
-        replay: {
-          ready: true,
-          type: 'hls',
-          s3KeyPrefix: chosen.key.replace(/\/media\/hls\/master\.m3u8$/, ''),
-          masterKey: chosen.key,
-          playbackUrl,
+        recording: {
+          enabled: !!doc?.recording?.enabled,
+          vodUrl: playbackUrl,
+          s3Key: chosen.key,
+          // expiresAt: (optional) set if you lifecycle your VODs
         },
         status: 'ended',
         isActive: false,
@@ -771,39 +785,18 @@ router.get('/live/replay/:id', async (req, res) => {
       },
     };
     const resUpdate = await LiveStream.updateOne({ _id: doc._id }, update);
-    log('saved replay to doc', { matched: resUpdate.matchedCount, modified: resUpdate.modifiedCount });
+    log('saved recording to doc', { matched: resUpdate.matchedCount, modified: resUpdate.modifiedCount });
 
-    const payload = {
-      ready: true,
-      type: 'hls',
-      playbackUrl,
-      durationSec: doc?.metrics?.durationSec || null,
-      title: doc?.title || 'Live replay',
-    };
-
+    // (Optional) diag: HEAD a variant object
     try {
-      // Fetch the master body
-      const masterObj = await sendS3(
-        'GetObject',
-        new GetObjectCommand({ Bucket: bucket, Key: chosen.key }),
-        { log }
-      );
-
-      const masterText = await streamToString(masterObj.Body);
-      const variantLine = masterText.split('\n').find(l => l.endsWith('playlist.m3u8'));
+      const masterObj2 = await sendS3('GetObject', new GetObjectCommand({ Bucket: bucket, Key: chosen.key }), { log });
+      const masterText2 = await streamToString(masterObj2.Body);
+      const variantLine = masterText2.split('\n').find(l => l.endsWith('playlist.m3u8'));
       if (variantLine) {
         const variantKey = chosen.key.replace('master.m3u8', variantLine.trim());
         try {
-          const headVariant = await sendS3(
-            'HeadObject',
-            new HeadObjectCommand({ Bucket: bucket, Key: variantKey }),
-            { log }
-          );
-          log('variant HEAD ok', {
-            variantTail: variantKey.slice(-60),
-            status: 200,
-            ct: headVariant.ContentType,
-          });
+          const headVariant = await sendS3('HeadObject', new HeadObjectCommand({ Bucket: bucket, Key: variantKey }), { log });
+          log('variant HEAD ok', { variantTail: variantKey.slice(-60), status: 200, ct: headVariant.ContentType });
         } catch (e) {
           warn('variant HEAD failed', { variantTail: variantKey.slice(-60), err: e?.name || e?.message });
         }
@@ -811,6 +804,14 @@ router.get('/live/replay/:id', async (req, res) => {
     } catch (e) {
       warn('master fetch parse failed', { err: e?.message });
     }
+
+    const payload = {
+      ready: true,
+      type: 'hls',
+      playbackUrl,
+      durationSec: doc?.durationSec || null,
+      title: doc?.title || 'Live replay',
+    };
 
     log('RESPONSE', { status: 200, playbackUrl });
     return res.json(payload);
@@ -848,9 +849,14 @@ router.get('/live/replay/:id/diagnose', async (req, res) => {
         status: doc.status,
         channelArnTail: short(doc.channelArn),
         ingestEndpoint: doc.ingestEndpoint || null,
-        replay: !!doc.replay,
+        recording: {
+          enabled: !!doc?.recording?.enabled,
+          vodUrl: doc?.recording?.vodUrl || null,
+          s3Key: doc?.recording?.s3Key || null,
+        },
         startedAt: doc.startedAt || null,
         endedAt: doc.endedAt || null,
+        durationSec: doc.durationSec || null,
       },
       channel: null,
       recordingConfig: null,
@@ -896,6 +902,91 @@ router.get('/live/replay/:id/diagnose', async (req, res) => {
   } catch (e) {
     err('ERROR diagnose', { msg: e?.message, stack: e?.stack });
     return res.status(500).json({ message: 'diagnose failed', error: e?.message });
+  }
+});
+
+/**
+ * Mark posted/visibility (session row)
+ */
+router.post('/live/:id/post', verifyToken, async (req, res) => {
+  const rid = genRid('post');
+  const { log, warn, err } = mkLoggers(rid);
+
+  try {
+    log('REQUEST', { at: nowIso(), user: req.user?.id, params: req.params, body: req.body });
+
+    const hostUserId = req.user?.id;
+    if (!hostUserId) return res.status(401).json({ message: 'Unauthorized' });
+
+    const { id } = req.params;
+    const {
+      isPosted: bodyIsPosted,
+      visibility: bodyVisibility,
+      postId: rawPostId,
+    } = req.body || {};
+
+    const isPosted = (typeof bodyIsPosted === 'boolean') ? bodyIsPosted : true; // default: post
+    const allowedVis = new Set(['public', 'followers', 'private', 'unlisted']);
+    const visibility = bodyVisibility && allowedVis.has(bodyVisibility) ? bodyVisibility : undefined;
+
+    // Sanitize postId (optional)
+    let linkedPostId = undefined;
+    if (rawPostId !== undefined) {
+      if (rawPostId === null || rawPostId === '') {
+        linkedPostId = null;
+      } else if (String(rawPostId).match(/^[a-f\d]{24}$/i)) {
+        linkedPostId = rawPostId;
+      } else {
+        return res.status(400).json({ message: 'Invalid postId' });
+      }
+    }
+
+    const doc = await LiveStream.findOne({ _id: id, hostUserId });
+    if (!doc) {
+      log('post: doc not found', { id, hostUserId });
+      return res.status(404).json({ message: 'Stream not found' });
+    }
+
+    const update = { $set: {} };
+
+    // Keep isPosted and savedToProfile in sync if both exist
+    update.$set.isPosted       = !!isPosted;
+    update.$set.savedToProfile = !!isPosted;
+
+    if (visibility) update.$set.visibility = visibility;
+    if (linkedPostId !== undefined) update.$set.sharedPostId = linkedPostId;
+
+    const before = {
+      isPosted: !!doc.isPosted,
+      savedToProfile: !!doc.savedToProfile,
+      visibility: doc.visibility,
+      linkedPostId: doc.sharedPostId || null,
+    };
+
+    await LiveStream.updateOne({ _id: doc._id }, update);
+    const after = await LiveStream.findById(doc._id).lean();
+
+    log('RESPONSE', {
+      status: 200,
+      before,
+      after: {
+        isPosted: !!after.isPosted,
+        savedToProfile: !!after.savedToProfile,
+        visibility: after.visibility,
+        linkedPostId: after.sharedPostId || null,
+      },
+    });
+
+    return res.json({
+      ok: true,
+      id: String(after._id),
+      isPosted: !!after.isPosted || !!after.savedToProfile,
+      visibility: after.visibility,
+      postId: after.sharedPostId || null,
+    });
+  } catch (e) {
+    err('ERROR post', { msg: e?.message, stack: e?.stack });
+    return res.status(500).json({ message: 'Failed to mark as posted' });
   }
 });
 

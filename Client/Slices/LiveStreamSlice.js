@@ -47,10 +47,39 @@ export const startLiveSession = createAsyncThunk(
       if (title) payload.title = title;
       if (placeId) payload.placeId = placeId;
 
+      console.log('[LIVE/START] payload →', payload);
+
       const { data } = await axios.post(`${API}/live/start`, payload, auth);
-      return data; // { rtmpUrl, streamKey, liveId, playbackUrl }
+
+      console.log('[LIVE/START] raw response →', data);
+
+      // Defensive normalize
+      const streamKey =
+        typeof data.streamKey === 'string'
+          ? data.streamKey
+          : (data.streamKey?.value || data.key || data.stream_key || null);
+
+      const result = {
+        ...data,
+        streamKey,
+      };
+
+      console.log('[LIVE/START] normalized result →', {
+        ok: result?.ok,
+        liveId: result?.liveId || result?.id,
+        rtmpUrl: result?.rtmpUrl,
+        playbackUrl: result?.playbackUrl,
+        // log only meta about the key
+        keyLen: result?.streamKey ? result.streamKey.length : 0,
+        keyLast4: result?.streamKey ? result.streamKey.slice(-4) : null,
+      });
+
+      return result;
     } catch (e) {
-      return rejectWithValue(e?.response?.data?.message || e?.message || 'Failed to start live');
+      console.error('[LIVE/START] ERROR →', e?.response?.data || e?.message);
+      return rejectWithValue(
+        e?.response?.data?.message || e?.message || 'Failed to start live'
+      );
     }
   }
 );
@@ -88,6 +117,25 @@ export const fetchReplay = createAsyncThunk(
       const msg = payload?.message || e?.message || 'Failed to fetch replay';
       console.warn(`[${trace}] ✖ ERROR status=${status}`, payload);
       return rejectWithValue({ liveId, message: msg });
+    }
+  }
+);
+
+export const postLiveSession = createAsyncThunk(
+  'live/post',
+  async ({ liveId, isPosted = true, visibility, postId } = {}, { rejectWithValue }) => {
+    try {
+      if (!liveId) throw new Error('Missing liveId');
+      const auth = await getAuthHeaders();
+      const body = { isPosted };
+      if (visibility) body.visibility = visibility;
+      if (postId !== undefined) body.postId = postId;
+
+      const { data } = await axios.post(`${API}/live/${liveId}/post`, body, auth);
+      // data: { ok, id, isPosted, visibility, postId }
+      return data;
+    } catch (e) {
+      return rejectWithValue(e?.response?.data?.message || e?.message || 'Failed to post live');
     }
   }
 );
@@ -235,6 +283,35 @@ const liveSlice = createSlice({
         const id = a.payload;
         if (id) delete s.replaysById[id];
       });
+
+    builder
+      .addCase(postLiveSession.pending, (state, action) => {
+        const { liveId } = action.meta.arg || {};
+        if (!liveId) return;
+        state.postingById[liveId] = { status: 'loading', error: null };
+      })
+      .addCase(postLiveSession.fulfilled, (state, action) => {
+        const { id, isPosted, visibility, postId } = action.payload || {};
+        if (id) {
+          // Update the live entity if it's in the adapter
+          liveAdapter.updateOne(state, {
+            id,
+            changes: {
+              // keep both for compatibility with your backend/doc
+              isPosted: !!isPosted,
+              savedToProfile: !!isPosted,
+              visibility: visibility || undefined,
+              sharedPostId: postId ?? null,
+            },
+          });
+          state.postingById[id] = { status: 'succeeded', error: null };
+        }
+      })
+      .addCase(postLiveSession.rejected, (state, action) => {
+        const { liveId } = action.meta.arg || {};
+        if (!liveId) return;
+        state.postingById[liveId] = { status: 'failed', error: action.payload || 'Failed to post live' };
+      });
   },
 });
 
@@ -262,8 +339,8 @@ export const selectCurrentLive = (state) => state.live.currentLive;
 
 export const makeSelectReplayById =
   (liveId) =>
-  (state) =>
-    state.live.replaysById[liveId] || { status: 'idle', ready: false, playbackUrl: null, error: null };
+    (state) =>
+      state.live.replaysById[liveId] || { status: 'idle', ready: false, playbackUrl: null, error: null };
 
 export const selectStarting = (state) => state.live.starting;
 export const selectStartError = (state) => state.live.startError;
