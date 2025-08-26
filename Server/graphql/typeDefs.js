@@ -3,27 +3,7 @@ const { gql } = require('graphql-tag')
 // Define GraphQL Schema
 const typeDefs = gql`
   scalar Date
-
-  # ✅ Unified User Activity Type (Includes Reviews & Check-ins)
-  type UserActivity {
-    _id: ID!
-    userId: ID!
-    fullName: String!
-    placeId: String!
-    businessName: String
-    message: String
-    reviewText: String
-    rating: Int
-    date: String
-    photos: [Photo!]
-    likes: [Like!]
-    comments: [Comment!]
-    profilePicUrl: String
-    profilePic: ProfilePic
-    taggedUsers: [TaggedUser!]
-    type: String! # ✅ Used to distinguish reviews from check-ins
-  }
-
+  
   type User {
     id: ID!
     firstName: String
@@ -170,6 +150,39 @@ const typeDefs = gql`
     comments: [Comment]
     type: String!
     sortDate: String
+  }
+
+  enum LiveVisibility {
+    public
+    followers
+    private
+    unlisted
+  }
+
+  type LiveStream {
+    _id: ID!
+    userId: ID!
+    placeId: String
+    fullName: String
+    profilePic: String
+    profilePicUrl: String
+    message: String
+    date: Date!
+    playbackUrl: String
+    vodUrl: String
+    coverKey: String
+    previewThumbUrl: String
+    durationSecs: Int
+    isLive: Boolean!
+    startedAt: DateTime
+    endedAt: DateTime
+    type: String!
+    visibility: LiveVisibility
+    isPosted: Boolean!
+    postId: ID
+    comments: [Comment]
+    likes: [Like]
+    taggedUsers: [TaggedUser]
   }
 
   input ActivityCursor {
@@ -344,9 +357,9 @@ const typeDefs = gql`
     recommendPercentage: Int!
   }
 
-  union UserActivity = Review | CheckIn | ActivityInvite | SharedPost
-  union SharedContent = Review | CheckIn | ActivityInvite | Promotion | Event
-  union UserPost = Review | CheckIn | SharedPost
+  union UserActivity = Review | CheckIn | ActivityInvite | SharedPost | LiveStream
+  union SharedContent = Review | CheckIn | ActivityInvite | Promotion | Event | LiveStream
+  union UserPost = Review | CheckIn | SharedPost | LiveStream
   union OriginalOwner = User | Business
 
   # ✅ Queries
@@ -362,6 +375,7 @@ const typeDefs = gql`
     storiesByUser(userId: ID!): [StoryGroup]
     getBusinessRatingSummaries(placeIds: [String!]!): [BusinessRatingSummary!]!
     getUserAndFollowingSharedPosts(userId: ID!, userLat: Float, userLng: Float): [SharedPost]
+    getPostedLiveStreams(userId: ID!): [LiveStream]
   }
 `;
 
