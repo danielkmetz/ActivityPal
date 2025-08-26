@@ -2,7 +2,8 @@ const mongoose = require('mongoose');
 const { getUserAndFollowingReviews } = require('./getUserAndFollowingReviews');
 const { getUserAndFollowingCheckIns } = require('./getUserAndFollowingCheckIns');
 const { getUserAndFollowingInvites } = require('./getUserAndFollowingInvites');
-const { getUserAndFollowingSharedPosts } = require('./userAndFollowingSharedPosts')
+const { getUserAndFollowingSharedPosts } = require('./userAndFollowingSharedPosts');
+const { getPostedLiveStreams } = require('./getPostedLiveStreams');
 
 const getUserActivity = async (_, { userId, limit = 15, after, userLat, userLng }, { dataSources }) => {
   try {
@@ -14,6 +15,7 @@ const getUserActivity = async (_, { userId, limit = 15, after, userLat, userLng 
     const checkIns = await getUserAndFollowingCheckIns(_, { userId }, { dataSources }) || [];
     const inviteData = await getUserAndFollowingInvites(_, { userId }, { dataSources }) || {};
     const sharedPosts = await getUserAndFollowingSharedPosts(_, { userId, userLat, userLng }, { dataSources }) || [];
+    const liveStreams = await getPostedLiveStreams(_, { userId }, { dataSources }) || [];
 
     const invites = [
       ...(inviteData.userInvites || []),
@@ -34,6 +36,7 @@ const getUserActivity = async (_, { userId, limit = 15, after, userLat, userLng 
       ...checkIns.map(c => normalizeDate({ ...c, type: 'check-in' })),
       ...invites.map(i => normalizeDate({ ...i, type: 'invite' })),
       ...sharedPosts.map(s => normalizeDate({ ...s, type: 'sharedPost' })),
+      ...liveStreams.map(s => normalizeDate({ ...s, type: 'liveStream' })),
     ];
 
     let filtered = posts.sort((a, b) => new Date(b.sortDate) - new Date(a.sortDate));

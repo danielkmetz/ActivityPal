@@ -722,7 +722,7 @@ export default function GoLive({ navigation }) {
           <PreviewSentinel onUnmount={() => console.log('[PREVIEW] unmount callback fired')} />
           <ApiVideoLiveStreamView
             ref={liveRef}
-            style={S.preview}
+            style={[S.preview, isEnding && S.previewHidden]}
             camera={front ? 'front' : 'back'}
             enablePinchedZoom
             video={{ fps: 30, resolution: '720p', bitrate: 1.5 * 1024 * 1024, gopDuration: 2 }}
@@ -748,6 +748,7 @@ export default function GoLive({ navigation }) {
               scheduleRetry();
             }}
           />
+          {isEnding && <View pointerEvents="none" style={S.blackout} />}
         </View>
       )}
       <View style={S.topBar}>
@@ -757,7 +758,7 @@ export default function GoLive({ navigation }) {
         {statusBadge}
         <Pressable onPress={flip} style={S.pill}><Text style={S.pillTxt}>Flip</Text></Pressable>
       </View>
-      <View style={S.bottomBar}>
+      <View style={[S.bottomBar, isEnding && { opacity: 0.001 } /* freeze controls */]}>
         {showEndButton ? (
           <>
             <Text style={S.timer}>{formatTime(elapsed)}</Text>
@@ -821,5 +822,7 @@ const S = StyleSheet.create({
   end: { backgroundColor: '#ef4444' },
   retry: { backgroundColor: '#0ea5e9' },
   btnTxt: { color: '#fff', fontWeight: '700' },
-  connectingWrap: { alignItems: 'center', justifyContent: 'center', gap: 8 }
+  connectingWrap: { alignItems: 'center', justifyContent: 'center', gap: 8 },
+  previewHidden: { opacity: 0.001 }, // visually gone, ref stays valid for teardown
+  blackout: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000' },
 });

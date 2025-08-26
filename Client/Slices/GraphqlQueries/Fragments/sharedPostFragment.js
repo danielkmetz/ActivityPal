@@ -4,6 +4,7 @@ import { CHECKIN_FRAGMENT } from "./checkInFragment";
 import { INVITE_FRAGMENT } from "./inviteFragment";
 import { PROMOTION_FRAGMENT } from "./promotionFragment";
 import { EVENT_FRAGMENT } from "./eventFragment";
+import { LIVE_STREAM_FRAGMENT } from "./liveStreamsFragment";
 import { COMMENTS_REPLIES_FRAGMENT } from './commentsRepliesFragment';
 
 export const SHARED_POST_FRAGMENT = gql`
@@ -61,6 +62,9 @@ export const SHARED_POST_FRAGMENT = gql`
       ... on Event {
         ...EventFields
       }
+      ... on LiveStream {
+        ...LiveStreamFields
+      }
     }
   }
 
@@ -70,4 +74,5 @@ export const SHARED_POST_FRAGMENT = gql`
   ${PROMOTION_FRAGMENT}
   ${EVENT_FRAGMENT}
   ${COMMENTS_REPLIES_FRAGMENT}
+  ${LIVE_STREAM_FRAGMENT}
 `;

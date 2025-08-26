@@ -3,12 +3,14 @@ import { REVIEW_FRAGMENT } from '../Fragments/reviewFragment';
 import { CHECKIN_FRAGMENT } from '../Fragments/checkInFragment';
 import { INVITE_FRAGMENT } from '../Fragments/inviteFragment';
 import { SHARED_POST_FRAGMENT } from '../Fragments/sharedPostFragment';
+import { LIVE_STREAM_FRAGMENT } from '../Fragments/liveStreamsFragment';
 
 export const GET_USER_ACTIVITY_QUERY = gql`
   ${REVIEW_FRAGMENT}
   ${CHECKIN_FRAGMENT}
   ${INVITE_FRAGMENT}
   ${SHARED_POST_FRAGMENT}
+  ${LIVE_STREAM_FRAGMENT}
 
   query GetUserActivity($userId: ID!, $limit: Int, $after: ActivityCursor, $userLat: Float, $userLng: Float) {
     getUserActivity(userId: $userId, limit: $limit, after: $after, userLat: $userLat, userLng: $userLng) {
@@ -23,6 +25,10 @@ export const GET_USER_ACTIVITY_QUERY = gql`
       }
       ... on SharedPost {
         ...SharedPostFields
+      }
+
+      ... on LiveStream {
+        ...LiveStreamFields
       }
     }
   }
