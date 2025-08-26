@@ -1,4 +1,3 @@
-// LiveSummary.js (diagnostics build, JS only)
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
 import { Video } from 'expo-av';
@@ -256,9 +255,9 @@ export default function LiveSummary({ route, navigation }) {
     setPostToFeedModal(true);
   };
 
-  const openShareOptions = (post) => {
+  const openShareOptions = () => {
     setShareOptionsVisible(true);
-    setPostToShare(post)
+    setPostToShare(replay)
   };
 
   const closeShareOptions = () => {
@@ -337,7 +336,7 @@ export default function LiveSummary({ route, navigation }) {
       <SharePostModal
         visible={postToFeedModal}
         onClose={() => setPostToFeedModal(false)}
-        post={postToShare}
+        post={replay}
         // isEditing={null}
         // setIsEditing={null}
       />

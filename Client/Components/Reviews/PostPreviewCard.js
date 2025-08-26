@@ -9,6 +9,7 @@ import { useSmartVideoPlayer } from '../../utils/useSmartVideoPlayer';
 import { useSelector, useDispatch } from 'react-redux';
 import { fetchLogo, selectLogo } from '../../Slices/PhotosSlice';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
+import VideoThumbnail from './VideoThumbnail';
 
 const pinPic = 'https://cdn-icons-png.flaticon.com/512/684/684908.png';
 
@@ -37,6 +38,7 @@ export default function PostPreviewCard({ post }) {
 
   // ===== INVITE BRANCH (matches PostPreview style) =====
   const isInvite = (post?.type || post?.postType) === 'invite';
+  const isReplay = post?.type === 'hls' && post?.playbackUrl;
 
   const senderName = useMemo(() => {
     const first = post?.sender?.firstName || '';
@@ -71,6 +73,7 @@ export default function PostPreviewCard({ post }) {
       ? firstMedia
       : firstMedia?.url ||
         firstMedia?.uri ||
+        firstMedia?.playbackUrl ||
         firstMedia?.mediaUrl ||
         firstMedia?.media?.url;
 
@@ -112,13 +115,11 @@ export default function PostPreviewCard({ post }) {
             ) : null}
           </View>
         </View>
-
         {dateChip ? (
           <View style={styles.dateChip}>
             <Text style={styles.dateChipText}>{dateChip}</Text>
           </View>
         ) : null}
-
         {inviteMediaUri ? (
           <Image
             source={{ uri: inviteMediaUri }}
@@ -130,12 +131,39 @@ export default function PostPreviewCard({ post }) {
             <Text style={styles.placeholderEmoji}>🎟️</Text>
           </View>
         )}
-
         {!!inviteBottomText && (
           <Text numberOfLines={2} style={styles.reviewText}>
             {inviteBottomText}
           </Text>
         )}
+      </View>
+    );
+  }
+  
+  if (isReplay) {
+    return (
+      <View style={styles.card}>
+        <View style={styles.header}>
+          <Avatar.Image
+            size={40}
+            source={
+              profilePicUrl
+                ? { uri: profilePicUrl }
+                : profilePicPlaceholder
+            }
+          />
+          <Text style={styles.name} numberOfLines={1}>
+            {fullName || 'Live Replay'}
+          </Text>
+        </View>
+        <View style={{ alignSelf: 'center'}}>
+        <VideoThumbnail file={post} width={200} height={200} />
+        </View>
+        {post.title ? (
+          <Text numberOfLines={2} style={styles.reviewText}>
+            {post.title}
+          </Text>
+        ) : null}
       </View>
     );
   }
@@ -170,7 +198,6 @@ export default function PostPreviewCard({ post }) {
           ))}
         </View>
       )}
-
       {firstMedia ? (
         isVideo(firstMedia) ? (
           <VideoView
@@ -188,7 +215,6 @@ export default function PostPreviewCard({ post }) {
           <Text style={styles.placeholderEmoji}>🖼️</Text>
         </View>
       )}
-
       {displayDescription ? (
         <Text numberOfLines={2} style={styles.reviewText}>
           {displayDescription}

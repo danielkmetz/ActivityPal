@@ -1,4 +1,3 @@
-// routes/live.js — sessions-only; IVS holds channel config; Mongo holds session rows
 const router = require('express').Router();
 const {
   IvsClient,
@@ -13,10 +12,11 @@ const {
   StopStreamCommand,
 } = require('@aws-sdk/client-ivs');
 const { ListObjectsV2Command, HeadObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
-
+const User = require('../models/User');
 const LiveStream = require('../models/LiveStream');
 const verifyToken = require('../middleware/verifyToken');
 const { liveStreamS3Client: s3 } = require('../liveStreamS3Config');
+const { resolveUserProfilePics } = require('../utils/userPosts');
 
 const ivs = new IvsClient({ region: process.env.AWS_LIVE_STREAM_REGION });
 
@@ -76,7 +76,7 @@ const timeAsync = async (label, fn, { log }) => {
 };
 
 const sendIvs = async (name, cmd, { log }) => timeAsync(`ivs:${name}`, () => ivs.send(cmd), { log });
-const sendS3  = async (name, cmd, { log }) => timeAsync(`s3:${name}`,  () => s3.send(cmd),  { log });
+const sendS3 = async (name, cmd, { log }) => timeAsync(`s3:${name}`, () => s3.send(cmd), { log });
 
 /* ---------------------- ivs helpers (sessions only) ---------------------- */
 const channelNameFor = (hostUserId, placeId) =>
@@ -98,7 +98,7 @@ async function resolveChannel({ hostUserId, placeId, recordingArn, log, warn }) 
     arn = listed.channels[0].arn;
     const ch = await sendIvs('GetChannel', new GetChannelCommand({ arn }), { log }).catch(() => null);
     ingestEndpoint = ch?.channel?.ingestEndpoint || '';
-    playbackUrl    = ch?.channel?.playbackUrl || '';
+    playbackUrl = ch?.channel?.playbackUrl || '';
     recordingEnabled = !!ch?.channel?.recordingConfigurationArn;
     log('resolveChannel reuse', { name, channelArnTail: short(arn), ingestEndpoint, recordingEnabled });
   } else {
@@ -113,9 +113,9 @@ async function resolveChannel({ hostUserId, placeId, recordingArn, log, warn }) 
       { log }
     );
 
-    arn            = created?.channel?.arn;
+    arn = created?.channel?.arn;
     ingestEndpoint = created?.channel?.ingestEndpoint;
-    playbackUrl    = created?.channel?.playbackUrl;
+    playbackUrl = created?.channel?.playbackUrl;
     recordingEnabled = !!created?.channel?.recordingConfigurationArn;
 
     log('resolveChannel create', {
@@ -180,10 +180,10 @@ async function freshStreamKey({ channelArn, log, warn, safeRotate = true }) {
 
 function parseChannelArn(arn) {
   // arn:aws:ivs:<region>:<accountId>:channel/<channelId>
-  const parts    = (arn || '').split(':');
-  const accountId= parts[4];
+  const parts = (arn || '').split(':');
+  const accountId = parts[4];
   const resource = parts[5] || '';
-  const channelId= resource.split('/')[1];
+  const channelId = resource.split('/')[1];
   return { accountId, channelId };
 }
 
@@ -193,10 +193,10 @@ function parseIvsKeyTime(key) {
   if (parts.length < 13) return null;
   const L = parts.length;
   const minute = +parts[L - 5];
-  const hour   = +parts[L - 6];
-  const day    = +parts[L - 7];
-  const month  = +parts[L - 8];
-  const year   = +parts[L - 9];
+  const hour = +parts[L - 6];
+  const day = +parts[L - 7];
+  const month = +parts[L - 8];
+  const year = +parts[L - 9];
   if ([year, month, day, hour, minute].some(n => Number.isNaN(n))) {
     const m = key.match(/\/(\d{4})\/(\d{1,2})\/(\d{1,2})\/(\d{1,2})\/(\d{1,2})\//);
     if (!m) return null;
@@ -428,8 +428,8 @@ router.post('/live/stop', verifyToken, async (req, res) => {
     }
 
     ls.isActive = false;
-    ls.status   = 'ended';
-    ls.endedAt  = new Date();
+    ls.status = 'ended';
+    ls.endedAt = new Date();
     await ls.save();
     log('stop: doc updated', { id: String(ls._id), isActive: !!ls.isActive, status: ls.status });
 
@@ -582,7 +582,7 @@ router.get('/live/replay/:id', async (req, res) => {
   try {
     const bucket = process.env.IVS_RECORD_BUCKET;
     const region = process.env.AWS_LIVE_STREAM_REGION;
-    const useCF  = !!process.env.CLOUDFRONT_DOMAIN;
+    const useCF = !!process.env.CLOUDFRONT_DOMAIN;
 
     log('REQUEST', { at: nowIso(), params: req.params, env: { bucket: !!bucket, region, useCF } });
 
@@ -686,7 +686,7 @@ router.get('/live/replay/:id', async (req, res) => {
 
     // ---- S3 scan within session window ----
     const earliestAcceptable = new Date(startedAt.getTime() - 30 * 1000);
-    const latestAcceptable   = new Date(endedAt.getTime() + 5 * 60 * 1000);
+    const latestAcceptable = new Date(endedAt.getTime() + 5 * 60 * 1000);
 
     let ContinuationToken;
     const masters = [];
@@ -716,7 +716,7 @@ router.get('/live/replay/:id', async (req, res) => {
 
     // Pick best master for this session
     const startedAtMs = +startedAt;
-    const endedAtMs   = +endedAt;
+    const endedAtMs = +endedAt;
     function score(m) {
       const penalizeEarly = (m.keyTime && (+m.keyTime < startedAtMs)) ? 1e15 : 0;
       const distToEnd = Math.abs(+m.lm - endedAtMs);
@@ -806,6 +806,7 @@ router.get('/live/replay/:id', async (req, res) => {
     }
 
     const payload = {
+      _id: doc._id,
       ready: true,
       type: 'hls',
       playbackUrl,
@@ -913,10 +914,18 @@ router.post('/live/:id/post', verifyToken, async (req, res) => {
   const { log, warn, err } = mkLoggers(rid);
 
   try {
-    log('REQUEST', { at: nowIso(), user: req.user?.id, params: req.params, body: req.body });
+    log('REQUEST', {
+      at: nowIso(),
+      user: req.user?.id,
+      params: req.params,
+      body: req.body
+    });
 
     const hostUserId = req.user?.id;
-    if (!hostUserId) return res.status(401).json({ message: 'Unauthorized' });
+    if (!hostUserId) {
+      log('AUTH FAIL', { reason: 'Missing hostUserId' });
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
 
     const { id } = req.params;
     const {
@@ -925,11 +934,14 @@ router.post('/live/:id/post', verifyToken, async (req, res) => {
       postId: rawPostId,
     } = req.body || {};
 
-    const isPosted = (typeof bodyIsPosted === 'boolean') ? bodyIsPosted : true; // default: post
+    const isPosted = (typeof bodyIsPosted === 'boolean') ? bodyIsPosted : true;
+    log('PARSED isPosted', { bodyIsPosted, resolved: isPosted });
+
     const allowedVis = new Set(['public', 'followers', 'private', 'unlisted']);
     const visibility = bodyVisibility && allowedVis.has(bodyVisibility) ? bodyVisibility : undefined;
+    log('PARSED visibility', { bodyVisibility, resolved: visibility });
 
-    // Sanitize postId (optional)
+    // Sanitize postId
     let linkedPostId = undefined;
     if (rawPostId !== undefined) {
       if (rawPostId === null || rawPostId === '') {
@@ -937,24 +949,26 @@ router.post('/live/:id/post', verifyToken, async (req, res) => {
       } else if (String(rawPostId).match(/^[a-f\d]{24}$/i)) {
         linkedPostId = rawPostId;
       } else {
+        warn('Invalid postId', { rawPostId });
         return res.status(400).json({ message: 'Invalid postId' });
       }
     }
+    log('PARSED postId', { rawPostId, resolved: linkedPostId });
 
     const doc = await LiveStream.findOne({ _id: id, hostUserId });
     if (!doc) {
-      log('post: doc not found', { id, hostUserId });
+      log('DOC NOT FOUND', { id, hostUserId });
       return res.status(404).json({ message: 'Stream not found' });
     }
+    log('DOC FOUND', { docId: doc._id, current: { isPosted: doc.isPosted, visibility: doc.visibility } });
 
     const update = { $set: {} };
-
-    // Keep isPosted and savedToProfile in sync if both exist
-    update.$set.isPosted       = !!isPosted;
+    update.$set.isPosted = !!isPosted;
     update.$set.savedToProfile = !!isPosted;
-
     if (visibility) update.$set.visibility = visibility;
     if (linkedPostId !== undefined) update.$set.sharedPostId = linkedPostId;
+
+    log('UPDATE OBJECT', update);
 
     const before = {
       isPosted: !!doc.isPosted,
@@ -963,8 +977,77 @@ router.post('/live/:id/post', verifyToken, async (req, res) => {
       linkedPostId: doc.sharedPostId || null,
     };
 
-    await LiveStream.updateOne({ _id: doc._id }, update);
+    const updateResult = await LiveStream.updateOne({ _id: doc._id }, update);
+    log('UPDATE RESULT', updateResult);
+
     const after = await LiveStream.findById(doc._id).lean();
+    log('DOC AFTER UPDATE', after);
+
+    let fullName = null;
+    let profilePic = null;      // raw key/blob ref if you keep it
+    let profilePicUrl = null;   // must come from resolver only
+
+    try {
+      // Prefer singular helper if you have it
+      if (typeof resolveUserProfilePic === 'function') {
+        const p = await resolveUserProfilePic(hostUserId);
+        if (p) {
+          profilePic = p.profilePic ?? profilePic;     // keep if you want to expose the key
+          profilePicUrl = p.profilePicUrl ?? null;     // URL only from resolver
+        }
+        log('PROFILE RESOLVER (singular) OK', { hasUrl: !!profilePicUrl });
+      } else {
+        const profileMap = await resolveUserProfilePics([hostUserId]);
+        const p = profileMap[hostUserId] || profileMap[String(hostUserId)];
+        if (p) {
+          profilePic = p.profilePic ?? profilePic;
+          profilePicUrl = p.profilePicUrl ?? null;
+        }
+        log('PROFILE RESOLVER (plural) OK', { hasUrl: !!profilePicUrl });
+      }
+    } catch (e) {
+      warn('PROFILE RESOLVER FAILED', { msg: e?.message });
+    }
+
+    // Fallback to User doc ONLY for name (and optionally raw key), NOT for URL
+    try {
+      const userDoc = await User.findById(hostUserId)
+        .select('fullName firstName lastName profilePic') // no URL field here
+        .lean();
+
+      if (userDoc) {
+        fullName =
+          userDoc.fullName ||
+          [userDoc.firstName, userDoc.lastName].filter(Boolean).join(' ') ||
+          fullName;
+
+        // ok to keep raw key if you expose both key+url; do NOT synthesize a URL here
+        if (profilePic == null) profilePic = userDoc.profilePic ?? null;
+      }
+      log('USER DOC FALLBACK (name only)', { fullName, hasRawKey: !!profilePic, hasUrl: !!profilePicUrl });
+    } catch (e) {
+      warn('USER DOC LOOKUP FAILED', { msg: e?.message });
+    }
+
+    const date = after.endedAt || after.startedAt || after.createdAt || Date.now();
+    const message = after.title || after.description || null;
+
+    const liveStreamResponse = {
+      _id: after._id,
+      placeId: after.placeId || null,
+      userId: String(hostUserId),
+      fullName,
+      message,
+      profilePic,
+      profilePicUrl,
+      taggedUsers: [],
+      date,
+      photos: [],
+      type: 'liveStream',
+      visibility: after.visibility || null,
+      isPosted: !!after.isPosted || !!after.savedToProfile,
+      postId: after.sharedPostId || null,
+    };
 
     log('RESPONSE', {
       status: 200,
@@ -975,18 +1058,13 @@ router.post('/live/:id/post', verifyToken, async (req, res) => {
         visibility: after.visibility,
         linkedPostId: after.sharedPostId || null,
       },
+      payload: liveStreamResponse,
     });
 
-    return res.json({
-      ok: true,
-      id: String(after._id),
-      isPosted: !!after.isPosted || !!after.savedToProfile,
-      visibility: after.visibility,
-      postId: after.sharedPostId || null,
-    });
+    return res.json({ success: true, data: liveStreamResponse });
   } catch (e) {
     err('ERROR post', { msg: e?.message, stack: e?.stack });
-    return res.status(500).json({ message: 'Failed to mark as posted' });
+    return res.status(500).json({ success: false, message: 'Failed to mark as posted' });
   }
 });
 

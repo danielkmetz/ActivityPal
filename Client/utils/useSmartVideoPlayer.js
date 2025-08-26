@@ -8,12 +8,14 @@ export function useSmartVideoPlayer(file, shouldPlay = true) {
     file?.mediaUrl ||
     file?.mediaUploadUrl ||
     file?.signedUrl || // optional: cover more cases
+    file?.playbackUrl
     "";
 
   const isVideo =
     !!file &&
     (
       file?.type?.startsWith?.("video/") ||
+      file?.type === "hls" ||
       file?.photoKey?.toLowerCase?.().endsWith?.(".mov") ||
       file?.photoKey?.toLowerCase?.().endsWith?.(".mp4") ||
       uri?.toLowerCase?.().includes?.(".mov") ||

@@ -22,6 +22,7 @@ import SharePostModal from "./SharedPosts/SharePostModal";
 import SharedPostItem from "./SharedPosts/SharedPostItem";
 import { deleteSharedPost } from "../../Slices/SharedPostsSlice";
 import ShareOptionsModal from "./SharedPosts/ShareOptionsModal";
+import LiveStreamCard from '../LiveStream/LiveStreamCard';
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
@@ -288,6 +289,14 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
                 onShare={openShareOptions}
               />
             );
+          }
+          if (item.type === "liveStream") {
+            return (
+              <LiveStreamCard 
+                live={item}
+                onProfile={(userId) => navigation.navigate('OtherUserProfile', { userId })}
+              />
+            )
           }
           return (
             <ReviewItem

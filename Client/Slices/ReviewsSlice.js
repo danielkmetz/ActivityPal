@@ -491,9 +491,33 @@ const reviewsSlice = createSlice({
     },
     pushSharedPostToUserAndFriends: (state, action) => {
       const sharedPost = action.payload;
-      if (sharedPost && sharedPost._id) {
-        state.userAndFriendsReviews = [sharedPost, ...state.userAndFriendsReviews];
+
+      // 🔍 Logging
+      console.log('[reviews] pushSharedPostToUserAndFriends payload:', {
+        id: sharedPost?._id,
+        type: sharedPost?.type,
+      });
+
+      if (!sharedPost || !sharedPost._id) {
+        console.warn('[reviews] pushSharedPostToUserAndFriends: invalid payload');
+        return;
       }
+
+      // Ensure list exists
+      if (!Array.isArray(state.userAndFriendsReviews)) {
+        console.log('[reviews] init userAndFriendsReviews []');
+        state.userAndFriendsReviews = [];
+      }
+
+      // Optional: also keep a safe byId map so any code that indexes by ID won’t explode
+      if (!state.byId) {
+        console.log('[reviews] init byId {}');
+        state.byId = {};
+      }
+      state.byId[sharedPost._id] = sharedPost; // ← if some selector/UI expects a map, it’s now safe
+
+      // Prepend to the feed
+      state.userAndFriendsReviews = [sharedPost, ...state.userAndFriendsReviews];
     },
     pushSharedPostToProfileReviews: (state, action) => {
       const sharedPost = action.payload;

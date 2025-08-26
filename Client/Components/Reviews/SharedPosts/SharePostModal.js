@@ -21,6 +21,9 @@ import { useSelector, useDispatch } from 'react-redux';
 import { selectUser } from '../../../Slices/UserSlice';
 import { selectProfilePic } from '../../../Slices/PhotosSlice';
 import { createSharedPost, editSharedPost } from '../../../Slices/SharedPostsSlice';
+import VideoThumbnail from '../VideoThumbnail';
+import { addCheckInUserAndFriendsReviews } from '../../../Slices/ReviewsSlice';
+import { postLiveSession } from '../../../Slices/LiveStreamSlice';
 
 export default function SharePostModal({ visible, onClose, post, isEditing = false, setIsEditing }) {
   const dispatch = useDispatch();
@@ -28,6 +31,7 @@ export default function SharePostModal({ visible, onClose, post, isEditing = fal
   const profilePic = useSelector(selectProfilePic);
   const profilePicUrl = profilePic?.url || null;
   const sharedPost = isEditing ? post?.original : post
+  const isReplay = post?.type === 'hls' && post?.playbackUrl;
 
   const fullName = useMemo(() => {
     const first = user?.firstName ?? '';
@@ -50,9 +54,15 @@ export default function SharePostModal({ visible, onClose, post, isEditing = fal
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
+  console.log(post)
+
   const resolveShareType = () => {
     const t = post?.type?.toLowerCase?.();
     if (!t) return null;
+
+    if (t === 'hls') {
+      return 'replay';
+    }
 
     if (t === 'suggestion') {
       // Suggestion → promotion if kind mentions "promo", otherwise event
@@ -68,37 +78,52 @@ export default function SharePostModal({ visible, onClose, post, isEditing = fal
   };
 
   const handleSubmit = async () => {
+    console.log('[SharePostModal] handleSubmit called', { isEditing, post });
+
     if (!post?._id) {
       console.warn('[SharePostModal] Missing post ID.');
       return;
     }
 
-    if (isEditing) {
-      dispatch(
-        editSharedPost({
-          sharedPostId: post._id,
-          caption: comment.trim(),
-        })
-      );
+    try {
+      if (isEditing) {
+        console.log('[SharePostModal] editing shared post', post._id);
+        dispatch(
+          editSharedPost({
+            sharedPostId: post._id,
+            caption: comment.trim(),
+          })
+        );
+        setIsEditing(false);
+      } else {
+        const postType = resolveShareType();
+        console.log('[SharePostModal] resolved postType:', postType);
 
-      setIsEditing(false);
-    } else {
-      const postType = resolveShareType();
-      if (!postType) {
-        console.warn('[SharePostModal] Could not resolve post type.');
-        return;
+        if (!postType) {
+          console.warn('[SharePostModal] Could not resolve post type.');
+          return;
+        }
+
+        if (postType === 'replay') {
+          console.log('[SharePostModal] dispatching postLiveSession', post._id);
+          await dispatch(postLiveSession({ liveId: post._id, isPosted: true }));
+        } else {
+          console.log('[SharePostModal] dispatching createSharedPost', post._id);
+          await dispatch(
+            createSharedPost({
+              postType,
+              originalPostId: post._id,
+              caption: comment.trim(),
+            })
+          );
+        }
       }
-      dispatch(
-        createSharedPost({
-          postType,
-          originalPostId: post._id,
-          caption: comment.trim(),
-        })
-      );
-    }
 
-    setComment('');
-    await animateOut();
+      setComment('');
+      await animateOut();
+    } catch (err) {
+      console.error('[SharePostModal] ERROR in handleSubmit:', err);
+    }
   };
 
   useEffect(() => {
@@ -142,8 +167,13 @@ export default function SharePostModal({ visible, onClose, post, isEditing = fal
                         multiline
                         underlineColorAndroid="transparent"
                       />
-                      {/* Pass the original post through — PostPreviewCard can branch on post.type === 'invite' */}
-                      <PostPreviewCard post={sharedPost} />
+                      {!isReplay ? (
+                        <PostPreviewCard post={sharedPost} />
+                      ) : (
+                        <View style={{ alignSelf: 'center' }}>
+                          <VideoThumbnail file={post} width={200} height={200} />
+                        </View>
+                      )}
                     </View>
                   </View>
                   <TouchableOpacity onPress={handleSubmit} style={styles.shareButton}>

@@ -2,6 +2,7 @@
 import { createSlice, createAsyncThunk, createEntityAdapter, createSelector, createAction } from '@reduxjs/toolkit';
 import axios from 'axios';
 import { getAuthHeaders } from '../utils/Authorization/getAuthHeaders';
+import { pushSharedPostToUserAndFriends } from './ReviewsSlice';
 
 const API = `${process.env.EXPO_PUBLIC_SERVER_URL}/liveStream`;
 
@@ -123,18 +124,53 @@ export const fetchReplay = createAsyncThunk(
 
 export const postLiveSession = createAsyncThunk(
   'live/post',
-  async ({ liveId, isPosted = true, visibility, postId } = {}, { rejectWithValue }) => {
+  async ({ liveId, isPosted = true, visibility, postId } = {}, { dispatch, rejectWithValue }) => {
+    console.log('[postLiveSession] called with args:', { liveId, isPosted, visibility, postId });
     try {
       if (!liveId) throw new Error('Missing liveId');
+
       const auth = await getAuthHeaders();
+      console.log('[postLiveSession] auth headers:', auth);
+
       const body = { isPosted };
       if (visibility) body.visibility = visibility;
       if (postId !== undefined) body.postId = postId;
 
+      console.log('[postLiveSession] request body:', body);
+
       const { data } = await axios.post(`${API}/live/${liveId}/post`, body, auth);
-      // data: { ok, id, isPosted, visibility, postId }
-      return data;
+      console.log('[postLiveSession] raw response:', data);
+
+      if (data && typeof data === 'object') {
+        if (data.success === true && data.data) {
+          console.log('[postLiveSession] new shape detected');
+          dispatch(pushSharedPostToUserAndFriends(data.data));
+          return data.data;
+        }
+        if (data.ok !== undefined) {
+          console.log('[postLiveSession] old shape detected');
+          return {
+            _id: data.id,
+            userId: null,
+            placeId: null,
+            fullName: null,
+            message: null,
+            profilePic: null,
+            profilePicUrl: null,
+            taggedUsers: [],
+            date: Date.now(),
+            photos: [],
+            type: 'liveStream',
+            visibility: data.visibility ?? null,
+            isPosted: !!data.isPosted,
+            postId: data.postId ?? null,
+          };
+        }
+      }
+
+      throw new Error('Unexpected response shape');
     } catch (e) {
+      console.error('[postLiveSession] ERROR:', e?.response?.data || e?.message);
       return rejectWithValue(e?.response?.data?.message || e?.message || 'Failed to post live');
     }
   }
@@ -167,6 +203,7 @@ const liveSlice = createSlice({
 
     // Replays keyed by liveId to avoid cross-session collisions
     replaysById: {},         // { [liveId]: { status, ready, playbackUrl, error, ...raw } }
+    postingById: {},
   }),
   reducers: {
     // for socket/webhook pushes
@@ -288,28 +325,33 @@ const liveSlice = createSlice({
       .addCase(postLiveSession.pending, (state, action) => {
         const { liveId } = action.meta.arg || {};
         if (!liveId) return;
+        if (!state.postingById) state.postingById = {};       // 👈 guard
         state.postingById[liveId] = { status: 'loading', error: null };
       })
       .addCase(postLiveSession.fulfilled, (state, action) => {
-        const { id, isPosted, visibility, postId } = action.payload || {};
-        if (id) {
-          // Update the live entity if it's in the adapter
-          liveAdapter.updateOne(state, {
-            id,
-            changes: {
-              // keep both for compatibility with your backend/doc
-              isPosted: !!isPosted,
-              savedToProfile: !!isPosted,
-              visibility: visibility || undefined,
-              sharedPostId: postId ?? null,
-            },
-          });
-          state.postingById[id] = { status: 'succeeded', error: null };
-        }
+        const p = action.payload || {};
+        const id = p._id || p.id;                              // 👈 normalize
+        if (!id) return;
+
+        if (!state.postingById) state.postingById = {};        // 👈 guard
+
+        // If the entity might not exist yet, consider upsertOne(state, p)
+        liveAdapter.updateOne(state, {
+          id,                                                  // 👈 not "_id"
+          changes: {
+            isPosted: !!p.isPosted,
+            savedToProfile: !!p.isPosted,
+            visibility: p.visibility || undefined,
+            sharedPostId: p.postId ?? null,
+          },
+        });
+
+        state.postingById[id] = { status: 'succeeded', error: null };
       })
       .addCase(postLiveSession.rejected, (state, action) => {
         const { liveId } = action.meta.arg || {};
         if (!liveId) return;
+        if (!state.postingById) state.postingById = {};        // 👈 guard
         state.postingById[liveId] = { status: 'failed', error: action.payload || 'Failed to post live' };
       });
   },
