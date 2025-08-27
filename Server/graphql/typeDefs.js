@@ -3,6 +3,7 @@ const { gql } = require('graphql-tag')
 // Define GraphQL Schema
 const typeDefs = gql`
   scalar Date
+  scalar DateTime
   
   type User {
     id: ID!
@@ -45,7 +46,7 @@ const typeDefs = gql`
     likes: [Like]
     comments: [Comment]
     userId: ID!
-    fullName: String!
+    fullName: String
     profilePic: ProfilePic
     profilePicUrl: String
     taggedUsers: [TaggedUser]
@@ -59,7 +60,7 @@ const typeDefs = gql`
     _id: ID!
     date: Date
     userId: ID!
-    fullName: String!
+    fullName: String
     placeId: String!
     businessName: String
     message: String
@@ -162,12 +163,10 @@ const typeDefs = gql`
   type LiveStream {
     _id: ID!
     userId: ID!
-    placeId: String
     fullName: String
-    profilePic: String
+    profilePic: ProfilePic
     profilePicUrl: String
-    message: String
-    date: Date!
+    date: Date
     playbackUrl: String
     vodUrl: String
     coverKey: String
@@ -180,6 +179,7 @@ const typeDefs = gql`
     visibility: LiveVisibility
     isPosted: Boolean!
     postId: ID
+    caption: String
     comments: [Comment]
     likes: [Like]
     taggedUsers: [TaggedUser]
@@ -242,7 +242,7 @@ const typeDefs = gql`
   # ✅ Likes
   type Like {
     userId: ID!
-    fullName: String!
+    fullName: String
   }
 
   type Media {
@@ -256,7 +256,7 @@ const typeDefs = gql`
     _id: ID!
     commentText: String!
     userId: ID!
-    fullName: String!
+    fullName: String
     replies: [Reply!]
     likes: [Like]
     media: Media
@@ -267,7 +267,7 @@ const typeDefs = gql`
     _id: ID!
     commentText: String!
     userId: ID!
-    fullName: String!
+    fullName: String
     replies: [Reply!]
     likes: [Like]
     date: Date

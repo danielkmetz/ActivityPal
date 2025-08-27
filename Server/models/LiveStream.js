@@ -1,6 +1,8 @@
 // Server/models/LiveStream.js
 const mongoose = require('mongoose');
 const { Schema, model } = mongoose;
+const { CommentSchema } = require('./Comment.js');
+const { LikeSchema } = require('./Likes.js');
 
 const LiveStreamSchema = new Schema(
   {
@@ -50,6 +52,9 @@ const LiveStreamSchema = new Schema(
     // linkage to a feed post later
     isPosted:     { type: Boolean, default: false, index: true },
     sharedPostId: { type: Schema.Types.ObjectId, ref: 'Post', default: null },
+    caption: {type: String, default: null},
+    likes: [LikeSchema],
+    comments: [CommentSchema]
   },
   { timestamps: true }
 );

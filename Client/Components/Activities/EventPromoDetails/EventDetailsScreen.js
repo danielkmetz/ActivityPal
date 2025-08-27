@@ -6,8 +6,6 @@ import DetailsHeader from './DetailsHeader';
 import EventPromoCommentThread from './EventPromoCommentThread';
 import CommentInputFooter from '../../Reviews/CommentINputFooter';
 import { eventPromoLikeWithAnimation } from '../../../utils/LikeHandlers/promoEventLikes';
-import { leaveEventComment } from '../../../Slices/EventsSlice';
-import { leavePromoComment } from '../../../Slices/PromotionsSlice';
 import { useDispatch, useSelector } from 'react-redux';
 import dayjs from 'dayjs';
 import { selectUser } from '../../../Slices/UserSlice';
@@ -17,6 +15,7 @@ import { useLikeAnimations } from '../../../utils/LikeHandlers/LikeAnimationCont
 import { uploadReviewPhotos } from '../../../Slices/PhotosSlice';
 import { selectSelectedPromotion } from '../../../Slices/PromotionsSlice';
 import { selectSelectedEvent } from '../../../Slices/EventsSlice';
+import { addComment, toApiPostType } from '../../../Slices/CommentsSlice';
 
 export default function EventDetailsScreen() {
     const dispatch = useDispatch();
@@ -31,30 +30,21 @@ export default function EventDetailsScreen() {
     const replyingTo = useSelector(selectReplyingTo);
     const isEditing = useSelector(selectIsEditing);
     const [commentText, setCommentText] = useState('');
-    const [inputHeight, setInputHeight] = useState(40);
-    const [contentHeight, setContentHeight] = useState(40);
     const [selectedMedia, setSelectedMedia] = useState([]);
     const lastTapRef = useRef({});
-    const userId = user?.placeId ? user?.placeId : user?.id;
-    const fullName = `${user?.firstName} ${user?.lastName}`;
     const nestedreplyInput = useSelector(selectNestedReplyInput);
     const { getAnimation, registerAnimation } = useLikeAnimations();
     const animation = getAnimation(activity._id);
+    const apiPostType = toApiPostType(selectedType);
 
     const handleAddComment = async () => {
-        if ((!commentText || commentText.trim() === '') && (!selectedMedia || selectedMedia.length === 0)) {
-            return;
-        }
-
-        if (!post) {
-            return;
-        }
+        const hasText = !!commentText?.trim();
+        const hasMedia = (selectedMedia?.length || 0) > 0;
+        if (!post || (!hasText && !hasMedia)) return;
 
         let media = null;
-
-        if (selectedMedia && selectedMedia.length > 0) {
+        if (hasMedia) {
             const mediaFile = selectedMedia[0];
-            
             try {
                 const result = await dispatch(
                     uploadReviewPhotos({
@@ -66,29 +56,30 @@ export default function EventDetailsScreen() {
                 if (result?.length > 0) {
                     media = {
                         photoKey: result[0],
-                        mediaType: mediaFile.type.startsWith('video') ? 'video' : 'image',
+                        mediaType: mediaFile.type?.startsWith('video') ? 'video' : 'image',
                     };
                 }
-            } catch (error) {
-                console.error('❌ Media upload failed:', error);
+            } catch {
+                // non-fatal; continue without media
             }
         }
 
-        const commentThunk = selectedType === 'event' ? leaveEventComment : leavePromoComment;
+        try {
+            await dispatch(
+                addComment({
+                    postType: apiPostType,
+                    postId: post._id,
+                    commentText: commentText.trim(),
+                    ...(media && { media }),
+                })
+            ).unwrap();
 
-        dispatch(commentThunk({
-            placeId: activity.placeId,
-            id: activity._id,
-            userId,
-            fullName,
-            commentText,
-            ...(media && { media }),
-        }));
-
-        setCommentText('');
-        setSelectedMedia([]);
-        setContentHeight(40);
-        dispatch(setReplyingTo(null));
+            setCommentText('');
+            setSelectedMedia([]);
+            dispatch(setReplyingTo(null));
+        } catch (e) {
+            console.error('🚫 Failed to submit comment:', e);
+        }
     };
 
     const handleLikeWithAnimation = (item, force = false) => {

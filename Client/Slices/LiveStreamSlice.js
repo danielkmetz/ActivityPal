@@ -1,8 +1,8 @@
-// Slices/LiveStreamSlice.js
 import { createSlice, createAsyncThunk, createEntityAdapter, createSelector, createAction } from '@reduxjs/toolkit';
 import axios from 'axios';
 import { getAuthHeaders } from '../utils/Authorization/getAuthHeaders';
 import { pushSharedPostToUserAndFriends } from './ReviewsSlice';
+import { updateSharedPostInReviews } from './ReviewsSlice';
 
 const API = `${process.env.EXPO_PUBLIC_SERVER_URL}/liveStream`;
 
@@ -124,15 +124,15 @@ export const fetchReplay = createAsyncThunk(
 
 export const postLiveSession = createAsyncThunk(
   'live/post',
-  async ({ liveId, isPosted = true, visibility, postId } = {}, { dispatch, rejectWithValue }) => {
-    console.log('[postLiveSession] called with args:', { liveId, isPosted, visibility, postId });
+  async ({ liveId, isPosted = true, visibility, postId, caption } = {}, { dispatch, rejectWithValue }) => {
+    console.log('[postLiveSession] called with args:', { liveId, isPosted, visibility, postId, caption });
     try {
       if (!liveId) throw new Error('Missing liveId');
 
       const auth = await getAuthHeaders();
       console.log('[postLiveSession] auth headers:', auth);
 
-      const body = { isPosted };
+      const body = { isPosted, caption };
       if (visibility) body.visibility = visibility;
       if (postId !== undefined) body.postId = postId;
 
@@ -164,6 +164,7 @@ export const postLiveSession = createAsyncThunk(
             visibility: data.visibility ?? null,
             isPosted: !!data.isPosted,
             postId: data.postId ?? null,
+            caption: data.caption,
           };
         }
       }
@@ -172,6 +173,94 @@ export const postLiveSession = createAsyncThunk(
     } catch (e) {
       console.error('[postLiveSession] ERROR:', e?.response?.data || e?.message);
       return rejectWithValue(e?.response?.data?.message || e?.message || 'Failed to post live');
+    }
+  }
+);
+
+export const unpostLiveSession = createAsyncThunk(
+  'live/unpost',
+  async ({ liveId, removeLinkedPost = true } = {}, { rejectWithValue }) => {
+    try {
+      if (!liveId) throw new Error('Missing liveId');
+      const auth = await getAuthHeaders();
+      const { data } = await axios.post(
+        `${API}/live/${liveId}/unpost`,
+        { removeLinkedPost },
+        auth
+      );
+
+      // Expected new shape: { success: true, data: {...} }
+      if (data && data.success === true && data.data) {
+        return data.data; // {_id, isPosted:false, postId:null, visibility, ...}
+      }
+
+      // Fallback / unexpected shape
+      throw new Error('Unexpected response shape');
+    } catch (e) {
+      return rejectWithValue(e?.response?.data?.message || e?.message || 'Failed to unpost live');
+    }
+  }
+);
+
+// Thunk: edit live stream caption
+export const editLiveCaption = createAsyncThunk(
+  'live/editCaption',
+  async ({ liveId, caption } = {}, { dispatch, rejectWithValue }) => {
+    try {
+      if (!liveId) throw new Error('Missing liveId');
+      const auth = await getAuthHeaders();
+      const { data } = await axios.patch(`${API}/live/${liveId}/caption`, { caption }, auth);
+
+      if (data?.success && data?.data) {
+        const p = data.data; // {_id, caption, ...}
+
+        // ✅ Update the central posts store (ReviewsSlice) using your helper
+        dispatch(updateSharedPostInReviews({
+          postId: p._id,
+          updates: { caption: p.caption ?? null },
+        }));
+
+        return p;
+      }
+      throw new Error('Unexpected response shape');
+    } catch (e) {
+      return rejectWithValue(e?.response?.data?.message || e?.message || 'Failed to update caption');
+    }
+  }
+);
+
+// --- Thunk: toggle like/unlike on a live stream ---
+export const toggleLiveLike = createAsyncThunk(
+  'live/toggleLike',
+  async ({ liveId }, { getState, dispatch, rejectWithValue }) => {
+    try {
+      if (!liveId) throw new Error('Missing liveId');
+      const auth = await getAuthHeaders();
+      const { data } = await axios.post(`${API}/live/${liveId}/like`, {}, auth);
+
+      // Expected shape: { success: true, liked: boolean, likesCount: number, likes: Like[] }
+      if (!data || data.success !== true) {
+        throw new Error('Unexpected response shape');
+      }
+
+      // Keep the central feed (ReviewsSlice) in sync if this live stream is posted to the feed
+      try {
+        dispatch(updateSharedPostInReviews({
+        postId: liveId,
+        updates: {
+          __updatePostLikes: data.likes,
+        },
+      }));
+      } catch (_) { }
+
+      return {
+        liveId,
+        liked: !!data.liked,
+        likes: Array.isArray(data.likes) ? data.likes : [],
+        likesCount: typeof data.likesCount === 'number' ? data.likesCount : (Array.isArray(data.likes) ? data.likes.length : 0),
+      };
+    } catch (e) {
+      return rejectWithValue(e?.response?.data?.message || e?.message || 'Failed to like/unlike stream');
     }
   }
 );
@@ -353,6 +442,114 @@ const liveSlice = createSlice({
         if (!liveId) return;
         if (!state.postingById) state.postingById = {};        // 👈 guard
         state.postingById[liveId] = { status: 'failed', error: action.payload || 'Failed to post live' };
+      });
+
+    /* ------- unpostLiveSession ------- */
+    builder
+      .addCase(unpostLiveSession.pending, (state, action) => {
+        const { liveId } = action.meta.arg || {};
+        if (!liveId) return;
+        if (!state.postingById) state.postingById = {};
+        state.postingById[liveId] = { status: 'loading', error: null };
+      })
+      .addCase(unpostLiveSession.fulfilled, (state, action) => {
+        const p = action.payload || {};
+        const id = p._id || p.id;
+        if (!id) return;
+
+        if (!state.postingById) state.postingById = {};
+
+        // Update live entity flags; server already returns postId as null if it was cleared
+        liveAdapter.updateOne(state, {
+          id,
+          changes: {
+            isPosted: false,
+            savedToProfile: false,
+            visibility: p.visibility || undefined,
+            sharedPostId: p.postId ?? null,
+          },
+        });
+
+        state.postingById[id] = { status: 'succeeded', error: null };
+      })
+      .addCase(unpostLiveSession.rejected, (state, action) => {
+        const { liveId } = action.meta.arg || {};
+        if (!liveId) return;
+        if (!state.postingById) state.postingById = {};
+        state.postingById[liveId] = {
+          status: 'failed',
+          error: action.payload || 'Failed to unpost live',
+        };
+      });
+
+    builder
+      .addCase(editLiveCaption.pending, (state, action) => {
+        const { liveId } = action.meta.arg || {};
+        if (!liveId) return;
+        if (!state.postingById) state.postingById = {};
+        state.postingById[liveId] = { status: 'loading', error: null, op: 'caption' };
+      })
+      .addCase(editLiveCaption.fulfilled, (state, action) => {
+        const p = action.payload || {};
+        const id = p._id || p.id;
+        if (!id) return;
+
+        // If entity might not exist yet, consider upsertOne(state, p)
+        liveAdapter.updateOne(state, {
+          id,
+          changes: {
+            caption: p.caption ?? null,
+          },
+        });
+
+        if (!state.postingById) state.postingById = {};
+        state.postingById[id] = { status: 'succeeded', error: null, op: 'caption' };
+      })
+      .addCase(editLiveCaption.rejected, (state, action) => {
+        const { liveId } = action.meta.arg || {};
+        if (!liveId) return;
+        if (!state.postingById) state.postingById = {};
+        state.postingById[liveId] = {
+          status: 'failed',
+          error: action.payload || 'Failed to update caption',
+          op: 'caption',
+        };
+      });
+
+    /* ------- toggleLiveLike ------- */
+    builder
+      .addCase(toggleLiveLike.pending, (state, action) => {
+        const { liveId } = action.meta.arg || {};
+        if (!liveId) return;
+        if (!state.postingById) state.postingById = {};
+        state.postingById[liveId] = { status: 'loading', error: null, op: 'like' };
+      })
+      .addCase(toggleLiveLike.fulfilled, (state, action) => {
+        const { liveId, liked, likes, likesCount } = action.payload || {};
+        if (!liveId) return;
+
+        // Upsert in case this entity isn't in the list yet
+        liveAdapter.updateOne(state, {
+          id: liveId,
+          changes: {
+            likedByMe: liked,
+            likesCount,
+            likes, // store the array if you keep it on the entity
+          },
+        });
+
+        if (!state.postingById) state.postingById = {};
+        state.postingById[liveId] = { status: 'succeeded', error: null, op: 'like' };
+      })
+      .addCase(toggleLiveLike.rejected, (state, action) => {
+        const { liveId } = action.meta.arg || {};
+        if (!liveId) return;
+        if (!state.postingById) state.postingById = {};
+        state.postingById[liveId] = {
+          status: 'failed',
+          error: action.payload || 'Failed to like/unlike stream',
+          op: 'like',
+        };
       });
   },
 });

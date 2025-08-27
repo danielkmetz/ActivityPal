@@ -1,4 +1,3 @@
-// selectors/reviewSelectors.js
 import { createSelector } from '@reduxjs/toolkit';
 import {
   selectUserAndFriendsReviews,

@@ -14,13 +14,12 @@ const safeStringify = (obj) => {
   );
 };
 
-export const updatePostCollections = ({
-  state,
+export const updateNearbySuggestions = ({
+  state,                 // draft of root state OR the GooglePlaces slice draft
   postId,
   updates = {},
-  postKeys = [],
-  debug = true,             // ⬅️ set to false to silence logs
-  label = 'updatePostCollections'
+  debug = true,
+  label = 'updateNearbyCollections',
 }) => {
   const start = Date.now();
   const stamp = () => new Date().toISOString();
@@ -33,15 +32,17 @@ export const updatePostCollections = ({
     groupEnd: () => debug && console.groupEnd(),
   };
 
+  const G = state?.GooglePlaces || state; // support root draft or slice draft
+  const listKey = 'nearbySuggestions';
+
   const applyCustomUpdate = (post) => {
     if (!post) {
       log.warn('applyCustomUpdate called with falsy post');
       return;
     }
 
-    log.group(`Applying updates to post ${post._id || '(no _id)'} ...`);
+    log.group(`Applying updates to nearby post ${post._id || '(no _id)'} ...`);
     log.info('incoming updates keys:', Object.keys(updates));
-
     const u = updates || {};
 
     try {
@@ -67,7 +68,7 @@ export const updatePostCollections = ({
     }
 
     try {
-      // 1) Append a reply to a specific comment
+      // 1) Append a reply
       if (u.__appendReply) {
         const { commentId, reply } = u.__appendReply;
         let inserted = false;
@@ -75,7 +76,7 @@ export const updatePostCollections = ({
         const insertReply = (comments) => {
           for (const c of comments) {
             if (!c || typeof c !== 'object') continue;
-            if (c._id === commentId) {
+            if (String(c._id) === String(commentId)) {
               const before = (c.replies || []).length;
               c.replies = [...(c.replies || []), reply];
               inserted = true;
@@ -110,7 +111,7 @@ export const updatePostCollections = ({
         const updateComment = (comments) => {
           for (const c of comments) {
             if (!c || typeof c !== 'object') continue;
-            if (c._id === commentId) {
+            if (String(c._id) === String(commentId)) {
               Object.assign(c, updatedComment || {});
               updated = true;
               log.info(`__updateComment -> updated commentId=${commentId}`, '\npatch:', safeStringify(updatedComment));
@@ -145,7 +146,7 @@ export const updatePostCollections = ({
           comments
             .map((c) => {
               if (!c || typeof c !== 'object') return c;
-              if (c._id === targetId) {
+              if (String(c._id) === String(targetId)) {
                 removed = true;
                 return null;
               }
@@ -169,16 +170,15 @@ export const updatePostCollections = ({
     }
 
     try {
-      // 4) Update likes on a comment or reply (immutable rebuild so lists re-render)
+      // 4) Update likes on a comment or reply (immutable array identities)
       if (u.__updateCommentLikes) {
         const { commentId: topId, replyId, likes = [] } = u.__updateCommentLikes;
 
-        // Immutable helpers
         const updateReplyLikesDeep = (nodes) => {
           let changed = false;
           const next = (nodes || []).map((n) => {
             if (!n || typeof n !== 'object') return n;
-            if (String(n._id) === String(replyId)) {
+            if (replyId && String(n._id) === String(replyId)) {
               changed = true;
               return { ...n, likes };
             }
@@ -197,7 +197,6 @@ export const updatePostCollections = ({
         if (!Array.isArray(post.comments)) {
           log.warn('__updateCommentLikes skipped: post.comments is not an array');
         } else if (replyId) {
-          // Try to scope to the top-level subtree first
           const idx = (post.comments || []).findIndex((c) => String(c?._id) === String(topId));
           if (idx !== -1) {
             const top = post.comments[idx];
@@ -211,20 +210,18 @@ export const updatePostCollections = ({
               ];
               log.info(`__updateCommentLikes (reply) -> updated under topId=${topId}, replyId=${replyId}, likes=${likes.length}`);
             } else {
-              log.warn(`__updateCommentLikes (reply) -> no change under topId=${topId}; replyId=${replyId} not found`);
+              log.warn(`__updateCommentLikes (reply) -> not found under topId=${topId}, replyId=${replyId}`);
             }
           } else {
-            // Fallback: rebuild entire comments tree
             const { next: newComments, changed } = updateReplyLikesDeep(post.comments || []);
             if (changed) {
               post.comments = newComments;
               log.info(`__updateCommentLikes (reply) -> updated via full-tree scan, replyId=${replyId}, likes=${likes.length}`);
             } else {
-              log.warn(`__updateCommentLikes (reply) -> replyId=${replyId} not found in full-tree scan`);
+              log.warn(`__updateCommentLikes (reply) -> replyId=${replyId} not found`);
             }
           }
         } else {
-          // Top-level like: replace that comment object, and comments array
           const beforeHits = (post.comments || []).filter((c) => String(c._id) === String(topId)).length;
           post.comments = (post.comments || []).map((c) =>
             String(c._id) === String(topId) ? { ...c, likes } : c
@@ -242,7 +239,7 @@ export const updatePostCollections = ({
     }
 
     try {
-      // 5) Shallow-merge any other fields (excluding the __-prefixed control keys)
+      // 5) Shallow-merge any plain fields (non __-keys)
       const plainEntries = Object.entries(u).filter(([k]) => !k.startsWith('__'));
       if (plainEntries.length) {
         Object.assign(post, Object.fromEntries(plainEntries));
@@ -256,46 +253,41 @@ export const updatePostCollections = ({
   };
 
   try {
-    // Apply to lists that contain the post
-    for (const key of postKeys || []) {
-      try {
-        const list = state?.[key];
-        if (!Array.isArray(list)) {
-          log.warn(`State key "${key}" is not an array; skipping.`);
-          continue;
-        }
-        const idx = list.findIndex((p) => String(p?._id) === String(postId));
-        if (idx === -1) {
-          log.warn(`Post ${postId} not found in list "${key}"`);
-          continue;
-        }
-        log.group(`Updating list "${key}" at index ${idx}`);
+    const list = G?.[listKey];
+    if (!Array.isArray(list)) {
+      log.warn(`State key "${listKey}" is not an array; skipping.`);
+    } else {
+      const idx = list.findIndex((p) => String(p?._id) === String(postId));
+      if (idx === -1) {
+        log.warn(`Post ${postId} not found in list "${listKey}"`);
+      } else {
+        log.group(`Updating list "${listKey}" at index ${idx}`);
         applyCustomUpdate(list[idx]);
         log.groupEnd();
-      } catch (err) {
-        log.error(`Error while updating list "${key}"`, err);
       }
     }
 
-    // Apply to selectedReview / selectedPost if it matches
-    let sel = null;
-    if (state?.selectedPost?._id === postId) {
-      sel = state.selectedPost;
-      log.info('selectedPost matches postId; applying updates.');
-    } else if (state?.selectedReview?._id === postId) {
-      sel = state.selectedReview;
-      log.info('selectedReview matches postId; applying updates.');
-    }
+    // Optional: if you later keep a focused object for details
+    const sel =
+      G?.selectedSuggestion && String(G.selectedSuggestion?._id) === String(postId)
+        ? G.selectedSuggestion
+        : null;
 
     if (sel) {
       try {
+        log.info('selectedSuggestion matches postId; applying updates.');
         applyCustomUpdate(sel);
       } catch (err) {
-        log.error('Failed applying updates to selected item:', err);
+        log.error('Failed applying updates to selectedSuggestion:', err);
       }
     }
   } catch (outerErr) {
-    log.error('Unhandled error in updatePostCollections root:', outerErr, '\nstate keys:', Object.keys(state || {}));
+    log.error(
+      'Unhandled error in updateNearbyCollections root:',
+      outerErr,
+      '\nstate keys:',
+      Object.keys(G || {})
+    );
   } finally {
     const ms = Date.now() - start;
     log.info(`Done postId=${postId} in ${ms}ms`);

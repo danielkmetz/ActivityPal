@@ -20,6 +20,9 @@ const verifyToken = async (req, res, next) => {
     // Attach user information to the request object
     req.user = {
       id: decoded.id,
+      fullName: decoded.fullName || [decoded.firstName, decoded.lastName].filter(Boolean).join(' '),
+      firstName: decoded.firstName,
+      lastName: decoded.lastName,
       isBusiness: decoded.isBusiness,
     };
 
