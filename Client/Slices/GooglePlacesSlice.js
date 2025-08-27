@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
+import { updateNearbySuggestions } from '../utils/posts/UpdateNearbySuggestions';
 
 const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
 
@@ -255,6 +256,17 @@ const GooglePlacesSlice = createSlice({
         console.warn("❌ Failed to find and remove comment or reply.");
       }
     },
+    applyNearbyUpdates: (state, action) => {
+      const { postId, updates, debug, label } = action.payload || {};
+      if (!postId || !updates) return;
+      updateNearbySuggestions({
+        state,            // slice draft
+        postId,
+        updates,
+        debug,
+        label,
+      });
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -305,6 +317,7 @@ export const {
   addNearbySuggestionReply,
   removeNearbySuggestionCommentOrReply,
   updateNearbySuggestionLikes,
+  applyNearbyUpdates,
 } = GooglePlacesSlice.actions;
 
 export const selectGooglePlaces = (state) => state.GooglePlaces.curatedPlaces || [];

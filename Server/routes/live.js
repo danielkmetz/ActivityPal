@@ -932,6 +932,7 @@ router.post('/live/:id/post', verifyToken, async (req, res) => {
       isPosted: bodyIsPosted,
       visibility: bodyVisibility,
       postId: rawPostId,
+      caption: rawCaption,                 // <-- NEW: caption from body
     } = req.body || {};
 
     const isPosted = (typeof bodyIsPosted === 'boolean') ? bodyIsPosted : true;
@@ -955,18 +956,34 @@ router.post('/live/:id/post', verifyToken, async (req, res) => {
     }
     log('PARSED postId', { rawPostId, resolved: linkedPostId });
 
+    // Sanitize caption (trim; allow explicit clearing with null/"")
+    // If you want to enforce a max length, add: .slice(0, 2000)
+    let caption = undefined;
+    if (rawCaption !== undefined) {
+      if (rawCaption === null || (typeof rawCaption === 'string' && rawCaption.trim() === '')) {
+        caption = null; // explicit clear
+      } else if (typeof rawCaption === 'string') {
+        caption = rawCaption.trim(); // save trimmed
+      } else {
+        warn('Invalid caption type', { typeof: typeof rawCaption });
+        return res.status(400).json({ message: 'Invalid caption' });
+      }
+    }
+    log('PARSED caption', { provided: rawCaption !== undefined, isNull: caption === null, len: typeof caption === 'string' ? caption.length : null });
+
     const doc = await LiveStream.findOne({ _id: id, hostUserId });
     if (!doc) {
       log('DOC NOT FOUND', { id, hostUserId });
       return res.status(404).json({ message: 'Stream not found' });
     }
-    log('DOC FOUND', { docId: doc._id, current: { isPosted: doc.isPosted, visibility: doc.visibility } });
+    log('DOC FOUND', { docId: doc._id, current: { isPosted: doc.isPosted, visibility: doc.visibility, hasCaption: !!doc.caption } });
 
     const update = { $set: {} };
     update.$set.isPosted = !!isPosted;
     update.$set.savedToProfile = !!isPosted;
     if (visibility) update.$set.visibility = visibility;
     if (linkedPostId !== undefined) update.$set.sharedPostId = linkedPostId;
+    if (caption !== undefined) update.$set.caption = caption; // <-- NEW: persist caption (can be string or null)
 
     log('UPDATE OBJECT', update);
 
@@ -975,25 +992,25 @@ router.post('/live/:id/post', verifyToken, async (req, res) => {
       savedToProfile: !!doc.savedToProfile,
       visibility: doc.visibility,
       linkedPostId: doc.sharedPostId || null,
+      caption: doc.caption ?? null,
     };
 
     const updateResult = await LiveStream.updateOne({ _id: doc._id }, update);
     log('UPDATE RESULT', updateResult);
 
     const after = await LiveStream.findById(doc._id).lean();
-    log('DOC AFTER UPDATE', after);
+    log('DOC AFTER UPDATE', { id: after._id, isPosted: after.isPosted, visibility: after.visibility, hasCaption: !!after.caption });
 
     let fullName = null;
     let profilePic = null;      // raw key/blob ref if you keep it
     let profilePicUrl = null;   // must come from resolver only
 
     try {
-      // Prefer singular helper if you have it
       if (typeof resolveUserProfilePic === 'function') {
         const p = await resolveUserProfilePic(hostUserId);
         if (p) {
-          profilePic = p.profilePic ?? profilePic;     // keep if you want to expose the key
-          profilePicUrl = p.profilePicUrl ?? null;     // URL only from resolver
+          profilePic = p.profilePic ?? profilePic;
+          profilePicUrl = p.profilePicUrl ?? null;
         }
         log('PROFILE RESOLVER (singular) OK', { hasUrl: !!profilePicUrl });
       } else {
@@ -1012,7 +1029,7 @@ router.post('/live/:id/post', verifyToken, async (req, res) => {
     // Fallback to User doc ONLY for name (and optionally raw key), NOT for URL
     try {
       const userDoc = await User.findById(hostUserId)
-        .select('fullName firstName lastName profilePic') // no URL field here
+        .select('fullName firstName lastName profilePic')
         .lean();
 
       if (userDoc) {
@@ -1021,13 +1038,110 @@ router.post('/live/:id/post', verifyToken, async (req, res) => {
           [userDoc.firstName, userDoc.lastName].filter(Boolean).join(' ') ||
           fullName;
 
-        // ok to keep raw key if you expose both key+url; do NOT synthesize a URL here
         if (profilePic == null) profilePic = userDoc.profilePic ?? null;
       }
       log('USER DOC FALLBACK (name only)', { fullName, hasRawKey: !!profilePic, hasUrl: !!profilePicUrl });
     } catch (e) {
       warn('USER DOC LOOKUP FAILED', { msg: e?.message });
     }
+
+    const date = after.endedAt || after.startedAt || after.createdAt || Date.now();
+    const message = after.title || after.description || null;
+
+    const liveStreamResponse = {
+      _id: after._id,
+      placeId: after.placeId || null,
+      userId: String(hostUserId),
+      fullName,
+      message,
+      caption: after.caption ?? null,       // <-- NEW: include caption in payload
+      profilePic,
+      profilePicUrl,
+      taggedUsers: [],
+      date,
+      photos: [],
+      type: 'liveStream',
+      visibility: after.visibility || null,
+      isPosted: !!after.isPosted || !!after.savedToProfile,
+      postId: after.sharedPostId || null,
+      playbackUrl: after.playbackUrl || null,
+    };
+
+    log('RESPONSE', {
+      status: 200,
+      before,
+      after: {
+        isPosted: !!after.isPosted,
+        savedToProfile: !!after.savedToProfile,
+        visibility: after.visibility,
+        linkedPostId: after.sharedPostId || null,
+        caption: after.caption ?? null,
+      },
+      payload: liveStreamResponse,
+    });
+
+    return res.json({ success: true, data: liveStreamResponse });
+  } catch (e) {
+    err('ERROR post', { msg: e?.message, stack: e?.stack });
+    return res.status(500).json({ success: false, message: 'Failed to mark as posted' });
+  }
+});
+
+// Unpost a live stream from the home feed
+router.post('/live/:id/unpost', verifyToken, async (req, res) => {
+  try {
+    const hostUserId = req.user?.id;
+    if (!hostUserId) return res.status(401).json({ message: 'Unauthorized' });
+
+    const { id } = req.params;
+    const removeLinkedPost =
+      typeof req.body?.removeLinkedPost === 'boolean' ? req.body.removeLinkedPost : true;
+
+    const doc = await LiveStream.findOne({ _id: id, hostUserId });
+    if (!doc) return res.status(404).json({ message: 'Stream not found' });
+
+    const update = {
+      $set: { isPosted: false, savedToProfile: false },
+    };
+    if (removeLinkedPost) update.$unset = { sharedPostId: '' };
+
+    await LiveStream.updateOne({ _id: doc._id }, update);
+    const after = await LiveStream.findById(doc._id).lean();
+
+    // Get user info for response
+    let fullName = null;
+    let profilePic = null;
+    let profilePicUrl = null;
+
+    try {
+      if (typeof resolveUserProfilePic === 'function') {
+        const p = await resolveUserProfilePic(hostUserId);
+        if (p) {
+          profilePic = p.profilePic ?? profilePic;
+          profilePicUrl = p.profilePicUrl ?? null;
+        }
+      } else {
+        const profileMap = await resolveUserProfilePics([hostUserId]);
+        const p = profileMap[hostUserId] || profileMap[String(hostUserId)];
+        if (p) {
+          profilePic = p.profilePic ?? profilePic;
+          profilePicUrl = p.profilePicUrl ?? null;
+        }
+      }
+    } catch { }
+
+    try {
+      const userDoc = await User.findById(hostUserId)
+        .select('fullName firstName lastName profilePic')
+        .lean();
+      if (userDoc) {
+        fullName =
+          userDoc.fullName ||
+          [userDoc.firstName, userDoc.lastName].filter(Boolean).join(' ') ||
+          fullName;
+        if (profilePic == null) profilePic = userDoc.profilePic ?? null;
+      }
+    } catch { }
 
     const date = after.endedAt || after.startedAt || after.createdAt || Date.now();
     const message = after.title || after.description || null;
@@ -1045,27 +1159,150 @@ router.post('/live/:id/post', verifyToken, async (req, res) => {
       photos: [],
       type: 'liveStream',
       visibility: after.visibility || null,
+      isPosted: false,
+      postId: removeLinkedPost ? null : after.sharedPostId || null,
+    };
+
+    return res.json({ success: true, data: liveStreamResponse });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: 'Failed to unpost live stream' });
+  }
+});
+
+// Edit caption on a posted live stream
+router.patch('/live/:id/caption', verifyToken, async (req, res) => {
+  try {
+    const hostUserId = req.user?.id;
+    if (!hostUserId) return res.status(401).json({ message: 'Unauthorized' });
+
+    const { id } = req.params;
+    const { caption: rawCaption } = req.body || {};
+
+    // Require the field to be present; allow null/"" to clear
+    if (rawCaption === undefined) {
+      return res.status(400).json({ message: 'caption is required in body' });
+    }
+
+    // Normalize caption
+    let caption = null;
+    if (rawCaption === null || (typeof rawCaption === 'string' && rawCaption.trim() === '')) {
+      caption = null;
+    } else if (typeof rawCaption === 'string') {
+      caption = rawCaption.trim();
+      // (Optional) enforce max length:
+      // const MAX = 2000; caption = caption.slice(0, MAX);
+    } else {
+      return res.status(400).json({ message: 'Invalid caption' });
+    }
+
+    // Must be owner
+    const doc = await LiveStream.findOne({ _id: id, hostUserId, isPosted: true });
+    if (!doc) return res.status(404).json({ message: 'Stream not found' });
+
+    // Update caption
+    await LiveStream.updateOne({ _id: doc._id }, { $set: { caption } });
+    const after = await LiveStream.findById(doc._id).lean();
+
+    // Build response payload (consistent with your /post route)
+    let fullName = null;
+    let profilePic = null;
+    let profilePicUrl = null;
+
+    try {
+      const profileMap = await resolveUserProfilePics([hostUserId]);
+      const p = profileMap[hostUserId] || profileMap[String(hostUserId)] || {};
+      profilePic = p.profilePic ?? profilePic;
+      profilePicUrl = p.profilePicUrl ?? null;
+    } catch { }
+
+    try {
+      const userDoc = await User.findById(hostUserId)
+        .select('fullName firstName lastName profilePic')
+        .lean();
+      if (userDoc) {
+        fullName =
+          userDoc.fullName ||
+          [userDoc.firstName, userDoc.lastName].filter(Boolean).join(' ') ||
+          fullName;
+        if (profilePic == null) profilePic = userDoc.profilePic ?? null;
+      }
+    } catch { }
+
+    const date = after.endedAt || after.startedAt || after.createdAt || Date.now();
+    const message = after.title || after.description || null;
+
+    const payload = {
+      _id: after._id,
+      placeId: after.placeId || null,
+      userId: String(hostUserId),
+      fullName,
+      message,
+      caption: after.caption ?? null,   // updated value
+      profilePic,
+      profilePicUrl,
+      taggedUsers: [],
+      date,
+      photos: [],
+      type: 'liveStream',
+      visibility: after.visibility || null,
       isPosted: !!after.isPosted || !!after.savedToProfile,
       postId: after.sharedPostId || null,
     };
 
-    log('RESPONSE', {
-      status: 200,
-      before,
-      after: {
-        isPosted: !!after.isPosted,
-        savedToProfile: !!after.savedToProfile,
-        visibility: after.visibility,
-        linkedPostId: after.sharedPostId || null,
-      },
-      payload: liveStreamResponse,
-    });
-
-    return res.json({ success: true, data: liveStreamResponse });
+    return res.json({ success: true, data: payload });
   } catch (e) {
-    err('ERROR post', { msg: e?.message, stack: e?.stack });
-    return res.status(500).json({ success: false, message: 'Failed to mark as posted' });
+    return res.status(500).json({ success: false, message: 'Failed to update caption' });
   }
 });
+
+// Like/unlike a live stream post
+router.post('/live/:id/like', verifyToken, async (req, res) => {
+  const rid = genRid('like');
+  const { log, warn, err } = mkLoggers(rid);
+
+  try {
+    log('REQUEST', { at: nowIso(), user: req.user?.id, params: req.params });
+
+    const hostUserId = req.user?.id;
+    if (!hostUserId) return res.status(401).json({ message: 'Unauthorized' });
+
+    const { id } = req.params;
+
+    const doc = await LiveStream.findById(id);
+    if (!doc) {
+      log('like: not found', { id });
+      return res.status(404).json({ message: 'Stream not found' });
+    }
+
+    // Check if user already liked
+    const existing = doc.likes.find(like => String(like.userId) === String(hostUserId));
+
+    if (existing) {
+      // Unlike (remove like)
+      doc.likes = doc.likes.filter(like => String(like.userId) !== String(hostUserId));
+      await doc.save();
+      log('unliked', { id, userId: hostUserId });
+      return res.json({ success: true, liked: false, likesCount: doc.likes.length, likes: doc.likes });
+    } else {
+      // Like (add entry)
+      const newLike = {
+        userId: hostUserId,
+        fullName:
+          req.user?.fullName ||
+          [req.user?.firstName, req.user?.lastName].filter(Boolean).join(' ') ||
+          null,
+        date: new Date(),
+      };
+      doc.likes.push(newLike);
+      await doc.save();
+      log('liked', { id, userId: hostUserId });
+      return res.json({ success: true, liked: true, likesCount: doc.likes.length, likes: doc.likes });
+    }
+  } catch (e) {
+    err('ERROR like', { msg: e?.message, stack: e?.stack });
+    return res.status(500).json({ success: false, message: 'Failed to like/unlike stream' });
+  }
+});
+
 
 module.exports = router;

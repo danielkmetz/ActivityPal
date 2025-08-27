@@ -9,16 +9,6 @@ const { toInviteUserShape, toInviteRecipientsShape, lookupBusinessBits } = requi
 const { enrichOriginalOwner } = require('./stories/enrichOriginalOwner.js');
 const { shapeStoryUploader } = require('./stories/shapeStoryUploader.js');
 
-const TYPENAME_MAP = {
-  review: 'Review',
-  'check-in': 'CheckIn',
-  checkin: 'CheckIn',
-  invite: 'ActivityInvite',
-  event: 'Event',
-  promotion: 'Promotion',
-  promo: 'Promotion',
-};
-
 async function enrichCommentMedia(media) {
   if (!media || !media.photoKey) {
     return null;

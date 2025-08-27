@@ -47,7 +47,7 @@ export const addNewReply = createAsyncThunk(
 );
 
 export const addNewNestedReply = createAsyncThunk(
-  'comments/addNewNestedReply',
+  'commentThread/addNewNestedReply',
   async ({ review, parentCommentId, replyText, userId, fullName, media }, { dispatch }) => {
     const response = await dispatch(
       addReply({
@@ -83,7 +83,7 @@ export const addNewNestedReply = createAsyncThunk(
 );
 
 export const addNewComment = createAsyncThunk(
-  'comments/addNewComment',
+  'commentThread/addNewComment',
   async ({ review, userId, fullName, commentText, media }, { dispatch }) => {
     const postType = review.type;
     const placeId = review.placeId;
@@ -115,7 +115,7 @@ export const addNewComment = createAsyncThunk(
 );
 
 export const saveEditedCommentOrReply = createAsyncThunk(
-  'comments/saveEditedCommentOrReply',
+  'commentThread/saveEditedCommentOrReply',
   async ({ review, selected, editedText, userId, media }, { dispatch }) => {
     const postType = review.type;
     const postId = review._id;
@@ -140,7 +140,7 @@ export const saveEditedCommentOrReply = createAsyncThunk(
 );
 
 export const removeCommentOrReply = createAsyncThunk(
-  'comments/removeCommentOrReply',
+  'commentThread/removeCommentOrReply',
   async ({ review, selectedComment, selectedReply }, { dispatch }) => {
     let commentId, relatedId;
 

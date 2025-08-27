@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect } from "react";
 import {
     View,
     Text,
-    FlatList,
     StyleSheet,
     Animated,
     Dimensions,
@@ -23,8 +22,6 @@ import RatingsBreakdownModal from "./metricRatings/RatingsBreakdownModal";
 import { declineFollowRequest, cancelFollowRequest, approveFollowRequest } from "../../Slices/friendsSlice";
 import { logEngagementIfNeeded } from "../../Slices/EngagementSlice";
 import PhotoFeed from "./Photos/PhotoFeed";
-
-const screenWidth = Dimensions.get("window").width;
 
 export default function ReviewItem({
     item,

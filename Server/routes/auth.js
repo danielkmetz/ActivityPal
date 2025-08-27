@@ -35,7 +35,7 @@ router.post('/login', async (req, res) => {
       // Generate a mock token (replace with JWT in production)
       // Generate a JWT token
       const token = jwt.sign(
-        { id: business._id, isBusiness: true },
+        { id: business._id, isBusiness: true, firstName: business.firstName, lastName: business.lastName },
         JWT_SECRET,
         { expiresIn: '1d' } // Token expires in 1 day
       );
@@ -74,7 +74,7 @@ router.post('/login', async (req, res) => {
 
       // Generate a JWT token
       const token = jwt.sign(
-        { id: user._id, isBusiness: false },
+        { id: user._id, isBusiness: false, firstName: user.firstName, lastName: user.lastName },
         JWT_SECRET,
         { expiresIn: '1d' } // Token expires in 1 day
       );

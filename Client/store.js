@@ -17,42 +17,50 @@ import InvitesReducer from './Slices/InvitesSlice';
 import businessNotificationsReducer from './Slices/BusNotificationsSlice';
 import commentThreadReducer from './Slices/CommentThreadSlice';
 import modalReducer from './Slices/ModalSlice';
-import recentSearchesReducer from './Slices/RecentSearchesSlice'; 
+import recentSearchesReducer from './Slices/RecentSearchesSlice';
 import storiesReducer from './Slices/StoriesSlice';
 import directMessagesReducer from './Slices/DirectMessagingSlice';
 import engagementReducer from './Slices/EngagementSlice';
 import sharedPostReducer from './Slices/SharedPostsSlice';
 import insightsReducer from './Slices/InsightsSlice';
 import liveStreamReducer from './Slices/LiveStreamSlice';
+import commentsReducer from './Slices/CommentsSlice';
+import { commentsListener } from './Listeners/comments';
+import { crashLoggerMiddleware } from './crashLoggerMiddleware';
 
 const store = configureStore({
     reducer: combineReducers({
-       location: locationReducer,
-       places: placesReducer, 
-       preferences: preferencesReducer,
-       user: userReducer,
-       events: eventsReducer,
-       reviews: reviewsReducer,
-       photos: photosReducer,
-       follows: followsReducer,
-       notifications: notificationsReducer,
-       checkIns: checkInsReducer,
-       favorites: favoritesReducer,
-       promotions: promotionsReducer,
-       GooglePlaces: GooglePlacesReducer,
-       pagination: PaginationReducer,
-       invites: InvitesReducer,
-       businessNotifications: businessNotificationsReducer,
-       commentThread: commentThreadReducer,
-       recentSearches: recentSearchesReducer,
-       modals: modalReducer,
-       stories: storiesReducer,
-       directMessages: directMessagesReducer,
-       engagement: engagementReducer,
-       sharedPosts: sharedPostReducer,
-       insights: insightsReducer,
-       live: liveStreamReducer,
-    })
+        location: locationReducer,
+        places: placesReducer,
+        preferences: preferencesReducer,
+        user: userReducer,
+        events: eventsReducer,
+        reviews: reviewsReducer,
+        photos: photosReducer,
+        follows: followsReducer,
+        notifications: notificationsReducer,
+        checkIns: checkInsReducer,
+        favorites: favoritesReducer,
+        promotions: promotionsReducer,
+        GooglePlaces: GooglePlacesReducer,
+        pagination: PaginationReducer,
+        invites: InvitesReducer,
+        businessNotifications: businessNotificationsReducer,
+        commentThread: commentThreadReducer,
+        recentSearches: recentSearchesReducer,
+        modals: modalReducer,
+        stories: storiesReducer,
+        directMessages: directMessagesReducer,
+        engagement: engagementReducer,
+        sharedPosts: sharedPostReducer,
+        insights: insightsReducer,
+        live: liveStreamReducer,
+        comments: commentsReducer,
+    }),
+    middleware: (getDefault) =>
+        getDefault({ serializableCheck: false })
+            .prepend(crashLoggerMiddleware)   // <— FIRST
+            .concat(commentsListener.middleware),
 });
 
 export default store;

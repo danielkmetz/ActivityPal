@@ -8,6 +8,7 @@ export function useSmartVideoPlayer(file, shouldPlay = true) {
     file?.mediaUrl ||
     file?.mediaUploadUrl ||
     file?.signedUrl || // optional: cover more cases
+    file?.vodUrl ||
     file?.playbackUrl
     "";
 

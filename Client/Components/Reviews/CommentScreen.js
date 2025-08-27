@@ -15,15 +15,14 @@ import {
     selectIsEditing,
     selectNestedReplyInput,
     selectNestedExpandedReplies,
-    addNewComment,
 } from '../../Slices/CommentThreadSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { formatEventDate, getTimeLeft } from '../../functions';
 import { selectReviewById } from '../../utils/reviewSelectors';
 import { uploadReviewPhotos } from '../../Slices/PhotosSlice';
-import { addCommentToSharedPost } from '../../Slices/SharedPostsSlice';
 import { useLikeAnimations } from '../../utils/LikeHandlers/LikeAnimationContext';
 import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from '../../utils/LikeHandlers';
+import { addComment as addCommentGeneric, toApiPostType } from '../../Slices/CommentsSlice';
 
 dayjs.extend(relativeTime);
 
@@ -34,8 +33,8 @@ export default function CommentScreen() {
         toggleTaggedUsers,
         targetId,
         photoTapped,
-        sharedPost,
-    } = route.params;
+        sharedPost, // can still pass to header/UI if it changes look/feel
+    } = route.params || {};
     const dispatch = useDispatch();
     const review = useSelector(selectReviewById(reviewId));
     const replyingTo = useSelector(selectReplyingTo);
@@ -43,11 +42,8 @@ export default function CommentScreen() {
     const isEditing = useSelector(selectIsEditing);
     const nestedReplyInput = useSelector(selectNestedReplyInput);
     const user = useSelector(selectUser);
-    const fullName = `${user?.firstName} ${user?.lastName}` || null;
-    const userId = user?.id;
     const dateTime = review?.dateTime || review?.date;
-    const isInvite = review?.type === "invite";
-
+    const isInvite = review?.type === 'invite';
     const [commentText, setCommentText] = useState('');
     const [keyboardHeight, setKeyboardHeight] = useState(null);
     const [isInputCovered, setIsInputCovered] = useState(false);
@@ -56,12 +52,11 @@ export default function CommentScreen() {
     const [inputHeight, setInputHeight] = useState(40);
     const [contentHeight, setContentHeight] = useState(40);
     const [selectedMedia, setSelectedMedia] = useState([]);
-    
     const { registerAnimation, getAnimation } = useLikeAnimations();
     const shiftAnim = useRef(new Animated.Value(0)).current;
     const flatListRef = useRef(null);
     const commentRefs = useRef({});
-    const lastTapRef = useRef({})
+    const lastTapRef = useRef({});
     const hasScrolledToTarget = useRef(false);
 
     useEffect(() => {
@@ -99,7 +94,7 @@ export default function CommentScreen() {
             const interval = setInterval(() => setTimeLeft(getTimeLeft(dateTime)), 1000);
             return () => clearInterval(interval);
         }
-    }, [dateTime]);
+    }, [review, isInvite, dateTime]);
 
     useEffect(() => {
         setInputHeight(Math.min(Math.max(40, contentHeight), 150));
@@ -119,79 +114,169 @@ export default function CommentScreen() {
         });
     };
 
+    // ✅ Centralized "add comment" using generic thunk
+    // ✅ Centralized "add comment" with deep logging
     const handleAddComment = async () => {
-        if ((!commentText || commentText.trim() === '') && (!selectedMedia || selectedMedia.length === 0)) {
-            return;
-        }
-
-        if (!review) {
-            return;
-        }
-
-        let media = null;
-
-        if (selectedMedia?.length > 0) {
-            const mediaFile = selectedMedia[0];
-            try {
-                const result = await dispatch(
-                    uploadReviewPhotos({
-                        placeId: review.placeId,
-                        files: [mediaFile],
-                    })
-                ).unwrap();
-
-                if (result?.length > 0) {
-                    media = {
-                        photoKey: result[0],
-                        mediaType: mediaFile.type.startsWith('video') ? 'video' : 'image',
-                    };
-                }
-            } catch (error) {
-                console.error('❌ Media upload failed:', error);
-            }
-        }
+        const TAG = '[addCommentGeneric]';
+        const t0 = Date.now();
 
         try {
-            if (sharedPost) {
-                await dispatch(
-                    addCommentToSharedPost({
-                        sharedPostId: review._id,
-                        userId,
-                        fullName,
-                        commentText: commentText.trim(),
-                        media,
-                    })
-                ).unwrap();
-            } else {
-                await dispatch(
-                    addNewComment({
-                        review,
-                        userId,
-                        fullName,
-                        commentText: commentText.trim(),
-                        ...(media && { media }),
-                    })
-                );
+            // --------- INPUT SUMMARY ---------
+            const hasText = !!commentText?.trim();
+            const hasMedia = (selectedMedia?.length || 0) > 0;
+
+            const apiPostType = toApiPostType(review?.type);
+            console.log(`${TAG} INPUT`, {
+                reviewId: review?._id,
+                reviewType: review?.type,
+                apiPostType,
+                hasText,
+                hasMedia,
+                textLen: (commentText || '').length,
+                selectedMediaCount: selectedMedia?.length || 0,
+                // a very light peek at the first media (avoid dumping large blobs)
+                firstMedia: selectedMedia?.[0]
+                    ? {
+                        name: selectedMedia[0]?.fileName || selectedMedia[0]?.name || null,
+                        type: selectedMedia[0]?.type || null,
+                        size: selectedMedia[0]?.fileSize || selectedMedia[0]?.size || null,
+                        hasUri: !!selectedMedia[0]?.uri,
+                        hasPhotoKey: !!selectedMedia[0]?.photoKey,
+                    }
+                    : null,
+            });
+
+            // --------- GUARDS ---------
+            if (!review) {
+                console.warn(`${TAG} ABORT: review missing`);
+                return;
+            }
+            if (!apiPostType) {
+                console.warn(`${TAG} ABORT: toApiPostType returned falsy`, { sourceType: review?.type });
+                return;
+            }
+            if (!hasText && !hasMedia) {
+                console.warn(`${TAG} ABORT: neither text nor media present`);
+                return;
             }
 
-            dispatch(setReplyingTo(null));
-            setCommentText('');
-            setSelectedMedia([]);
+            // --------- MEDIA UPLOAD (optional) ---------
+            let media = null;
+            if (hasMedia) {
+                const mediaFile = selectedMedia[0];
+                const mStart = Date.now();
 
-            setTimeout(() => {
-                flatListRef.current?.scrollToEnd({ animated: true });
-            }, 100);
+                console.log(`${TAG} media: dispatch(uploadReviewPhotos) start`, {
+                    placeId: review.placeId || null,
+                    kind: mediaFile?.type,
+                });
+
+                let uploadAction;
+                try {
+                    uploadAction = await dispatch(
+                        uploadReviewPhotos({
+                            placeId: review.placeId, // ok if undefined for some post types
+                            files: [mediaFile],
+                        })
+                    );
+
+                    if (uploadReviewPhotos.fulfilled.match(uploadAction)) {
+                        const result = uploadAction.payload;
+                        console.log(`${TAG} media: upload fulfilled`, {
+                            ms: Date.now() - mStart,
+                            resultLen: Array.isArray(result) ? result.length : null,
+                            firstKey: Array.isArray(result) ? result[0] : null,
+                        });
+
+                        if (Array.isArray(result) && result.length > 0) {
+                            media = {
+                                photoKey: result[0],
+                                mediaType: mediaFile?.type?.startsWith('video') ? 'video' : 'image',
+                            };
+                        }
+                    } else {
+                        console.warn(`${TAG} media: upload rejected`, {
+                            ms: Date.now() - mStart,
+                            error: uploadAction.error,
+                            payload: uploadAction.payload,
+                        });
+                    }
+                } catch (e) {
+                    console.error(`${TAG} media: upload threw`, {
+                        ms: Date.now() - mStart,
+                        message: e?.message,
+                        stack: e?.stack,
+                    });
+                }
+            }
+
+            // --------- BUILD PAYLOAD ---------
+            const payload = {
+                postType: apiPostType,
+                postId: review._id,
+                commentText: (commentText || '').trim(),
+                ...(media && { media }),
+            };
+
+            console.log(`${TAG} dispatch(addCommentGeneric)`, {
+                payloadSummary: {
+                    postType: payload.postType,
+                    postId: payload.postId,
+                    commentTextLen: payload.commentText.length,
+                    hasMedia: !!payload.media,
+                    mediaType: payload.media?.mediaType || null,
+                    hasPhotoKey: !!payload.media?.photoKey,
+                },
+            });
+
+            // --------- DISPATCH THUNK (NO unwrap) ---------
+            const action = await dispatch(addCommentGeneric(payload));
+
+            // Inspect result explicitly
+            if (addCommentGeneric.fulfilled.match(action)) {
+                console.log(`${TAG} fulfilled`, {
+                    ms: Date.now() - t0,
+                    returned: {
+                        postType: action.payload?.postType,
+                        postId: action.payload?.postId,
+                        hasComment: !!action.payload?.comment,
+                        commentId: action.payload?.comment?._id || null,
+                    },
+                });
+
+                // UI resets
+                dispatch(setReplyingTo(null));
+                setCommentText('');
+                setSelectedMedia([]);
+
+                setTimeout(() => {
+                    flatListRef.current?.scrollToEnd({ animated: true });
+                }, 100);
+
+                return; // success
+            }
+
+            // Rejected path
+            console.error(`${TAG} rejected`, {
+                ms: Date.now() - t0,
+                error: action.error,
+                payload: action.payload,
+                meta: action.meta,
+            });
+            // bubble up so caller sees failure (matches previous behavior with unwrap)
+            throw action.error || new Error('addCommentGeneric rejected');
+
         } catch (error) {
-            console.error('🚫 Failed to submit comment:', error);
+            console.error(`${TAG} THREW`, {
+                ms: Date.now() - t0,
+                message: error?.message,
+                stack: error?.stack,
+            });
         }
     };
 
     const waitForRefsAndScroll = (targetId, parentChain) => {
-        console.log("🚦 waitForRefsAndScroll triggered with:", { targetId, parentChain });
-
         InteractionManager.runAfterInteractions(() => {
-            console.log("⏳ InteractionManager done");
-
             setTimeout(() => {
                 let attempts = 0;
                 const max = 20;
@@ -200,69 +285,41 @@ export default function CommentScreen() {
                     const flatList = flatListRef.current;
                     const targetNode = commentRefs.current[targetId];
 
-                    console.log(`🔁 [Attempt ${attempts + 1}] Checking refs:`);
-                    console.log("   📋 flatListRef.current:", !!flatList);
-                    console.log("   📋 commentRefs.current[targetId]:", !!targetNode);
-
                     if (flatList && targetNode) {
-                        console.log("✅ Both flatList and targetNode exist");
-
                         requestAnimationFrame(() => {
                             try {
-                                console.log("🧪 Attempting targetNode.measureLayout");
                                 targetNode.measureLayout(
                                     flatList.getNativeScrollRef(),
                                     (x, y) => {
-                                        console.log("📍 measureLayout SUCCESS — scroll Y position:", y);
                                         flatList.scrollToOffset({ offset: Math.max(y - 200, 0), animated: true });
                                     },
-                                    (err) => {
-                                        console.warn("⚠️ measureLayout CALLBACK error:", err);
-                                    }
+                                    () => { }
                                 );
-                            } catch (err) {
-                                console.warn("❌ measureLayout THREW error:", err);
-                            }
+                            } catch { }
                         });
-
                         clearInterval(interval);
                     } else if (++attempts >= max) {
                         clearInterval(interval);
-                        console.warn("🛑 Max attempts reached, using fallback method");
-
                         const fallbackIndex = review?.comments?.findIndex(c =>
                             c._id === targetId || c._id === parentChain?.[0]
                         );
-
-                        console.log("🔍 Fallback index:", fallbackIndex);
-
                         if (fallbackIndex !== -1 && flatList) {
-                            console.log("📦 Using fallback scrollToIndex");
                             flatList.scrollToIndex({ index: fallbackIndex, animated: true, viewPosition: 0.5 });
-                        } else {
-                            console.warn("⚠️ Fallback failed: index not found or flatList is null");
                         }
                     }
-                }, 200)
-            }, 200); // delay ensures children are mounted
+                }, 200);
+            }, 200);
         });
     };
 
     useFocusEffect(
         React.useCallback(() => {
-            console.log("🔁 useFocusEffect START — targetId:", targetId);
             hasScrolledToTarget.current = false;
 
-            if (!targetId || !Array.isArray(review?.comments)) {
-                console.warn("⚠️ Invalid targetId or comments not loaded.");
-                return;
-            }
+            if (!targetId || !Array.isArray(review?.comments)) return;
 
             const timer = setTimeout(() => {
-                console.log("⏲️ Delay passed — starting nested search");
                 InteractionManager.runAfterInteractions(() => {
-                    console.log("🎯 Running after interactions to search for comment");
-
                     let found = null;
                     let parentChain = [];
 
@@ -280,7 +337,6 @@ export default function CommentScreen() {
                     };
 
                     findNested(review.comments, targetId);
-                    console.log("🔎 Nested search result — found:", !!found, "parentChain:", parentChain);
 
                     if (found) {
                         if (parentChain.length > 0) {
@@ -288,16 +344,11 @@ export default function CommentScreen() {
                                 ...nestedExpandedReplies,
                                 ...parentChain.reduce((acc, id) => ({ ...acc, [id]: true }), {}),
                             };
-                            console.log("📂 Dispatching expanded reply set:", expanded);
                             dispatch(setNestedExpandedReplies(expanded));
                             dispatch(toggleReplyExpansion(parentChain[0]));
                         }
-
-                        console.log("🚀 Calling waitForRefsAndScroll()");
                         waitForRefsAndScroll(targetId, parentChain);
                         hasScrolledToTarget.current = true;
-                    } else {
-                        console.warn("❌ Comment not found in nested structure.");
                     }
                 });
             }, 400);
@@ -306,29 +357,22 @@ export default function CommentScreen() {
                 clearTimeout(timer);
                 hasScrolledToTarget.current = false;
                 commentRefs.current = {};
-                console.log("🔚 useFocusEffect CLEANUP");
             };
-        }, [review?.comments, targetId])
+        }, [review?.comments, targetId, dispatch, nestedExpandedReplies])
     );
 
     useEffect(() => {
-        if (review?._id) {
-            registerAnimation(review._id);
-        }
-    }, [review?._id]);
+        if (review?._id) registerAnimation(review._id);
+    }, [review?._id, registerAnimation]);
 
-    if (!review) {
-        return null;
-    };
+    if (!review) return null;
 
     return (
-        <Animated.View
-            style={[styles.container, { transform: [{ translateY: shiftAnim }] }]}
-        >
+        <Animated.View style={[styles.container, { transform: [{ translateY: shiftAnim }] }]}>
             <FlatList
                 ref={flatListRef}
                 data={review?.comments || []}
-                keyExtractor={(item, index) => `${review?._id}-${index}`}
+                keyExtractor={(item) => item?._id || `${review?._id}-${Math.random()}`}
                 extraData={review?.comments}
                 style={styles.comments}
                 getItemLayout={(data, index) => ({ length: 100, offset: 100 * index, index })}
@@ -387,7 +431,5 @@ const styles = StyleSheet.create({
         shadowRadius: 3.84,
         elevation: 5,
     },
-    comments: {
-        flex: 1,
-    },
+    comments: { flex: 1 },
 });

@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, StyleSheet,   } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, TouchableWithoutFeedback, StyleSheet } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import dayjs from 'dayjs';
 import CommentBubble from './CommentBubble';
 import CommentActions from './CommentActions';
 import CommentOptionsModal from './CommentOptionsModal';
 import Reply from './Replies/Reply';
-import dayjs from 'dayjs';
+import MediaPreview from './Photos/MediaPreview';
 import {
   selectReplyingTo,
   selectSelectedComment,
@@ -24,56 +25,65 @@ import {
   setSelectedComment,
   setNestedExpandedReplies,
   setIsEditing,
-  saveEditedCommentOrReply,
-  addNewReply,
-  addNewNestedReply,
-  removeCommentOrReply,
 } from '../../Slices/CommentThreadSlice';
-import { toggleCommentLike } from '../../Slices/ReviewsSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { selectMediaFromGallery } from '../../utils/selectPhotos';
 import { uploadReviewPhotos } from '../../Slices/PhotosSlice';
-import MediaPreview from './Photos/MediaPreview';
-import { deleteSharedPostComment, toggleLikeOnSharedPostComment, addReplyToSharedPost, editSharedPostComment } from '../../Slices/SharedPostsSlice';
+import {
+  addReply as addReplyGeneric,
+  toggleLike as toggleLikeGeneric,
+  editComment as editCommentGeneric,
+  deleteComment as deleteCommentGeneric,
+  toApiPostType,
+} from '../../Slices/CommentsSlice';
 
-export default function CommentThread({ item, review, commentRefs, commentText, setCommentText, selectedMedia, setSelectedMedia }) {
+export default function CommentThread({
+  item,                  // the top-level comment object
+  review,                // the post object containing this comment
+  commentRefs,
+  commentText, setCommentText,
+  selectedMedia, setSelectedMedia,
+}) {
   const dispatch = useDispatch();
+
   const [isOptionsVisible, setOptionsVisible] = useState(false);
+  const [selectedEditMedia, setSelectedEditMedia] = useState(null); // image/video object or null
+
   const user = useSelector(selectUser);
   const userId = user?.id;
-  const userPlaceId = user?.businessDetails?.placeId || null;
+  const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim();
+
   const replyingTo = useSelector(selectReplyingTo);
   const selectedComment = useSelector(selectSelectedComment);
   const selectedReply = useSelector(selectSelectedReply);
   const isEditing = useSelector(selectIsEditing);
   const editedText = useSelector(selectEditedText);
-  const [selectedEditMedia, setSelectedEditMedia] = useState(null); // can be image or video object
   const expandedReplies = useSelector(selectExpandedReplies);
   const nestedExpandedReplies = useSelector(selectNestedExpandedReplies);
   const nestedReplyInput = useSelector(selectNestedReplyInput);
-  const fullName = `${user?.firstName} ${user.lastName}`;
+
+  const postType = toApiPostType(review?.type);
+  const postId = review?._id;
 
   const getTimeSincePosted = (dateString) => dayjs(dateString).fromNow(true);
 
   const handleSelectMedia = async () => {
     const files = await selectMediaFromGallery();
-    if (files.length > 0) {
-      setSelectedMedia([files[0]]); // ensure only one is stored
-    }
+    if (files?.length > 0) setSelectedMedia([files[0]]);
   };
 
+  // Add a reply to a **top-level comment** (replyingTo contains the comment _id)
   const handleAddReply = async () => {
     if (!review || !replyingTo || !commentText.trim()) return;
 
     let media = null;
 
-    if (selectedMedia.length > 0) {
+    if (selectedMedia?.length > 0) {
       const mediaFile = selectedMedia[0];
-
       try {
         const result = await dispatch(
           uploadReviewPhotos({
-            placeId: review.placeId, // may be undefined for shared posts (and that’s OK)
+            placeId: review.placeId, // ok if undefined for some post types
             files: [mediaFile],
           })
         ).unwrap();
@@ -81,110 +91,63 @@ export default function CommentThread({ item, review, commentRefs, commentText, 
         if (result?.length > 0) {
           media = {
             photoKey: result[0],
-            mediaType: mediaFile.type.startsWith('video') ? 'video' : 'image',
+            mediaType: mediaFile.type?.startsWith('video') ? 'video' : 'image',
           };
         }
       } catch (error) {
-        console.error('❌ Media upload failed:', error);
+        console.error('Media upload failed:', error);
       }
     }
 
-    const isSharedPost = review?.type === 'sharedPost';
+    // ✅ Generic reply endpoint (works for top-level & nested; here it's top-level)
+    await dispatch(
+      addReplyGeneric({
+        postType,
+        postId,
+        commentId: replyingTo,           // parent comment id
+        commentText: commentText.trim(),
+        ...(media && { media }),
+      })
+    );
 
-    if (isSharedPost) {
-      dispatch(
-        addReplyToSharedPost({
-          sharedPostId: review._id,
-          commentId: replyingTo,
-          userId,
-          fullName,
-          commentText: commentText.trim(),
-          ...(media && { media }),
-        })
-      );
-    } else {
-      dispatch(
-        addNewReply({
-          review,
-          replyingTo,
-          commentText: commentText.trim(),
-          userId,
-          fullName,
-          ...(media && { media }),
-        })
-      );
-    }
-
+    // reset UI state
     dispatch(setReplyingTo(null));
     setCommentText('');
     setSelectedMedia([]);
-    setShowReplyInput(false);
   };
 
-  const handleAddNestedReply = (replyId, replyText, media) => {
-    const isSharedPost = review?.type === 'sharedPost';
+  // Add a reply to a **reply** (nested)
+  const handleAddNestedReply = async (replyId, replyText, media) => {
+    if (!review || !replyId || !replyText?.trim()) return;
 
-    const payload = {
-      commentId: replyId,
-      userId,
-      fullName: `${user?.firstName} ${user?.lastName}`,
-      commentText: replyText?.trim(),
-      ...(media && { media }),
-    };
-
-    if (isSharedPost) {
-      dispatch(
-        addReplyToSharedPost({
-          sharedPostId: review._id,
-          ...payload,
-        })
-      );
-    } else {
-      dispatch(
-        addNewNestedReply({
-          review,
-          parentCommentId: replyId,
-          replyText: replyText?.trim(),
-          userId,
-          fullName: `${user?.firstName} ${user?.lastName}`,
-          ...(media && { media }),
-        })
-      );
-    }
+    await dispatch(
+      addReplyGeneric({
+        postType,
+        postId,
+        commentId: replyId,            // parent is a reply id (server handles deep nesting)
+        commentText: replyText.trim(),
+        ...(media && { media }),
+      })
+    );
 
     dispatch(setReplyingTo(null));
     setCommentText('');
     setSelectedMedia([]);
-    setShowReplyInput(false);
   };
 
   const handleCancelEdit = () => {
     dispatch(setIsEditing(false));
     dispatch(setEditedText(''));
+    setSelectedEditMedia(null);
+    setSelectedMedia([]);
   };
 
+  // Like/unlike either a top-level comment OR a reply.
+  // Pass whichever id was tapped as `commentId`; the listener figures out ancestry if needed.
   const handleToggleLike = (commentId, replyId = null) => {
     if (!review || !commentId) return;
-
-    const isSharedPost = review.type === 'sharedPost';
-
-    if (isSharedPost) {
-      dispatch(toggleLikeOnSharedPostComment({
-        sharedPostId: review._id,
-        commentId,
-        userId,
-        fullName,
-      }));
-    } else {
-      dispatch(toggleCommentLike({
-        postType: review.type || 'review',
-        placeId: review.placeId || userPlaceId,
-        postId: review._id,
-        commentId,
-        replyId,
-        userId,
-      }));
-    }
+    const targetId = replyId || commentId;
+    dispatch(toggleLikeGeneric({ postType, postId, commentId: targetId }));
   };
 
   const handleReplyToggle = () => {
@@ -193,16 +156,12 @@ export default function CommentThread({ item, review, commentRefs, commentText, 
   };
 
   const handleExpandReplies = (replyId) => {
-    const updated = {
-      ...nestedExpandedReplies,
-      [replyId]: !nestedExpandedReplies[replyId], // toggle instead of force-true
-    };
+    const updated = { ...nestedExpandedReplies, [replyId]: !nestedExpandedReplies[replyId] };
     dispatch(setNestedExpandedReplies(updated));
   };
 
   const handleLongPress = (commentOrReply, isReply = false, parentId = null) => {
     const authorId = commentOrReply?.userId;
-
     if (authorId !== userId) return;
 
     if (isReply) {
@@ -212,31 +171,19 @@ export default function CommentThread({ item, review, commentRefs, commentText, 
       dispatch(setSelectedComment(commentOrReply));
       dispatch(setSelectedReply(null));
     }
-
     setOptionsVisible(true);
   };
 
-  const handleDeleteCommentOrReply = () => {
-    if (!review || (!selectedComment && !selectedReply)) return;
+  // Delete selected comment/reply (generic)
+  const handleDeleteCommentOrReply = async () => {
+    const targetId = selectedReply?._id || selectedComment?._id;
+    if (!review || !targetId) return;
 
-    const isSharedPost = review.type === 'sharedPost';
-
-    if (isSharedPost) {
-      dispatch(deleteSharedPostComment({
-        sharedPostId: review._id,
-        commentId: selectedReply?._id || selectedComment._id,
-      }));
-    } else {
-      dispatch(removeCommentOrReply({
-        review,
-        selectedComment,
-        selectedReply,
-      }));
-    }
-
+    await dispatch(deleteCommentGeneric({ postType, postId, commentId: targetId }));
     setOptionsVisible(false);
   };
 
+  // Enter edit mode with current text/media
   const handleEditComment = () => {
     const selected = selectedReply || selectedComment;
     if (!selected) return;
@@ -244,29 +191,31 @@ export default function CommentThread({ item, review, commentRefs, commentText, 
     dispatch(setIsEditing(true));
     dispatch(setEditedText(selected.commentText));
 
-    const media = selected?.media;
-    setSelectedEditMedia(media || null);
-    setSelectedMedia(media ? [media] : []); // ✅ fix here
-
+    const media = selected?.media || null;
+    setSelectedEditMedia(media);
+    setSelectedMedia(media ? [media] : []);
     setOptionsVisible(false);
   };
 
+  // Save edited comment/reply (uploads new media if needed)
   const handleSaveEdit = async () => {
     const selected = selectedReply || selectedComment;
-
     if (!selected) return;
 
-    const isSharedPost = review?.type === 'sharedPost';
-    const originalMedia = selectedMedia;
-    let newMedia = null;
+    let newMedia = undefined; // undefined = don't touch media; null = remove media; object = replace
 
-    if (!selectedEditMedia && originalMedia?.length > 0) {
-      newMedia = null;
-    } else if (
-      selectedEditMedia &&
-      selectedEditMedia.uri &&
-      !selectedEditMedia.photoKey
-    ) {
+    // Cases:
+    // - User cleared media: selectedEditMedia === null  => set newMedia = null
+    // - Kept existing server media: selectedEditMedia has { photoKey } => copy as-is
+    // - Picked a new local file: selectedEditMedia has uri but no photoKey => upload then set newMedia
+    if (selectedEditMedia === null) {
+      newMedia = null; // remove media
+    } else if (selectedEditMedia?.photoKey) {
+      newMedia = {
+        photoKey: selectedEditMedia.photoKey,
+        mediaType: selectedEditMedia.mediaType || 'image',
+      };
+    } else if (selectedEditMedia?.uri && !selectedEditMedia?.photoKey) {
       try {
         const result = await dispatch(
           uploadReviewPhotos({
@@ -274,70 +223,45 @@ export default function CommentThread({ item, review, commentRefs, commentText, 
             files: [selectedEditMedia],
           })
         ).unwrap();
-
         if (result?.length > 0) {
           newMedia = {
             photoKey: result[0],
-            mediaType: selectedEditMedia.type?.startsWith("video") ? "video" : "image",
+            mediaType: selectedEditMedia.type?.startsWith('video') ? 'video' : 'image',
           };
         }
       } catch (error) {
+        console.error('Media upload (edit) failed:', error);
         return;
       }
-    } else if (selectedEditMedia?.photoKey) {
-      newMedia = {
-        photoKey: selectedEditMedia.photoKey,
-        mediaType: selectedEditMedia.mediaType || "image",
-      };
     }
-
     if (!editedText?.trim()) return;
 
-    try {
-      if (isSharedPost) {
-        await dispatch(
-          editSharedPostComment({
-            sharedPostId: review._id,
-            commentId: selected._id,
-            newText: editedText,
-            media: newMedia,
-          })
-        );
-      } else {
-        await dispatch(
-          saveEditedCommentOrReply({
-            review,
-            selected,
-            editedText,
-            userId,
-            ...(newMedia !== undefined && { media: newMedia }),
-          })
-        );
-      }
-    } catch (err) {
-      return;
-    }
+    await dispatch(
+      editCommentGeneric({
+        postType,
+        postId,
+        commentId: selected._id,
+        newText: editedText.trim(),
+        ...(newMedia !== undefined && { media: newMedia }),
+      })
+    );
 
+    // reset UI state
     dispatch(setIsEditing(false));
     dispatch(setEditedText(''));
     dispatch(setSelectedComment(null));
     dispatch(setSelectedReply(null));
     dispatch(setReplyingTo(null));
-    setSelectedMedia([]);
     setSelectedEditMedia(null);
-    setSelectedMedia(null);
+    setSelectedMedia([]);
   };
 
   return (
     <View>
-      <TouchableWithoutFeedback
-        onLongPress={() => handleLongPress(item)}
-      >
+      <TouchableWithoutFeedback onLongPress={() => handleLongPress(item)}>
         <View
           onLayout={(e) => {
-            if (item?._id) {
-              commentRefs.current[item._id] = e.nativeEvent.target;
-            }
+            if (item?._id) commentRefs.current[item._id] = e.nativeEvent.target;
           }}
           style={styles.commentCard}
         >
@@ -395,7 +319,7 @@ export default function CommentThread({ item, review, commentRefs, commentText, 
                   value={commentText}
                   onChangeText={setCommentText}
                 />
-                {commentText.trim() === '' && selectedMedia?.length === 0 && (
+                {commentText.trim() === '' && (selectedMedia?.length ?? 0) === 0 && (
                   <TouchableOpacity onPress={handleSelectMedia} style={styles.cameraIcon}>
                     <MaterialCommunityIcons name="camera-outline" size={24} color="#555" />
                   </TouchableOpacity>
@@ -431,11 +355,12 @@ export default function CommentThread({ item, review, commentRefs, commentText, 
                   selectedReply={selectedReply}
                   postType={review?.type}
                   placeId={review?.placeId}
-                  postId={review?._id}
+                  postId={postId}
                   review={review}
                   selectedMedia={selectedMedia}
                   setSelectedEditMedia={setSelectedEditMedia}
                   setSelectedMedia={setSelectedMedia}
+                  onToggleLike={(id) => handleToggleLike(id)} // for Reply bubble
                 />
               ))}
             </View>
@@ -453,9 +378,7 @@ export default function CommentThread({ item, review, commentRefs, commentText, 
 }
 
 const styles = StyleSheet.create({
-  commentCard: {
-    marginVertical: 5,
-  },
+  commentCard: { marginVertical: 5 },
   commentButton: {
     backgroundColor: '#009999',
     paddingVertical: 8,
@@ -463,51 +386,18 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     marginLeft: 10,
   },
-  commentDate: {
-    fontSize: 12,
-    color: '#777',
-    marginRight: 10,
-    marginLeft: 20,
-  },
-  commentButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
+  commentDate: { fontSize: 12, color: '#777', marginRight: 10, marginLeft: 20 },
+  commentButtonText: { color: '#fff', fontWeight: 'bold' },
   nestedReplyInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 10,
-    marginBottom: 30,
-    marginHorizontal: 10,
+    flexDirection: 'row', alignItems: 'center', marginTop: 10, marginBottom: 30, marginHorizontal: 10,
   },
-  nestedReplyInput: {
-    fontSize: 14,
-  },
-  replyContainer: {
-    flexDirection: 'row',
-    marginLeft: 10,
-  },
-  expandRepliesButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 10,
-  },
-  replyCountText: {
-    fontSize: 14,
-    color: '#888',
-  },
-  cameraIcon: {
-    position: 'absolute',
-    right: 20,
-    top: 5
-  },
+  nestedReplyInput: { fontSize: 14 },
+  replyContainer: { flexDirection: 'row', marginLeft: 10 },
+  expandRepliesButton: { flexDirection: 'row', alignItems: 'center', marginLeft: 10 },
+  replyCountText: { fontSize: 14, color: '#888' },
+  cameraIcon: { position: 'absolute', right: 20, top: 5 },
   fakeInputBox: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 5,
-    padding: 8,
-    position: 'relative',
-    backgroundColor: '#fff',
+    flex: 1, borderWidth: 1, borderColor: '#ccc', borderRadius: 5, padding: 8, position: 'relative', backgroundColor: '#fff',
   },
+  repliesContainer: { marginLeft: 10, marginTop: 8 },
 });

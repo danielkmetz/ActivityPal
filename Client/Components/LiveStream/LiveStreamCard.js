@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,58 +6,41 @@ import {
   Image,
   Pressable,
   ImageBackground,
+  Animated,
 } from 'react-native';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import VideoThumbnail from '../Reviews/VideoThumbnail';
+import PostOptionsMenu from '../Reviews/PostOptionsMenu';
+import PostActions from '../Reviews/PostActions';
+import { useSelector, useDispatch } from 'react-redux';
+import { selectUser } from '../../Slices/UserSlice';
 
 dayjs.extend(relativeTime);
 
-/**
- * Expected `live` shape (from your /live/:id/post response with optional extras from your model):
- * {
- *   _id: string,
- *   placeId: string | null,
- *   userId: string,
- *   fullName: string | null,
- *   message: string | null,
- *   profilePic: any | null,
- *   profilePicUrl: string | null,
- *   taggedUsers: Array,
- *   date: number | string,
- *   photos: Array,
- *   type: 'liveStream',
- *   visibility: 'public' | 'followers' | 'private' | 'unlisted' | null,
- *   isPosted: boolean,
- *   postId: string | null,
- *   // Optional (recommended to include from your LiveStream doc):
- *   isLive?: boolean,
- *   playbackUrl?: string,       // HLS playback
- *   previewThumbUrl?: string,   // poster image for the stream/replay
- *   durationSecs?: number,
- * }
- *
- * Props:
- * - live: live stream object
- * - onOpen?: (live) => void            // open player / details
- * - onProfile?: (userId) => void       // navigate to profile
- * - onMore?: (live) => void            // overflow menu
- */
-export default function LiveStreamCard({ live, onOpen, onProfile, onMore }) {
+export default function LiveStreamCard({ live, onOpen, onProfile, handleEdit, handleDelete, sharedPost, handleLikeWithAnimation, handleOpenComments }) {
   if (!live) return null;
+  const dispatch = useDispatch();
+  const lastTapRef = useRef({});
 
   const {
     _id,
     fullName,
     profilePicUrl,
-    message,
+    caption,
     date,
     isLive,
     playbackUrl,
     previewThumbUrl,
     durationSecs,
     userId,
+    vodUrl,
   } = live;
+
+  const user = useSelector(selectUser);
+  const isSender = userId === user?.id;
+  const likeAnim = useRef(new Animated.Value(0)).current;
+  const [dropdownVisible, setDropdownVisible] = useState(false);
 
   const timeAgo = useMemo(() => {
     if (!date) return '';
@@ -65,16 +48,14 @@ export default function LiveStreamCard({ live, onOpen, onProfile, onMore }) {
   }, [date]);
 
   const fileForThumb = useMemo(() => {
-    // VideoThumbnail in your code expects something like `{ type: 'hls', playbackUrl }`
-    if (playbackUrl) return { type: 'hls', playbackUrl };
-    return null;
-  }, [playbackUrl]);
+    const src = isLive ? playbackUrl : (vodUrl || playbackUrl);
+    return src ? { type: 'hls', playbackUrl: src } : null;
+  }, [isLive, playbackUrl, vodUrl]);
 
   const headline = isLive ? 'is live now' : 'posted a live replay';
 
   const handleOpen = () => onOpen?.(live);
   const handleProfile = () => onProfile?.(userId);
-  const handleMore = () => onMore?.(live);
 
   return (
     <View style={styles.card} key={_id}>
@@ -99,22 +80,44 @@ export default function LiveStreamCard({ live, onOpen, onProfile, onMore }) {
             </View>
           </View>
         </Pressable>
-        <Pressable onPress={handleMore} hitSlop={10}>
-          <Text style={styles.more}>⋯</Text>
-        </Pressable>
+        {!sharedPost && (
+          <PostOptionsMenu
+            isSender={isSender}
+            dropdownVisible={dropdownVisible}
+            setDropdownVisible={setDropdownVisible}
+            handleEdit={handleEdit}
+            handleDelete={handleDelete}
+            postData={live}
+          />
+        )}
       </View>
       {/* Caption */}
-      {message ? (
+      {caption ? (
         <Text style={styles.caption} numberOfLines={3}>
-          {message}
+          {caption}
         </Text>
       ) : null}
       {/* Media thumb */}
       <Pressable onPress={handleOpen} style={styles.mediaWrap}>
         {fileForThumb ? (
           <View style={styles.thumbBox}>
-            <VideoThumbnail file={fileForThumb} width={stylesVars.thumbW} height={stylesVars.thumbH} />
-            <PlayOverlay isLive={!!isLive} durationSecs={durationSecs} />
+            <VideoThumbnail
+              file={fileForThumb}
+              width={200}
+              height={200}
+              likeAnim={likeAnim}
+              reviewItem={live}
+              onDoubleTap={() => handleLikeWithAnimation({
+                postType: 'liveStream',
+                postId: _id,
+                review: live,
+                user,
+                animation: likeAnim,     // 👈 drives the overlay
+                lastTapRef,
+                dispatch,
+                force: true,             // optional if you want immediate burst on any tap here
+              })}
+            />
           </View>
         ) : previewThumbUrl ? (
           <ImageBackground
@@ -131,6 +134,16 @@ export default function LiveStreamCard({ live, onOpen, onProfile, onMore }) {
           </View>
         )}
       </Pressable>
+      {!sharedPost && (
+        <View style={{ marginTop: 15 }}>
+          <PostActions
+            item={live}
+            photo={vodUrl}
+            handleLikeWithAnimation={handleLikeWithAnimation}
+            handleOpenComments={handleOpenComments}
+          />
+        </View>
+      )}
     </View>
   );
 }

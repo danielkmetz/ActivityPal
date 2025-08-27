@@ -27,7 +27,6 @@ export default function PostOptionsMenu({
             >
                 <MaterialCommunityIcons name="dots-horizontal" size={24} color="gray" />
             </TouchableOpacity>
-
             {dropdownVisible && (
                 <View style={styles.dropdownMenu}>
                     <TouchableOpacity

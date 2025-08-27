@@ -38,6 +38,7 @@ const engagement = require('./routes/engagement');
 const sharedPosts = require('./routes/sharedPosts');
 const insights = require('./routes/insights');
 const liveStream = require('./routes/live');
+const commentsAndReplies = require('./routes/commentsAndReplies');
 
 // Initialize app
 const app = express();
@@ -132,6 +133,7 @@ app.use('/api/engagement', engagement);
 app.use('/api/sharedPosts', sharedPosts);
 app.use('/api/engagementInsights', insights);
 app.use('/api/liveStream', liveStream);
+app.use('/api/comments-replies', commentsAndReplies);
 
 setupDirectMessagingSocket(io);
 
