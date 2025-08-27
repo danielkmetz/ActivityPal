@@ -47,7 +47,6 @@ const getPostedLiveStreams = async (_parent, { userId }) => {
       return {
         _id: ls._id,
         userId: hostIdStr,
-        placeId: ls.placeId || null,
 
         // fullName is derived from firstName + lastName
         fullName: nameMeta.fullName || null,
@@ -55,10 +54,8 @@ const getPostedLiveStreams = async (_parent, { userId }) => {
         // URL only from resolver; raw key is optional
         profilePic: picMeta.profilePic ?? null,
         profilePicUrl: picMeta.profilePicUrl ?? null,
-
-        message: ls.title || null,
+        caption: ls.caption ?? null,   // <-- NEW: include caption
         date,
-
         playbackUrl: ls.playbackUrl || null,
         vodUrl: ls.recording?.vodUrl || null,
         coverKey: ls.coverKey || null,
@@ -73,7 +70,8 @@ const getPostedLiveStreams = async (_parent, { userId }) => {
         visibility: ls.visibility || 'public',
         isPosted: !!ls.isPosted || !!ls.savedToProfile,
         postId: ls.sharedPostId || null,
-
+        likes: ls.likes || [],
+        comments: ls.comments || [],
         taggedUsers: [],
       };
     });

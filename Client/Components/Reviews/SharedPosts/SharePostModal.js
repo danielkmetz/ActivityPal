@@ -22,8 +22,7 @@ import { selectUser } from '../../../Slices/UserSlice';
 import { selectProfilePic } from '../../../Slices/PhotosSlice';
 import { createSharedPost, editSharedPost } from '../../../Slices/SharedPostsSlice';
 import VideoThumbnail from '../VideoThumbnail';
-import { addCheckInUserAndFriendsReviews } from '../../../Slices/ReviewsSlice';
-import { postLiveSession } from '../../../Slices/LiveStreamSlice';
+import { postLiveSession, editLiveCaption } from '../../../Slices/LiveStreamSlice';
 
 export default function SharePostModal({ visible, onClose, post, isEditing = false, setIsEditing }) {
   const dispatch = useDispatch();
@@ -31,7 +30,7 @@ export default function SharePostModal({ visible, onClose, post, isEditing = fal
   const profilePic = useSelector(selectProfilePic);
   const profilePicUrl = profilePic?.url || null;
   const sharedPost = isEditing ? post?.original : post
-  const isReplay = post?.type === 'hls' && post?.playbackUrl;
+  const isReplay = (post?.type === 'hls' || post?.type === 'liveStream') && (post?.vodUrl || post?.playbackUrl);
 
   const fullName = useMemo(() => {
     const first = user?.firstName ?? '';
@@ -53,8 +52,6 @@ export default function SharePostModal({ visible, onClose, post, isEditing = fal
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
-
-  console.log(post)
 
   const resolveShareType = () => {
     const t = post?.type?.toLowerCase?.();
@@ -78,42 +75,45 @@ export default function SharePostModal({ visible, onClose, post, isEditing = fal
   };
 
   const handleSubmit = async () => {
-    console.log('[SharePostModal] handleSubmit called', { isEditing, post });
-
     if (!post?._id) {
-      console.warn('[SharePostModal] Missing post ID.');
       return;
     }
+    const trimmed = (comment ?? '').trim();
+    // For live caption endpoints, send null to CLEAR if user left it empty.
+    const liveCaption = trimmed || null;
 
     try {
       if (isEditing) {
-        console.log('[SharePostModal] editing shared post', post._id);
-        dispatch(
-          editSharedPost({
-            sharedPostId: post._id,
-            caption: comment.trim(),
-          })
-        );
+        // EDIT MODE
+        if (post.type === 'liveStream') {
+          // Edit caption on a posted live stream
+          await dispatch(editLiveCaption({ liveId: post._id, caption: liveCaption }));
+        } else if (post.type === 'sharedPost') {
+          // Edit an existing shared post's caption
+          await dispatch(editSharedPost({ sharedPostId: post._id, caption: trimmed }));
+        } else {
+          console.warn('[SharePostModal] Unsupported type in edit mode:', post.type);
+          return;
+        }
         setIsEditing(false);
       } else {
+        // CREATE/POST MODE
         const postType = resolveShareType();
-        console.log('[SharePostModal] resolved postType:', postType);
-
         if (!postType) {
           console.warn('[SharePostModal] Could not resolve post type.');
           return;
         }
 
         if (postType === 'replay') {
-          console.log('[SharePostModal] dispatching postLiveSession', post._id);
-          await dispatch(postLiveSession({ liveId: post._id, isPosted: true }));
+          // Post a live session replay with caption
+          await dispatch(postLiveSession({ liveId: post._id, isPosted: true, caption: liveCaption }));
         } else {
-          console.log('[SharePostModal] dispatching createSharedPost', post._id);
+          // Create a new shared post with caption
           await dispatch(
             createSharedPost({
               postType,
               originalPostId: post._id,
-              caption: comment.trim(),
+              caption: trimmed,
             })
           );
         }

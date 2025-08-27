@@ -55,7 +55,7 @@ export const createReview = createAsyncThunk(
 );
 
 export const toggleLike = createAsyncThunk(
-  'posts/toggleLike',
+  'reviews/toggleLike',
   async ({ postType, placeId, postId, userId, fullName }, { rejectWithValue }) => {
     try {
       const response = await axios.post(
@@ -70,60 +70,6 @@ export const toggleLike = createAsyncThunk(
   }
 );
 
-export const addComment = createAsyncThunk(
-  'comments/addComment',
-  async ({ postType, placeId, postId, userId, fullName, commentText, media }, { rejectWithValue }) => {
-    try {
-      // Updated API request to include postType in the URL
-      const response = await axios.post(
-        `${BASE_URL}/reviews/${postType}/${placeId}/${postId}/comment`,
-        { userId, commentText, fullName, media }
-      );
-
-      // ✅ Ensure we are correctly extracting the comment object
-      if (!response.data.comment || !response.data.comment._id) {
-        return rejectWithValue("Failed to add comment");
-      }
-
-      return {
-        postType,  // ✅ Distinguish between reviews and check-ins in the Redux state
-        postId,
-        commentId: response.data.comment._id, // ✅ Correctly extracting the commentId
-        comments: [response.data.comment], // ✅ Wrap in an array to prevent reducer errors
-      };
-    } catch (error) {
-      return rejectWithValue(error.response?.data?.message || 'Failed to add comment');
-    }
-  }
-);
-
-// Add a reply to a specific comment
-export const addReply = createAsyncThunk(
-  'reviews/addReply',
-  async ({ postType, placeId, postId, commentId, userId, fullName, commentText, media }, { rejectWithValue }) => {
-    try {
-      const response = await axios.post(
-        `${BASE_URL}/reviews/${postType}/${postId}/${commentId}/reply`,
-        { userId, fullName, commentText, media }
-      );
-
-      if (!response.data.reply || !response.data.reply._id) {
-        return rejectWithValue("Failed to add reply");
-      }
-
-      return {
-        postId,
-        commentId,
-        replyId: response.data.reply._id,
-        replies: [response.data.reply],
-        userId: response.data.parentCommentOwner,
-      };
-    } catch (error) {
-      return rejectWithValue(error.response?.data || 'Error adding reply');
-    }
-  }
-)
-
 export const fetchReviewsByUserId = createAsyncThunk(
   'reviews/fetchReviewsByUserId',
   async ({ userId, limit = 15, after }, { rejectWithValue }) => {
@@ -137,7 +83,6 @@ export const fetchReviewsByUserId = createAsyncThunk(
       });
 
       if (errors?.length) {
-        console.error('❌ GraphQL errors:', errors);
         return rejectWithValue(errors.map(err => err.message).join('; '));
       }
 
@@ -148,14 +93,7 @@ export const fetchReviewsByUserId = createAsyncThunk(
       }
 
       return posts;
-
     } catch (error) {
-      console.error('❗ Apollo Client error:', {
-        message: error.message,
-        graphQLErrors: error.graphQLErrors,
-        networkError: error.networkError,
-      });
-
       return rejectWithValue(
         error.graphQLErrors?.map(e => e.message).join('; ') ||
         error.networkError?.message ||
@@ -236,22 +174,6 @@ export const fetchReviewsByUserAndFriends = createAsyncThunk(
   }
 );
 
-export const deleteCommentOrReply = createAsyncThunk(
-  "reviews/deleteCommentOrReply",
-  async ({ postType, placeId, postId, commentId, relatedId }, { rejectWithValue }) => {
-    try {
-      const response = await axios.delete(`${BASE_URL}/reviews/${postType}/${postId}/${commentId}`, {
-        data: { relatedId },
-      });
-
-      return { commentId, postId };
-    } catch (error) {
-      const message = error.response?.data?.message || error.message || "Unknown error";
-      return rejectWithValue(message);
-    }
-  }
-);
-
 export const fetchPostById = createAsyncThunk(
   'reviews/fetchReviewById',
   async ({ postType, postId }, { rejectWithValue }) => {
@@ -261,59 +183,6 @@ export const fetchPostById = createAsyncThunk(
     } catch (error) {
       console.error("Error fetching review:", error);
       return rejectWithValue(error.response?.data || "Failed to fetch review");
-    }
-  }
-);
-
-export const editCommentOrReply = createAsyncThunk(
-  "reviews/editCommentOrReply",
-  async ({ postType, placeId, postId, commentId, userId, newText, media }, { rejectWithValue }) => {
-    try {
-      const response = await axios.put(
-        `${BASE_URL}/reviews/${postType}/${postId}/${commentId}`,
-        {
-          userId,
-          newText,
-          media, // can be undefined, null (for deletion), or an object (for update)
-        }
-      );
-
-      if (!response.data.updatedComment) {
-        return rejectWithValue("Failed to update comment or reply");
-      }
-
-      return {
-        postId,
-        commentId,
-        updatedComment: response.data.updatedComment,
-      };
-    } catch (error) {
-      return rejectWithValue(error.response?.data?.message || "Failed to update comment or reply");
-    }
-  }
-);
-
-export const toggleCommentLike = createAsyncThunk(
-  "reviews/toggleCommentLike",
-  async ({ postType, placeId, postId, commentId, userId, replyId = null }, { rejectWithValue }) => {
-    try {
-      const res = await axios.put(
-        `${BASE_URL}/reviews/${postType}/${postId}/${commentId}/like`, {
-        userId,
-        replyId,
-      });
-
-      return {
-        postType,
-        placeId,
-        postId,
-        commentId,
-        replyId,
-        updatedLikes: res.data.updatedLikes,
-      };
-    } catch (error) {
-      console.error("🚨 toggleCommentLike error:", error);
-      return rejectWithValue(error.response?.data?.message || "Failed to toggle like");
     }
   }
 );
@@ -492,12 +361,6 @@ const reviewsSlice = createSlice({
     pushSharedPostToUserAndFriends: (state, action) => {
       const sharedPost = action.payload;
 
-      // 🔍 Logging
-      console.log('[reviews] pushSharedPostToUserAndFriends payload:', {
-        id: sharedPost?._id,
-        type: sharedPost?.type,
-      });
-
       if (!sharedPost || !sharedPost._id) {
         console.warn('[reviews] pushSharedPostToUserAndFriends: invalid payload');
         return;
@@ -530,6 +393,24 @@ const reviewsSlice = createSlice({
       state.userAndFriendsReviews = [];
       state.otherUserReviews = [];
       state.businessReviews = [];
+    },
+    applyPostUpdates(state, action) {
+      const { postId, updates = {}, postKeys = [] } = action?.payload || {};
+      if (!postId) return;
+
+      try {
+        updatePostCollections({ state, postId, updates, postKeys });
+      } catch (e) {
+        // keep propagating so your crash logger can still catch it
+        throw e;
+      }
+    },
+    applyBulkPostUpdates(state, action) {
+      const items = Array.isArray(action.payload) ? action.payload : [];
+      for (const { postId, updates = {}, postKeys = [] } of items) {
+        if (!postId || !updates) continue;
+        updatePostCollections({ state, postId, updates, postKeys });
+      }
     },
   },
   extraReducers: (builder) => {
@@ -631,78 +512,6 @@ const reviewsSlice = createSlice({
         state.businessReviews = updateLikes(state.businessReviews);
         state.suggestedPosts = updateLikes(state.suggestedPosts);
       })
-      .addCase(addComment.fulfilled, (state, action) => {
-        const { postId, comments } = action.payload;
-
-        const updateComments = (review) => {
-          if (review) {
-            if (!Array.isArray(review.comments)) {
-              review.comments = [];
-            }
-            review.comments.push(...comments);
-          }
-        };
-
-        updateComments(state.otherUserReviews?.find((r) => r._id === postId));
-        updateComments(state.userAndFriendsReviews?.find((r) => r._id === postId));
-        updateComments(state.profileReviews?.find((r) => r._id === postId));
-        updateComments(state.businessReviews?.find((r) => r._id === postId));
-        updateComments(state.suggestedPosts?.find((r) => r._id === postId));
-        updateComments(state.selectedReview?._id === postId ? state.selectedReview : null);
-      })
-      .addCase(addReply.pending, (state) => {
-        state.loading = true;
-      })
-      .addCase(addReply.fulfilled, (state, action) => {
-        const { postId, commentId, replies } = action.payload;
-
-        const updateReplies = (comments) => {
-          return comments.map((comment) => {
-            if (comment._id === commentId) {
-              return {
-                ...comment,
-                replies: [...(comment.replies || []), ...replies],
-              };
-            }
-            if (Array.isArray(comment.replies)) {
-              return {
-                ...comment,
-                replies: updateReplies(comment.replies),
-              };
-            }
-            return comment;
-          });
-        };
-
-        const updateReview = (reviews) => {
-          const reviewIndex = reviews.findIndex((r) => r._id === postId);
-          if (reviewIndex !== -1) {
-            const review = reviews[reviewIndex];
-            reviews[reviewIndex] = {
-              ...review,
-              comments: updateReplies(review.comments || []),
-            };
-          }
-        };
-
-        updateReview(state.userAndFriendsReviews);
-        updateReview(state.otherUserReviews);
-        updateReview(state.profileReviews);
-        updateReview(state.businessReviews);
-        updateReview(state.suggestedPosts);
-
-        if (state.selectedReview?._id === postId) {
-          state.selectedReview = {
-            ...state.selectedReview,
-            comments: updateReplies(state.selectedReview.comments || []),
-          };
-        }
-      })
-      .addCase(addReply.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload;
-      })
-      // ✅ Fetch User + Friends Reviews (GraphQL API)
       .addCase(fetchReviewsByUserAndFriends.pending, (state) => {
         state.loading = "pending";
         state.error = null;
@@ -726,150 +535,6 @@ const reviewsSlice = createSlice({
       .addCase(fetchPostById.rejected, (state, action) => {
         state.error = action.payload;
         state.loading = false;
-      })
-      .addCase(deleteCommentOrReply.fulfilled, (state, action) => {
-        const { postId, commentId } = action.payload;
-
-        const removeCommentOrReply = (review) => {
-          if (!review) return;
-
-          const commentIndex = review.comments.findIndex((comment) => comment._id === commentId);
-          if (commentIndex !== -1) {
-            review.comments.splice(commentIndex, 1);
-            return;
-          }
-
-          const removeNestedReply = (replies) => {
-            if (!replies) return false;
-            for (let i = 0; i < replies.length; i++) {
-              if (replies[i]._id === commentId) {
-                replies.splice(i, 1);
-                return true;
-              }
-              if (removeNestedReply(replies[i].replies)) {
-                return true;
-              }
-            }
-            return false;
-          };
-
-          review.comments.forEach((comment) => {
-            removeNestedReply(comment.replies);
-          });
-        };
-
-        ["businessReviews", "profileReviews", "otherUserReviews", "userAndFriendsReviews", "suggestedPosts"].forEach((category) => {
-          state[category].forEach((review) => {
-            if (review._id === postId) {
-              removeCommentOrReply(review);
-            }
-          });
-        });
-
-        if (state.selectedReview?._id === postId) {
-          removeCommentOrReply(state.selectedReview);
-        }
-      })
-      .addCase(editCommentOrReply.fulfilled, (state, action) => {
-        const { postId, commentId, updatedComment } = action.payload;
-
-        const updateCommentOrReply = (review) => {
-          if (!review) return;
-
-          // ✅ First, try updating a top-level comment
-          const commentIndex = review.comments.findIndex((comment) => comment._id === commentId);
-          if (commentIndex !== -1) {
-            review.comments[commentIndex] = {
-              ...review.comments[commentIndex],
-              commentText: updatedComment.commentText,
-            };
-            return;
-          }
-
-          // ✅ Recursively search and update in `comment.replies`
-          const updateNestedReply = (replies) => {
-            if (!replies) return false;
-
-            for (let i = 0; i < replies.length; i++) {
-              if (replies[i]._id === commentId) {
-                replies[i] = { ...replies[i], commentText: updatedComment.commentText }; // ✅ Update text
-                return true;
-              }
-
-              // ✅ Search deeper in nested replies
-              if (updateNestedReply(replies[i].replies)) {
-                return true;
-              }
-            }
-            return false;
-          };
-
-          // ✅ Check each comment's replies for the nested reply
-          review.comments.forEach((comment) => {
-            updateNestedReply(comment.replies);
-          });
-        };
-
-        // ✅ Apply the update across all relevant review categories
-        ["businessReviews", "suggestedPosts", "profileReviews", "otherUserReviews", "userAndFriendsReviews"].forEach((category) => {
-          state[category].forEach((review) => {
-            if (review._id === postId) {
-              updateCommentOrReply(review);
-            }
-          });
-        });
-        // ✅ Update selectedReview if it's the one being edited
-        if (state.selectedReview && state.selectedReview._id === postId) {
-          updateCommentOrReply(state.selectedReview);
-        }
-      })
-      .addCase(toggleCommentLike.fulfilled, (state, action) => {
-        const { postId, commentId, replyId, updatedLikes } = action.payload;
-
-        const updateLikesRecursive = (nodes, targetId) => {
-          if (!Array.isArray(nodes)) return false;
-
-          for (let node of nodes) {
-            if (node._id === targetId) {
-              node.likes = updatedLikes;
-              return true;
-            }
-            if (updateLikesRecursive(node.replies, targetId)) {
-              return true;
-            }
-          }
-          return false;
-        };
-
-        const applyLikeUpdate = (review) => {
-          if (!review || !Array.isArray(review.comments)) return;
-
-          const targetId = replyId || commentId; // 👍 Handle both cases
-          updateLikesRecursive(review.comments, targetId);
-        };
-
-        const categories = [
-          "businessReviews",
-          "profileReviews",
-          "otherUserReviews",
-          "userAndFriendsReviews",
-          "suggestedPosts",
-        ];
-
-        categories.forEach((category) => {
-          state[category]?.forEach((review) => {
-            if (review._id === postId) {
-              applyLikeUpdate(review);
-            }
-          });
-        });
-
-        if (state.selectedReview && state.selectedReview._id === postId) {
-          applyLikeUpdate(state.selectedReview);
-        }
-      })
-      .addCase(editCommentOrReply.rejected, (state, action) => {
-        state.error = action.payload;
       })
       .addCase(editReview.pending, (state) => {
         state.loading = "loading";
@@ -927,6 +592,8 @@ export const {
   pushSharedPostToUserAndFriends,
   updateReviewFieldsById,
   updateSharedPostInReviews,
+  applyPostUpdates,
+  applyBulkPostUpdates,
 } = reviewsSlice.actions;
 
 export const selectProfileReviews = (state) => state.reviews.profileReviews || [];

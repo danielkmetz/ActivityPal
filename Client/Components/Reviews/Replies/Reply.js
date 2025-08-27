@@ -6,16 +6,20 @@ import { setSelectedComment, setSelectedReply } from '../../../Slices/CommentThr
 import { selectMediaFromGallery } from '../../../utils/selectPhotos';
 import VideoThumbnail from '../VideoThumbnail';
 import { uploadReviewPhotos } from '../../../Slices/PhotosSlice';
-import { addReplyToSharedPost } from '../../../Slices/SharedPostsSlice';
 import { isVideo } from '../../../utils/isVideo';
 import EditReplyInput from './EditReplyInput';
 import LikeButton from './LikeButton';
 import ReplyActionsBar from './ReplyActionsBar';
 import NestedReply from './NestedReply';
+import {
+  addReply as addReplyGeneric,
+  toggleLike as toggleLikeGeneric,
+  toApiPostType,
+} from '../../../Slices/CommentsSlice';
 
 const Reply = ({
   reply,
-  onAddReply,
+  onAddReply,                    // parent can still pass this; we’ll prefer generic thunk
   getTimeSincePosted,
   nestedExpandedReplies,
   setNestedExpandedReplies,
@@ -32,92 +36,96 @@ const Reply = ({
   isEditing,
   editedText,
   selectedReply,
-  postType,
-  placeId,
+  postType,                      // singular like 'review', 'promotion', etc.
   postId,
   review,
-  likePromoEventComment,
-  isPromoOrEvent = false,
   selectedMedia,
   setSelectedMedia,
   setSelectedEditMedia,
 }) => {
-  const dispatch = useDispatch()
+  const dispatch = useDispatch();
   const [nestedReplyText, setNestedReplyText] = useState('');
   const [showReplyInput, setShowReplyInput] = useState(false);
   const user = useSelector(selectUser);
   const userId = user?.id;
+  const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim();
+  const apiPostType = toApiPostType(postType);
   const media = reply?.media;
-  const mediaUrl = media?.url;
+  const mediaUrl = media?.mediaUrl || media?.url || null;
 
   const setNativeRef = (node) => {
-    if (node) {
-      commentRefs.current[reply._id] = node; // Store native handle
-    }
+    if (node) commentRefs.current[reply._id] = node;
   };
 
   const handleSelectReplyMedia = async () => {
     const files = await selectMediaFromGallery();
-    if (files.length > 0) {
-      setSelectedMedia([files[0]]); // ensure only one is stored
+    if (files?.length > 0) {
+      setSelectedMedia([files[0]]);    // exactly 1 file
       setSelectedEditMedia(files[0]);
     }
   };
 
   const handleAddNestedReply = async () => {
-    let media = null;
+    if (!nestedReplyText.trim()) return;
 
-    if (selectedMedia.length > 0) {
+    let mediaPayload = null;
+    if (selectedMedia?.length > 0) {
       try {
         const uploadResult = await dispatch(
           uploadReviewPhotos({
-            placeId: review.placeId,
+            placeId: review?.placeId,   // ok if undefined for some post types
             files: selectedMedia,
           })
         ).unwrap();
 
         if (uploadResult?.length > 0) {
           const file = selectedMedia[0];
-          media = {
+          mediaPayload = {
             photoKey: uploadResult[0],
-            mediaType: file.type?.startsWith("video") ? "video" : "image",
+            mediaType: file.type?.startsWith('video') ? 'video' : 'image',
           };
         }
       } catch (err) {
-        console.error("Reply media upload failed", err);
+        console.error('Reply media upload failed', err);
       }
     }
 
-    if (review?.type === 'sharedPost') {
-      await dispatch(
-        addReplyToSharedPost({
-          sharedPostId: review._id,
-          commentId: reply._id,
-          userId,
-          fullName: `${user?.firstName} ${user?.lastName}`,
-          commentText: nestedReplyText.trim(),
-          ...(media && { media }),
-        })
-      );
-    } else {
-      await onAddReply(reply._id, nestedReplyText, media);
-    }
+    // ✅ Use the generic nested reply endpoint.
+    await dispatch(
+      addReplyGeneric({
+        postType: apiPostType,
+        postId,
+        commentId: reply._id,             // parent is this reply -> deep nesting supported
+        commentText: nestedReplyText.trim(),
+        ...(mediaPayload && { media: mediaPayload }),
+      })
+    );
 
+    // reset UI state
     setNestedReplyText('');
     setShowReplyInput(false);
     setNestedReplyInput(false);
     setSelectedMedia([]);
-    handleExpandReplies(reply._id);
+    handleExpandReplies(reply._id);       // show the new reply
+  };
+
+  // ✅ Generic like/unlike for this reply node.
+  const handleToggleLike = async () => {
+    await dispatch(
+      toggleLikeGeneric({
+        postType: apiPostType,
+        postId,
+        commentId: reply._id,             // listener figures out if it’s nested and finds top-level id
+      })
+    );
   };
 
   return (
-    <TouchableWithoutFeedback
-      onLongPress={() => handleLongPress(reply, true, parentCommentId)}
-    >
+    <TouchableWithoutFeedback onLongPress={() => handleLongPress(reply, true, parentCommentId)}>
       <View ref={setNativeRef} style={styles.replyContainer}>
         <View style={styles.replyBubble}>
           <Text style={styles.replyAuthor}>{reply.fullName}:</Text>
-          {/* Show TextInput if editing, otherwise show text */}
+          {/* edit mode for this reply */}
           {isEditing && selectedReply?._id === reply._id ? (
             <EditReplyInput
               editedText={editedText}
@@ -140,21 +148,20 @@ const Reply = ({
                 <Text style={styles.commentText}>{reply.commentText}</Text>
               </View>
               <View style={styles.likeRow}>
+                {/* 🔁 If LikeButton can accept an override handler, pass it */}
                 <LikeButton
-                  review={review}
-                  reply={reply}
+                  node={reply}
                   userId={userId}
-                  postType={postType}
-                  placeId={placeId}
+                  onToggleLike={handleToggleLike}
+                  // (Optional) keep legacy props for backward compat in LikeButton
+                  postType={apiPostType}
                   postId={postId}
-                  isPromoOrEvent={isPromoOrEvent}
-                  likePromoEventComment={likePromoEventComment}
                 />
               </View>
             </View>
           )}
         </View>
-        {/* Reply button */}
+        {/* Reply button row */}
         <ReplyActionsBar
           reply={reply}
           showReplyInput={showReplyInput}
@@ -178,7 +185,7 @@ const Reply = ({
             handleAddNestedReply={handleAddNestedReply}
           />
         )}
-        {/* Render nested replies */}
+        {/* Render deeper nested replies */}
         {nestedExpandedReplies[reply._id] &&
           reply?.replies?.map((nestedReply) => (
             <Reply
@@ -204,11 +211,8 @@ const Reply = ({
               editedText={editedText}
               selectedReply={selectedReply}
               postType={postType}
-              placeId={placeId}
               postId={postId}
               review={review}
-              likePromoEventComment={likePromoEventComment}
-              isPromoOrEvent={isPromoOrEvent}
               selectedMedia={selectedMedia}
               setSelectedMedia={setSelectedMedia}
               setSelectedEditMedia={setSelectedEditMedia}
@@ -222,37 +226,11 @@ const Reply = ({
 export default Reply;
 
 const styles = StyleSheet.create({
-  replyContainer: {
-    marginLeft: 20,
-    padding: 10,
-    borderRadius: 5,
-  },
-  replyBubble: {
-    backgroundColor: '#f0f2f5',
-    backgroundColor: '#f0f2f5',
-    padding: 10,
-    borderRadius: 15,
-  },
-  replyAuthor: {
-    fontSize: 13,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  textRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  likeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 5,
-  },
-  image: {
-    width: 200,
-    height: 200,
-    borderRadius: 8,
-    marginBottom: 6,
-    marginTop: 5
-  },
+  replyContainer: { marginLeft: 20, padding: 10, borderRadius: 5 },
+  replyBubble: { backgroundColor: '#f0f2f5', padding: 10, borderRadius: 15 },
+  replyAuthor: { fontSize: 13, fontWeight: 'bold', color: '#333' },
+  textRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  likeRow: { flexDirection: 'row', alignItems: 'center', marginTop: 5 },
+  image: { width: 200, height: 200, borderRadius: 8, marginBottom: 6, marginTop: 5 },
+  commentText: { fontSize: 14, color: '#222' },
 });

@@ -46,6 +46,7 @@ const resolvers = {
         case 'check-in': return 'CheckIn';
         case 'invite': return 'ActivityInvite';
         case 'sharedPost': return 'SharedPost';
+        case 'liveStream': return 'LiveStream';
         default: return null;
       }
     }
@@ -74,6 +75,7 @@ const resolvers = {
         invite: 'ActivityInvite',
         promotion: 'Promotion',
         event: 'Event',
+        liveStream: 'LiveStream',
       };
 
       if (map[obj.originalPostType]) return map[obj.originalPostType];
@@ -90,6 +92,7 @@ const resolvers = {
       if (obj.type === 'sharedPost' || obj.original !== undefined) return 'SharedPost';
       if (obj.type === 'promotion' || obj.message !== undefined) return 'Promotion';
       if (obj.type === 'event' || obj.original !== undefined) return 'Event';
+      if (obj.type === 'liveStream' || obj.original !== undefined) return 'LiveStream';
       return null; // ← THIS is what causes graphql-depth-limit to explode
     }
   },

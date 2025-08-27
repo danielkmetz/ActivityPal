@@ -1,13 +1,16 @@
-import React, { useRef } from "react";
-import { View, Text, Image, FlatList, Animated, StyleSheet, } from "react-native";
+import React, { useRef, useMemo, useState, useEffect } from "react";
+import { View, Text, Image, Animated, StyleSheet, Dimensions } from "react-native";
 import dayjs from 'dayjs';
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
-import PhotoItem from "./Photos/PhotoItem";
-import PhotoPaginationDots from "./Photos/PhotoPaginationDots";
 import { useNavigation } from "@react-navigation/native";
 import PostActions from './PostActions';
 import PostUserInfo from "./CommentScreen/PostUserInfo";
 import SharedPostContent from "./SharedPosts/SharedPostContent";
+import VideoThumbnail from "./VideoThumbnail";
+import { useDispatch } from "react-redux";
+import PhotoFeed from "./Photos/PhotoFeed";
+
+const { width, height } = Dimensions.get('window');
 
 const CommentModalHeader = ({
     review,
@@ -20,9 +23,14 @@ const CommentModalHeader = ({
     setIsPhotoListActive,
     sharedPost,
 }) => {
+    const dispatch = useDispatch();
     const navigation = useNavigation();
+    const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
     const scrollX = useRef(new Animated.Value(0)).current;
+    const currentIndexRef = useRef(0);
+    const currentPhoto = review.photos?.[currentPhotoIndex];
     const isInvite = review?.type === "invite";
+    const likeAnim = useRef({});
     const isShared = !!sharedPost || review?.type === 'sharedPost';
     const photos = review?.photos || review?.media;
     const hasTaggedUsers = Array.isArray(review?.taggedUsers) && review.taggedUsers.length > 0;
@@ -50,6 +58,22 @@ const CommentModalHeader = ({
             initialIndex: review.photos.findIndex(p => p._id === photo._id),
         })
     };
+
+    const { isLive, playbackUrl, vodUrl } = review;
+
+    const fileForThumb = useMemo(() => {
+        const src = isLive ? playbackUrl : (vodUrl || playbackUrl);
+        return src ? { type: 'hls', playbackUrl: src } : null;
+    }, [isLive, playbackUrl, vodUrl]);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            if (currentPhotoIndex !== currentIndexRef.current) {
+                setCurrentPhotoIndex(currentIndexRef.current);
+            }
+        }, 100);
+        return () => clearInterval(interval);
+    }, [currentPhotoIndex]);
 
     return (
         <View style={styles.header}>
@@ -108,41 +132,39 @@ const CommentModalHeader = ({
                     {review?.type === "review" ? review?.reviewText : review?.message}
                 </Text>
             </View>
-            {photos?.length > 0 && (
-                <View >
-                    <FlatList
-                        data={photos}
-                        horizontal
-                        pagingEnabled
-                        bounces={false}
-                        showsHorizontalScrollIndicator={false}
-                        keyExtractor={(item) => item._id}
-                        onScroll={Animated.event(
-                            [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-                            { useNativeDriver: false }
-                        )}
-                        scrollEventThrottle={16}
-                        onTouchStart={() => {
-                            setIsPhotoListActive(true);
-                        }}
-                        onTouchEnd={() => {
-                            setIsPhotoListActive(false);
-                        }}
-                        renderItem={({ item: photo }) => (
-                            <PhotoItem
-                                photo={photo}
-                                reviewItem={review}
-                                photoTapped={photoTapped}
-                                toggleTaggedUsers={toggleTaggedUsers}
-                                handleLikeWithAnimation={handleLikeWithAnimation}
-                                lastTapRef={lastTapRef}
-                                onOpenFullScreen={onOpenFullScreen}
-                            />
-                        )}
+            {!!photos?.length && (
+                <PhotoFeed
+                    media={photos}
+                    scrollX={scrollX}
+                    currentIndexRef={currentIndexRef}
+                    setCurrentPhotoIndex={setCurrentPhotoIndex}
+                    reviewItem={review}
+                    photoTapped={photoTapped}
+                    handleLikeWithAnimation={handleLikeWithAnimation}
+                    lastTapRef={lastTapRef}
+                    onOpenFullScreen={onOpenFullScreen}
+                    onActiveChange={(active) => setIsPhotoListActive?.(active)} // keep your old behavior
+                />
+            )}
+            {review?.type === 'liveStream' && (
+                <View style={{ marginTop: -50 }}>
+                    <VideoThumbnail
+                        file={fileForThumb}
+                        width={width + 10}
+                        height={height * .5}
+                        likeAnim={likeAnim}
+                        reviewItem={review}
+                        onDoubleTap={() => handleLikeWithAnimation({
+                            postType: 'liveStream',
+                            postId: review?._id,
+                            review,
+                            user,
+                            animation: likeAnim,     // 👈 drives the overlay
+                            lastTapRef,
+                            dispatch,
+                            force: true,             // optional if you want immediate burst on any tap here
+                        })}
                     />
-                    {photos?.length > 1 && (
-                        <PhotoPaginationDots photos={photos} scrollX={scrollX} />
-                    )}
                 </View>
             )}
             {review?.type === "check-in" && review?.photos?.length === 0 && (
@@ -154,6 +176,7 @@ const CommentModalHeader = ({
             <View style={{ marginTop: commentActionsMargin, justifyContent: 'center' }}>
                 <PostActions
                     item={review}
+                    photo={currentPhoto}
                     handleLikeWithAnimation={handleLikeWithAnimation}
                     isCommentScreen={true}
                 />
@@ -175,25 +198,6 @@ const styles = StyleSheet.create({
     },
     headerText: {
         padding: 10,
-    },
-    userInfo: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 15,
-    },
-    reviewerName: {
-        flexWrap: 'wrap',
-        flexShrink: 1,
-        fontSize: 16,
-        marginLeft: 10,
-    },
-    fullName: {
-        fontWeight: 'bold',
-        color: '#222',
-    },
-    taggedUser: {
-        fontWeight: 'bold',
-        color: '#444',
     },
     businessName: {
         fontSize: 16,
@@ -234,39 +238,10 @@ const styles = StyleSheet.create({
         color: '#333',
         marginBottom: 10,
     },
-    smallPinIcon: {
-        width: 20,
-        height: 20,
-        marginLeft: 10,
-        marginTop: 10,
-    },
     pinIcon: {
         width: 50,
         height: 50,
         alignSelf: 'center',
-        marginBottom: 10,
-    },
-    reviewDate: {
-        marginLeft: 10,
-        marginTop: 5,
-    },
-    headerBar: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        borderBottomWidth: 1,
-        borderBottomColor: '#eee',
-        backgroundColor: '#fff',
-        zIndex: 1,
-    },
-    backButton: {
-        padding: 5,
-    },
-    sharedHeader: {
-        borderWidth: 1,
-        borderColor: '#ccc',
-        borderRadius: 8,
-        padding: 8,
-        backgroundColor: '#f9f9f9', // optional for "Facebook shared" look
         marginBottom: 10,
     },
 });

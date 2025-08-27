@@ -23,6 +23,7 @@ import SharedPostItem from "./SharedPosts/SharedPostItem";
 import { deleteSharedPost } from "../../Slices/SharedPostsSlice";
 import ShareOptionsModal from "./SharedPosts/ShareOptionsModal";
 import LiveStreamCard from '../LiveStream/LiveStreamCard';
+import { unpostLiveSession } from "../../Slices/LiveStreamSlice";
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
@@ -51,7 +52,6 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
     navigation.navigate('CommentScreen', {
       reviewId: review._id,
       setSelectedReview,
-      handleLikeWithAnimation,
       toggleTaggedUsers,
       lastTapRef,
       photoTapped,
@@ -80,51 +80,54 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
   };
 
   const handleDeletePost = (post) => {
+    const typeLabels = {
+      review: "review",
+      "check-in": "check-in",
+      sharedPost: "shared post",
+      liveStream: "live stream",
+    };
+
+    const label = typeLabels[post.type] || "post";
+
     Alert.alert(
       "Delete Post",
-      `Are you sure you want to delete this ${post.type === "review"
-        ? "review"
-        : post.type === "check-in"
-          ? "check-in"
-          : post.type === "sharedPost"
-            ? "shared post"
-            : "post"
-      }?`,
+      `Are you sure you want to delete this ${label}?`,
       [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
+        { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
             try {
-              if (post.type === "review") {
-                await dispatch(deleteReview({ placeId: post.placeId, reviewId: post._id }));
-              } else if (post.type === "check-in") {
-                await dispatch(deleteCheckIn({ userId, checkInId: post._id }));
+              switch (post.type) {
+                case "review":
+                  await dispatch(deleteReview({ placeId: post.placeId, reviewId: post._id }));
+                  break;
 
-                dispatch(setUserAndFriendsReviews(
-                  (userAndFriendsReviews || []).filter(p => p._id !== post._id)
-                ));
+                case "check-in":
+                  await dispatch(deleteCheckIn({ userId, checkInId: post._id }));
+                  break;
 
-                dispatch(setProfileReviews(
-                  (profileReviews || []).filter(p => p._id !== post._id)
-                ));
-              } else if (post.type === "sharedPost") {
-                await dispatch(deleteSharedPost(post._id));
+                case "sharedPost":
+                  await dispatch(deleteSharedPost(post._id));
+                  break;
 
-                dispatch(setUserAndFriendsReviews(
-                  (userAndFriendsReviews || []).filter(p => p._id !== post._id)
-                ));
+                case "liveStream":
+                  await dispatch(unpostLiveSession({ liveId: post._id, removeLinkedPost: true }));
+                  break;
 
-                dispatch(setProfileReviews(
-                  (profileReviews || []).filter(p => p._id !== post._id)
-                ));
-              } else {
-                console.warn("Unsupported post type:", post.type);
+                default:
+                  console.warn("Unsupported post type:", post.type);
+                  return;
               }
+
+              // For all deletions, remove from feeds
+              dispatch(setUserAndFriendsReviews(
+                (userAndFriendsReviews || []).filter(p => p._id !== post._id)
+              ));
+              dispatch(setProfileReviews(
+                (profileReviews || []).filter(p => p._id !== post._id)
+              ));
             } catch (error) {
               console.error("Error deleting post:", error);
               Alert.alert("Error", "Something went wrong while deleting the post.");
@@ -149,7 +152,7 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
         isEditing: true,
         initialPost: post,
       });
-    } else if (lowerType === "sharedpost" || lowerType === "shared") {
+    } else if (lowerType === "sharedpost" || lowerType === "shared" || lowerType === "livestream") {
       setEditingSharedPost(true);
       setSelectedPostForShare(post);
       setShareToFeedVisible(true);
@@ -292,9 +295,13 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
           }
           if (item.type === "liveStream") {
             return (
-              <LiveStreamCard 
+              <LiveStreamCard
                 live={item}
                 onProfile={(userId) => navigation.navigate('OtherUserProfile', { userId })}
+                handleEdit={handleEditPost}
+                handleDelete={handleDeletePost}
+                handleLikeWithAnimation={handleLikeWithAnimation}
+                handleOpenComments={handleOpenComments}
               />
             )
           }
