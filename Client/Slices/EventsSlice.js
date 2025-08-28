@@ -1,11 +1,6 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
-import {
-  updateNearbySuggestionCommentOrReply,
-  addNearbySuggestionComment,
-  addNearbySuggestionReply,
-  removeNearbySuggestionCommentOrReply,
-  updateNearbySuggestionLikes,
-} from "./GooglePlacesSlice";
+import { updateNearbySuggestionLikes } from "./GooglePlacesSlice";
+import { updateEvents } from '../utils/posts/UpdateEvents';
 import axios from "axios";
 
 const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
@@ -152,160 +147,6 @@ export const toggleEventLike = createAsyncThunk(
   }
 );
 
-export const leaveEventComment = createAsyncThunk(
-  "events/leaveEventComment",
-  async ({ placeId, id, userId, fullName, commentText, media }, { rejectWithValue, dispatch }) => {
-    try {
-      const response = await axios.post(
-        `${BASE_URL}/business/events/${placeId}/${id}/comments`,
-        { userId, fullName, commentText, media }
-      );
-
-      dispatch(addNearbySuggestionComment({
-        postId: id,
-        newComment: response.data.comment,
-      }));
-
-      return {
-        eventId: id,
-        newComment: response.data.comment, // New comment object from backend
-      };
-    } catch (error) {
-      const errorMessage =
-        error.response?.data?.message || error.message || "Failed to leave comment";
-      return rejectWithValue(errorMessage);
-    }
-  }
-);
-
-export const leaveEventReply = createAsyncThunk(
-  "events/leaveEventReply",
-  async (
-    { placeId, id, commentId, userId, fullName, commentText, media },
-    { rejectWithValue, dispatch }
-  ) => {
-    try {
-      const response = await axios.post(
-        `${BASE_URL}/business/events/${id}/comments/${commentId}/replies`,
-        {
-          commentId,
-          userId,
-          fullName,
-          commentText,
-          placeId,
-          media,
-        }
-      );
-
-      dispatch(addNearbySuggestionReply({
-        postId: id,
-        commentId,
-        newReply: response.data.reply,
-      }));
-
-      return {
-        eventId: id,
-        commentId,
-        newReply: response.data.reply,
-      };
-    } catch (error) {
-      const errorMessage =
-        error.response?.data?.message || error.message || "Failed to leave reply";
-      return rejectWithValue(errorMessage);
-    }
-  }
-);
-
-export const toggleEventCommentLike = createAsyncThunk(
-  "events/toggleEventCommentLike",
-  async (
-    { placeId, id, commentId, userId, fullName },
-    { rejectWithValue, dispatch }
-  ) => {
-    try {
-      const response = await axios.post(
-        `${BASE_URL}/business/events/${id}/comments/${commentId}/like`,
-        {
-          userId,
-          fullName,
-        }
-      );
-
-      const updatedLikes = response.data.likes;
-
-      dispatch(updateNearbySuggestionCommentOrReply({
-        postId: id,
-        commentId,
-        updatedComment: { _id: commentId, likes: updatedLikes },
-      }));
-
-      return {
-        eventId: id,
-        commentId,
-        updatedLikes,
-      };
-    } catch (error) {
-      const errorMessage =
-        error.response?.data?.message || error.message || "Failed to like comment";
-      return rejectWithValue(errorMessage);
-    }
-  }
-);
-
-export const editEventCommentOrReply = createAsyncThunk(
-  "events/editEventCommentOrReply",
-  async ({ id, commentId, commentText, media }, { rejectWithValue, dispatch }) => {
-    try {
-      const response = await axios.put(
-        `${BASE_URL}/business/events/${id}/edit-comment/${commentId}`,
-        { commentText, media }
-      );
-
-      const updatedComment = response.data.updatedComment;
-
-      dispatch(updateNearbySuggestionCommentOrReply({
-        postId: id,
-        commentId,
-        updatedComment,
-      }));
-
-      return {
-        eventId: id,
-        updatedComment,
-      };
-    } catch (error) {
-      const message =
-        error.response?.data?.message || error.message || "Failed to edit comment";
-      return rejectWithValue(message);
-    }
-  }
-);
-
-export const deleteEventCommentOrReply = createAsyncThunk(
-  "events/deleteEventCommentOrReply",
-  async ({ id, commentId }, { rejectWithValue, dispatch }) => {
-    try {
-      const response = await axios.delete(
-        `${BASE_URL}/business/events/${id}/delete-comment/${commentId}`
-      );
-
-      dispatch(removeNearbySuggestionCommentOrReply({
-        postId: id,
-        commentId,
-      }));
-
-      return {
-        postId: id,
-        commentId,
-      };
-    } catch (error) {
-      const message =
-        error.response?.data?.message || error.message || "Failed to delete comment";
-      return rejectWithValue(message);
-    }
-  }
-);
-
 const eventsSlice = createSlice({
   name: 'events',
   initialState: {
@@ -320,7 +161,12 @@ const eventsSlice = createSlice({
     },
     resetSelectedEvent: (state) => {
       state.selectedEvent = null;
-    }
+    },
+    applyEventUpdates: (state, action) => {
+      const { postId, updates, debug, label } = action.payload || {};
+      if (!postId || !updates) return;
+      updateEvents({ state, postId, updates, debug, label });
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -399,158 +245,6 @@ const eventsSlice = createSlice({
         state.loading = false;
         state.error = action.payload;
       })
-      .addCase(leaveEventComment.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(leaveEventComment.fulfilled, (state, action) => {
-        state.loading = false;
-        const { eventId, newComment } = action.payload;
-
-        const event = state.events.find(e => e._id === eventId);
-        if (event) {
-          event.comments = event.comments || [];
-          event.comments.push(newComment);
-        }
-        if (state.selectedEvent?._id === eventId) {
-          state.selectedEvent.comments = state.selectedEvent.comments || [];
-          state.selectedEvent.comments.push(newComment);
-        }
-      })
-      .addCase(leaveEventComment.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload;
-      })
-      .addCase(leaveEventReply.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(leaveEventReply.fulfilled, (state, action) => {
-        state.loading = false;
-        const { eventId, commentId, newReply } = action.payload;
-
-        const findAndInsertReply = (comments) => {
-          for (let comment of comments) {
-            if (comment._id === commentId) {
-              comment.replies = comment.replies || [];
-              comment.replies.push(newReply);
-              return true;
-            }
-            if (comment.replies && findAndInsertReply(comment.replies)) {
-              return true;
-            }
-          }
-          return false;
-        };
-
-        const event = state.events.find((e) => e._id === eventId);
-        if (event && Array.isArray(event.comments)) {
-          findAndInsertReply(event.comments);
-        }
-        if (state.selectedEvent?._id === eventId && Array.isArray(state.selectedEvent.comments)) {
-          findAndInsertReply(state.selectedEvent.comments);
-        }
-      })
-      .addCase(leaveEventReply.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload;
-      })
-      .addCase(toggleEventCommentLike.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(toggleEventCommentLike.fulfilled, (state, action) => {
-        state.loading = false;
-        const { eventId, commentId, updatedLikes } = action.payload;
-
-        const updateLikes = (comments) => {
-          for (let comment of comments) {
-            if (comment._id === commentId) {
-              comment.likes = updatedLikes;
-              return true;
-            }
-            if (Array.isArray(comment.replies) && updateLikes(comment.replies)) {
-              return true;
-            }
-          }
-          return false;
-        };
-
-        if (state.selectedEvent?._id === eventId && Array.isArray(state.selectedEvent.comments)) {
-          updateLikes(state.selectedEvent.comments);
-        }
-
-        const event = state.events.find(e => e._id === eventId);
-        if (event && Array.isArray(event.comments)) {
-          updateLikes(event.comments);
-        }
-      })
-      .addCase(toggleEventCommentLike.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload;
-      })
-      .addCase(editEventCommentOrReply.fulfilled, (state, action) => {
-        const { updatedComment } = action.payload;
-        if (!updatedComment || !updatedComment._id) return;
-
-        const updateCommentInList = (comments) => {
-          for (let comment of comments) {
-            if (comment._id === updatedComment._id) {
-              const existingReplies = comment.replies;
-              Object.assign(comment, updatedComment);
-              if (existingReplies) {
-                comment.replies = existingReplies;
-              }
-              return true;
-            }
-            if (comment.replies && updateCommentInList(comment.replies)) return true;
-          }
-          return false;
-        };
-
-        for (let event of state.events) {
-          if (Array.isArray(event.comments)) {
-            if (updateCommentInList(event.comments)) break;
-          }
-        }
-
-        if (
-          state.selectedEvent &&
-          Array.isArray(state.selectedEvent.comments)
-        ) {
-          updateCommentInList(state.selectedEvent.comments);
-        }
-      })
-      .addCase(editEventCommentOrReply.rejected, (state, action) => {
-        state.error = action.payload;
-      })
-      .addCase(deleteEventCommentOrReply.fulfilled, (state, action) => {
-        const { postId, commentId } = action.payload;
-
-        const event = state.events.find(e => e._id === postId);
-        if (!event || !event.comments) return;
-
-        const removeComment = (comments) => {
-          const index = comments.findIndex(c => c._id === commentId);
-          if (index !== -1) {
-            comments.splice(index, 1);
-            return true;
-          }
-          for (let c of comments) {
-            if (c.replies && removeComment(c.replies)) return true;
-          }
-          return false;
-        };
-
-        removeComment(event.comments);
-
-        if (state.selectedEvent?._id === postId && Array.isArray(state.selectedEvent.comments)) {
-          removeComment(state.selectedEvent.comments);
-        }
-      })
-      .addCase(deleteEventCommentOrReply.rejected, (state, action) => {
-        state.error = action.payload;
-      })
       .addCase(fetchEventById.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -568,10 +262,12 @@ const eventsSlice = createSlice({
 
 export default eventsSlice.reducer;
 
-export const { resetEvents, resetSelectedEvent } = eventsSlice.actions;
+export const { resetEvents, resetSelectedEvent, applyEventUpdates } = eventsSlice.actions;
 
 export const selectEvents = (state) => state.events.events || [];
 export const selectLoading = (state) => state.events.loading;
 export const selectError = (state) => state.events.error;
 export const selectSelectedEvent = (state) => state.events.selectedEvent;
+export const selectEventById = (state, id) =>
+  state.events.events.find((e) => e._id === id);
 

@@ -16,8 +16,6 @@ router.post('/conversation', verifyToken, async (req, res) => {
   const userId = req.user.id;
   const { recipientId } = req.body;
 
-  console.log('📥 [POST /conversation] Incoming request:', { userId, recipientId });
-
   try {
     let conversation = await Conversation.findOne({
       participants: { $all: [userId, recipientId] },
@@ -143,12 +141,13 @@ router.post('/message', verifyToken, async (req, res) => {
       }
     }
 
-    // Emit message to other participants
-    conversation.participants.forEach(participantId => {
-      if (participantId.toString() !== senderId) {
-        req.app.get('io')
-          .to(participantId.toString())
-          .emit('newMessage', enrichedMessage);
+    // 🔔 Emit to participants on the DM NAMESPACE (not root)  // CHANGED
+    const io = req.app.get('io');
+    const dm = io.of('/dm');
+    conversation.participants.forEach((participantId) => {
+      const pid = participantId.toString();
+      if (pid !== senderId) {
+        dm.to(pid).emit('newMessage', enrichedMessage); // or 'dm:newMessage'
       }
     });
 
@@ -364,27 +363,33 @@ router.delete('/message/:messageId', verifyToken, async (req, res) => {
   const userId = req.user.id;
 
   try {
-    const message = await Message.findById(messageId);
-
-    if (!message) {
-      return res.status(404).json({ error: 'Message not found' });
-    }
-
-    // Only allow the sender to delete the message
+    const message = await Message.findById(messageId).lean();
+    if (!message) return res.status(404).json({ error: 'Message not found' });
     if (String(message.senderId) !== String(userId)) {
       return res.status(403).json({ error: 'Not authorized to delete this message' });
     }
 
-    // If the message has media with a photoKey, delete it from S3
+    // find conversation to get participants
+    const conversation = await Conversation.findById(message.conversationId).lean();
+    if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+
+    // delete media if any
     if (message.media?.photoKey) {
-      await deleteS3Objects([message.media.photoKey]);
-      console.log('🧹 Deleted media from S3:', message.media.photoKey);
+      await deleteS3Objects([message.media.photoKey]).catch(() => {});
     }
 
     await Message.findByIdAndDelete(messageId);
-    console.log('🗑️ Deleted message from DB:', messageId);
 
-    res.json({ success: true, messageId });
+    // 🔔 emit to /dm namespace personal rooms
+    const io = req.app.get('io');
+    const dm = io.of('/dm');
+    const payload = { messageId, conversationId: String(message.conversationId) };
+
+    conversation.participants.forEach((pid) => {
+      dm.to(pid.toString()).emit('messageDeleted', payload);
+    });
+
+    res.json({ success: true, ...payload });
   } catch (err) {
     console.error('❌ Failed to delete message:', err.message);
     res.status(500).json({ error: 'Failed to delete message', details: err.message });
@@ -393,47 +398,70 @@ router.delete('/message/:messageId', verifyToken, async (req, res) => {
 
 router.put('/message/:messageId', verifyToken, async (req, res) => {
   const { messageId } = req.params;
-  const { content, media } = req.body; // media can be null, or a new { photoKey, mediaType }
+  const { content, media } = req.body; // media may be null or { photoKey, mediaType }
   const userId = req.user.id;
 
   try {
     const message = await Message.findById(messageId);
-
-    if (!message) {
-      return res.status(404).json({ error: 'Message not found' });
-    }
-
+    if (!message) return res.status(404).json({ error: 'Message not found' });
     if (String(message.senderId) !== String(userId)) {
       return res.status(403).json({ error: 'Not authorized to edit this message' });
     }
 
-    let oldPhotoKey = message.media?.photoKey || null;
-    let newPhotoKey = media?.photoKey || null;
+    const conversation = await Conversation.findById(message.conversationId).lean();
+    if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
 
-    // 🗑️ Case 1: User removed media entirely
-    if (!media && oldPhotoKey) {
-      await deleteS3Objects([oldPhotoKey]);
+    const oldKey = message.media?.photoKey || null;
+    const newKey = media?.photoKey || null;
+
+    // Case 1: remove media
+    if (!media && oldKey) {
+      await deleteS3Objects([oldKey]).catch(() => {});
       message.media = null;
     }
-
-    // 🔁 Case 2: User swapped media
-    else if (media && oldPhotoKey && oldPhotoKey !== newPhotoKey) {
-      await deleteS3Objects([oldPhotoKey]);
+    // Case 2: swap media
+    else if (media && oldKey && oldKey !== newKey) {
+      await deleteS3Objects([oldKey]).catch(() => {});
+      message.media = media;
+    }
+    // Case 3: add new media
+    else if (media && !oldKey) {
       message.media = media;
     }
 
-    // ✅ Case 3: User added media for first time or updated content
-    else if (media && !oldPhotoKey) {
-      message.media = media;
-    }
-
-    // Update content
+    // content + timestamp
     message.content = content;
     message.updatedAt = new Date();
-
     await message.save();
 
-    res.json({ message });
+    // Build response + include fresh URL if present
+    const edited = message.toObject();
+    if (edited.media?.photoKey) {
+      try {
+        edited.media.url = await getPresignedUrl(edited.media.photoKey);
+      } catch {}
+    }
+
+    // 🔔 emit to /dm namespace
+    const io = req.app.get('io');
+    const dm = io.of('/dm');
+    const payload = {
+      message: {
+        _id: String(edited._id),
+        conversationId: String(edited.conversationId),
+        senderId: String(edited.senderId),
+        content: edited.content,
+        media: edited.media || null,
+        messageType: edited.messageType,
+        updatedAt: edited.updatedAt,
+      },
+    };
+
+    conversation.participants.forEach((pid) => {
+      dm.to(pid.toString()).emit('messageEdited', payload);
+    });
+
+    res.json(payload);
   } catch (err) {
     console.error('❌ Failed to edit message:', err.message);
     res.status(500).json({ error: 'Failed to edit message', details: err.message });

@@ -103,6 +103,7 @@ export default function LiveStreamCard({ live, onOpen, onProfile, handleEdit, ha
           <View style={styles.thumbBox}>
             <VideoThumbnail
               file={fileForThumb}
+              postItem={live}
               width={200}
               height={200}
               likeAnim={likeAnim}

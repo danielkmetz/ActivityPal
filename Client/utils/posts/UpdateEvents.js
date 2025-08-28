@@ -1,0 +1,155 @@
+export const updateEvents = ({
+  state,          // draft of root OR events slice draft
+  postId,         // event _id
+  updates = {},
+}) => {
+  const sliceOrArray = state?.events ?? state;
+  const listKey = 'events';
+  const selectedKey = 'selectedEvent';
+
+  const list = Array.isArray(sliceOrArray) ? sliceOrArray : sliceOrArray?.[listKey];
+  const selected = Array.isArray(sliceOrArray) ? null : sliceOrArray?.[selectedKey] || null;
+
+  const applyCustomUpdate = (post) => {
+    if (!post) return;
+    const u = updates || {};
+
+    // Update likes on the event itself
+    if (u.__updatePostLikes) {
+      post.likes = u.__updatePostLikes;
+    }
+
+    // Append a top-level comment
+    if (u.__appendComment) {
+      post.comments = [...(post.comments || []), u.__appendComment];
+    }
+
+    // Append a reply
+    if (u.__appendReply) {
+      const { commentId, reply } = u.__appendReply;
+      const insertReply = (arr) => {
+        for (const c of arr || []) {
+          if (!c || typeof c !== 'object') continue;
+          if (String(c._id) === String(commentId)) {
+            c.replies = [...(c.replies || []), reply];
+            return true;
+          }
+          if (Array.isArray(c.replies) && insertReply(c.replies)) return true;
+        }
+        return false;
+      };
+      if (Array.isArray(post.comments)) insertReply(post.comments);
+    }
+
+    // Update a comment or reply (immutable rebuild)
+    if (u.__updateComment) {
+      const { commentId, updatedComment = {} } = u.__updateComment;
+
+      const updateCommentDeep = (nodes) => {
+        let changed = false;
+        const next = (nodes || []).map((n) => {
+          if (!n || typeof n !== 'object') return n;
+          if (String(n._id) === String(commentId)) {
+            changed = true;
+            return { ...n, ...updatedComment };
+          }
+          if (n.replies?.length) {
+            const { next: childNext, changed: childChanged } = updateCommentDeep(n.replies);
+            if (childChanged) {
+              changed = true;
+              return { ...n, replies: childNext };
+            }
+          }
+          return n;
+        });
+        return { next, changed };
+      };
+
+      if (Array.isArray(post.comments)) {
+        const { next, changed } = updateCommentDeep(post.comments);
+        if (changed) post.comments = next;
+      }
+    }
+
+    // Delete a comment or reply
+    if (u.__deleteComment) {
+      const targetId = u.__deleteComment;
+      const prune = (arr) =>
+        (arr || [])
+          .map((c) => {
+            if (!c || typeof c !== 'object') return c;
+            if (String(c._id) === String(targetId)) return null;
+            if (Array.isArray(c.replies)) c.replies = prune(c.replies);
+            return c;
+          })
+          .filter(Boolean);
+      if (Array.isArray(post.comments)) post.comments = prune(post.comments);
+    }
+
+    // Update likes on a comment/reply
+    if (u.__updateCommentLikes) {
+      const { commentId: topId, replyId, likes = [] } = u.__updateCommentLikes;
+
+      const updateReplyLikesDeep = (nodes) => {
+        let changed = false;
+        const next = (nodes || []).map((n) => {
+          if (!n || typeof n !== 'object') return n;
+          if (replyId && String(n._id) === String(replyId)) {
+            changed = true;
+            return { ...n, likes };
+          }
+          if (n.replies?.length) {
+            const r = updateReplyLikesDeep(n.replies);
+            if (r.changed) {
+              changed = true;
+              return { ...n, replies: r.next };
+            }
+          }
+          return n;
+        });
+        return { next, changed };
+      };
+
+      if (Array.isArray(post.comments)) {
+        if (replyId) {
+          const idx = post.comments.findIndex((c) => String(c?._id) === String(topId));
+          if (idx !== -1) {
+            const top = post.comments[idx];
+            const r = updateReplyLikesDeep(top?.replies || []);
+            if (r.changed) {
+              post.comments = [
+                ...post.comments.slice(0, idx),
+                { ...top, replies: r.next },
+                ...post.comments.slice(idx + 1),
+              ];
+            }
+          } else {
+            const r = updateReplyLikesDeep(post.comments || []);
+            if (r.changed) post.comments = r.next;
+          }
+        } else {
+          post.comments = (post.comments || []).map((c) =>
+            String(c._id) === String(topId) ? { ...c, likes } : c
+          );
+        }
+      }
+    }
+
+    // Merge plain fields
+    const plain = Object.entries(u).filter(([k]) => !k.startsWith('__'));
+    if (plain.length) {
+      Object.assign(post, Object.fromEntries(plain));
+    }
+  };
+
+  if (Array.isArray(list)) {
+    const idx = list.findIndex((p) => String(p?._id) === String(postId));
+    if (idx !== -1) {
+      applyCustomUpdate(list[idx]);
+    }
+  }
+
+  if (selected && String(selected._id) === String(postId)) {
+    applyCustomUpdate(selected);
+  }
+};
