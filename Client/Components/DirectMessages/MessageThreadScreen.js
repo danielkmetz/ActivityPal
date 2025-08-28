@@ -1,13 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import {
-  View,
-  FlatList,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  Image,
+  View, FlatList, TextInput, TouchableOpacity, StyleSheet,
+  KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchMessages, sendMessage, selectMessagesByConversation, editMessage, deleteMessage } from '../../Slices/DirectMessagingSlice';
@@ -20,6 +14,7 @@ import CommentOptionsModal from '../Reviews/CommentOptionsModal';
 import { isVideo } from '../../utils/isVideo';
 import { groupMessagesByDate } from '../../utils/groupMessagesByDate';
 import MessageItem from './MessageItem';
+import { connectDmSocket } from '../../app/socket/dmSocketClient';
 
 const MessageThreadScreen = ({ route }) => {
   const { conversationId, participants } = route.params || {};
@@ -28,7 +23,7 @@ const MessageThreadScreen = ({ route }) => {
   const user = useSelector(selectUser);
   const messagesByConversation = useSelector(selectMessagesByConversation);
   const [input, setInput] = useState('');
-  const [selectedMedia, setSelectedMedia] = useState(null); // array of assets
+  const [selectedMedia, setSelectedMedia] = useState(null);
   const [localConversationId, setLocalConversationId] = useState(initialConversationId);
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [isOptionsModalVisible, setOptionsModalVisible] = useState(false);
@@ -38,6 +33,13 @@ const MessageThreadScreen = ({ route }) => {
   const flatListRef = useRef();
   const groupedMessages = groupMessagesByDate(messages);
 
+  // Ensure socket connected (idempotent)
+  useEffect(() => {
+    if (process.env.EXPO_PUBLIC_SERVER_URL && user?.token) {
+      connectDmSocket(process.env.EXPO_PUBLIC_SERVER_URL);
+    }
+  }, [user?.token]);
+
   useEffect(() => {
     if (resolvedConversationId) {
       dispatch(fetchMessages(resolvedConversationId));
@@ -46,7 +48,7 @@ const MessageThreadScreen = ({ route }) => {
 
   const handleEdit = () => {
     setInput(selectedMessage?.content || '');
-    setSelectedMedia(selectedMessage?.media || null); // Optional: populate media
+    setSelectedMedia(selectedMessage?.media || null);
     setEditingMessageId(selectedMessage?._id);
     setOptionsModalVisible(false);
   };
@@ -59,19 +61,11 @@ const MessageThreadScreen = ({ route }) => {
   };
 
   const handleSend = async () => {
-    console.log('📤 Attempting to send message...');
-    console.log('✏️ Input:', input);
-    console.log('🖼️ Selected media:', selectedMedia);
-
-    if (!input.trim() && !selectedMedia) {
-      console.log('⛔ Message send blocked: no input and no media');
-      return;
-    }
+    if (!input.trim() && !selectedMedia) return;
 
     let uploadedMedia = null;
 
     if (selectedMedia && !selectedMedia.url && !selectedMedia.photoKey) {
-      console.log('⬆️ Uploading media...');
       try {
         const uploaded = await handlePhotoUpload({
           dispatch,
@@ -80,47 +74,29 @@ const MessageThreadScreen = ({ route }) => {
           photos: [selectedMedia],
         });
 
-        console.log('📁 Upload result:', uploaded);
-
         if (uploaded.length > 0) {
           const file = uploaded[0];
-          const mediaType = isVideo(selectedMedia) ? "video" : "image";
-
-          uploadedMedia = {
-            photoKey: file.photoKey,
-            mediaType,
-          };
-          console.log('✅ Media prepared:', uploadedMedia);
+          const mediaType = isVideo(selectedMedia) ? 'video' : 'image';
+          uploadedMedia = { photoKey: file.photoKey, mediaType };
         } else {
-          console.warn('⚠️ Media upload returned empty array');
           return;
         }
       } catch (err) {
-        console.error('❌ Media upload failed:', err);
         return;
       }
     }
 
     if (editingMessageId) {
-      console.log(`✏️ Editing message with ID: ${editingMessageId}`);
-      try {
-        await dispatch(
-          editMessage({
-            messageId: editingMessageId,
-            content: input.trim(),
-            media: uploadedMedia,
-          })
-        );
-        console.log('✅ Message edited');
-      } catch (err) {
-        console.error('❌ Failed to edit message:', err);
-      }
+      await dispatch(editMessage({
+        messageId: editingMessageId,
+        content: input.trim(),
+        media: uploadedMedia,
+      }));
       setEditingMessageId(null);
     } else {
       const contentToSend = input.trim() || (uploadedMedia ? '[media]' : '');
       const messageType = uploadedMedia ? uploadedMedia.mediaType : 'text';
-
-      const recipientIds = participants.map(u => u._id);
+      const recipientIds = (participants || []).map(u => u._id);
 
       const payload = {
         conversationId: localConversationId || null,
@@ -130,46 +106,27 @@ const MessageThreadScreen = ({ route }) => {
         media: uploadedMedia || null,
       };
 
-      console.log('📨 Dispatching sendMessage with payload:', payload);
-
-      try {
-        const resultAction = await dispatch(sendMessage(payload));
-        console.log('📬 sendMessage result:', resultAction);
-
-        if (sendMessage.fulfilled.match(resultAction)) {
-          const newId = resultAction.payload?.conversationId;
-          if (!localConversationId && newId) {
-            setLocalConversationId(newId);
-            console.log('🆕 Conversation ID set:', newId);
-          } else {
-            console.log('ℹ️ Message sent to existing conversation');
-          }
-        } else {
-          console.warn('⚠️ sendMessage was not fulfilled:', resultAction);
+      const resultAction = await dispatch(sendMessage(payload));
+      if (sendMessage.fulfilled.match(resultAction)) {
+        const newId = resultAction.payload?.conversationId;
+        if (!localConversationId && newId) {
+          setLocalConversationId(newId);
         }
-      } catch (err) {
-        console.error('❌ Failed to send message:', err);
       }
     }
 
     setInput('');
     setSelectedMedia(null);
-    console.log('✅ Message input and media reset');
   };
 
   const handleSelectMedia = async () => {
     const results = await selectMediaFromGallery();
-    if (results?.length > 0) {
-      setSelectedMedia(results[0]); // Just the first one for now
-    }
-  }
+    if (results?.length > 0) setSelectedMedia(results[0]);
+  };
 
   return (
     <>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.container}
-      >
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.container}>
         <FlatList
           ref={flatListRef}
           data={groupedMessages}
@@ -184,10 +141,9 @@ const MessageThreadScreen = ({ route }) => {
             />
           )}
           contentContainerStyle={styles.messageList}
-          onContentSizeChange={() =>
-            flatListRef.current?.scrollToEnd({ animated: true })
-          }
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
         />
+
         <View style={styles.inputContainer}>
           <View style={styles.inputCard}>
             {selectedMedia && (
@@ -239,143 +195,17 @@ const MessageThreadScreen = ({ route }) => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    marginTop: 115,
-  },
-  messageList: {
-    padding: 10,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    padding: 10,
-    borderTopWidth: 1,
-    borderColor: '#ccc',
-    backgroundColor: '#fafafa',
-    alignItems: 'flex-end',
-  },
-  input: {
-    padding: 10,
-    borderRadius: 20,
-    minHeight: 40,
-    maxHeight: 100,
-  },
-  sendButton: {
-    backgroundColor: '#008080',
-    borderRadius: 20,
-    padding: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    marginHorizontal: 6,
-  },
-  inputWithIcon: {
-    flex: 1,
-    position: 'relative',
-    justifyContent: 'center',
-  },
-  photoIcon: {
-    position: 'absolute',
-    right: 20,
-    top: '20%',
-    transform: [{ translateY: -10 }],
-    zIndex: 1,
-  },
-  previewWrapper: {
-    position: 'relative',
-    marginBottom: 8,
-    borderRadius: 10,
-    overflow: 'hidden',
-    alignSelf: 'flex-start',
-  },
-  previewMedia: {
-    width: 120,
-    height: 120,
-    borderRadius: 10,
-    marginBottom: 10,
-  },
-  removePreviewButton: {
-    position: 'absolute',
-    top: 5,
-    right: 5,
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    zIndex: 2,
-  },
-  inputWithIcon: {
-    flex: 1,
-    position: 'relative',
-    justifyContent: 'center',
-  },
-  photoIcon: {
-    position: 'absolute',
-    right: 30,
-    top: '30%',
-    transform: [{ translateY: -10 }],
-    zIndex: 1,
-  },
-  inputCard: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 20,
-    padding: 8,
-    marginBottom: 30,
-  },
-  messageMediaWrapper: {
-    marginBottom: 4,
-    borderRadius: 10,
-    overflow: 'hidden',
-  },
-  messageMedia: {
-    width: 200,
-    height: 200,
-    borderRadius: 10,
-  },
-  dateHeader: {
-    alignItems: 'center',
-    marginVertical: 10,
-  },
-  dateText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#888',
-  },
-  postPreviewContainer: {
-    marginTop: 6,
-    backgroundColor: '#f2f2f2',
-    borderRadius: 10,
-    padding: 8,
-    alignSelf: 'stretch',
-    maxWidth: 250,
-  },
-  postPreviewTitle: {
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  postPreviewMedia: {
-    width: 200,
-    height: 200,
-    borderRadius: 10,
-    marginBottom: 6,
-  },
-  postPreviewLabel: {
-    fontSize: 12,
-    color: '#555',
-    textAlign: 'center',
-  },
-  noBubble: {
-    backgroundColor: 'transparent',
-    padding: 0,
-    marginVertical: 6,
-  },
+  container: { flex: 1, backgroundColor: '#fff', marginTop: 115 },
+  messageList: { padding: 10 },
+  inputContainer: { flexDirection: 'row', padding: 10, borderTopWidth: 1, borderColor: '#ccc', backgroundColor: '#fafafa', alignItems: 'flex-end' },
+  input: { padding: 10, borderRadius: 20, minHeight: 40, maxHeight: 100 },
+  sendButton: { backgroundColor: '#008080', borderRadius: 20, padding: 10, justifyContent: 'center', alignItems: 'center', marginBottom: 30 },
+  inputWithIcon: { flex: 1, position: 'relative', justifyContent: 'center' },
+  photoIcon: { position: 'absolute', right: 30, top: '30%', transform: [{ translateY: -10 }], zIndex: 1 },
+  inputCard: { flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: '#ccc', borderRadius: 20, padding: 8, marginBottom: 30 },
+  previewWrapper: { position: 'relative', marginBottom: 8, borderRadius: 10, overflow: 'hidden', alignSelf: 'flex-start' },
+  previewMedia: { width: 120, height: 120, borderRadius: 10, marginBottom: 10 },
+  removePreviewButton: { position: 'absolute', top: 5, right: 5, backgroundColor: '#fff', borderRadius: 10, zIndex: 2 },
 });
 
 export default MessageThreadScreen;

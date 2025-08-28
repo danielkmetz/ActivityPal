@@ -6,6 +6,7 @@ import { makeSelectLiveById } from '../../../Slices/LiveStreamSlice';
 import axios from 'axios';
 import { getAuthHeaders } from '../../../functions';
 import { useRoute, useNavigation } from '@react-navigation/native';
+import LiveChatOverlay from './LiveChat/LiveChatOverlay';
 
 const API = `${process.env.EXPO_PUBLIC_API_BASE_URL}/live`;
 
@@ -78,7 +79,6 @@ export default function LivePlayerScreen() {
           </TouchableOpacity>
         </View>
       )}
-
       <View style={S.topBar}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={S.back}>{'‹ Back'}</Text>
@@ -86,8 +86,7 @@ export default function LivePlayerScreen() {
         <Text style={S.title} numberOfLines={1}>{live?.title || 'Live stream'}</Text>
         <View style={{ width: 60 }} />
       </View>
-
-      {/* If you want chat on viewer side, add <LiveChatOverlay liveId={liveId} /> here */}
+      <LiveChatOverlay liveId={liveId} />
     </View>
   );
 }

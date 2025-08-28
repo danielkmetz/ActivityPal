@@ -173,7 +173,7 @@ export default function EventPromoCommentThread({
         postType: apiPostType,
         postId: post._id,
         commentId: selected._id,
-        commentText: editedText.trim(),
+        newText: editedText.trim(),
         ...(newMedia !== undefined && { media: newMedia }),
       })
     );

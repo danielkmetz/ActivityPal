@@ -1,5 +1,9 @@
 import { createListenerMiddleware, isAnyOf } from '@reduxjs/toolkit';
+
+// Reviews
 import { applyPostUpdates } from '../Slices/ReviewsSlice';
+
+// Comment thunks
 import {
   addComment,
   addReply,
@@ -7,9 +11,49 @@ import {
   editComment,
   deleteComment,
 } from '../Slices/CommentsSlice';
+
+// Nearby Suggestions (GooglePlaces)
 import { applyNearbyUpdates } from '../Slices/GooglePlacesSlice';
 
-// --- helpers you already have (or paste them here) ---
+// Events & Promotions unified updaters
+import { applyEventUpdates } from '../Slices/EventsSlice';          
+import { applyPromotionUpdates } from '../Slices/PromotionsSlice';  
+
+/* =========================
+   Small perf helpers
+========================= */
+
+// Cache: arrayRef -> Set(ids) for O(1) membership tests.
+// New arrays (Immer drafts) get new refs, so cache stays correct.
+const idSetCache = new WeakMap();
+const getIdSet = (arr) => {
+  if (!Array.isArray(arr)) return null;
+  let set = idSetCache.get(arr);
+  if (!set) {
+    set = new Set(arr.map((p) => String(p?._id)));
+    idSetCache.set(arr, set);
+  }
+  return set;
+};
+
+const hasId = (arr, id) => {
+  const set = getIdSet(arr);
+  return set ? set.has(String(id)) : false;
+};
+
+const findById = (arr, id) => {
+  if (!Array.isArray(arr)) return null;
+  const s = String(id);
+  // Quick path: many lists keep objects at shallow depth; findIndex is OK after set check
+  if (!hasId(arr, id)) return null;
+  const idx = arr.findIndex((p) => String(p?._id) === s);
+  return idx >= 0 ? arr[idx] : null;
+};
+
+/* =========================
+   Reviews helpers
+========================= */
+
 const ALL_COLLECTION_KEYS = [
   'businessReviews',
   'localReviews',
@@ -25,84 +69,105 @@ function computePostKeys(state, postId) {
   const rs = state?.reviews || {};
   for (const k of ALL_COLLECTION_KEYS) {
     const arr = rs[k];
-    if (Array.isArray(arr) && arr.some((p) => String(p._id) === String(postId))) {
-      keys.add(k);
-    }
+    if (hasId(arr, postId)) keys.add(k);
   }
   return [...keys];
 }
 
 function findTopLevelCommentIdInPost(post, targetId) {
   const stack = (post?.comments || []).map((c) => ({ node: c, topId: c._id }));
+  const target = String(targetId);
   while (stack.length) {
     const { node, topId } = stack.pop();
-    if (String(node._id) === String(targetId)) return topId;
+    if (String(node._id) === target) return topId;
     if (node.replies?.length) {
-      for (const r of node.replies) stack.push({ node: r, topId });
+      for (let i = 0; i < node.replies.length; i++) {
+        const r = node.replies[i];
+        if (r && typeof r === 'object') stack.push({ node: r, topId });
+      }
     }
   }
   return null;
 }
 
-function buildCommentLikesPayload(state, postId, commentId, likes, topLevelCommentId) {
+/**
+ * Build { commentId, [replyId], likes } by scanning a specific source quickly.
+ * We first locate the single post (O(#lists)), then do a local tree walk.
+ */
+function buildLikesPayloadFromSource({ list, selected, postId, commentId, likes, topLevelCommentId }) {
+  // If backend provides, use it directly (zero scans).
   if (topLevelCommentId) {
-    const isTop = String(topLevelCommentId) === String(commentId);
-    return isTop
+    return String(topLevelCommentId) === String(commentId)
       ? { commentId: topLevelCommentId, likes: likes || [] }
       : { commentId: topLevelCommentId, replyId: commentId, likes: likes || [] };
   }
 
-  const rs = state?.reviews || {};
-  const lists = ALL_COLLECTION_KEYS.map((k) => rs[k]).filter(Boolean);
-  if (rs?.selectedReview && String(rs.selectedReview._id) === String(postId)) {
-    lists.push([rs.selectedReview]);
+  // 1) Get the post fast
+  let post = findById(list, postId);
+  if (!post && selected && String(selected._id) === String(postId)) post = selected;
+  if (!post) return { commentId, likes: likes || [] };
+
+  // 2) Is commentId a top-level comment?
+  const sId = String(commentId);
+  if ((post.comments || []).some((c) => String(c?._id) === sId)) {
+    return { commentId, likes: likes || [] };
   }
 
-  for (const list of lists) {
-    for (const post of list) {
-      if (String(post._id) !== String(postId)) continue;
-
-      if ((post.comments || []).some((c) => String(c._id) === String(commentId))) {
-        return { commentId, likes: likes || [] };
-      }
-
-      const top = findTopLevelCommentIdInPost(post, commentId);
-      if (top) return { commentId: top, replyId: commentId, likes: likes || [] };
-    }
-  }
-  return { commentId, likes: likes || [] };
+  // 3) Otherwise, find its top ancestor
+  const top = findTopLevelCommentIdInPost(post, commentId);
+  return top ? { commentId: top, replyId: commentId, likes: likes || [] }
+    : { commentId, likes: likes || [] };
 }
 
-// --- local helpers for nearbySuggestions ---
-const isPostInNearbySuggestions = (rootState, postId) => {
-  const list = rootState?.GooglePlaces?.nearbySuggestions || [];
-  return Array.isArray(list) && list.some((p) => String(p?._id) === String(postId));
+/* =========================
+   Presence predicates (O(1) via idSet)
+========================= */
+
+const inReviews = (state, postId) => {
+  const rs = state?.reviews || {};
+  for (let i = 0; i < ALL_COLLECTION_KEYS.length; i++) {
+    if (hasId(rs[ALL_COLLECTION_KEYS[i]], postId)) return true;
+  }
+  const sel = rs?.selectedReview;
+  return !!(sel && String(sel._id) === String(postId));
 };
 
-const toNearbyUpdateShape = {
+const inNearby = (state, postId) => {
+  const list = state?.GooglePlaces?.nearbySuggestions || [];
+  return hasId(list, postId);
+};
+
+const inEvents = (state, postId) => {
+  const list = state?.events?.events || [];
+  if (hasId(list, postId)) return true;
+  const sel = state?.events?.selectedEvent;
+  return !!(sel && String(sel._id) === String(postId));
+};
+
+const inPromos = (state, postId) => {
+  const list = state?.promotions?.promotions || [];
+  if (hasId(list, postId)) return true;
+  const sel = state?.promotions?.selectedPromotion;
+  return !!(sel && String(sel._id) === String(postId));
+};
+
+/* =========================
+   Common control-shape builders
+========================= */
+
+const toControlShape = {
   addComment: ({ comment }) => ({ __appendComment: comment }),
-  addReply:   ({ commentId, reply }) => ({ __appendReply: { commentId, reply } }),
+  addReply: ({ commentId, reply }) => ({ __appendReply: { commentId, reply } }),
   editComment: ({ updatedComment }) =>
     ({ __updateComment: { commentId: updatedComment?._id, updatedComment } }),
   deleteComment: ({ commentId }) => ({ __deleteComment: commentId }),
-  toggleLike: (rootState, payload) => {
-    const { postId, commentId, likes, topLevelCommentId } = payload || {};
-    const base = buildCommentLikesPayload(rootState, postId, commentId, likes, topLevelCommentId);
-    return { __updateCommentLikes: base };
-  },
 };
 
 export const commentsListener = createListenerMiddleware();
 
-function dispatchUpdates(dispatch, state, { postId, updates }) {
+function dispatchReviewUpdates(dispatch, state, { postId, updates }) {
   const postKeys = computePostKeys(state, postId);
-  dispatch(
-    applyPostUpdates({
-      postId,
-      postKeys,
-      updates: updates || {},
-    })
-  );
+  dispatch(applyPostUpdates({ postId, postKeys, updates: updates || {} }));
 }
 
 commentsListener.startListening({
@@ -115,84 +180,139 @@ commentsListener.startListening({
   ),
   effect: async (action, api) => {
     const { dispatch, getState } = api;
-    const state = getState();
+    const state = getState(); // single read
 
     try {
-      // -------- ReviewsSlice updates (unchanged) --------
-      if (action.type === addComment.fulfilled.type) {
-        const { postId, comment } = action.payload || {};
-        if (postId && comment) {
-          dispatchUpdates(dispatch, state, { postId, updates: { __appendComment: comment } });
-        }
-      }
-
-      if (action.type === addReply.fulfilled.type) {
-        const { postId, commentId, reply } = action.payload || {};
-        if (postId && commentId && reply) {
-          dispatchUpdates(dispatch, state, {
-            postId,
-            updates: { __appendReply: { commentId, reply } },
-          });
-        }
-      }
-
-      if (action.type === toggleLike.fulfilled.type) {
-        const { postId, commentId, likes, topLevelCommentId } = action.payload || {};
-        if (postId && commentId) {
-          const payload = buildCommentLikesPayload(state, postId, commentId, likes, topLevelCommentId);
-          dispatchUpdates(dispatch, state, { postId, updates: { __updateCommentLikes: payload } });
-        }
-      }
-
-      if (action.type === editComment.fulfilled.type) {
-        const { postId, updatedComment } = action.payload || {};
-        if (postId && updatedComment?._id) {
-          dispatchUpdates(dispatch, state, {
-            postId,
-            updates: { __updateComment: { commentId: updatedComment._id, updatedComment } },
-          });
-        }
-      }
-
-      if (action.type === deleteComment.fulfilled.type) {
-        const { postId, commentId } = action.payload || {};
-        if (postId && commentId) {
-          dispatchUpdates(dispatch, state, { postId, updates: { __deleteComment: commentId } });
-        }
-      }
-
-      // -------- GooglePlaces nearbySuggestions fanout (single reducer) --------
       const payload = action.payload || {};
       const { postId } = payload;
       if (!postId) return;
-      if (!isPostInNearbySuggestions(getState(), postId)) return;
 
-      let updates = null;
-
+      /* ---------- Build REUSABLE updates by action ---------- */
+      let baseUpdates = null;
       if (action.type === addComment.fulfilled.type) {
-        updates = toNearbyUpdateShape.addComment(payload);
+        if (payload.comment) baseUpdates = toControlShape.addComment(payload);
       } else if (action.type === addReply.fulfilled.type) {
-        updates = toNearbyUpdateShape.addReply(payload);
+        if (payload.commentId && payload.reply) baseUpdates = toControlShape.addReply(payload);
       } else if (action.type === editComment.fulfilled.type) {
-        if (payload.updatedComment?._id) updates = toNearbyUpdateShape.editComment(payload);
+        if (payload.updatedComment?._id) baseUpdates = toControlShape.editComment(payload);
       } else if (action.type === deleteComment.fulfilled.type) {
-        updates = toNearbyUpdateShape.deleteComment(payload);
-      } else if (action.type === toggleLike.fulfilled.type) {
-        updates = toNearbyUpdateShape.toggleLike(state, payload);
+        if (payload.commentId) baseUpdates = toControlShape.deleteComment(payload);
       }
 
-      if (updates) {
-        dispatch(
-          applyNearbyUpdates({
-            postId,
-            updates,
-            // debug: true,
-            // label: 'nearby-fanout',
-          })
-        );
+      /* ---------- Reviews (also handles likes with structure inference) ---------- */
+      if (inReviews(state, postId)) {
+        if (action.type === toggleLike.fulfilled.type) {
+          const { commentId, likes, topLevelCommentId } = payload;
+          if (commentId) {
+            // Quick per-source likes payload for reviews
+            // We only need to identify which one review list actually contains the post.
+            // Iterate small fixed set of lists with O(1) membership checks.
+            const rs = state?.reviews || {};
+            let likesPayload = null;
+
+            for (let i = 0; i < ALL_COLLECTION_KEYS.length; i++) {
+              const key = ALL_COLLECTION_KEYS[i];
+              const arr = rs[key];
+              if (hasId(arr, postId)) {
+                likesPayload = buildLikesPayloadFromSource({
+                  list: arr,
+                  selected: rs.selectedReview,
+                  postId,
+                  commentId,
+                  likes,
+                  topLevelCommentId,
+                });
+                break;
+              }
+            }
+            // fallback to selectedReview if not in any list
+            if (!likesPayload && rs?.selectedReview && String(rs.selectedReview._id) === String(postId)) {
+              likesPayload = buildLikesPayloadFromSource({
+                list: [],
+                selected: rs.selectedReview,
+                postId,
+                commentId,
+                likes,
+                topLevelCommentId,
+              });
+            }
+            if (!likesPayload) {
+              // final fallback
+              likesPayload = { commentId, likes: likes || [] };
+            }
+            dispatchReviewUpdates(dispatch, state, { postId, updates: { __updateCommentLikes: likesPayload } });
+          }
+        } else if (baseUpdates) {
+          dispatchReviewUpdates(dispatch, state, { postId, updates: baseUpdates });
+        }
+      }
+
+      /* ---------- Nearby Suggestions ---------- */
+      if (inNearby(state, postId)) {
+        if (action.type === toggleLike.fulfilled.type) {
+          const { commentId, likes, topLevelCommentId } = payload;
+          if (commentId) {
+            const list = state?.GooglePlaces?.nearbySuggestions || [];
+            const likesPayload = buildLikesPayloadFromSource({
+              list,
+              selected: null,
+              postId,
+              commentId,
+              likes,
+              topLevelCommentId,
+            });
+            dispatch(applyNearbyUpdates({ postId, updates: { __updateCommentLikes: likesPayload } }));
+          }
+        } else if (baseUpdates) {
+          dispatch(applyNearbyUpdates({ postId, updates: baseUpdates }));
+        }
+      }
+
+      /* ---------- Events ---------- */
+      if (inEvents(state, postId)) {
+        if (action.type === toggleLike.fulfilled.type) {
+          const { commentId, likes, topLevelCommentId } = payload;
+          if (commentId) {
+            const list = state?.events?.events || [];
+            const selected = state?.events?.selectedEvent || null;
+            const likesPayload = buildLikesPayloadFromSource({
+              list,
+              selected,
+              postId,
+              commentId,
+              likes,
+              topLevelCommentId,
+            });
+            dispatch(applyEventUpdates({ postId, updates: { __updateCommentLikes: likesPayload } }));
+          }
+        } else if (baseUpdates) {
+          dispatch(applyEventUpdates({ postId, updates: baseUpdates }));
+        }
+      }
+
+      /* ---------- Promotions ---------- */
+      if (inPromos(state, postId)) {
+        if (action.type === toggleLike.fulfilled.type) {
+          const { commentId, likes, topLevelCommentId } = payload;
+          if (commentId) {
+            const list = state?.promotions?.promotions || [];
+            const selected = state?.promotions?.selectedPromotion || null;
+            const likesPayload = buildLikesPayloadFromSource({
+              list,
+              selected,
+              postId,
+              commentId,
+              likes,
+              topLevelCommentId,
+            });
+            dispatch(applyPromotionUpdates({ postId, updates: { __updateCommentLikes: likesPayload } }));
+          }
+        } else if (baseUpdates) {
+          dispatch(applyPromotionUpdates({ postId, updates: baseUpdates }));
+        }
       }
     } catch {
-      // swallow to prevent crashing the thunk pipeline
+      // protect the thunk pipeline
     }
   },
 });

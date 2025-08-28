@@ -1,4 +1,3 @@
-// Safe stringify to avoid circular refs in logs
 const safeStringify = (obj) => {
   const seen = new WeakSet();
   return JSON.stringify(

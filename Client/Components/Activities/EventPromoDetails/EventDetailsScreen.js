@@ -13,19 +13,22 @@ import { selectNearbySuggestionById } from '../../../Slices/GooglePlacesSlice';
 import { selectIsEditing, selectNestedReplyInput, selectReplyingTo, setReplyingTo } from '../../../Slices/CommentThreadSlice';
 import { useLikeAnimations } from '../../../utils/LikeHandlers/LikeAnimationContext';
 import { uploadReviewPhotos } from '../../../Slices/PhotosSlice';
-import { selectSelectedPromotion } from '../../../Slices/PromotionsSlice';
-import { selectSelectedEvent } from '../../../Slices/EventsSlice';
+import { selectSelectedPromotion, selectPromotionById } from '../../../Slices/PromotionsSlice';
+import { selectEventById, selectSelectedEvent } from '../../../Slices/EventsSlice';
 import { addComment, toApiPostType } from '../../../Slices/CommentsSlice';
 
 export default function EventDetailsScreen() {
     const dispatch = useDispatch();
     const { params } = useRoute();
     const { activity } = params;
+    const selectedType = activity?.kind?.toLowerCase().includes('event') ? 'event' : 'promo'
+    const eventOrPromo = selectedType === ('promo' || 'promotion') ? 
+        useSelector((state) => selectPromotionById(state, activity?._id)) :
+        useSelector((state) => selectEventById(state, activity?._id));
     const selectedEvent = useSelector(selectSelectedEvent);
     const selectedPromo = useSelector(selectSelectedPromotion);
     const suggestion = useSelector((state) => selectNearbySuggestionById(state, activity?._id));
-    const post = selectedEvent || selectedPromo || suggestion;
-    const selectedType = activity?.kind?.toLowerCase().includes('event') ? 'event' : 'promo'
+    const post = eventOrPromo || selectedEvent || selectedPromo || suggestion;
     const user = useSelector(selectUser);
     const replyingTo = useSelector(selectReplyingTo);
     const isEditing = useSelector(selectIsEditing);
