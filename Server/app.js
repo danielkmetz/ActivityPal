@@ -2,14 +2,13 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const http = require('http');
-const { Server } = require('socket.io');
+const attachSocketServer = require('./socket/index'); 
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const morgan = require('morgan');
 const { expressMiddleware } = require('@apollo/server/express4');
 const createApolloServer = require('./graphql/schema'); // Import GraphQL setup
 const { getUserFromToken } = require('./utils/auth');
-const setupDirectMessagingSocket = require('./socket/messagingSocket');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -39,22 +38,16 @@ const sharedPosts = require('./routes/sharedPosts');
 const insights = require('./routes/insights');
 const liveStream = require('./routes/live');
 const commentsAndReplies = require('./routes/commentsAndReplies');
+const liveChat = require('./routes/LiveChat');
 
 // Initialize app
 const app = express();
 const server = http.createServer(app); // 👈 Wrap express in HTTP server
-const io = new Server(server, {
-  cors: { origin: '*' }, // Adjust CORS as needed
-});
-
-// Make io available in routes via app.set
-app.set('io', io);
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
-app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -134,8 +127,10 @@ app.use('/api/sharedPosts', sharedPosts);
 app.use('/api/engagementInsights', insights);
 app.use('/api/liveStream', liveStream);
 app.use('/api/comments-replies', commentsAndReplies);
+app.use('/api/live-chat', liveChat);
 
-setupDirectMessagingSocket(io);
+const io = attachSocketServer(server);   // builds /dm and /live namespaces with auth
+app.set('io', io);  
 
 // Start server
 const PORT = process.env.PORT || 5000;

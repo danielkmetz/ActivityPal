@@ -6,6 +6,7 @@ import ConversationCard from './ConversationCard';
 import { useNavigation } from '@react-navigation/native';
 import { Text } from 'react-native-paper';
 import { selectUser } from '../../Slices/UserSlice';
+import { connectDmSocket } from '../../app/socket/dmSocketClient'; // <-- NEW
 
 const DirectMessagesScreen = () => {
   const dispatch = useDispatch();
@@ -15,20 +16,21 @@ const DirectMessagesScreen = () => {
   const currentUserId = user?.id;
 
   useEffect(() => {
+    // 1) connect DM socket
+    if (process.env.EXPO_PUBLIC_SERVER_URL && user?.token) {
+      connectDmSocket(process.env.EXPO_PUBLIC_SERVER_URL);
+    }
+    // 2) initial conversations fetch
     dispatch(fetchConversations());
-  }, [dispatch]);
+  }, [dispatch, user?.token]);
 
   if (loading) {
-    return (
-      <View style={styles.centered}><ActivityIndicator size="large" /></View>
-    );
+    return <View style={styles.centered}><ActivityIndicator size="large" /></View>;
   }
 
   if (error) {
-    return (
-      <View style={styles.centered}><Text>No Messages</Text></View>
-    );
-  };
+    return <View style={styles.centered}><Text>No Messages</Text></View>;
+  }
 
   const handleNavigation = (item) => {
     const conversationId = item._id;
@@ -41,42 +43,32 @@ const DirectMessagesScreen = () => {
 
     dispatch(chooseUserToMessage(item.otherUsers));
 
-    navigation.navigate("MessageThread", {
+    navigation.navigate('MessageThread', {
       conversationId,
       participants: item.otherUsers,
-    })
-  }
+    });
+  };
 
   return (
-    <>
-      <FlatList
-        data={conversations}
-        keyExtractor={item => item._id}
-        renderItem={({ item }) => (
-          <ConversationCard
-            conversation={item}
-            onPress={() => handleNavigation(item)}
-            currentUserId={currentUserId}
-          />
-        )}
-        contentContainerStyle={styles.container}
-        ListEmptyComponent={<Text>No conversations yet.</Text>}
-      />
-    </>
+    <FlatList
+      data={conversations}
+      keyExtractor={item => item._id}
+      renderItem={({ item }) => (
+        <ConversationCard
+          conversation={item}
+          onPress={() => handleNavigation(item)}
+          currentUserId={currentUserId}
+        />
+      )}
+      contentContainerStyle={styles.container}
+      ListEmptyComponent={<Text>No conversations yet.</Text>}
+    />
   );
 };
 
 const styles = StyleSheet.create({
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    fontWeight: 'bold',
-  },
-  container: {
-    flex: 1,
-    marginTop: 125,
-  },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', fontWeight: 'bold' },
+  container: { flex: 1, marginTop: 125 },
 });
 
 export default DirectMessagesScreen;

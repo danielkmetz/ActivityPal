@@ -27,6 +27,7 @@ import liveStreamReducer from './Slices/LiveStreamSlice';
 import commentsReducer from './Slices/CommentsSlice';
 import { commentsListener } from './Listeners/comments';
 import { crashLoggerMiddleware } from './crashLoggerMiddleware';
+import LiveChatReducer from './Slices/LiveChatSlice';
 
 const store = configureStore({
     reducer: combineReducers({
@@ -56,6 +57,7 @@ const store = configureStore({
         insights: insightsReducer,
         live: liveStreamReducer,
         comments: commentsReducer,
+        liveChat: LiveChatReducer,
     }),
     middleware: (getDefault) =>
         getDefault({ serializableCheck: false })

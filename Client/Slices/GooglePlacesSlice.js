@@ -136,126 +136,6 @@ const GooglePlacesSlice = createSlice({
         state.nearbySuggestions[index].likes = likes;
       }
     },
-    updateNearbySuggestionCommentOrReply: (state, action) => {
-      const { postId, commentId, updatedComment } = action.payload;
-      const suggestion = state.nearbySuggestions.find(s => s._id === postId);
-      if (!suggestion?.comments) return;
-
-      const updateCommentById = (comments) => {
-        for (let i = 0; i < comments.length; i++) {
-          if (comments[i]._id === commentId) {
-            comments[i] = { ...comments[i], ...updatedComment };
-            return true;
-          }
-          if (comments[i].replies && updateCommentById(comments[i].replies)) {
-            return true;
-          }
-        }
-        return false;
-      };
-
-      updateCommentById(suggestion.comments);
-    },
-    addNearbySuggestionComment: (state, action) => {
-      const { postId, newComment } = action.payload;
-      console.log("📝 addNearbySuggestionComment called with:", { postId, newComment });
-
-      const suggestion = state.nearbySuggestions.find(s => s._id === postId);
-      if (!suggestion) {
-        console.warn("⚠️ No suggestion found with ID:", postId);
-        return;
-      }
-
-      console.log("✅ Found suggestion:", suggestion._id);
-
-      if (!suggestion.comments) {
-        console.log("📦 No comments array found — initializing it.");
-        suggestion.comments = [];
-      }
-
-      suggestion.comments.push(newComment);
-      console.log("💬 New comment added. Total comments:", suggestion.comments.length);
-    },
-    addNearbySuggestionReply: (state, action) => {
-      const { postId, commentId, newReply } = action.payload;
-      console.log("📥 Action payload received in addNearbySuggestionReply:", { postId, commentId, newReply });
-
-      const suggestion = state.nearbySuggestions.find(s => s._id === postId);
-      if (!suggestion) {
-        console.warn(`❌ No suggestion found with postId: ${postId}`);
-        return;
-      }
-
-      if (!suggestion.comments) {
-        console.warn(`⚠️ Suggestion with postId ${postId} has no comments array.`);
-        return;
-      }
-
-      const insertReply = (comments, depth = 0) => {
-        for (let i = 0; i < comments.length; i++) {
-          const comment = comments[i];
-          console.log(`${' '.repeat(depth * 2)}🔍 Checking comment ${comment._id}`);
-
-          if (comment._id === commentId) {
-            console.log(`${' '.repeat(depth * 2)}✅ Found comment ${commentId}. Inserting reply.`);
-            comment.replies = comment.replies || [];
-            comment.replies.push(newReply);
-            console.log(`${' '.repeat(depth * 2)}📝 New replies array:`, comment.replies);
-            return true;
-          }
-
-          if (comment.replies && comment.replies.length > 0) {
-            console.log(`${' '.repeat(depth * 2)}🔁 Searching nested replies for comment ${comment._id}`);
-            if (insertReply(comment.replies, depth + 1)) return true;
-          }
-        }
-        return false;
-      };
-
-      const inserted = insertReply(suggestion.comments);
-      if (!inserted) {
-        console.warn(`❌ Could not find comment with ID ${commentId} to insert reply into.`);
-      } else {
-        console.log("✅ Reply successfully inserted into state.");
-      }
-    },
-    removeNearbySuggestionCommentOrReply: (state, action) => {
-      const { postId, commentId } = action.payload;
-      console.log("🗑️ Attempting to remove comment or reply:", { postId, commentId });
-
-      const suggestion = state.nearbySuggestions.find(s => s._id === postId);
-      if (!suggestion?.comments) {
-        console.warn(`⚠️ No suggestion found with ID ${postId} or no comments array exists.`);
-        return;
-      }
-
-      const removeById = (comments, depth = 0) => {
-        for (let i = 0; i < comments.length; i++) {
-          const indent = ' '.repeat(depth * 2);
-          console.log(`${indent}🔍 Checking comment ID: ${comments[i]._id}`);
-
-          if (comments[i]._id === commentId) {
-            console.log(`${indent}✅ Match found. Removing comment/reply at index ${i}.`);
-            comments.splice(i, 1);
-            return true;
-          }
-
-          if (comments[i].replies && comments[i].replies.length > 0) {
-            console.log(`${indent}🔁 Searching nested replies...`);
-            const removed = removeById(comments[i].replies, depth + 1);
-            if (removed) return true;
-          }
-        }
-        return false;
-      };
-
-      const wasRemoved = removeById(suggestion.comments);
-      if (wasRemoved) {
-        console.log("✅ Successfully removed comment or reply from state.");
-      } else {
-        console.warn("❌ Failed to find and remove comment or reply.");
-      }
-    },
     applyNearbyUpdates: (state, action) => {
       const { postId, updates, debug, label } = action.payload || {};
       if (!postId || !updates) return;
@@ -312,10 +192,6 @@ const GooglePlacesSlice = createSlice({
 export const {
   clearGooglePlaces,
   clearNearbySuggestions,
-  updateNearbySuggestionCommentOrReply,
-  addNearbySuggestionComment,
-  addNearbySuggestionReply,
-  removeNearbySuggestionCommentOrReply,
   updateNearbySuggestionLikes,
   applyNearbyUpdates,
 } = GooglePlacesSlice.actions;

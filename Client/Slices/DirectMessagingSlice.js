@@ -157,6 +157,52 @@ const directMessagesSlice = createSlice({
 
             state.messagesByConversation[convId].push(message);
         },
+        receiveMessage: (state, action) => {
+            const message = action.payload;
+            const convId = message.conversationId;
+
+            if (!state.messagesByConversation[convId]) {
+                state.messagesByConversation[convId] = [];
+            }
+            state.messagesByConversation[convId].push(message);
+
+            // keep lastMessage up to date
+            const conv = state.conversations.find(c => c._id === convId);
+            if (conv) conv.lastMessage = message;
+        },
+
+        receiveMessageEdited: (state, action) => {
+            const updated = action.payload; // { _id, conversationId, ... }
+            const convId = updated.conversationId;
+            const list = state.messagesByConversation[convId];
+            if (list) {
+                const i = list.findIndex(m => m._id === updated._id);
+                if (i !== -1) {
+                    list[i] = { ...list[i], ...updated };
+                }
+            }
+            // update conversation.lastMessage if it’s the one edited
+            const conv = state.conversations.find(c => c._id === convId);
+            if (conv?.lastMessage?._id === updated._id) {
+                conv.lastMessage = { ...conv.lastMessage, ...updated };
+            }
+        },
+
+        receiveMessageDeleted: (state, action) => {
+            const { conversationId, messageId } = action.payload;
+            const list = state.messagesByConversation[conversationId];
+            if (list) {
+                const beforeLen = list.length;
+                state.messagesByConversation[conversationId] = list.filter(m => m._id !== messageId);
+
+                // if lastMessage was deleted, backfill with new tail (if any)
+                const conv = state.conversations.find(c => c._id === conversationId);
+                if (conv && conv.lastMessage?._id === messageId) {
+                    const newList = state.messagesByConversation[conversationId];
+                    conv.lastMessage = newList?.[newList.length - 1] || null;
+                }
+            }
+        },
         resetDirectMessages: (state) => {
             state.conversations = [];
             state.messagesByConversation = {};
@@ -291,7 +337,7 @@ const directMessagesSlice = createSlice({
             })
             .addCase(markMessagesAsRead.fulfilled, (state, action) => {
                 const { conversationId } = action.payload;
-                
+
                 const conversation = state.conversations.find(conv => conv._id === conversationId);
                 if (conversation?.lastMessage) {
                     conversation.lastMessage.isRead = true; // ✅ Update for immediate UI sync
