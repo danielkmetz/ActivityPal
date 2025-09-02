@@ -198,6 +198,7 @@ function MainApp() {
         currentRoute !== "FullScreenPhoto" &&
         currentRoute !== "EventDetails" &&
         currentRoute !== "GoLive" &&
+        currentRoute !== "LivePlayer" &&
         currentRoute !== "GoLiveTest" &&
         currentRoute !== "LiveSummary" &&
         (
