@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { View, Text, Pressable, StyleSheet, Alert, BackHandler, AppState, ActivityIndicator, InteractionManager } from 'react-native';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { View, Text, Pressable, StyleSheet, Alert, BackHandler, AppState, ActivityIndicator, InteractionManager, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import { ApiVideoLiveStreamView } from '@api.video/react-native-livestream';
 import { useDispatch, useSelector } from 'react-redux';
 import {
@@ -9,6 +9,8 @@ import {
   clearCurrentLive,
 } from '../../../Slices/LiveStreamSlice';
 import inCallManager from 'react-native-incall-manager';
+import LiveChatOverlay from '../LivePlayer/LiveChat/LiveChatOverlay';
+import { fetchRecentChat, setJoined as setChatJoined, clearLiveChat } from '../../../Slices/LiveChatSlice';
 import { useFocusEffect } from '@react-navigation/native';
 import { deactivateExpoAudio, tick, resetTick } from '../../../utils/LiveStream/deactivateAudio';
 
@@ -68,7 +70,8 @@ export default function GoLive({ navigation }) {
   const [front, setFront] = useState(true);
   const [arming, setArming] = useState(false);
   const [countdown, setCountdown] = useState(0);
-   const [isEnding, setIsEnding] = useState(false);
+  const [isEnding, setIsEnding] = useState(false);
+  const [showChat, setShowChat] = useState(true);
 
   // Status machine (authoritative for UI)
   // idle -> arming -> connecting -> live -> reconnecting (if drop) -> live
@@ -87,6 +90,7 @@ export default function GoLive({ navigation }) {
   const retryTimerRef = useRef(null);
   const unmountedRef = useRef(false);
   const navPendingRef = useRef(false);
+  const lastJoinedIdRef = useRef(null);
 
   // Durable live id that survives Redux clears
   const liveIdRef = useRef(null);
@@ -365,12 +369,12 @@ export default function GoLive({ navigation }) {
     async ({ navigate } = { navigate: true }) => {
       L('endLiveCore START', { navigate });
       try {
-                setIsEnding(true);
+        setIsEnding(true);
         setStatus('ending'); // optional badge/guard
         endedRef.current = true;
         allowResumeRef.current = false;
         wasPublishingRef.current = false;
-        try { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; } catch {}
+        try { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; } catch { }
         // 1) Tear down camera/mic and stop local RTMP publisher
         await releaseHardware('end');
         if (showCam) setShowCam(false)
@@ -715,76 +719,112 @@ export default function GoLive({ navigation }) {
     }
   }, []);
 
+  const hostLiveId = useMemo(() => {
+    return liveIdRef.current || live?.liveId || live?.id || null;
+  }, [live?.liveId, live?.id]);
+
+  useEffect(() => {
+    if (!hostLiveId) return;
+
+    const joined = status === 'live' || status === 'reconnecting';
+    dispatch(setChatJoined({ liveStreamId: hostLiveId, joined }));
+
+    if (joined && lastJoinedIdRef.current !== hostLiveId) {
+      lastJoinedIdRef.current = hostLiveId;
+      dispatch(fetchRecentChat({ liveStreamId: hostLiveId, limit: 50 }));
+    }
+  }, [dispatch, hostLiveId, status]);
+
+  useEffect(() => {
+    return () => {
+      if (!hostLiveId) return;
+      dispatch(setChatJoined({ liveStreamId: hostLiveId, joined: false }));
+      // optionally: dispatch(clearLiveChat({ liveStreamId: hostLiveId }));
+    };
+  }, [dispatch, hostLiveId]);
+
   return (
     <View style={S.container}>
-      {showCam && (
-        <View style={S.preview}>
-          <PreviewSentinel onUnmount={() => console.log('[PREVIEW] unmount callback fired')} />
-          <ApiVideoLiveStreamView
-            ref={liveRef}
-            style={[S.preview, isEnding && S.previewHidden]}
-            camera={front ? 'front' : 'back'}
-            enablePinchedZoom
-            video={{ fps: 30, resolution: '720p', bitrate: 1.5 * 1024 * 1024, gopDuration: 2 }}
-            audio={{ bitrate: 128000, sampleRate: 44100, isStereo: true }}
-            isMuted={false}
-            // ====== CONNECTION GUARDS ======
-            onConnectionSuccess={() => {
-              L('RTMP onConnectionSuccess');
-              setPublishing(true);
-              setStatus('live');
-              wasPublishingRef.current = true;
-            }}
-            onConnectionFailed={() => {
-              if (endedRef.current) return;       // ✅ ignore after end
-              setPublishing(false);
-              setStatus('error');
-              scheduleRetry();
-            }}
-            onDisconnect={() => {
-              if (endedRef.current) return;       // ✅ ignore after we decided to end
-              setPublishing(false);
-              setStatus(wasPublishingRef.current ? 'reconnecting' : 'error');
-              scheduleRetry();
-            }}
-          />
-          {isEnding && <View pointerEvents="none" style={S.blackout} />}
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <View style={{flex: 1}}>
+          {showCam && (
+            <View style={S.preview}>
+              <PreviewSentinel onUnmount={() => console.log('[PREVIEW] unmount callback fired')} />
+              <ApiVideoLiveStreamView
+                ref={liveRef}
+                style={[S.preview, isEnding && S.previewHidden]}
+                camera={front ? 'front' : 'back'}
+                enablePinchedZoom
+                video={{ fps: 30, resolution: '720p', bitrate: 1.5 * 1024 * 1024, gopDuration: 2 }}
+                audio={{ bitrate: 128000, sampleRate: 44100, isStereo: true }}
+                isMuted={false}
+                // ====== CONNECTION GUARDS ======
+                onConnectionSuccess={() => {
+                  L('RTMP onConnectionSuccess');
+                  setPublishing(true);
+                  setStatus('live');
+                  wasPublishingRef.current = true;
+                }}
+                onConnectionFailed={() => {
+                  if (endedRef.current) return;       // ✅ ignore after end
+                  setPublishing(false);
+                  setStatus('error');
+                  scheduleRetry();
+                }}
+                onDisconnect={() => {
+                  if (endedRef.current) return;       // ✅ ignore after we decided to end
+                  setPublishing(false);
+                  setStatus(wasPublishingRef.current ? 'reconnecting' : 'error');
+                  scheduleRetry();
+                }}
+              />
+              {isEnding && <View pointerEvents="none" style={S.blackout} />}
+            </View>
+          )}
+          <View style={S.topBar}>
+            <Pressable onPress={onPressClose} style={S.pill}>
+              <Text style={S.pillTxt}>{showEndButton ? 'End' : 'Close'}</Text>
+            </Pressable>
+            {statusBadge}
+            <Pressable onPress={flip} style={S.pill}><Text style={S.pillTxt}>Flip</Text></Pressable>
+            <Pressable onPress={() => setShowChat(v => !v)} style={S.pill}>
+              <Text style={S.pillTxt}>{showChat ? 'Hide Chat' : 'Show Chat'}</Text>
+            </Pressable>
+          </View>
+          <View style={[S.bottomBar, isEnding && { opacity: 0.001 } /* freeze controls */]}>
+            {showEndButton ? (
+              <>
+                <Text style={S.timer}>{formatTime(elapsed)}</Text>
+                <Pressable onPress={endLive} style={[S.btn, S.end]}><Text style={S.btnTxt}>End</Text></Pressable>
+              </>
+            ) : countdown > 0 ? (
+              <>
+                <Text onPress={() => { L('COUNTDOWN CANCEL'); setCountdown(0); setArming(false); setStatus('idle'); }} style={S.cancel}>Cancel</Text>
+                <Text style={S.count}>{countdown}</Text>
+              </>
+            ) : status === 'connecting' || status === 'reconnecting' ? (
+              <View style={S.connectingWrap}>
+                <ActivityIndicator />
+                <Text style={S.connectingTxt}>{status === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}</Text>
+              </View>
+            ) : status === 'error' ? (
+              <Pressable
+                onPress={() => { setStatus('idle'); armAndCountdown(); }}
+                style={[S.btn, S.retry]}
+              >
+                <Text style={S.btnTxt}>Retry</Text>
+              </Pressable>
+            ) : (
+              <Pressable onPress={armAndCountdown} style={S.recordBtn}><View style={S.dot} /></Pressable>
+            )}
+          </View>
+        </View>
+      </TouchableWithoutFeedback>
+      {hostLiveId && !isEnding && showChat && (
+        <View pointerEvents="box-none" style={S.chatWrap}>
+          <LiveChatOverlay liveId={hostLiveId} isHost />
         </View>
       )}
-      <View style={S.topBar}>
-        <Pressable onPress={onPressClose} style={S.pill}>
-          <Text style={S.pillTxt}>{showEndButton ? 'End' : 'Close'}</Text>
-        </Pressable>
-        {statusBadge}
-        <Pressable onPress={flip} style={S.pill}><Text style={S.pillTxt}>Flip</Text></Pressable>
-      </View>
-      <View style={[S.bottomBar, isEnding && { opacity: 0.001 } /* freeze controls */]}>
-        {showEndButton ? (
-          <>
-            <Text style={S.timer}>{formatTime(elapsed)}</Text>
-            <Pressable onPress={endLive} style={[S.btn, S.end]}><Text style={S.btnTxt}>End</Text></Pressable>
-          </>
-        ) : countdown > 0 ? (
-          <>
-            <Text onPress={() => { L('COUNTDOWN CANCEL'); setCountdown(0); setArming(false); setStatus('idle'); }} style={S.cancel}>Cancel</Text>
-            <Text style={S.count}>{countdown}</Text>
-          </>
-        ) : status === 'connecting' || status === 'reconnecting' ? (
-          <View style={S.connectingWrap}>
-            <ActivityIndicator />
-            <Text style={S.connectingTxt}>{status === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}</Text>
-          </View>
-        ) : status === 'error' ? (
-          <Pressable
-            onPress={() => { setStatus('idle'); armAndCountdown(); }}
-            style={[S.btn, S.retry]}
-          >
-            <Text style={S.btnTxt}>Retry</Text>
-          </Pressable>
-        ) : (
-          <Pressable onPress={armAndCountdown} style={S.recordBtn}><View style={S.dot} /></Pressable>
-        )}
-      </View>
     </View>
   );
 }
@@ -825,4 +865,13 @@ const S = StyleSheet.create({
   connectingWrap: { alignItems: 'center', justifyContent: 'center', gap: 8 },
   previewHidden: { opacity: 0.001 }, // visually gone, ref stays valid for teardown
   blackout: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000' },
+  chatWrap: {
+    position: 'absolute',
+    right: 8,
+    bottom: 110, // above your bottom controls
+    left: 8,
+    zIndex: 2,
+    // If you want a right-side rail instead:
+    // width: '60%', right: 8, left: undefined
+  },
 });
