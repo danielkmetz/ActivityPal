@@ -2,7 +2,7 @@ import io from 'socket.io-client';
 import store from '../../store';
 import { receiveMessage, receiveMessageEdited, receiveMessageDeleted } from '../../Slices/DirectMessagingSlice';
 import { selectUser } from '../../Slices/UserSlice';
-import { getUserToken } from '../functions';
+import { getUserToken } from '../../functions';
 import { useSelector } from 'react-redux';
 
 let socket;
