@@ -1,4 +1,3 @@
-// Components/LiveStream/Screens/LivePlayerScreen.js
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
@@ -9,89 +8,63 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
   Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import axios from 'axios';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSelector } from 'react-redux';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { VideoView, useVideoPlayer } from 'expo-video';
-
+import IVSPlayer from 'amazon-ivs-react-native-player';
 import { selectLiveById } from '../../../Slices/LiveStreamSlice';
 import { getAuthHeaders } from '../../../functions';
 import LiveChatOverlay from './LiveChat/LiveChatOverlay';
+import { useLiveChatSession } from '../useLiveChatSession';
 
 const API = `${process.env.EXPO_PUBLIC_API_BASE_URL}/live`;
 const TAG = 'LivePlayer';
 
+// Simple detector: treat *.live-video.net or ivs.* as IVS
+const isIVSUrl = (url) => typeof url === 'string' && /(live-video\.net|ivs\.)/i.test(url);
+
 export default function LivePlayerScreen() {
   const route = useRoute();
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const KB_OFFSET = (insets?.bottom || 0) + 8;
   const { liveId } = route.params || {};
   const live = useSelector((state) => selectLiveById(state, liveId));
-
   const [uri, setUri] = useState(live?.playbackUrl || null);
   const [behindLiveMs, setBehindLiveMs] = useState(0);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState(null);
-
-  // Sticky live window: for the first N ms after load we aggressively snap to the edge
+  const [showChat, setShowChat] = useState(true);
+  // Sticky live window (expo-video path)
   const stickyLiveUntilRef = useRef(0);
   const didAutoCorrectRef = useRef(false);
+  const latestPlayableSecRef = useRef(0);
+  const useIVS = isIVSUrl(uri);
+  const ivsRef = useRef(null); // IVS player ref
 
-  // Keep our freshest observed "edge" (approx duration)
-  const latestPlayableRef = useRef(0);
+  useLiveChatSession(liveId, { baseUrl: 'http://10.0.0.24:5000' });
 
-  // ---- Player (expo-video) ----
+  // ---- expo-video player (fallback / non-IVS) ----
   const player = useVideoPlayer(
-    uri || null,
+    useIVS ? null : (uri || null),
     useCallback((p) => {
-      // Initial player config
+      if (!p) return;
       try {
         p.loop = false;
         p.muted = false;
-        p.play(); // Start immediately; helps Android honor subsequent seeks
-      } catch {}
-    }, [uri])
+        p.play();
+      } catch { }
+    }, [useIVS, uri])
   );
 
-  // We'll render the VideoView only when we actually have a URI
   const hasSource = !!uri;
 
-  // Helper: compute/snap to live edge
-  const seekToLiveEdge = useCallback(
-    async (padMs = 1200, reason = 'manual') => {
-      try {
-        if (!player) return;
-        const dur = Number.isFinite(player.duration) ? player.duration : latestPlayableRef.current || 0;
-        const pos = Number.isFinite(player.currentTime) ? player.currentTime : 0;
-        const playable = Math.max(dur, latestPlayableRef.current || 0);
-
-        // Heuristic "is live": duration increases over time and is not static VOD length.
-        // We also rely on the presence of a small duration & growing window.
-        const isProbablyLive = playable > 0 && playable - pos > 2000; // behind by >2s implies windowing
-
-        if (!isProbablyLive) {
-          console.log(`[${TAG}] seekToLiveEdge: stream is not clearly live; reason=${reason}`);
-          return;
-        }
-
-        const edge = Math.max(0, playable - padMs);
-        console.log(
-          `[${TAG}] seekToLiveEdge:`,
-          JSON.stringify({ reason, playable, edge, padMs, isPlaying: !!player.playing })
-        );
-
-        if (!player.playing) {
-          await player.play();
-        }
-        await player.seekTo(edge / 1000); // expo-video expects seconds
-      } catch (err) {
-        console.warn(`[${TAG}] seekToLiveEdge error: ${String(err?.message || err)}`);
-      }
-    },
-    [player]
-  );
-
-  // Log helper
+  // --- Shared logging ---
   const log = useCallback((msg, extra) => {
     if (extra !== undefined) console.log(`[${TAG}] ${msg}:`, extra);
     else console.log(`[${TAG}] ${msg}`);
@@ -127,20 +100,90 @@ export default function LivePlayerScreen() {
     })();
   }, [liveId, uri]);
 
-  // Reset local state if liveId changes (user navigated to a different live)
+  // Reset local state if liveId changes
   useEffect(() => {
     setUri(live?.playbackUrl || null);
     setIsReady(false);
     setError(null);
     setBehindLiveMs(0);
     didAutoCorrectRef.current = false;
-    latestPlayableRef.current = 0;
+    latestPlayableSecRef.current = 0;
     stickyLiveUntilRef.current = 0;
     console.log(`[${TAG}] liveId changed -> reset local state: ${liveId}`);
   }, [liveId]);
 
-  // Player lifecycle + status polling (expo-video doesn’t have the exact same status callbacks as expo-av)
+  // ====== IVS PATH =========
   useEffect(() => {
+    if (!useIVS) return;
+    let id;
+    id = setInterval(async () => {
+      try {
+        const api = ivsRef.current;
+        if (api?.getLiveLatency) {
+          const sec = await api.getLiveLatency();
+          if (Number.isFinite(sec)) setBehindLiveMs(Math.max(0, sec * 1000));
+        }
+      } catch { }
+    }, 500);
+    return () => clearInterval(id);
+  }, [useIVS]);
+
+  const ivsGoLive = useCallback(async () => {
+    try {
+      const api = ivsRef.current;
+      // Prefer native live-edge jump if available
+      if (api?.seekToLive) await api.seekToLive();
+      if (api?.setLiveLowLatency) await api.setLiveLowLatency(true);
+      if (api?.play) await api.play();
+    } catch (e) {
+      console.warn(`[${TAG}] ivsGoLive error`, e?.message || e);
+    }
+  }, []);
+
+  // Handle IVS ready/buffering states
+  const onIVSStateChange = useCallback((e) => {
+    const state = e?.nativeEvent?.state;
+    // States: IDLE, BUFFERING, READY, PLAYING, ENDED, etc. (depends on wrapper)
+    setIsReady(state === 'READY' || state === 'PLAYING');
+  }, []);
+
+  // === expo-video PATH =====
+  const seekToLiveEdge = useCallback(
+    async (padSec = 1.2, reason = 'manual') => {
+      try {
+        if (!player) return;
+        const durSec = Number.isFinite(player.duration)
+          ? player.duration
+          : latestPlayableSecRef.current || 0;
+        const posSec = Number.isFinite(player.currentTime) ? player.currentTime : 0;
+        const playableSec = Math.max(durSec, latestPlayableSecRef.current || 0);
+
+        const isProbablyLive = playableSec > 0 && (playableSec - posSec) > 2;
+        if (!isProbablyLive) {
+          console.log(`[${TAG}] seekToLiveEdge: not clearly live; reason=${reason}`);
+          return;
+        }
+
+        const edgeSec = Math.max(0, playableSec - padSec);
+        console.log(
+          `[${TAG}] seekToLiveEdge:`,
+          JSON.stringify({ reason, playableSec, edgeSec, padSec, isPlaying: !!player.playing })
+        );
+
+        if (!player.playing) {
+          await player.play();
+        }
+        player.currentTime = edgeSec;
+      } catch (err) {
+        console.warn(`[${TAG}] seekToLiveEdge error: ${String(err?.message || err)}`);
+      }
+    },
+    [player]
+  );
+
+  // Player lifecycle + status polling for expo-video
+  useEffect(() => {
+    if (useIVS) return; // handled by IVS path
     if (!player) return;
 
     let poll;
@@ -149,20 +192,13 @@ export default function LivePlayerScreen() {
     const onReady = () => {
       if (!mounted) return;
       setIsReady(true);
-
-      // Start a sticky-live window (more aggressive auto-correction)
-      const stickyMs = 2000; // shorter than expo-av version; tune as needed
+      const stickyMs = 2000;
       stickyLiveUntilRef.current = Date.now() + stickyMs;
-      log(`Sticky live ON for ${stickyMs} ms (until = ${new Date(stickyLiveUntilRef.current).toISOString()} )`);
-
-      // Initial edge snap after first ready tick
-      // NOTE: expo-video exposes duration/currentTime in SECONDS
-      setTimeout(() => seekToLiveEdge(1400, 'onReady:initial'), 10);
-      // Backup snap shortly after (Android sometimes ignores the first seek)
-      setTimeout(() => seekToLiveEdge(1000, 'onReady:backup250ms'), 250);
+      log(`Sticky live ON for ${stickyMs} ms (until ${new Date(stickyLiveUntilRef.current).toISOString()})`);
+      setTimeout(() => seekToLiveEdge(1.4, 'onReady:initial'), 10);
+      setTimeout(() => seekToLiveEdge(1.0, 'onReady:backup250ms'), 250);
     };
 
-    // Heuristic "ready" detection: when duration or currentTime becomes a number
     const readyCheck = () => {
       const dur = player.duration;
       const pos = player.currentTime;
@@ -173,55 +209,60 @@ export default function LivePlayerScreen() {
       return false;
     };
 
-    // Start polling status ~2x/sec
     poll = setInterval(() => {
       try {
         const durSec = player.duration;
         const posSec = player.currentTime;
-        const isPlaying = player.playing;
 
         if (!isReady && readyCheck()) {
-          // ready handled within readyCheck
+          // handled in readyCheck
         }
 
         if (Number.isFinite(durSec) && Number.isFinite(posSec)) {
-          const playableMs = Math.max(Math.floor(durSec * 1000), latestPlayableRef.current);
-          latestPlayableRef.current = playableMs;
+          const playableSec = Math.max(durSec, latestPlayableSecRef.current);
+          latestPlayableSecRef.current = playableSec;
+          const diffSec = Math.max(0, playableSec - posSec);
+          setBehindLiveMs(Math.floor(diffSec * 1000));
 
-          const posMs = Math.floor(posSec * 1000);
-          const diff = Math.max(0, playableMs - posMs);
-          setBehindLiveMs(diff);
-
-          // Log occasionally (not every tick)
-          if (diff > 0 && diff % 2000 < 200) {
-            log(`behindLiveMs: ${diff} pos= ${posMs} playable= ${playableMs}`);
-          }
-
-          // One-time auto-correct once we observe we’re way behind
-          if (!didAutoCorrectRef.current && diff > 2500) {
+          if (!didAutoCorrectRef.current && diffSec > 2.5) {
             didAutoCorrectRef.current = true;
-            log(`auto-correcting to live (one-time), diff= ${diff}`);
-            seekToLiveEdge(1200, 'status:auto-correct');
+            log(`auto-correcting to live (one-time), diff= ${diffSec}`);
+            seekToLiveEdge(1.2, 'status:auto-correct');
           }
 
-          // During sticky-live window, keep snapping forward
-          if (Date.now() < stickyLiveUntilRef.current && diff > 1800) {
-            seekToLiveEdge(1000, 'status:sticky-live');
+          if (Date.now() < stickyLiveUntilRef.current && diffSec > 1.8) {
+            seekToLiveEdge(1.0, 'status:sticky-live');
           }
         }
-      } catch (e) {
-        // ignore
-      }
+      } catch { }
     }, 500);
 
     return () => {
       mounted = false;
       if (poll) clearInterval(poll);
     };
-  }, [player, isReady, log, seekToLiveEdge]);
+  }, [useIVS, player, isReady, log, seekToLiveEdge]);
 
-  // Refresh the source URL periodically to mitigate any stale edge (optional; can be removed)
+  // iOS-only hint for expo-video
+  useEffect(() => {
+    if (useIVS) return;
+    if (!player) return;
+    if (Platform.OS === 'ios') {
+      player.targetOffsetFromLive = 1.5;
+    }
+  }, [useIVS, player]);
+
+  // Refresh key to nudge re-mount when uri changes
   const cacheBustingUri = useMemo(() => (uri ? `${uri}?ts=${Date.now()}` : null), [uri]);
+
+  // Unified "Go Live" click
+  const onGoLivePress = useCallback(() => {
+    if (useIVS) ivsGoLive();
+    else seekToLiveEdge(1.0, 'tap:go-live');
+  }, [useIVS, ivsGoLive, seekToLiveEdge]);
+
+  // Unified error handler
+  const handleError = useCallback((msg) => setError(msg || 'Playback error'), []);
 
   return (
     <View style={S.container}>
@@ -233,23 +274,35 @@ export default function LivePlayerScreen() {
               <Text style={S.subtle}>Loading stream…</Text>
             </View>
           )}
-
-          {hasSource && (
+          {hasSource && useIVS && (
+            <IVSPlayer
+              ref={ivsRef}
+              style={S.video}
+              streamUrl={uri}
+              autoplay={true}
+              liveLowLatency={true}
+              /* Useful events */
+              onPlayerStateChange={onIVSStateChange}
+              onError={(e) => {
+                const msg = e?.nativeEvent?.error || e?.message || 'Playback error';
+                handleError(msg);
+              }}
+            />
+          )}
+          {hasSource && !useIVS && (
             <VideoView
-              // expo-video
+              key={cacheBustingUri}
               style={S.video}
               player={player}
               allowsFullscreen={false}
               allowsPictureInPicture={false}
               contentFit="contain"
               nativeControls={false}
-              // key on uri to force re-mount when the stream changes
-              key={cacheBustingUri}
-              // Diagnostics similar to expo-av's onLoad
               onReadyForDisplay={() => {
+                setIsReady(true);
                 const dur = Number.isFinite(player?.duration) ? Math.floor(player.duration * 1000) : undefined;
                 const playable = Number.isFinite(player?.duration) ? Math.floor(player.duration * 1000) : undefined;
-                const heuristicLive = playable > 0 && playable < 10 * 60 * 1000; // <10min window suggests live/event DVR
+                const heuristicLive = playable > 0 && playable < 10 * 60 * 1000;
                 console.log(`[${TAG}] onLoad:`, JSON.stringify({ duration: dur, playable, heuristicLive }));
               }}
               onError={(e) => {
@@ -258,27 +311,21 @@ export default function LivePlayerScreen() {
                   e?.nativeEvent?.message ??
                   e?.message ??
                   'Playback error';
-                setError(msg);
+                handleError(msg);
               }}
             />
           )}
-
           {behindLiveMs > 3000 && (
-            <TouchableOpacity
-              onPress={() => seekToLiveEdge(1000, 'tap:go-live')}
-              style={S.goLive}
-            >
+            <TouchableOpacity onPress={onGoLivePress} style={S.goLive}>
               <Text style={S.goLiveText}>GO LIVE</Text>
             </TouchableOpacity>
           )}
-
           {!isReady && !error && hasSource && (
             <View style={S.loadingOverlay}>
               <ActivityIndicator />
               <Text style={S.subtle}>Connecting to live…</Text>
             </View>
           )}
-
           {!!error && (
             <View style={S.errorOverlay}>
               <Text style={S.errorText}>Couldn’t play the stream.</Text>
@@ -286,15 +333,20 @@ export default function LivePlayerScreen() {
               <TouchableOpacity
                 onPress={async () => {
                   try {
-                    await player?.play?.();
-                  } catch {}
+                    if (useIVS) {
+                      // try play + seek live
+                      await ivsGoLive();
+                    } else {
+                      await player?.play?.();
+                    }
+                    setError(null);
+                  } catch { }
                 }}
               >
                 <Text style={S.retry}>Retry</Text>
               </TouchableOpacity>
             </View>
           )}
-
           <View style={S.topBar}>
             <TouchableOpacity onPress={() => navigation.goBack()}>
               <Text style={S.back}>{'‹ Back'}</Text>
@@ -304,8 +356,23 @@ export default function LivePlayerScreen() {
           </View>
         </View>
       </TouchableWithoutFeedback>
-
-      <LiveChatOverlay liveId={liveId} />
+      {/* Chat overlay (conditional) */}
+      {showChat && (
+        <LiveChatOverlay liveId={liveId} />
+      )}
+      <TouchableOpacity
+        onPress={() => setShowChat(v => !v)}
+        activeOpacity={0.8}
+        style={S.chatToggle}
+        accessibilityRole="button"
+        accessibilityLabel={showChat ? 'Hide chat' : 'Show chat'}
+      >
+        <MaterialCommunityIcons
+          name={showChat ? 'chat' : 'chat-remove'}
+          size={26}
+          color="#fff"
+        />
+      </TouchableOpacity>
     </View>
   );
 }
@@ -335,4 +402,16 @@ const S = StyleSheet.create({
     borderRadius: 999,
   },
   goLiveText: { color: '#fff', fontWeight: '700' },
+  chatToggle: {
+    position: 'absolute',
+    right: 10,
+    top: '65%',
+    transform: [{ translateY: -20 }],
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 22,
+    padding: 8,
+    zIndex: 3,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
 });

@@ -6,8 +6,6 @@ import SharePostModal from '../../Reviews/SharedPosts/SharePostModal';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchReplay, makeSelectReplayById, clearReplay } from '../../../Slices/LiveStreamSlice';
 
-const LOG_PREFIX = '[LiveSummaryDiag]';
-
 async function head(url) {
   try {
     const res = await fetch(url, { method: 'HEAD' });
@@ -27,24 +25,21 @@ async function getText(url, maxChars = 8000) {
   }
 }
 
-// very light parser: pull first media playlist or first segment from an HLS master/media playlist
+// pull first media playlist or first segment from an HLS master/media playlist
 function parseHlsForFirstRefs(playlistText, baseUrl) {
   const lines = (playlistText || '').split('\n').map(l => l.trim()).filter(Boolean);
   const firstStreamInfIdx = lines.findIndex(l => l.startsWith('#EXT-X-STREAM-INF'));
   let firstVariantRel = null;
   if (firstStreamInfIdx >= 0) {
-    // the URL is typically on the next line
     firstVariantRel = lines[firstStreamInfIdx + 1] || null;
-  };
+  }
 
-  // For media playlist, look for first segment line after any #EXTINF
   const firstInfIdx = lines.findIndex(l => l.startsWith('#EXTINF'));
   let firstSegmentRel = null;
   if (firstInfIdx >= 0) {
     firstSegmentRel = lines[firstInfIdx + 1] || null;
   }
 
-  // Helper to resolve relative to base
   function resolve(base, rel) {
     if (!rel) return null;
     try {
@@ -58,29 +53,24 @@ function parseHlsForFirstRefs(playlistText, baseUrl) {
     firstVariantUrl: resolve(baseUrl, firstVariantRel),
     firstSegmentUrl: resolve(baseUrl, firstSegmentRel),
     isMaster: firstStreamInfIdx >= 0,
-    isMedia: firstInfIdx >= 0
+    isMedia: firstInfIdx >= 0,
   };
 }
 
-// ---- NEW: wait for at least one variant playlist to be reachable (200) ----
-async function waitForVariantOk(masterUrl, push, timeoutMs = 20000, intervalMs = 700) {
-  // Confirm master exists
+// Wait for at least one variant playlist to be reachable (200)
+async function waitForVariantOk(masterUrl, timeoutMs = 20000, intervalMs = 700) {
   const mh = await head(masterUrl);
-  push('VARIANT-GATE master HEAD', mh);
   if (!mh.ok) return { ok: false, reason: `master ${mh.status}` };
 
-  // Parse master to get first variant URL
   const mg = await getText(masterUrl, 8000);
   if (!mg.ok) return { ok: false, reason: `master GET ${mg.status}` };
   const { firstVariantUrl } = parseHlsForFirstRefs(mg.text, masterUrl);
   if (!firstVariantUrl) return { ok: false, reason: 'no variant found in master' };
 
-  // Poll HEAD on the variant until ok or timeout
   const deadline = Date.now() + timeoutMs;
   let last = null;
   while (Date.now() < deadline) {
     last = await head(firstVariantUrl);
-    push('VARIANT-GATE variant HEAD', { url: firstVariantUrl, ...last });
     if (last.ok) return { ok: true, variantUrl: firstVariantUrl };
     await new Promise(r => setTimeout(r, intervalMs));
   }
@@ -100,13 +90,6 @@ export default function LiveSummary({ route, navigation }) {
   const videoRef = useRef(null);
   const pollRef = useRef(null);
 
-  // local diag state
-  const [diag, setDiag] = useState({ lines: [] });
-  const push = (...args) => {
-    console.log(LOG_PREFIX, ...args);
-    setDiag(prev => ({ lines: [...prev.lines, args.map(a => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ')] }));
-  };
-
   useEffect(() => {
     if (!liveId) return;
     dispatch(clearReplay(liveId));
@@ -115,11 +98,8 @@ export default function LiveSummary({ route, navigation }) {
   // Poll backend until THIS replay is ready
   useEffect(() => {
     if (!liveId) return;
-    const tick = () => {
-      push('poll → fetchReplay', liveId);
-      dispatch(fetchReplay(liveId));
-    };
-    tick(); // immediate fire
+    const tick = () => dispatch(fetchReplay(liveId));
+    tick(); // immediate
     pollRef.current = setInterval(tick, 3000);
     return () => {
       if (pollRef.current) {
@@ -133,7 +113,6 @@ export default function LiveSummary({ route, navigation }) {
   useEffect(() => {
     if (!pollRef.current) return;
     if (replay?.ready || replay?.status === 'failed') {
-      push('poll stop condition → ready:', !!replay?.ready, 'status:', replay?.status);
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
@@ -142,7 +121,7 @@ export default function LiveSummary({ route, navigation }) {
   const backendReady = !!replay?.ready;
   const playbackUrl = replay?.playbackUrl;
 
-  // ---- NEW: Variant readiness state (gates the player) ----
+  // Gate the player until a variant is reachable
   useEffect(() => {
     let cancelled = false;
     setPlayerReady(false);
@@ -150,104 +129,22 @@ export default function LiveSummary({ route, navigation }) {
 
     (async () => {
       if (!backendReady || !playbackUrl) return;
-      push('VARIANT-GATE start for', playbackUrl);
-      const res = await waitForVariantOk(playbackUrl, push, 20000, 700);
+      const res = await waitForVariantOk(playbackUrl, 20000, 700);
       if (cancelled) return;
-      if (res.ok) {
-        push('VARIANT-GATE ready ✅', { variantUrl: res.variantUrl });
-        setPlayerReady(true);
-      } else {
-        push('VARIANT-GATE not ready ❌', res);
-        setPlayerErr(res.reason || 'HLS variants not ready');
-      }
+      if (res.ok) setPlayerReady(true);
+      else setPlayerErr(res.reason || 'HLS variants not ready');
     })();
 
     return () => { cancelled = true; };
   }, [backendReady, playbackUrl]);
 
-  // ---- HLS Diagnostics Probe (runs each time playbackUrl becomes available) ----
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!playbackUrl) return;
-      push('DIAG start for', playbackUrl);
-
-      // HEAD playlist
-      const h = await head(playbackUrl);
-      if (cancelled) return;
-      push('HEAD master.m3u8', { status: h.status, ok: h.ok, ct: h.ct, err: h.err });
-
-      // GET a slice of the playlist text so we can parse
-      const g = await getText(playbackUrl, 4000);
-      if (cancelled) return;
-      push('GET master.m3u8', { status: g.status, ok: g.ok, ct: g.ct, bytes: g.text.length, err: g.err });
-
-      if (!g.ok) {
-        push('MASTER NOT OK → likely ACL or URL problem');
-        return;
-      }
-      const first30 = g.text.split('\n').slice(0, 30).join('\n');
-      push('master.m3u8 first 30 lines:\n' + first30);
-
-      const { firstVariantUrl, firstSegmentUrl, isMaster, isMedia } = parseHlsForFirstRefs(g.text, playbackUrl);
-      push('parsed', { isMaster, isMedia, firstVariantUrl, firstSegmentUrl });
-
-      // If it’s a master and we discovered a variant, probe that
-      if (firstVariantUrl) {
-        const vh = await head(firstVariantUrl);
-        if (cancelled) return;
-        push('HEAD variant.m3u8', { url: firstVariantUrl, status: vh.status, ok: vh.ok, ct: vh.ct, err: vh.err });
-
-        const vg = await getText(firstVariantUrl, 3000);
-        if (cancelled) return;
-        push('GET variant.m3u8', { status: vg.status, ok: vg.ok, ct: vg.ct, bytes: vg.text.length, err: vg.err });
-
-        if (vg.ok) {
-          const vfirst30 = vg.text.split('\n').slice(0, 30).join('\n');
-          push('variant.m3u8 first 30 lines:\n' + vfirst30);
-
-          const parsedV = parseHlsForFirstRefs(vg.text, firstVariantUrl);
-          if (parsedV.firstSegmentUrl) {
-            const sh = await head(parsedV.firstSegmentUrl);
-            if (cancelled) return;
-            push('HEAD first segment', { url: parsedV.firstSegmentUrl, status: sh.status, ok: sh.ok, ct: sh.ct, err: sh.err });
-          }
-        }
-      } else if (firstSegmentUrl) {
-        // master was actually a media playlist
-        const sh = await head(firstSegmentUrl);
-        if (cancelled) return;
-        push('HEAD first segment', { url: firstSegmentUrl, status: sh.status, ok: sh.ok, ct: sh.ct, err: sh.err });
-      }
-
-      push('DIAG done');
-    })();
-    return () => { cancelled = true; };
-  }, [playbackUrl]);
-
-  // ---- Video event logging ----
-  const handleLoadStart = () => push('Video onLoadStart');
-  const handleLoad = (data) => push('Video onLoad', { dur: data?.durationMillis, nat: data?.naturalSize });
-  const handleError = (e) => {
-    const err = e?.error || e;
-    push('Video onError', err);
-  };
-  const handleStatusUpdate = (status) => {
-    push('Video status', {
-      isLoaded: status?.isLoaded,
-      isPlaying: status?.isPlaying,
-      pos: status?.positionMillis,
-      dur: status?.durationMillis,
-      rate: status?.rate
-    });
-  };
+  const handleLoadStart = () => {};
+  const handleLoad = () => {};
+  const handleError = () => {};
 
   const handleShareToStory = () => {
     setShareOptionsVisible(false);
-
-    navigation.navigate('StoryPreview', {
-      post: postToShare,
-    })
+    navigation.navigate('StoryPreview', { post: postToShare });
   };
 
   const openShareToFeedModal = () => {
@@ -257,7 +154,7 @@ export default function LiveSummary({ route, navigation }) {
 
   const openShareOptions = () => {
     setShareOptionsVisible(true);
-    setPostToShare(replay)
+    setPostToShare(replay);
   };
 
   const closeShareOptions = () => {
@@ -300,33 +197,28 @@ export default function LiveSummary({ route, navigation }) {
               onLoadStart={handleLoadStart}
               onLoad={handleLoad}
               onError={handleError}
-              onPlaybackStatusUpdate={handleStatusUpdate}
             />
             <View style={S.meta}>
               <Text style={S.metaLine}>URL: {playbackUrl}</Text>
             </View>
           </View>
         )}
+
         <Pressable
           style={[S.cta, !(backendReady && playerReady) && { opacity: 0.6 }]}
           disabled={!(backendReady && playerReady)}
           onPress={openShareOptions}
         >
-          <Text style={S.ctaTxt}>{backendReady && playerReady ? 'Create Post with Replay' : 'Preparing Replay…'}</Text>
+          <Text style={S.ctaTxt}>
+            {backendReady && playerReady ? 'Create Post with Replay' : 'Preparing Replay…'}
+          </Text>
         </Pressable>
-        {/* Collapsible diagnostics panel (simple) */}
-        <View style={S.diagBox}>
-          <Text style={S.diagTitle}>Diagnostics</Text>
-          <ScrollView style={{ maxHeight: 180 }}>
-            {diag.lines.map((l, i) => (
-              <Text key={i} style={S.diagLine}>{l}</Text>
-            ))}
-          </ScrollView>
-        </View>
+
         <Pressable onPress={() => navigation.popToTop()}>
           <Text style={S.link}>Done</Text>
         </Pressable>
       </View>
+
       <ShareOptionsModal
         visible={shareOptionsVisible}
         onClose={closeShareOptions}
@@ -337,8 +229,6 @@ export default function LiveSummary({ route, navigation }) {
         visible={postToFeedModal}
         onClose={() => setPostToFeedModal(false)}
         post={replay}
-        // isEditing={null}
-        // setIsEditing={null}
       />
     </>
   );
@@ -358,7 +248,4 @@ const S = StyleSheet.create({
   cta: { backgroundColor: '#2563EB', padding: 12, borderRadius: 12, alignItems: 'center' },
   ctaTxt: { color: '#fff', fontWeight: '700' },
   link: { color: '#9ca3af', marginTop: 8 },
-  diagBox: { backgroundColor: '#0f172a', borderRadius: 12, padding: 10, gap: 6, borderWidth: 1, borderColor: '#1f2937' },
-  diagTitle: { color: '#93c5fd', fontWeight: '700' },
-  diagLine: { color: '#9ca3af', fontSize: 11, lineHeight: 16 }
 });
