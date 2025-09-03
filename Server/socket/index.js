@@ -1,15 +1,9 @@
+// socket/index.js
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const nsDirectMessaging = require('./messagingSocket');
 const nsLiveChat = require('./liveChatSocket');
 
-/**
- * Simple per-namespace auth: expects a JWT in either:
- * - socket.handshake.auth.token  (recommended on React Native client)
- * - or Authorization: Bearer <token> header
- *
- * On success, sets socket.user = decoded payload (e.g., {_id, fullName, profilePicUrl})
- */
 function makeAuthMiddleware() {
   return (socket, next) => {
     try {
@@ -29,27 +23,30 @@ function makeAuthMiddleware() {
 module.exports = function attachSocketServer(httpServer) {
   const io = new Server(httpServer, {
     cors: { origin: '*', methods: ['GET', 'POST'] },
+    // path: '/socket.io', // default; uncomment ONLY if you change the client too
     pingInterval: 25000,
     pingTimeout: 20000,
   });
 
-  // Build namespaces
+  const authMiddleware = makeAuthMiddleware();
+
   const dm = io.of('/dm');
   const live = io.of('/live');
 
-  // Per-namespace auth
-  const authMiddleware = makeAuthMiddleware();
   dm.use(authMiddleware);
   live.use(authMiddleware);
 
-  // Attach feature modules
+  live.on('connection', (socket) => {
+    socket.on('disconnect', () => {
+      // No logging
+    });
+  });
+
   nsDirectMessaging(dm);
   nsLiveChat(live);
 
-  // (optional) root namespace just for health/logs
-  io.on('connection', (socket) => {
-    // Most clients won't connect to root if you only use namespaces, but this is harmless
-    socket.on('disconnect', () => {});
+  io.on('connection', () => {
+    // No logging
   });
 
   return io;
