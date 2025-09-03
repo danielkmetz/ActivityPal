@@ -7,7 +7,7 @@ function secondsSince(date) {
 
 module.exports = function setupLiveNamespace(live) {
   live.on('connection', (socket) => {
-    const userId = socket.user?._id;
+    const userId = socket.user?.id;
     const byRoomRate = new Map();   // key: `${room}:${second}` -> count
     const lastSentAt = new Map();   // key: room -> last send timestamp (ms)
 
@@ -78,7 +78,7 @@ module.exports = function setupLiveNamespace(live) {
         const msg = await LiveChatMessage.create({
           liveStreamId,
           userId,
-          userName: socket.user?.fullName,
+          userName: `${socket.user?.firstName} ${socket.user?.lastName}`,
           userPicUrl: socket.user?.profilePicUrl,
           type,
           text: String(text).slice(0, 500),
@@ -103,7 +103,7 @@ module.exports = function setupLiveNamespace(live) {
           createdAt: msg.createdAt
         };
 
-        live.to(liveStreamId).emit('new', wire);
+        socket.to(liveStreamId).emit('new', wire);
         ack && ack({ ok: true, message: wire });
       } catch (e) {
         ack && ack({ ok: false, error: e.message });
