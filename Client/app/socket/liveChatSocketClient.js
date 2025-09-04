@@ -1,12 +1,13 @@
 // liveChatSocketClient.js
-import { io, Manager } from 'socket.io-client';
+import { Manager } from 'socket.io-client';
 import { v4 as uuid } from 'uuid';
 import 'react-native-get-random-values';
 
-let socket = null;           // <- shared instance used by the helpers below
-let manager = null;
+let socket = null;     // shared /live namespace socket
+let manager = null;    // per-origin manager
 
 const joinedRooms = new Set();
+
 const defaultHandlers = {
   onNew: () => {},
   onDeleted: () => {},
@@ -15,6 +16,7 @@ const defaultHandlers = {
   onSystem: () => {},
   onTyping: () => {},
   onTypingStop: () => {},
+  onPresence: () => {},      // <-- presence updates ({ liveStreamId, viewerCount, uniqueCount })
 };
 let handlers = { ...defaultHandlers };
 
@@ -54,7 +56,7 @@ export function connectLiveSocket(serverOrigin, token) {
       // Create/Reuse a Manager tied to the ORIGIN (no namespace in URL)
       if (!manager) {
         manager = new Manager(origin, {
-          // path: '/socket.io', // only set if you customized it on the server
+          // path: '/socket.io', // only set if customized server-side
           transports: ['websocket', 'polling'],
           auth: { token },
           extraHeaders: { Authorization: `Bearer ${token}` }, // best-effort on RN
@@ -73,6 +75,7 @@ export function connectLiveSocket(serverOrigin, token) {
       // Wire lifecycle logs
       s.on('connect', () => {
         log('SOCKET connect', { id: s.id, nsp: s.nsp });
+
         // Re-join any rooms after a fresh connect
         joinedRooms.forEach((liveStreamId) => {
           s.emit('join', { liveStreamId }, (ack) => {
@@ -80,16 +83,25 @@ export function connectLiveSocket(serverOrigin, token) {
               joinedRooms.delete(liveStreamId);
               warn('rejoin failed', { liveStreamId, error: ack?.error });
             } else {
-              log('rejoined', { liveStreamId });
+              log('rejoined', { liveStreamId, viewerCount: ack.viewerCount, uniqueCount: ack.uniqueCount });
+              // Push an immediate presence update so UI is in sync right after reconnect
+              if (ack.viewerCount != null || ack.uniqueCount != null) {
+                handlers.onPresence?.({
+                  liveStreamId,
+                  viewerCount: ack.viewerCount,
+                  uniqueCount: ack.uniqueCount,
+                });
+              }
             }
           });
         });
+
         resolve(s);
       });
 
       s.on('connect_error', (e) => {
         warn('SOCKET connect_error', { message: e?.message, data: e });
-        // don’t reject immediately; allow reconnection attempts.
+        // allow reconnection attempts; don't reject here
       });
       s.on('error', (e) => warn('SOCKET error', e));
       s.on('disconnect', (reason) => log('SOCKET disconnect', { reason }));
@@ -120,6 +132,13 @@ export function connectLiveSocket(serverOrigin, token) {
       });
       s.on('typing:stop', ({ userId }) => {
         handlers.onTypingStop?.({ userId });
+      });
+
+      // Presence updates from server
+      s.on('presence', (evt) => {
+        // evt: { liveStreamId, viewerCount, uniqueCount }
+        log('evt:presence', evt);
+        handlers.onPresence?.(evt);
       });
 
       // finally store it so helpers can use it
@@ -169,7 +188,7 @@ export function sendLiveMessage({ liveStreamId, text, type = 'message' }) {
   });
 }
 
-/** Join a room */
+/** Join a room (resolves with ack: { ok, viewerCount?, uniqueCount? }) */
 export function joinLiveStream(liveStreamId) {
   return new Promise((resolve, reject) => {
     if (!socket) {
@@ -180,9 +199,22 @@ export function joinLiveStream(liveStreamId) {
 
     socket.emit('join', { liveStreamId }, (ack) => {
       if (ack?.ok) {
-        log('join ack OK ←', { liveStreamId, sid: socket.id });
+        log('join ack OK ←', {
+          liveStreamId,
+          sid: socket.id,
+          viewerCount: ack.viewerCount,
+          uniqueCount: ack.uniqueCount,
+        });
         joinedRooms.add(liveStreamId);
-        resolve();
+        // Push presence immediately on join so UI has a value even before first broadcast
+        if (ack.viewerCount != null || ack.uniqueCount != null) {
+          handlers.onPresence?.({
+            liveStreamId,
+            viewerCount: ack.viewerCount,
+            uniqueCount: ack.uniqueCount,
+          });
+        }
+        resolve(ack);
       } else {
         warn('join ack FAIL ←', { liveStreamId, sid: socket.id, error: ack?.error });
         reject(new Error(ack?.error || 'join failed'));
@@ -211,6 +243,31 @@ export function setLiveTyping(liveStreamId, isTyping) {
   const evt = isTyping ? 'typing' : 'typing:stop';
   log(`emit ${evt} →`, { liveStreamId });
   socket.emit(evt, { liveStreamId });
+}
+
+/** Request current stats on demand (presence) */
+export function getLiveStats(liveStreamId, timeoutMs = 3000) {
+  return new Promise((resolve) => {
+    if (!socket) {
+      warn('getLiveStats: no socket instance');
+      return resolve({ ok: false, error: 'Socket not connected' });
+    }
+    // use socket.io v4 ack timeout if available
+    const withTimeout = socket.timeout ? socket.timeout(timeoutMs) : null;
+    const emitter = withTimeout?.emit ? withTimeout.emit.bind(withTimeout) : socket.emit.bind(socket);
+
+    emitter('stats', { liveStreamId }, (err, ack) => {
+      if (err) {
+        warn('stats timeout', { liveStreamId });
+        return resolve({ ok: false, error: 'timeout' });
+      }
+      if (ack?.ok) {
+        log('stats ack OK ←', { liveStreamId, viewerCount: ack.viewerCount, uniqueCount: ack.uniqueCount });
+        return resolve(ack);
+      }
+      resolve({ ok: false, error: ack?.error || 'stats failed' });
+    });
+  });
 }
 
 /** Raw access */

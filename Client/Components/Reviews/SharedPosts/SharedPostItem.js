@@ -27,6 +27,7 @@ export default function SharedPostItem({
 }) {
     const navigation = useNavigation();
     const user = useSelector(selectUser);
+    const postOwner = `${item?.user?.firstName} ${item?.user?.lastName}`
     const postUserId = item?.user?.id || item?.user?._id;
     const isSender = postUserId === user?.id;
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
@@ -38,8 +39,6 @@ export default function SharedPostItem({
             navigation.navigate('OtherUserProfile', { userId: item.user.id });
         }
     };
-
-    const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim();
 
     return (
         <View style={styles.sharedCard}>
@@ -57,7 +56,7 @@ export default function SharedPostItem({
                 <View style={styles.nameAndCaption}>
                     <Text>
                         <Text style={styles.name} onPress={navigateToProfile}>
-                            {fullName}
+                            {postOwner}
                         </Text>{" "}
                         <Text style={styles.sharedText}>shared a post</Text>
                     </Text>

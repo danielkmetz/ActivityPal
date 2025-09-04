@@ -1,13 +1,14 @@
-import { useEffect } from 'react';
-import { useDispatch } from 'react-redux';
+import { useEffect, useRef } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
 import {
   connectLiveSocket,
   onLiveEvents,
   joinLiveStream,
   leaveLiveStream,
   clearLiveHandlers,
-  setLiveTyping as socketSetTyping,   // exposed to callers if needed
-  sendLiveMessage as socketSend,      // exposed to callers if needed
+  getLiveSocket,
+  setLiveTyping as socketSetTyping,
+  sendLiveMessage as socketSend,
 } from '../../app/socket/liveChatSocketClient';
 import {
   fetchRecentChat,
@@ -15,20 +16,22 @@ import {
   receiveLiveDeleted,
   setPinnedMessage,
   setTyping,
+  selectLiveMessages,
 } from '../../Slices/LiveChatSlice';
 import { getUserToken } from '../../functions';
 
-/**
- * Keeps the chat session alive for a given liveId while the parent screen is mounted.
- * Owns socket connect/join, event wiring, and initial backfill.
- *
- * @param {string} liveId
- * @param {object} options
- * @param {string} [options.baseUrl]  optional socket base URL override
- * @param {boolean} [options.backfillOnce=true] whether to fetch initial recent messages
- */
 export function useLiveChatSession(liveId, { baseUrl, backfillOnce = true } = {}) {
   const dispatch = useDispatch();
+
+  // Keep track of newest createdAt we have for this liveId
+  const newestIso = useSelector((state) => {
+    const msgs = selectLiveMessages(state, liveId) || [];
+    return msgs.length ? msgs[msgs.length - 1]?.createdAt : null;
+  });
+
+  // Keep a ref so the reconnect handler always sees the latest anchor
+  const newestRef = useRef(newestIso);
+  newestRef.current = newestIso;
 
   useEffect(() => {
     if (!liveId) return;
@@ -36,20 +39,36 @@ export function useLiveChatSession(liveId, { baseUrl, backfillOnce = true } = {}
 
     (async () => {
       const token = await getUserToken();
-      // If your client already has a default URL, pass undefined here.
       await connectLiveSocket(baseUrl, token);
 
+      // 1) Initial backfill via REST (optional)
+      let since = null;
+      if (backfillOnce) {
+        try {
+          // unwrap to get { liveStreamId, items }
+          const { items } = await dispatch(
+            fetchRecentChat({ liveStreamId: liveId, limit: 60 })
+          ).unwrap();
+          if (items?.length) {
+            since = items[items.length - 1]?.createdAt || null;
+          }
+        } catch (e) {
+          // okay to keep going; join will still bring deltas
+          console.warn('[live] initial backfill failed:', e?.message || e);
+        }
+      }
+
+      // 2) Join the room (optionally with since)
       try {
-        await joinLiveStream(liveId);
+        await joinLiveStream(liveId, { since }); // server may ignore `since`; that's fine
       } catch (e) {
         console.warn('[live] join failed:', e?.message);
       }
 
-      // Single global wiring while this screen is mounted.
+      // 3) Wire socket → Redux
       onLiveEvents({
         onNew: (msg) => {
           if (!mounted) return;
-          // msg already includes liveStreamId from server
           dispatch(receiveLiveMessage(msg));
         },
         onDeleted: ({ messageId }) => {
@@ -67,7 +86,6 @@ export function useLiveChatSession(liveId, { baseUrl, backfillOnce = true } = {}
         onTyping: ({ userId }) => {
           if (!mounted) return;
           dispatch(setTyping({ liveStreamId: liveId, userId: String(userId), isTyping: true }));
-          // Soft timeout for UI “is typing…”
           setTimeout(() => {
             dispatch(setTyping({ liveStreamId: liveId, userId: String(userId), isTyping: false }));
           }, 3000);
@@ -78,20 +96,28 @@ export function useLiveChatSession(liveId, { baseUrl, backfillOnce = true } = {}
         },
       });
 
-      if (backfillOnce) {
-        dispatch(fetchRecentChat({ liveStreamId: liveId, limit: 60 }));
-      }
+      // 4) Reconnect gap fill: when socket (re)connects, fetch anything newer than our newest
+      const s = getLiveSocket();
+      const onReconnect = () => {
+        const anchor = newestRef.current;
+        if (anchor) {
+          dispatch(fetchRecentChat({ liveStreamId: liveId, after: anchor, limit: 200 }));
+        } else {
+          dispatch(fetchRecentChat({ liveStreamId: liveId, limit: 60 }));
+        }
+      };
+      s?.on?.('connect', onReconnect);
     })();
 
     return () => {
       mounted = false;
-      // Only tear down when the entire screen unmounts
       leaveLiveStream(liveId);
       clearLiveHandlers();
+      const s = getLiveSocket();
+      s?.off?.('connect'); // if you want to remove our listener on unmount
     };
   }, [liveId, baseUrl, backfillOnce, dispatch]);
 
-  // Convenience re-exports if the child prefers to call through the hook
   return {
     sendLiveMessage: socketSend,
     setLiveTyping: socketSetTyping,
