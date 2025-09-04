@@ -270,7 +270,16 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
             <Stack.Screen name="EventDetails" component={EventDetailsScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
             <Stack.Screen name="LiveSummary" component={LiveSummary} options={{ title: 'Live summary' }} />
-            <Stack.Screen name="LivePlayer" component={LivePlayerScreen} />
+            <Stack.Screen
+                name="LivePlayer"
+                component={LivePlayerScreen}
+                options={{
+                    headerShown: false,
+                    contentStyle: { backgroundColor: 'black' },
+                    // 👇 this is the key: let it draw edge-to-edge
+                    safeAreaInsets: { top: 0, bottom: 0 },
+                }}
+            />
             <Stack.Screen name="GoLive" component={GoLive} />
             <Stack.Screen name="GoLiveTest" component={GoLiveTest} options={{ unmountOnBlur: true }} />
         </Stack.Navigator>

@@ -8,9 +8,7 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
   Platform,
-  KeyboardAvoidingView,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import axios from 'axios';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSelector } from 'react-redux';
@@ -30,9 +28,7 @@ const isIVSUrl = (url) => typeof url === 'string' && /(live-video\.net|ivs\.)/i.
 
 export default function LivePlayerScreen() {
   const route = useRoute();
-  const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const KB_OFFSET = (insets?.bottom || 0) + 8;
   const { liveId } = route.params || {};
   const live = useSelector((state) => selectLiveById(state, liveId));
   const [uri, setUri] = useState(live?.playbackUrl || null);
@@ -141,11 +137,10 @@ export default function LivePlayerScreen() {
   }, []);
 
   // Handle IVS ready/buffering states
-  const onIVSStateChange = useCallback((e) => {
-    const state = e?.nativeEvent?.state;
-    // States: IDLE, BUFFERING, READY, PLAYING, ENDED, etc. (depends on wrapper)
+  const onIVSStateChange = (state) => {
+    // values are typically 'IDLE' | 'BUFFERING' | 'READY' | 'PLAYING' | 'ENDED'
     setIsReady(state === 'READY' || state === 'PLAYING');
-  }, []);
+  };
 
   // === expo-video PATH =====
   const seekToLiveEdge = useCallback(
@@ -268,12 +263,6 @@ export default function LivePlayerScreen() {
     <View style={S.container}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <View style={{ flex: 1 }}>
-          {!hasSource && (
-            <View style={S.center}>
-              <ActivityIndicator />
-              <Text style={S.subtle}>Loading stream…</Text>
-            </View>
-          )}
           {hasSource && useIVS && (
             <IVSPlayer
               ref={ivsRef}
@@ -296,7 +285,7 @@ export default function LivePlayerScreen() {
               player={player}
               allowsFullscreen={false}
               allowsPictureInPicture={false}
-              contentFit="contain"
+              //contentFit="contain"
               nativeControls={false}
               onReadyForDisplay={() => {
                 setIsReady(true);
@@ -320,7 +309,7 @@ export default function LivePlayerScreen() {
               <Text style={S.goLiveText}>GO LIVE</Text>
             </TouchableOpacity>
           )}
-          {!isReady && !error && hasSource && (
+          {!hasSource && (
             <View style={S.loadingOverlay}>
               <ActivityIndicator />
               <Text style={S.subtle}>Connecting to live…</Text>
@@ -378,8 +367,8 @@ export default function LivePlayerScreen() {
 }
 
 const S = StyleSheet.create({
-  container: { flex: 1, backgroundColor: 'black' },
-  video: { width: '100%', height: '100%' },
+  container: { flex: 1, backgroundColor: 'white' },
+  video: { ...StyleSheet.absoluteFillObject },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingOverlay: { position: 'absolute', top: '45%', left: 0, right: 0, alignItems: 'center' },
   errorOverlay: { position: 'absolute', top: '40%', left: 0, right: 0, alignItems: 'center', paddingHorizontal: 24 },
