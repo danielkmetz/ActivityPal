@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     View, Text, StyleSheet, FlatList, TextInput,
-    TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard, Dimensions
+    TouchableOpacity, KeyboardAvoidingView, Platform, Dimensions
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSelector, useDispatch } from 'react-redux';
@@ -126,14 +126,13 @@ export default function LiveChatOverlay({ liveId }) {
     });
 
     return (
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={KB_OFFSET} style={S.wrap}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={S.wrap}>
             {pinnedMessage && (
                 <View style={S.pinned}>
                     <Text style={S.pinnedLabel}>Pinned</Text>
                     <Text numberOfLines={1} style={S.pinnedText}>{pinnedMessage.text}</Text>
                 </View>
             )}
-
             <View
                 collapsable={false}
                 style={[S.listBox, { height: CHAT_MAX_HEIGHT }]}
