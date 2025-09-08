@@ -246,11 +246,11 @@ export const toggleLiveLike = createAsyncThunk(
       // Keep the central feed (ReviewsSlice) in sync if this live stream is posted to the feed
       try {
         dispatch(updateSharedPostInReviews({
-        postId: liveId,
-        updates: {
-          __updatePostLikes: data.likes,
-        },
-      }));
+          postId: liveId,
+          updates: {
+            __updatePostLikes: data.likes,
+          },
+        }));
       } catch (_) { }
 
       return {
@@ -293,6 +293,7 @@ const liveSlice = createSlice({
     // Replays keyed by liveId to avoid cross-session collisions
     replaysById: {},         // { [liveId]: { status, ready, playbackUrl, error, ...raw } }
     postingById: {},
+    viewerCounts: {},
   }),
   reducers: {
     // for socket/webhook pushes
@@ -308,9 +309,16 @@ const liveSlice = createSlice({
       state.error = null;
       state.nextCursor = null;
       state.activeFilter = null;
+      state.viewerCounts = {};
     },
     setFilter(state, action) {
       state.activeFilter = action.payload || null; // can be null (no place filter)
+    },
+    setViewerCount(state, action) {
+      const { liveStreamId, count } = action.payload || {};
+      if (!liveStreamId) return;
+      if (!state.viewerCounts) state.viewerCounts = {};
+      state.viewerCounts[liveStreamId] = Math.max(0, Number(count) || 0);
     },
   },
   extraReducers: (builder) => {
@@ -368,6 +376,7 @@ const liveSlice = createSlice({
         const id = action.payload?.liveId;
         if (id) liveAdapter.removeOne(state, id);
         state.currentLive = null;
+        if (id && state.viewerCounts) delete state.viewerCounts[id];
       })
       .addCase(stopLiveSession.rejected, (state, action) => {
         state.stopping = 'failed';
@@ -557,7 +566,7 @@ const liveSlice = createSlice({
 /* ------------------------------------------------------------------ */
 /* Exports (reducers/actions)                                          */
 /* ------------------------------------------------------------------ */
-export const { upsertLive, removeLive, clearLive, setFilter } = liveSlice.actions;
+export const { upsertLive, removeLive, clearLive, setFilter, setViewerCount } = liveSlice.actions;
 export default liveSlice.reducer;
 
 /* ------------------------------------------------------------------ */
@@ -589,3 +598,10 @@ export const selectStopError = (state) => state.live.stopError;
 /* Optional helper: filter current live rows by place */
 export const makeSelectLiveByPlace = (placeId) =>
   createSelector([selectLiveNow], (items) => items.filter((x) => (placeId ? x.placeId === placeId : true)));
+
+export const selectViewerCounts = (state) => state.live.viewerCounts || {};
+
+export const makeSelectViewerCount =
+  (liveId) =>
+    (state) =>
+      (state.live.viewerCounts && state.live.viewerCounts[liveId]) || 0;
