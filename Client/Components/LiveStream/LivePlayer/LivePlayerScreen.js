@@ -21,6 +21,7 @@ import LiveChatOverlay from './LiveChat/LiveChatOverlay';
 import { useLiveChatSession } from '../useLiveChatSession';
 
 const API = `${process.env.EXPO_PUBLIC_API_BASE_URL}/live`;
+const BASE_API = `${process.env.EXPO_PUBLIC_BASE_URL}`;
 const TAG = 'LivePlayer';
 
 // Simple detector: treat *.live-video.net or ivs.* as IVS
@@ -43,7 +44,7 @@ export default function LivePlayerScreen() {
   const useIVS = isIVSUrl(uri);
   const ivsRef = useRef(null); // IVS player ref
 
-  useLiveChatSession(liveId, { baseUrl: 'http://10.0.0.24:5000' });
+  useLiveChatSession(liveId, { baseUrl: 'http://192.168.4.63:5000' });
 
   // ---- expo-video player (fallback / non-IVS) ----
   const player = useVideoPlayer(
