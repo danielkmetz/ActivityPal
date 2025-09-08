@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, Pressable, StyleSheet, Keyboard, TouchableWithoutFeedback, ActivityIndicator } from 'react-native';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { View, Text, Pressable, StyleSheet, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import { ApiVideoLiveStreamView } from '@api.video/react-native-livestream';
 import { useDispatch, useSelector } from 'react-redux';
 import { selectCurrentLive, clearCurrentLive } from '../../../Slices/LiveStreamSlice';
@@ -9,6 +9,9 @@ import LiveBottomBar from '../Buttons/LiveBottomBar';
 import SideControls from '../Buttons/SideControls';
 import { usePublisher } from '../UsePublisher/usePublisher';
 import { useLiveChatSession } from '../useLiveChatSession';
+import { Entypo } from '@expo/vector-icons';
+import { getLiveViewers } from '../../../app/socket/liveChatSocketClient';
+import ViewersModal from '../LivePlayer/ViewersModal/ViewersModal';
 
 function formatTime(s) {
   const m = String(Math.floor(s / 60)).padStart(2, '0');
@@ -16,22 +19,36 @@ function formatTime(s) {
   return `${m}:${ss}`;
 }
 
+const BASE_API = `${process.env.EXPO_PUBLIC_BASE_URL}`;
+
 export default function GoLive({ navigation }) {
   const dispatch = useDispatch();
   const live = useSelector(selectCurrentLive);
   const liveRef = useRef(null);
 
-  // inside GoLive()
-  const viewerCount = useSelector(
-    (s) => s.live?.viewerCounts?.[ui.chatLiveId] ?? 0
-  );
+  const [viewerModalVisible, setViewerModalVisible] = useState(false);
+  const [viewerLoading, setViewerLoading] = useState(false);
+  const [viewerError, setViewerError] = useState(null);
+  const [viewerList, setViewerList] = useState([]);
 
   // Clear any stale live on mount
-  useEffect(() => { if (live?.liveId) { try { dispatch(clearCurrentLive()); } catch { } } }, []); // eslint-disable-line
+  useEffect(() => {
+    if (live?.liveId) {
+      try { dispatch(clearCurrentLive()); } catch {}
+    }
+  }, []); // eslint-disable-line
 
   const { ui, setUI, actions } = usePublisher({ liveRef, navigation, liveFromStore: live });
+  const isLiveish = ui.status === 'live' || ui.status === 'reconnecting';
 
-  useLiveChatSession(ui.chatLiveId, { baseUrl: 'http://10.0.0.24:5000', backfillOnce: true });
+  // Hook the chat/socket using centralized base URL
+  useLiveChatSession(ui.chatLiveId, { baseUrl: 'http://192.168.4.63:5000', backfillOnce: true });
+
+  // Viewer count from store (only when live-ish and we have a room id)
+  const viewerCount = useSelector((s) => {
+    if (!isLiveish || !ui.chatLiveId) return 0;
+    return s.live?.viewerCounts?.[ui.chatLiveId] ?? 0;
+  });
 
   // Chat join/backfill
   useEffect(() => {
@@ -42,13 +59,44 @@ export default function GoLive({ navigation }) {
     return () => { dispatch(setChatJoined({ liveStreamId: ui.chatLiveId, joined: false })); };
   }, [dispatch, ui.chatLiveId, ui.status]);
 
-  const showEndButton = ui.status === 'live' || ui.status === 'reconnecting';
+  const openViewerModal = useCallback(async () => {
+    if (!isLiveish || !ui.chatLiveId) return;
+    setViewerModalVisible(true);
+    setViewerLoading(true);
+    setViewerError(null);
+    const ack = await getLiveViewers(ui.chatLiveId);
+    if (ack?.ok) {
+      setViewerList(ack.viewers || []);
+    } else {
+      setViewerError(ack?.error || 'Failed to load viewers');
+      setViewerList([]);
+    }
+    setViewerLoading(false);
+  }, [isLiveish, ui.chatLiveId]);
+
+  const showEndButton = isLiveish;
+
   const statusBadge = (
-    ui.status === 'connecting' ? <Text style={S.badge}>Connecting…</Text> :
-      ui.status === 'reconnecting' ? <Text style={S.badge}>Reconnecting…</Text> :
-        ui.status === 'live' ? <Text style={[S.badge, S.badgeLive]}>LIVE</Text> :
-          ui.status === 'error' ? <Text style={[S.badge, S.badgeError]}>Error</Text> :
-            null
+    ui.status === 'connecting' ? (
+      <Text style={S.badge}>Connecting…</Text>
+    ) : ui.status === 'reconnecting' ? (
+      <Text style={S.badge}>Reconnecting…</Text>
+    ) : isLiveish ? (
+      <Pressable
+        onPress={openViewerModal}
+        style={[S.badge, S.badgeLive, S.badgeRow]}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel={`Viewers: ${viewerCount}`}
+      >
+        <Text style={S.badgeLiveTxt}>LIVE</Text>
+        <Text style={S.badgeLiveTxt}>·</Text>
+        <Entypo name="eye" size={14} color="#7f1d1d" />
+        <Text style={S.badgeLiveTxt}>{viewerCount}</Text>
+      </Pressable>
+    ) : ui.status === 'error' ? (
+      <Text style={[S.badge, S.badgeError]}>Error</Text>
+    ) : null
   );
 
   return (
@@ -76,34 +124,31 @@ export default function GoLive({ navigation }) {
             <View style={S.topLeftRow}>
               <Pressable
                 onPress={actions.onClosePress}
-                style={[S.pill, (ui.status === 'live' || ui.status === 'reconnecting') && S.pillEnd]}
+                style={[S.pill, isLiveish && S.pillEnd]}
                 accessibilityRole="button"
                 accessibilityLabel={showEndButton ? 'End live stream' : 'Close'}
               >
                 <Text style={S.pillTxt}>{showEndButton ? 'End' : 'Close'}</Text>
               </Pressable>
 
-              {(ui.status === 'live' || ui.status === 'reconnecting') && (
+              {isLiveish && (
                 <Text style={S.timer}>{formatTime(ui.elapsed)}</Text>
               )}
             </View>
-            <View style={S.rightGroup}>
-              <View style={S.viewerPill}>
-                <Text style={S.viewerTxt}>{viewerCount}</Text>
-              </View>
-              {statusBadge}
-            </View>
+            {statusBadge}
           </View>
           <LiveBottomBar
             isEnding={ui.isEnding}
             countdown={ui.countdown}
             onCancelCountdown={() => setUI({ type: 'SET', patch: { countdown: 0, arming: false, status: 'idle' } })}
-            isLive={ui.status === 'live' || ui.status === 'reconnecting' || ui.status === 'connecting'}
+            isLive={isLiveish || ui.status === 'connecting'}
             onArm={actions.armAndCountdown}
           />
         </View>
       </TouchableWithoutFeedback>
+
       {ui.chatLiveId && !ui.isEnding && ui.showChat && <LiveChatOverlay liveId={ui.chatLiveId} isHost />}
+
       <SideControls
         onFlip={() => setUI({ type: 'SET', patch: { front: !ui.front } })}
         onToggleChat={() => setUI({ type: 'SET', patch: { showChat: !ui.showChat } })}
@@ -111,6 +156,15 @@ export default function GoLive({ navigation }) {
         isEnding={ui.isEnding}
         topPercent={60}
         host={true}
+      />
+
+      <ViewersModal
+        visible={viewerModalVisible}
+        loading={viewerLoading}
+        error={viewerError}
+        viewers={viewerList}
+        onClose={() => setViewerModalVisible(false)}
+        onRefresh={openViewerModal}
       />
     </View>
   );
@@ -129,9 +183,8 @@ const S = StyleSheet.create({
   },
   pillTxt: { color: '#fff', fontWeight: '700' },
   badge: {
-    // light red pill
-    backgroundColor: 'rgba(239, 68, 68, 0.18)', // ~ red-500 @ 18% alpha
-    color: '#991b1b',                            // dark red text
+    backgroundColor: 'rgba(239, 68, 68, 0.18)',
+    color: '#991b1b',
     fontWeight: '800',
     paddingVertical: 6,
     paddingHorizontal: 10,
@@ -139,11 +192,18 @@ const S = StyleSheet.create({
   },
   badgeLive: {
     backgroundColor: '#fecaca', // red-200
-    color: '#7f1d1d',           // red-900
   },
   badgeError: {
     backgroundColor: '#fecaca',
-    color: '#7f1d1d',
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  badgeLiveTxt: {
+    color: '#7f1d1d',  // red-900 to match the pill
+    fontWeight: '800',
   },
   previewHidden: { opacity: 0.001 },
   blackout: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000' },
@@ -162,7 +222,7 @@ const S = StyleSheet.create({
   topLeftRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,                // RN 0.71+; if older, replace with marginLeft on timer
+    gap: 10,
   },
   timer: { color: '#fff', fontWeight: '800' },
   btn: {
@@ -176,12 +236,4 @@ const S = StyleSheet.create({
   btnTxt: { color: '#fff', fontWeight: '700' },
   connectingWrap: { alignItems: 'flex-end' },
   connectingTxt: { color: '#fff', marginTop: 6, fontWeight: '600' },
-  rightGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  viewerPill: {
-    backgroundColor: 'rgba(255,255,255,0.10)',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 999,
-  },
-  viewerTxt: { color: '#fff', fontWeight: '700' },
 });

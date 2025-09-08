@@ -1,4 +1,3 @@
-// Server/graphql/resolvers/getUserAndFollowingLiveStreams.js
 const mongoose = require('mongoose');
 const User = require('../../models/User');
 const LiveStream = require('../../models/LiveStream');

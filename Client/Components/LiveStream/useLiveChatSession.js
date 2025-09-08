@@ -18,20 +18,23 @@ import {
   setTyping,
   selectLiveMessages,
 } from '../../Slices/LiveChatSlice';
+import { setViewerCount } from '../../Slices/LiveStreamSlice';
 import { getUserToken } from '../../functions';
 
 export function useLiveChatSession(liveId, { baseUrl, backfillOnce = true } = {}) {
   const dispatch = useDispatch();
 
-  // Keep track of newest createdAt we have for this liveId
+  // newest createdAt we currently have for this room
   const newestIso = useSelector((state) => {
     const msgs = selectLiveMessages(state, liveId) || [];
     return msgs.length ? msgs[msgs.length - 1]?.createdAt : null;
   });
 
-  // Keep a ref so the reconnect handler always sees the latest anchor
+  // keep stable refs across reconnects/cleanup
   const newestRef = useRef(newestIso);
   newestRef.current = newestIso;
+
+  const reconnectHandlerRef = useRef(null); // <- NEW: holds the exact handler we attach
 
   useEffect(() => {
     if (!liveId) return;
@@ -41,31 +44,23 @@ export function useLiveChatSession(liveId, { baseUrl, backfillOnce = true } = {}
       const token = await getUserToken();
       await connectLiveSocket(baseUrl, token);
 
-      // 1) Initial backfill via REST (optional)
-      let since = null;
+      // 1) initial backfill (optional)
       if (backfillOnce) {
         try {
-          // unwrap to get { liveStreamId, items }
-          const { items } = await dispatch(
-            fetchRecentChat({ liveStreamId: liveId, limit: 60 })
-          ).unwrap();
-          if (items?.length) {
-            since = items[items.length - 1]?.createdAt || null;
-          }
+          await dispatch(fetchRecentChat({ liveStreamId: liveId, limit: 60 })).unwrap();
         } catch (e) {
-          // okay to keep going; join will still bring deltas
           console.warn('[live] initial backfill failed:', e?.message || e);
         }
       }
 
-      // 2) Join the room (optionally with since)
+      // 2) join the room
       try {
-        await joinLiveStream(liveId, { since }); // server may ignore `since`; that's fine
+        await joinLiveStream(liveId);
       } catch (e) {
         console.warn('[live] join failed:', e?.message);
       }
 
-      // 3) Wire socket → Redux
+      // 3) wire socket → redux (include presence here)
       onLiveEvents({
         onNew: (msg) => {
           if (!mounted) return;
@@ -94,11 +89,16 @@ export function useLiveChatSession(liveId, { baseUrl, backfillOnce = true } = {}
           if (!mounted) return;
           dispatch(setTyping({ liveStreamId: liveId, userId: String(userId), isTyping: false }));
         },
+        onPresence: ({ liveStreamId: id, viewerCount, uniqueCount }) => {
+          if (!mounted) return;
+          const count = (typeof uniqueCount === 'number') ? uniqueCount : (viewerCount || 0);
+          dispatch(setViewerCount({ liveStreamId: id || liveId, count }));
+        },
       });
 
-      // 4) Reconnect gap fill: when socket (re)connects, fetch anything newer than our newest
+      // 4) reconnect gap fill — store handler in a ref so we can remove it later
       const s = getLiveSocket();
-      const onReconnect = () => {
+      const handler = () => {
         const anchor = newestRef.current;
         if (anchor) {
           dispatch(fetchRecentChat({ liveStreamId: liveId, after: anchor, limit: 200 }));
@@ -106,15 +106,25 @@ export function useLiveChatSession(liveId, { baseUrl, backfillOnce = true } = {}
           dispatch(fetchRecentChat({ liveStreamId: liveId, limit: 60 }));
         }
       };
-      s?.on?.('connect', onReconnect);
+      reconnectHandlerRef.current = handler;
+      s?.on?.('connect', handler);
     })();
 
     return () => {
       mounted = false;
+
+      // remove our reconnect listener safely
+      const s = getLiveSocket();
+      if (reconnectHandlerRef.current) {
+        s?.off?.('connect', reconnectHandlerRef.current);
+        reconnectHandlerRef.current = null;
+      } else {
+        // fallback: remove all 'connect' listeners we own if needed
+        s?.off?.('connect');
+      }
+
       leaveLiveStream(liveId);
       clearLiveHandlers();
-      const s = getLiveSocket();
-      s?.off?.('connect'); // if you want to remove our listener on unmount
     };
   }, [liveId, baseUrl, backfillOnce, dispatch]);
 

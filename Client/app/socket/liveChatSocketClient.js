@@ -16,7 +16,7 @@ const defaultHandlers = {
   onSystem: () => {},
   onTyping: () => {},
   onTypingStop: () => {},
-  onPresence: () => {},      // <-- presence updates ({ liveStreamId, viewerCount, uniqueCount })
+  onPresence: () => {},  // { liveStreamId, viewerCount, uniqueCount }
 };
 let handlers = { ...defaultHandlers };
 
@@ -38,14 +38,83 @@ function normalizeOrigin(u) {
   return base;
 }
 
+function bindSocketEvents(s) {
+  // clear any previously attached listeners we own
+  ['connect','connect_error','error','disconnect','new','deleted','pinned','unpinned','chat:system','typing','typing:stop','presence']
+    .forEach(evt => { try { s.off(evt); } catch {} });
+
+  s.on('connect', () => {
+    log('SOCKET connect', { id: s.id, nsp: s.nsp });
+
+    // Re-join rooms after a fresh connect; ack may carry presence counts
+    joinedRooms.forEach((liveStreamId) => {
+      s.emit('join', { liveStreamId }, (ack) => {
+        if (!ack?.ok) {
+          joinedRooms.delete(liveStreamId);
+          warn('rejoin failed', { liveStreamId, error: ack?.error });
+        } else {
+          log('rejoined', { liveStreamId, viewerCount: ack.viewerCount, uniqueCount: ack.uniqueCount });
+          if (ack.viewerCount != null || ack.uniqueCount != null) {
+            handlers.onPresence?.({
+              liveStreamId,
+              viewerCount: ack.viewerCount,
+              uniqueCount: ack.uniqueCount,
+            });
+          }
+        }
+      });
+    });
+  });
+
+  s.on('connect_error', (e) => {
+    warn('SOCKET connect_error', { message: e?.message, data: e });
+  });
+  s.on('error', (e) => warn('SOCKET error', e));
+  s.on('disconnect', (reason) => log('SOCKET disconnect', { reason }));
+
+  // ----- Server events → user handlers -----
+  s.on('new', (message) => {
+    log('evt:new', { id: message?._id });
+    handlers.onNew?.(message);
+  });
+  s.on('deleted', ({ messageId }) => {
+    log('evt:deleted', { messageId });
+    handlers.onDeleted?.({ messageId });
+  });
+  s.on('pinned', ({ messageId }) => {
+    log('evt:pinned', { messageId });
+    handlers.onPinned?.({ messageId });
+  });
+  s.on('unpinned', () => {
+    log('evt:unpinned');
+    handlers.onUnpinned?.();
+  });
+  s.on('chat:system', (evt) => {
+    log('evt:system', evt);
+    handlers.onSystem?.(evt);
+  });
+  s.on('typing', ({ userId }) => {
+    handlers.onTyping?.({ userId });
+  });
+  s.on('typing:stop', ({ userId }) => {
+    handlers.onTypingStop?.({ userId });
+  });
+
+  // Presence (counts)
+  s.on('presence', (evt) => {
+    // evt: { liveStreamId, viewerCount, uniqueCount }
+    log('evt:presence', evt);
+    handlers.onPresence?.(evt);
+  });
+}
+
 /**
  * Connect to the /live namespace (idempotent).
- * Resolves with the socket when connected.
+ * Resolves with the socket when connected or already connected.
  */
 export function connectLiveSocket(serverOrigin, token) {
   const origin = normalizeOrigin(serverOrigin);
 
-  // Reuse existing live socket if connected
   if (socket?.connected && socket.nsp === '/live') {
     log('connectLiveSocket: already connected', { id: socket.id, nsp: socket.nsp });
     return Promise.resolve(socket);
@@ -53,100 +122,67 @@ export function connectLiveSocket(serverOrigin, token) {
 
   return new Promise((resolve, reject) => {
     try {
-      // Create/Reuse a Manager tied to the ORIGIN (no namespace in URL)
       if (!manager) {
         manager = new Manager(origin, {
-          // path: '/socket.io', // only set if customized server-side
+          // path: '/socket.io', // set if customized server-side
           transports: ['websocket', 'polling'],
           auth: { token },
-          extraHeaders: { Authorization: `Bearer ${token}` }, // best-effort on RN
+          extraHeaders: { Authorization: `Bearer ${token}` },
           reconnectionAttempts: 5,
           reconnectionDelay: 700,
         });
         manager.on('open', () => log('MANAGER open'));
         manager.on('error', (e) => warn('MANAGER error', e?.message || e));
         manager.on('reconnect_failed', () => warn('MANAGER reconnect_failed'));
+      } else {
+        // refresh token on existing manager
+        if (token) {
+          manager.opts.auth = { token };
+          manager.opts.extraHeaders = { ...(manager.opts.extraHeaders || {}), Authorization: `Bearer ${token}` };
+        }
       }
 
-      // Create a /live namespace socket from the manager
       const s = manager.socket('/live');
+      bindSocketEvents(s);
       log('connectLiveSocket: attempting', { origin, nsp: '/live' });
 
-      // Wire lifecycle logs
-      s.on('connect', () => {
-        log('SOCKET connect', { id: s.id, nsp: s.nsp });
-
-        // Re-join any rooms after a fresh connect
-        joinedRooms.forEach((liveStreamId) => {
-          s.emit('join', { liveStreamId }, (ack) => {
-            if (!ack?.ok) {
-              joinedRooms.delete(liveStreamId);
-              warn('rejoin failed', { liveStreamId, error: ack?.error });
-            } else {
-              log('rejoined', { liveStreamId, viewerCount: ack.viewerCount, uniqueCount: ack.uniqueCount });
-              // Push an immediate presence update so UI is in sync right after reconnect
-              if (ack.viewerCount != null || ack.uniqueCount != null) {
-                handlers.onPresence?.({
-                  liveStreamId,
-                  viewerCount: ack.viewerCount,
-                  uniqueCount: ack.uniqueCount,
-                });
-              }
-            }
-          });
-        });
-
-        resolve(s);
-      });
-
-      s.on('connect_error', (e) => {
-        warn('SOCKET connect_error', { message: e?.message, data: e });
-        // allow reconnection attempts; don't reject here
-      });
-      s.on('error', (e) => warn('SOCKET error', e));
-      s.on('disconnect', (reason) => log('SOCKET disconnect', { reason }));
-
-      // ----- Server events → user handlers -----
-      s.on('new', (message) => {
-        log('evt:new', { id: message?._id });
-        handlers.onNew?.(message);
-      });
-      s.on('deleted', ({ messageId }) => {
-        log('evt:deleted', { messageId });
-        handlers.onDeleted?.({ messageId });
-      });
-      s.on('pinned', ({ messageId }) => {
-        log('evt:pinned', { messageId });
-        handlers.onPinned?.({ messageId });
-      });
-      s.on('unpinned', () => {
-        log('evt:unpinned');
-        handlers.onUnpinned?.();
-      });
-      s.on('chat:system', (evt) => {
-        log('evt:system', evt);
-        handlers.onSystem?.(evt);
-      });
-      s.on('typing', ({ userId }) => {
-        handlers.onTyping?.({ userId });
-      });
-      s.on('typing:stop', ({ userId }) => {
-        handlers.onTypingStop?.({ userId });
-      });
-
-      // Presence updates from server
-      s.on('presence', (evt) => {
-        // evt: { liveStreamId, viewerCount, uniqueCount }
-        log('evt:presence', evt);
-        handlers.onPresence?.(evt);
-      });
-
-      // finally store it so helpers can use it
+      // store and resolve on connect (if already connected, 'connect' may not fire; resolve immediately)
       socket = s;
+      if (s.connected) {
+        log('connectLiveSocket: socket already connected', { id: s.id });
+        resolve(s);
+      } else {
+        s.once('connect', () => resolve(s));
+      }
     } catch (e) {
       reject(e);
     }
   });
+}
+
+/** Update the auth token without rebuilding the manager/socket */
+export function updateLiveAuth(token) {
+  if (!token) return;
+  if (manager) {
+    manager.opts.auth = { token };
+    manager.opts.extraHeaders = { ...(manager.opts.extraHeaders || {}), Authorization: `Bearer ${token}` };
+  }
+  if (socket) {
+    socket.auth = { ...(socket.auth || {}), token };
+    // To enforce a new handshake with updated auth, you can optionally:
+    // socket.disconnect().connect();
+  }
+}
+
+/** Cleanly disconnect (and optionally destroy) */
+export function disconnectLiveSocket({ destroy = false } = {}) {
+  try { socket?.disconnect(); } catch {}
+  if (destroy) {
+    try { manager?.close(); } catch {}
+    manager = null;
+    socket = null;
+    joinedRooms.clear();
+  }
 }
 
 /** Register event handlers (partial updates ok) */
@@ -206,7 +242,6 @@ export function joinLiveStream(liveStreamId) {
           uniqueCount: ack.uniqueCount,
         });
         joinedRooms.add(liveStreamId);
-        // Push presence immediately on join so UI has a value even before first broadcast
         if (ack.viewerCount != null || ack.uniqueCount != null) {
           handlers.onPresence?.({
             liveStreamId,
@@ -252,7 +287,6 @@ export function getLiveStats(liveStreamId, timeoutMs = 3000) {
       warn('getLiveStats: no socket instance');
       return resolve({ ok: false, error: 'Socket not connected' });
     }
-    // use socket.io v4 ack timeout if available
     const withTimeout = socket.timeout ? socket.timeout(timeoutMs) : null;
     const emitter = withTimeout?.emit ? withTimeout.emit.bind(withTimeout) : socket.emit.bind(socket);
 
@@ -268,6 +302,36 @@ export function getLiveStats(liveStreamId, timeoutMs = 3000) {
       resolve({ ok: false, error: ack?.error || 'stats failed' });
     });
   });
+}
+
+/** Fetch the current viewer list (server returns { ok, viewers, total?, unique? }) */
+export function getLiveViewers(liveStreamId, timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    if (!socket) {
+      warn('getLiveViewers: no socket instance');
+      return resolve({ ok: false, error: 'Socket not connected' });
+    }
+    const withTimeout = socket.timeout ? socket.timeout(timeoutMs) : null;
+    const emitter = withTimeout?.emit ? withTimeout.emit.bind(withTimeout) : socket.emit.bind(socket);
+
+    log('emit viewers →', { liveStreamId });
+    emitter('viewers', { liveStreamId }, (err, ack) => {
+      if (err) {
+        warn('viewers timeout', { liveStreamId });
+        return resolve({ ok: false, error: 'timeout' });
+      }
+      if (ack?.ok) {
+        log('viewers ack OK ←', { liveStreamId, count: ack.viewers?.length ?? 0 });
+        return resolve(ack);
+      }
+      resolve({ ok: false, error: ack?.error || 'viewers failed' });
+    });
+  });
+}
+
+/** Convenience: are we connected to /live? */
+export function isLiveSocketConnected() {
+  return !!(socket && socket.connected && socket.nsp === '/live');
 }
 
 /** Raw access */
