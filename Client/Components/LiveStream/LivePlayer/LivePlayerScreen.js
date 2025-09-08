@@ -10,18 +10,22 @@ import {
   Platform,
 } from 'react-native';
 import axios from 'axios';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSelector } from 'react-redux';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { VideoView, useVideoPlayer } from 'expo-video';
-import IVSPlayer from 'amazon-ivs-react-native-player';
+import IVSPlayer, { PlayerState } from 'amazon-ivs-react-native-player';
 import { selectLiveById } from '../../../Slices/LiveStreamSlice';
 import { getAuthHeaders } from '../../../functions';
 import LiveChatOverlay from './LiveChat/LiveChatOverlay';
 import { useLiveChatSession } from '../useLiveChatSession';
+import ViewersModal from './ViewersModal/ViewersModal';
+import { getLiveViewers } from '../../../app/socket/liveChatSocketClient';
+import SideControls from '../Buttons/SideControls';
+import PlayerErrorOverlay from './PlayerErrorOverlay';
+import LiveTopBar from '../Buttons/LiveTopBar';
 
-const API = `${process.env.EXPO_PUBLIC_API_BASE_URL}/live`;
-const BASE_API = `${process.env.EXPO_PUBLIC_BASE_URL}`;
+const API = `${process.env.EXPO_PUBLIC_SERVER_URL}/live`;
+const BASE_URL = `${process.env.EXPO_PUBLIC_BASE_URL}`;
 const TAG = 'LivePlayer';
 
 // Simple detector: treat *.live-video.net or ivs.* as IVS
@@ -32,19 +36,25 @@ export default function LivePlayerScreen() {
   const navigation = useNavigation();
   const { liveId } = route.params || {};
   const live = useSelector((state) => selectLiveById(state, liveId));
+  const viewerCount = useSelector((s) => s.live?.viewerCounts?.[liveId] ?? 0);
   const [uri, setUri] = useState(live?.playbackUrl || null);
   const [behindLiveMs, setBehindLiveMs] = useState(0);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState(null);
   const [showChat, setShowChat] = useState(true);
+  const [viewerModalVisible, setViewerModalVisible] = useState(false);
+  const [viewerLoading, setViewerLoading] = useState(false);
+  const [viewerError, setViewerError] = useState(null);
+  const [viewerList, setViewerList] = useState([]);
   // Sticky live window (expo-video path)
   const stickyLiveUntilRef = useRef(0);
   const didAutoCorrectRef = useRef(false);
   const latestPlayableSecRef = useRef(0);
   const useIVS = isIVSUrl(uri);
   const ivsRef = useRef(null); // IVS player ref
+  const hostId = live?.hostUserId;
 
-  useLiveChatSession(liveId, { baseUrl: 'http://192.168.4.63:5000' });
+  useLiveChatSession(liveId, { baseUrl: BASE_URL });
 
   // ---- expo-video player (fallback / non-IVS) ----
   const player = useVideoPlayer(
@@ -60,6 +70,12 @@ export default function LivePlayerScreen() {
   );
 
   const hasSource = !!uri;
+
+  const status = error
+    ? 'error'
+    : (!hasSource || !isReady ? 'connecting' : 'live');
+
+  const isLiveish = status === 'live';
 
   // --- Shared logging ---
   const log = useCallback((msg, extra) => {
@@ -139,8 +155,14 @@ export default function LivePlayerScreen() {
 
   // Handle IVS ready/buffering states
   const onIVSStateChange = (state) => {
-    // values are typically 'IDLE' | 'BUFFERING' | 'READY' | 'PLAYING' | 'ENDED'
-    setIsReady(state === 'READY' || state === 'PLAYING');
+    const s = typeof state === 'string' ? state.toUpperCase() : state;
+    const ready =
+      s === PlayerState.Ready ||
+      s === PlayerState.Playing ||
+      s === 'READY' ||
+      s === 'PLAYING';
+
+    setIsReady(ready);
   };
 
   // === expo-video PATH =====
@@ -257,8 +279,44 @@ export default function LivePlayerScreen() {
     else seekToLiveEdge(1.0, 'tap:go-live');
   }, [useIVS, ivsGoLive, seekToLiveEdge]);
 
+  const openViewerModal = useCallback(async () => {
+    if (!isLiveish || !liveId) return;
+    setViewerModalVisible(true);
+    setViewerLoading(true);
+    setViewerError(null);
+    try {
+      const ack = await getLiveViewers(liveId);
+      if (ack?.ok) {
+        setViewerList(ack.viewers || []);
+      } else {
+        setViewerError(ack?.error || 'Failed to load viewers');
+        setViewerList([]);
+      }
+    } catch (e) {
+      setViewerError(String(e?.message || e) || 'Failed to load viewers');
+      setViewerList([]);
+    } finally {
+      setViewerLoading(false);
+    }
+  }, [isLiveish, liveId]);
+
   // Unified error handler
   const handleError = useCallback((msg) => setError(msg || 'Playback error'), []);
+
+  const handleRetryPress = useCallback(async () => {
+    try {
+      if (useIVS) {
+        await ivsGoLive();       // try play + seek live
+      } else {
+        await player?.play?.();
+      }
+      setError(null);
+    } catch { }
+  }, [useIVS, ivsGoLive, player]);
+
+  const handleGoBack = () => {
+    navigation.goBack();
+  }
 
   return (
     <View style={S.container}>
@@ -317,71 +375,52 @@ export default function LivePlayerScreen() {
             </View>
           )}
           {!!error && (
-            <View style={S.errorOverlay}>
-              <Text style={S.errorText}>Couldn’t play the stream.</Text>
-              <Text style={S.subtle}>{String(error)}</Text>
-              <TouchableOpacity
-                onPress={async () => {
-                  try {
-                    if (useIVS) {
-                      // try play + seek live
-                      await ivsGoLive();
-                    } else {
-                      await player?.play?.();
-                    }
-                    setError(null);
-                  } catch { }
-                }}
-              >
-                <Text style={S.retry}>Retry</Text>
-              </TouchableOpacity>
-            </View>
+            <PlayerErrorOverlay
+              message="Couldn’t play the stream."
+              details={String(error)}
+              onRetry={handleRetryPress}
+            />
           )}
-          <View style={S.topBar}>
-            <TouchableOpacity onPress={() => navigation.goBack()}>
-              <Text style={S.back}>{'‹ Back'}</Text>
-            </TouchableOpacity>
-            <Text style={S.title} numberOfLines={1}>{live?.title || 'Live stream'}</Text>
-            <View style={{ width: 60 }} />
-          </View>
+          <LiveTopBar
+            isHost={false}
+            isLiveish={isLiveish}
+            status={status}
+            viewerCount={viewerCount}
+            onClosePress={handleGoBack}
+            onBadgePress={openViewerModal}
+            live={live}
+            style={{ top: 66, left: 12, right: 12 }}
+          />
         </View>
       </TouchableWithoutFeedback>
       {/* Chat overlay (conditional) */}
-      {showChat && (
-        <LiveChatOverlay liveId={liveId} />
-      )}
-      <TouchableOpacity
-        onPress={() => setShowChat(v => !v)}
-        activeOpacity={0.8}
-        style={S.chatToggle}
-        accessibilityRole="button"
-        accessibilityLabel={showChat ? 'Hide chat' : 'Show chat'}
-      >
-        <MaterialCommunityIcons
-          name={showChat ? 'chat' : 'chat-remove'}
-          size={26}
-          color="#fff"
-        />
-      </TouchableOpacity>
+      {showChat && (<LiveChatOverlay liveId={liveId} />)}
+      <SideControls
+        onFlip={() => { }}
+        onToggleChat={() => setShowChat(!showChat)}
+        showChat={showChat}
+        topPercent={60}
+        host={false}
+      />
+      <ViewersModal
+        visible={viewerModalVisible}
+        loading={viewerLoading}
+        error={viewerError}
+        viewers={viewerList}
+        onClose={() => setViewerModalVisible(false)}
+        onRefresh={openViewerModal}
+        hostId={hostId}
+      />
     </View>
   );
 }
 
 const S = StyleSheet.create({
-  container: { flex: 1, backgroundColor: 'white' },
+  container: { flex: 1, backgroundColor: 'black' },
   video: { ...StyleSheet.absoluteFillObject },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingOverlay: { position: 'absolute', top: '45%', left: 0, right: 0, alignItems: 'center' },
-  errorOverlay: { position: 'absolute', top: '40%', left: 0, right: 0, alignItems: 'center', paddingHorizontal: 24 },
-  errorText: { color: '#fff', fontWeight: '700', marginBottom: 6 },
   subtle: { color: '#aaa', marginTop: 6, textAlign: 'center' },
-  retry: { color: '#60a5fa', marginTop: 10, fontWeight: '700' },
-  topBar: {
-    position: 'absolute', top: 66, left: 12, right: 12, flexDirection: 'row',
-    alignItems: 'center', justifyContent: 'space-between'
-  },
-  back: { color: '#fff', fontSize: 16 },
-  title: { color: '#fff', fontSize: 16, fontWeight: '700', maxWidth: '70%', textAlign: 'center' },
   goLive: {
     position: 'absolute',
     right: 12,
@@ -392,16 +431,4 @@ const S = StyleSheet.create({
     borderRadius: 999,
   },
   goLiveText: { color: '#fff', fontWeight: '700' },
-  chatToggle: {
-    position: 'absolute',
-    right: 10,
-    top: '65%',
-    transform: [{ translateY: -20 }],
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    borderRadius: 22,
-    padding: 8,
-    zIndex: 3,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.25)',
-  },
 });
