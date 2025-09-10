@@ -112,9 +112,6 @@ export default function ViewersModal({
                 ) : (
                   <View style={S.center}><Text style={S.muted}>No viewers yet</Text></View>
                 )}
-                <Pressable onPress={handleBackdropPress} style={S.close}>
-                  <Text style={S.closeTxt}>Close</Text>
-                </Pressable>
               </Animated.View>
             </TouchableWithoutFeedback>
           </GestureDetector>

@@ -129,8 +129,9 @@ app.use('/api/liveStream', liveStream);
 app.use('/api/comments-replies', commentsAndReplies);
 app.use('/api/live-chat', liveChat);
 
-const io = attachSocketServer(server);   // builds /dm and /live namespaces with auth
-app.set('io', io);  
+const { io, liveBus } = attachSocketServer(server);   // builds /dm and /live namespaces with auth
+app.set('io', io);
+app.set('liveBus', liveBus);  
 
 // Start server
 const PORT = process.env.PORT || 5000;

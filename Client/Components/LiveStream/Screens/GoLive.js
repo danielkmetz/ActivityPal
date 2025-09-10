@@ -14,8 +14,6 @@ import ViewersModal from '../LivePlayer/ViewersModal/ViewersModal';
 import LiveTopBar from '../Buttons/LiveTopBar';
 import { selectUser } from '../../../Slices/UserSlice';
 
-const BASE_URL = `${process.env.EXPO_PUBLIC_BASE_URL}`;
-
 export default function GoLive({ navigation }) {
   const dispatch = useDispatch();
   const live = useSelector(selectCurrentLive);
@@ -38,13 +36,15 @@ export default function GoLive({ navigation }) {
   const isLiveish = ui.status === 'live' || ui.status === 'reconnecting';
 
   // Hook the chat/socket using centralized base URL
-  useLiveChatSession(ui.chatLiveId, { baseUrl: BASE_URL, backfillOnce: true });
+  useLiveChatSession(ui.chatLiveId, { backfillOnce: true });
 
   // Viewer count from store (only when live-ish and we have a room id)
-  const viewerCount = useSelector((s) => {
+  const rawViewerCount = useSelector((s) => {
     if (!isLiveish || !ui.chatLiveId) return 0;
     return s.live?.viewerCounts?.[ui.chatLiveId] ?? 0;
   });
+  
+  const viewerCount = Math.max(0, rawViewerCount - (hostId ? 1 : 0));
 
   // Chat join/backfill
   useEffect(() => {
