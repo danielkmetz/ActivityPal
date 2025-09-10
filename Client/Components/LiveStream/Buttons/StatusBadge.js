@@ -3,6 +3,8 @@ import { Text, Pressable, StyleSheet } from 'react-native';
 import { Entypo } from '@expo/vector-icons';
 
 function StatusBadge({ status, isLiveish, viewerCount = 0, onPress }) {
+  const realCount = viewerCount -1;
+  
   if (status === 'connecting') {
     return <Text style={S.badge}>Connecting…</Text>;
   }
@@ -16,7 +18,7 @@ function StatusBadge({ status, isLiveish, viewerCount = 0, onPress }) {
         style={[S.badge, S.badgeLive, S.badgeRow]}
         hitSlop={8}
         accessibilityRole="button"
-        accessibilityLabel={`Viewers: ${viewerCount - 1}`}
+        accessibilityLabel={`Viewers: ${realCount}`}
       >
         <Text style={S.badgeLiveTxt}>LIVE</Text>
         <Text style={S.badgeLiveTxt}>·</Text>

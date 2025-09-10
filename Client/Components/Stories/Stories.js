@@ -14,7 +14,8 @@ const Stories = ({ stories = [] }) => {
 
   useEffect(() => {
     dispatch(fetchLiveNow());
-    const t = setInterval(() => dispatch(fetchLiveNow()), 30000);
+    // optional: recover from missed events
+    const t = setInterval(() => dispatch(fetchLiveNow()), 5 * 60 * 1000);
     return () => clearInterval(t);
   }, [dispatch]);
 
@@ -48,8 +49,8 @@ const Stories = ({ stories = [] }) => {
       null;
 
     const displayName =
-      live?.hostUser?.username ||
-      [live?.hostUser?.firstName, live?.hostUser?.lastName].filter(Boolean).join(' ') ||
+      live?.host?.fullName ||
+      [live?.host?.firstName, live?.host?.lastName].filter(Boolean).join(' ') ||
       live?.title ||
       'Live';
 
@@ -62,6 +63,8 @@ const Stories = ({ stories = [] }) => {
       profilePicUrl,
     };
   };
+
+  console.log('lives being passed', lives);
 
   // Build the rail data: [create] + [live...] + [stories...]
   const data = useMemo(() => {
@@ -87,7 +90,7 @@ const Stories = ({ stories = [] }) => {
         </TouchableOpacity>
       );
     }
-
+    console.log('item being rendered', item);
     if (item.type === 'live') {
       const pic = item.profilePicUrl || 'https://placehold.co/120x120?text=LIVE';
       return (
@@ -97,7 +100,7 @@ const Stories = ({ stories = [] }) => {
             <View style={styles.liveBadge}><Text style={styles.liveBadgeText}>LIVE</Text></View>
           </View>
           <Text style={styles.username} numberOfLines={1}>
-            {item.username || 'Live'}
+            {item?.username || 'Live'}
           </Text>
         </TouchableOpacity>
       );

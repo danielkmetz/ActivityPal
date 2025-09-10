@@ -28,6 +28,7 @@ import { fetchSuggestedFriends, setHasFetchedSuggestions, selectHasFetchedSugges
 import { fetchProfilePic } from './Slices/PhotosSlice';
 import client from './apolloClient';
 import { LikeAnimationsProvider } from './utils/LikeHandlers/LikeAnimationContext';
+import { useLiveSocketBootstrap } from './useLiveSocketBootstrap';
 
 const fetchFonts = async () => {
   return await Font.loadAsync({
@@ -35,6 +36,8 @@ const fetchFonts = async () => {
     'Poppins Bold': require('./assets/fonts/Poppins-SemiBold.ttf'),
   });
 };
+
+const BASE_URL = process.env.EXPO_PUBLIC_BASE_URL;
 
 function MainApp() {
   const dispatch = useDispatch();
@@ -55,6 +58,8 @@ function MainApp() {
   const userId = user?.id;
   const lat = coordinates?.lat;
   const lng = coordinates?.lng;
+
+  useLiveSocketBootstrap(BASE_URL);
 
   const {
     scrollY,

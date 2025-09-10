@@ -1,11 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
-  connectLiveSocket,
-  onLiveEvents,
+  setRoomLiveHandlers,
+  clearRoomLiveHandlers,
   joinLiveStream,
   leaveLiveStream,
-  clearLiveHandlers,
   getLiveSocket,
   setLiveTyping as socketSetTyping,
   sendLiveMessage as socketSend,
@@ -18,10 +17,8 @@ import {
   setTyping,
   selectLiveMessages,
 } from '../../Slices/LiveChatSlice';
-import { setViewerCount } from '../../Slices/LiveStreamSlice';
-import { getUserToken } from '../../functions';
 
-export function useLiveChatSession(liveId, { baseUrl, backfillOnce = true } = {}) {
+export function useLiveChatSession(liveId, { backfillOnce = true, onEnded } = {}) {
   const dispatch = useDispatch();
 
   // newest createdAt we currently have for this room
@@ -34,16 +31,13 @@ export function useLiveChatSession(liveId, { baseUrl, backfillOnce = true } = {}
   const newestRef = useRef(newestIso);
   newestRef.current = newestIso;
 
-  const reconnectHandlerRef = useRef(null); // <- NEW: holds the exact handler we attach
+  const reconnectHandlerRef = useRef(null);
 
   useEffect(() => {
     if (!liveId) return;
     let mounted = true;
 
     (async () => {
-      const token = await getUserToken();
-      await connectLiveSocket(baseUrl, token);
-
       // 1) initial backfill (optional)
       if (backfillOnce) {
         try {
@@ -60,8 +54,8 @@ export function useLiveChatSession(liveId, { baseUrl, backfillOnce = true } = {}
         console.warn('[live] join failed:', e?.message);
       }
 
-      // 3) wire socket → redux (include presence here)
-      onLiveEvents({
+      // 3) wire ROOM-scoped socket → redux handlers
+      setRoomLiveHandlers({
         onNew: (msg) => {
           if (!mounted) return;
           dispatch(receiveLiveMessage(msg));
@@ -89,10 +83,12 @@ export function useLiveChatSession(liveId, { baseUrl, backfillOnce = true } = {}
           if (!mounted) return;
           dispatch(setTyping({ liveStreamId: liveId, userId: String(userId), isTyping: false }));
         },
-        onPresence: ({ liveStreamId: id, viewerCount, uniqueCount }) => {
+        onLiveEnded: ({ liveId: endedId }) => {
           if (!mounted) return;
-          const count = (typeof uniqueCount === 'number') ? uniqueCount : (viewerCount || 0);
-          dispatch(setViewerCount({ liveStreamId: id || liveId, count }));
+          if (endedId === liveId) {
+            // immediate, room-local reaction
+            onEnded?.();
+          }
         },
       });
 
@@ -119,14 +115,13 @@ export function useLiveChatSession(liveId, { baseUrl, backfillOnce = true } = {}
         s?.off?.('connect', reconnectHandlerRef.current);
         reconnectHandlerRef.current = null;
       } else {
-        // fallback: remove all 'connect' listeners we own if needed
         s?.off?.('connect');
       }
 
       leaveLiveStream(liveId);
-      clearLiveHandlers();
+      clearRoomLiveHandlers(); // only clears room handlers, not global ones
     };
-  }, [liveId, baseUrl, backfillOnce, dispatch]);
+  }, [liveId, backfillOnce, dispatch]);
 
   return {
     sendLiveMessage: socketSend,

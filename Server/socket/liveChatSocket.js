@@ -7,75 +7,147 @@ const { performance } = require('perf_hooks');
 function secondsSince(date) {
   return Math.floor((Date.now() - new Date(date).getTime()) / 1000);
 }
-
-function slog(ctx, msg, extra = {}) {
-  const t = String(Math.round(performance.now())).padStart(6, ' ');
-  console.log(`[live viewers ${t}ms] ${ctx} :: ${msg}`, extra);
+function sanitizeLiveDoc(doc = {}) {
+  const {
+    _id, id, hostUserId, title, playbackUrl, createdAt, placeId,
+    thumbnailUrl, isActive, status, host
+  } = doc || {};
+  return {
+    _id: String(_id || id || ''),
+    hostUserId,
+    title,
+    playbackUrl,
+    createdAt,
+    placeId,
+    thumbnailUrl,
+    isActive,
+    status,
+    ...(host ? { host } : {}),
+  };
 }
-function swarn(ctx, msg, extra = {}) {
-  const t = String(Math.round(performance.now())).padStart(6, ' ');
-  console.warn(`[live viewers ${t}ms] ${ctx} :: ${msg}`, extra);
-}
 
-function dedupeByUser(sockets) {
-  const users = new Map();  // userId -> socket
-  const guests = [];
-  for (const s of sockets) {
-    const uid = s.handshake?.auth?.userId;
-    if (uid) { if (!users.has(uid)) users.set(uid, s); }
-    else guests.push(s);
+async function shapeLiveForWire(liveDoc) {
+  const base = sanitizeLiveDoc(liveDoc);
+
+  // Detect if hostUserId was populated or is just an id
+  const hostId =
+    (typeof liveDoc.hostUserId === 'object' && liveDoc.hostUserId?._id)
+      ? String(liveDoc.hostUserId._id)
+      : (liveDoc.hostUserId ? String(liveDoc.hostUserId) : null);
+
+  let firstName = '';
+  let lastName = '';
+  let profilePicUrl = null;
+
+  if (hostId) {
+    // If already populated, prefer those fields to avoid an extra query
+    if (typeof liveDoc.hostUserId === 'object') {
+      firstName = liveDoc.hostUserId.firstName || '';
+      lastName = liveDoc.hostUserId.lastName || '';
+      const photoKey =
+        liveDoc.hostUserId.profilePic?.photoKey || liveDoc.hostUserId.profilePic?.key || null;
+      if (photoKey) {
+        try { profilePicUrl = await getPresignedUrl(photoKey); } catch (_) {}
+      }
+    } else {
+      // Fetch minimal host and sign pic
+      const host = await User.findById(hostId)
+        .select('firstName lastName profilePic')
+        .lean();
+      if (host) {
+        firstName = host.firstName || '';
+        lastName = host.lastName || '';
+        const photoKey = host.profilePic?.photoKey || host.profilePic?.key || null;
+        if (photoKey) {
+          try { profilePicUrl = await getPresignedUrl(photoKey); } catch (_) {}
+        }
+      }
+    }
   }
-  return { users, guests };
-}
 
-async function broadcastPresence(live, liveStreamId) {
-   const sockets = await live.in(liveStreamId).fetchSockets();
-   const { users, guests } = dedupeByUser(sockets);
-   const viewerCount = sockets.length;
-   const uniqueCount = users.size + guests.length;
-   live.to(liveStreamId).emit('presence', { liveStreamId, viewerCount, uniqueCount });
-   return { viewerCount, uniqueCount };
+  const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
+
+  return {
+    ...base,
+    hostUserId: hostId || null, // keep id on the root (matches /live/now)
+    host: {
+      firstName,
+      lastName,
+      fullName,
+      profilePicUrl,
+    },
+  };
 }
 
 module.exports = function setupLiveNamespace(live) {
+  // ---- define the bus OUTSIDE of the connection handler ----
+  const bus = {
+    async emitLiveStarted(liveDoc, meta = {}) {
+      const t0 = performance.now();
+      const id = String(liveDoc?._id || liveDoc?.id || '');
+      try {
+        const payload = liveDoc.host ? liveDoc : shapeLiveForWire(liveDoc);
+        live.emit('live:started', sanitizeLiveDoc(payload));
+      } catch (e) {
+        console.warn('[liveBus] ✖ live:started broadcast failed', { id, err: e?.message });
+      }
+    },
+
+    async emitLiveEnded(liveId, meta = {}) {
+      const t0 = performance.now();
+      const id = String(liveId || '');
+      try {
+        let roomSockets = null;
+        try {
+          const sockets = await live.in(id).fetchSockets();
+          roomSockets = sockets.length;
+        } catch (e) {
+          console.warn('[liveBus] fetchSockets failed (adapter?)', { id, err: e?.message });
+        }
+
+        live.emit('live:ended', { liveId: id });
+        live.to(id).emit('live:ended', { liveId: id });
+      } catch (e) {
+        console.warn('[liveBus] ✖ live:ended broadcast failed', { id, err: e?.message });
+      }
+    },
+  };
+
+  // ---- wire up all your per-socket handlers as before ----
   live.on('connection', (socket) => {
     const userId = socket.user?.id;
-    const byRoomRate = new Map();   // key: `${room}:${second}` -> count
-    const lastSentAt = new Map();   // key: room -> last send timestamp (ms)
-    const pendingPresence = new Map(); // room -> timeoutId
+    const byRoomRate = new Map();
+    const lastSentAt = new Map();
+    const pendingPresence = new Map();
 
     async function computePresence(liveStreamId) {
-      const sockets = await live.in(liveStreamId).fetchSockets(); // <— use `live`, not `nsp`
+      const sockets = await live.in(liveStreamId).fetchSockets();
       const userIds = new Set();
       let guests = 0;
       for (const s of sockets) {
-        const uid = s.user?.id || s.handshake?.auth?.userId; // prefer s.user from your auth
+        const uid = s.user?.id || s.handshake?.auth?.userId;
         if (uid) userIds.add(String(uid));
         else guests++;
       }
       return {
-        viewerCount: sockets.length,          // total sockets (may include duplicates per user)
-        uniqueCount: userIds.size + guests,   // unique users + guests
+        viewerCount: sockets.length,
+        uniqueCount: userIds.size + guests,
       };
     }
 
     function schedulePresence(room) {
-      // debounce to avoid storms during bursts of joins/leaves
       if (pendingPresence.has(room)) return;
       const tid = setTimeout(async () => {
         pendingPresence.delete(room);
         try {
           const { viewerCount, uniqueCount } = await computePresence(room);
           live.to(room).emit('presence', { liveStreamId: room, viewerCount, uniqueCount });
-        } catch (e) {
-          // ignore
-        }
-      }, 150); // tweak if needed
+        } catch (_) {}
+      }, 150);
       pendingPresence.set(room, tid);
     }
 
-    /* ------------------------- JOIN / LEAVE ------------------------- */
-
+    // JOIN
     socket.on('join', async ({ liveStreamId } = {}, ack) => {
       try {
         if (!liveStreamId) throw new Error('Missing liveStreamId');
@@ -83,23 +155,19 @@ module.exports = function setupLiveNamespace(live) {
         if (!ls || !ls.isActive || ls.status !== 'live') throw new Error('Stream not live');
         if (ls.chat?.enabled === false) throw new Error('Chat disabled');
         if (ls.chat?.blockedUserIds?.some(b => String(b) === String(userId))) throw new Error('Blocked');
-        if (ls.chat?.mode === 'followers' && String(userId) !== String(ls.hostUserId)) {
-          // TODO: add real follower check if needed
-          // throw new Error('Followers only');
-        }
 
         socket.join(liveStreamId);
         socket.to(liveStreamId).emit('chat:system', { type: 'join', userId });
-        // compute counts and ack with them
+
         const { viewerCount, uniqueCount } = await computePresence(liveStreamId);
         ack && ack({ ok: true, viewerCount, uniqueCount });
-        // and broadcast presence to everyone in the room
         schedulePresence(liveStreamId);
       } catch (e) {
         ack && ack({ ok: false, error: e.message });
       }
     });
 
+    // LEAVE
     socket.on('leave', ({ liveStreamId } = {}, ack) => {
       if (liveStreamId) {
         socket.leave(liveStreamId);
@@ -109,15 +177,13 @@ module.exports = function setupLiveNamespace(live) {
       ack && ack({ ok: true });
     });
 
-    // when this socket disconnects, broadcast presence for all rooms it was in
-     socket.on('disconnecting', () => {
-   for (const room of socket.rooms) {
-     if (room !== socket.id) schedulePresence(room);
-   }
- });
+    socket.on('disconnecting', () => {
+      for (const room of socket.rooms) {
+        if (room !== socket.id) schedulePresence(room);
+      }
+    });
 
-    /* --------------------------- SEND ------------------------------ */
-
+    // SEND
     socket.on('send', async ({ liveStreamId, localId, text, type = 'message' } = {}, ack) => {
       try {
         if (!liveStreamId || !text?.trim()) throw new Error('Missing fields');
@@ -127,7 +193,6 @@ module.exports = function setupLiveNamespace(live) {
         if (ls.chat?.enabled === false) throw new Error('Chat disabled');
         if (ls.chat?.mutedUserIds?.some(m => String(m) === String(userId))) throw new Error('Muted');
 
-        // Slow mode (per room)
         const slow = ls.chat?.slowModeSec || 0;
         if (slow > 0) {
           const key = `${liveStreamId}`;
@@ -139,17 +204,14 @@ module.exports = function setupLiveNamespace(live) {
           lastSentAt.set(key, Date.now());
         }
 
-        // Simple burst limit: >10 msgs/s from this socket into this room
         const nowSec = Math.floor(Date.now() / 1000);
         const rateKey = `${liveStreamId}:${nowSec}`;
         const count = (byRoomRate.get(rateKey) || 0) + 1;
         byRoomRate.set(rateKey, count);
         if (count > 10) throw new Error('Rate limited');
 
-        // Compute replay offset
         const offsetSec = ls.startedAt ? secondsSince(ls.startedAt) : 0;
 
-        // Persist
         const msg = await LiveChatMessage.create({
           liveStreamId,
           userId,
@@ -167,7 +229,7 @@ module.exports = function setupLiveNamespace(live) {
 
         const wire = {
           _id: String(msg._id),
-          localId, // for optimistic reconcile
+          localId,
           liveStreamId,
           userId: String(msg.userId),
           userName: msg.userName,
@@ -185,9 +247,7 @@ module.exports = function setupLiveNamespace(live) {
       }
     });
 
-    /* ----------------------- MODERATION ---------------------------- */
-
-    // Delete a message (host/mod only)
+    // MODERATION (delete/pin/unpin)
     socket.on('delete', async ({ liveStreamId, messageId } = {}, ack) => {
       try {
         if (!liveStreamId || !messageId) throw new Error('Missing fields');
@@ -208,7 +268,6 @@ module.exports = function setupLiveNamespace(live) {
       }
     });
 
-    // Pin / Unpin
     socket.on('pin', async ({ liveStreamId, messageId } = {}, ack) => {
       try {
         if (!liveStreamId || !messageId) throw new Error('Missing fields');
@@ -247,67 +306,43 @@ module.exports = function setupLiveNamespace(live) {
       }
     });
 
-    /* -------------------------- TYPING ----------------------------- */
-
-    // Optional typing indicators
+    // TYPING
     socket.on('typing', ({ liveStreamId } = {}) => {
-      if (liveStreamId) {
-        socket.to(liveStreamId).emit('typing', { userId });
-      }
+      if (liveStreamId) socket.to(liveStreamId).emit('typing', { userId });
     });
-
     socket.on('typing:stop', ({ liveStreamId } = {}) => {
-      if (liveStreamId) {
-        socket.to(liveStreamId).emit('typing:stop', { userId });
-      }
+      if (liveStreamId) socket.to(liveStreamId).emit('typing:stop', { userId });
     });
 
-    /* -------------------------- Viewers -----------------------------*/
+    // VIEWERS
     socket.on('viewers', async ({ liveStreamId }, cb) => {
-      const ctx = `sid=${socket.id} room=${liveStreamId}`;
       const t0 = performance.now();
       try {
-        if (!liveStreamId) {
-          swarn(ctx, 'missing liveStreamId');
-          return cb?.({ ok: false, error: 'missing liveStreamId' });
-        }
+        if (!liveStreamId) return cb?.({ ok: false, error: 'missing liveStreamId' });
 
-        // Cross-node safe if Redis adapter is used
-        const sockets = await live.in(liveStreamId).fetchSockets(); // <— fix variable
-        slog(ctx, 'fetchSockets()', { nsp: socket.nsp, count: sockets.length });
+        const sockets = await live.in(liveStreamId).fetchSockets();
 
-        // Deduplicate by userId; collect guests
-        const userSocketMap = new Map(); // userId -> socket
+        const userSocketMap = new Map();
         const guestSockets = [];
         for (const s of sockets) {
-          const uid = s.user?.id || s.handshake?.auth?.userId; // <— prefer s.user
+          const uid = s.user?.id || s.handshake?.auth?.userId;
           if (uid) {
             if (!userSocketMap.has(uid)) userSocketMap.set(uid, s);
           } else {
             guestSockets.push(s);
           }
         }
-        slog(ctx, 'partitioned sockets', {
-          uniqueUsers: userSocketMap.size,
-          guestSockets: guestSockets.length,
-        });
 
         const userIds = [...userSocketMap.keys()];
         const users = userIds.length
-          ? await User.find({ _id: { $in: userIds } })
-            .select('_id firstName lastName profilePic') // lean fields only
-            .lean()
+          ? await User.find({ _id: { $in: userIds } }).select('_id firstName lastName profilePic').lean()
           : [];
-        slog(ctx, 'loaded users', { loaded: users.length });
-
         const usersById = new Map(users.map(u => [String(u._id), u]));
 
-        // Build viewer DTOs (presign only when a key exists)
         const userViewers = await Promise.all(
           userIds.map(async (uid) => {
             const u = usersById.get(String(uid));
             const s = userSocketMap.get(uid);
-
             const name =
               (u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : s?.handshake?.auth?.name) ||
               'Viewer';
@@ -315,11 +350,7 @@ module.exports = function setupLiveNamespace(live) {
             const photoKey = u?.profilePic?.photoKey || u?.profilePic?.key;
             let avatarUrl = null;
             if (photoKey) {
-              try {
-                avatarUrl = await getPresignedUrl(photoKey);
-              } catch (e) {
-                swarn(ctx, 'presign failed', { uid: String(uid), photoKey, e: String(e) });
-              }
+              try { avatarUrl = await getPresignedUrl(photoKey); } catch (_) {}
             }
 
             return {
@@ -331,7 +362,6 @@ module.exports = function setupLiveNamespace(live) {
           })
         );
 
-        // Guests (no userId)
         const guestViewers = guestSockets.map((s) => ({
           id: s.id,
           name: s.handshake?.auth?.name || 'Viewer',
@@ -342,26 +372,18 @@ module.exports = function setupLiveNamespace(live) {
         const viewers = [...userViewers, ...guestViewers];
         const dur = Math.round(performance.now() - t0);
 
-        slog(ctx, 'respond OK', {
-          totalSockets: sockets.length,
-          uniqueReturned: viewers.length,
-          userViewers: userViewers.length,
-          guestViewers: guestViewers.length,
-          ms: dur,
-          sample: viewers.slice(0, 2), // peek first 2
-        });
-
         cb?.({
           ok: true,
           viewers,
-          total: sockets.length,                            // total sockets
-          unique: viewers.length,                           // unique entries returned
+          total: sockets.length,
+          unique: viewers.length,
+          ms: dur,
         });
       } catch (e) {
-        const dur = Math.round(performance.now() - t0);
-        swarn(ctx, 'respond FAIL', { ms: dur, e: String(e) });
         cb?.({ ok: false, error: e?.message || 'failed' });
       }
     });
   });
+
+  return bus; // <-- NOW it actually returns a bus
 };
