@@ -48,11 +48,7 @@ export const startLiveSession = createAsyncThunk(
       if (title) payload.title = title;
       if (placeId) payload.placeId = placeId;
 
-      console.log('[LIVE/START] payload →', payload);
-
       const { data } = await axios.post(`${API}/live/start`, payload, auth);
-
-      console.log('[LIVE/START] raw response →', data);
 
       // Defensive normalize
       const streamKey =
@@ -65,19 +61,8 @@ export const startLiveSession = createAsyncThunk(
         streamKey,
       };
 
-      console.log('[LIVE/START] normalized result →', {
-        ok: result?.ok,
-        liveId: result?.liveId || result?.id,
-        rtmpUrl: result?.rtmpUrl,
-        playbackUrl: result?.playbackUrl,
-        // log only meta about the key
-        keyLen: result?.streamKey ? result.streamKey.length : 0,
-        keyLast4: result?.streamKey ? result.streamKey.slice(-4) : null,
-      });
-
       return result;
     } catch (e) {
-      console.error('[LIVE/START] ERROR →', e?.response?.data || e?.message);
       return rejectWithValue(
         e?.response?.data?.message || e?.message || 'Failed to start live'
       );
@@ -108,15 +93,11 @@ export const fetchReplay = createAsyncThunk(
     try {
       const auth = await getAuthHeaders();
       const url = `${API}/live/replay/${liveId}`;
-      console.log(`[${trace}] → GET ${url}`);
       const { data, status } = await axios.get(url, auth);
-      console.log(`[${trace}] ← ${status}`, data);
       return { liveId, data }; // { ready, playbackUrl, ... }
     } catch (e) {
-      const status = e?.response?.status;
       const payload = e?.response?.data || {};
       const msg = payload?.message || e?.message || 'Failed to fetch replay';
-      console.warn(`[${trace}] ✖ ERROR status=${status}`, payload);
       return rejectWithValue({ liveId, message: msg });
     }
   }
@@ -125,30 +106,24 @@ export const fetchReplay = createAsyncThunk(
 export const postLiveSession = createAsyncThunk(
   'live/post',
   async ({ liveId, isPosted = true, visibility, postId, caption } = {}, { dispatch, rejectWithValue }) => {
-    console.log('[postLiveSession] called with args:', { liveId, isPosted, visibility, postId, caption });
     try {
       if (!liveId) throw new Error('Missing liveId');
 
       const auth = await getAuthHeaders();
-      console.log('[postLiveSession] auth headers:', auth);
-
+      
       const body = { isPosted, caption };
       if (visibility) body.visibility = visibility;
       if (postId !== undefined) body.postId = postId;
 
-      console.log('[postLiveSession] request body:', body);
-
+      
       const { data } = await axios.post(`${API}/live/${liveId}/post`, body, auth);
-      console.log('[postLiveSession] raw response:', data);
-
+      
       if (data && typeof data === 'object') {
         if (data.success === true && data.data) {
-          console.log('[postLiveSession] new shape detected');
           dispatch(pushSharedPostToUserAndFriends(data.data));
           return data.data;
         }
         if (data.ok !== undefined) {
-          console.log('[postLiveSession] old shape detected');
           return {
             _id: data.id,
             userId: null,
@@ -171,7 +146,6 @@ export const postLiveSession = createAsyncThunk(
 
       throw new Error('Unexpected response shape');
     } catch (e) {
-      console.error('[postLiveSession] ERROR:', e?.response?.data || e?.message);
       return rejectWithValue(e?.response?.data?.message || e?.message || 'Failed to post live');
     }
   }
@@ -281,15 +255,11 @@ const liveSlice = createSlice({
     error: null,
     nextCursor: null,
     activeFilter: null,      // placeId filter (optional)
-
     starting: 'idle',
     startError: null,
-
     stopping: 'idle',
     stopError: null,
-
     currentLive: null,       // { liveId, rtmpUrl, streamKey, playbackUrl? }
-
     // Replays keyed by liveId to avoid cross-session collisions
     replaysById: {},         // { [liveId]: { status, ready, playbackUrl, error, ...raw } }
     postingById: {},
@@ -301,7 +271,14 @@ const liveSlice = createSlice({
       liveAdapter.upsertOne(state, action.payload);
     },
     removeLive(state, action) {
-      liveAdapter.removeOne(state, action.payload);
+      const id = action.payload;
+      liveAdapter.removeOne(state, id);
+      // tidy up keyed maps so UI doesn’t show stale counts/spinners
+      if (state.viewerCounts) delete state.viewerCounts[id];
+      if (state.replaysById) delete state.replaysById[id];
+      if (state.postingById) delete state.postingById[id];
+      // if the host is removing their current session
+      if (state.currentLive?.liveId === id) state.currentLive = null;
     },
     clearLive(state) {
       liveAdapter.removeAll(state);
@@ -354,8 +331,9 @@ const liveSlice = createSlice({
       })
       .addCase(startLiveSession.fulfilled, (state, action) => {
         state.starting = 'succeeded';
-        const { liveId, rtmpUrl, streamKey, playbackUrl } = action.payload || {};
-        state.currentLive = liveId ? { liveId, rtmpUrl, streamKey, playbackUrl } : null;
+        console.log('returned payload in slice', action.payload);
+        const { liveId, rtmpUrl, streamKey, playbackUrl, live } = action.payload || {};
+        state.currentLive = liveId ? { liveId, rtmpUrl, streamKey, playbackUrl, live } : null;
         // clear any stale replay entry for this id
         if (liveId) delete state.replaysById[liveId];
       })
