@@ -37,7 +37,6 @@ import SettingsScreen from '../Profile/Settings/SettingsScreen';
 import LiveSummary from '../LiveStream/Screens/LiveSummary';
 import LivePlayerScreen from '../LiveStream/LivePlayer/LivePlayerScreen';
 import GoLive from '../LiveStream/Screens/GoLive';
-import GoLiveTest from '../LiveStream/Screens/GoLiveTest';
 
 enableScreens(true);
 const Tab = createBottomTabNavigator();
@@ -281,7 +280,6 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
                 }}
             />
             <Stack.Screen name="GoLive" component={GoLive} />
-            <Stack.Screen name="GoLiveTest" component={GoLiveTest} options={{ unmountOnBlur: true }} />
         </Stack.Navigator>
     )
 }

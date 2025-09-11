@@ -1,13 +1,15 @@
-// socket/index.js
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const nsDirectMessaging = require('./messagingSocket');
-const setupLiveNamespace = require('./liveChatSocket'); // <-- make this return a bus (see note below)
+const setupLiveNamespace = require('./liveChatSocket');
+
+// OPTIONAL: Redis for multi-node presence + (optionally) socket adapter
+// const { createAdapter } = require('@socket.io/redis-adapter');
+// const { createClient } = require('redis');
 
 function makeAuthMiddleware() {
   return (socket, next) => {
     try {
-      // Support either Authorization header or handshake.auth.token
       const hdr = socket.handshake.headers?.authorization || '';
       const headerToken = hdr.startsWith('Bearer ') ? hdr.slice(7) : null;
       const token = socket.handshake.auth?.token || headerToken;
@@ -21,9 +23,9 @@ function makeAuthMiddleware() {
         profilePicUrl: user.profilePicUrl,
         isHost: !!user.isHost,
       };
-      return next();
+      next();
     } catch (err) {
-      return next(new Error('Unauthorized'));
+      next(new Error('Unauthorized'));
     }
   };
 }
@@ -32,10 +34,8 @@ function makeAuthMiddleware() {
  * Attach Socket.IO to the HTTP server.
  * Returns { io, liveBus } so REST/webhook code can broadcast events.
  */
-module.exports = function attachSocketServer(httpServer) {
+module.exports = async function attachSocketServer(httpServer, app) {
   const io = new Server(httpServer, {
-    // If you customize client path, set it here and in the client:
-    // path: process.env.SIO_PATH || '/socket.io',
     cors: {
       origin: process.env.SIO_ORIGIN?.split(',') || '*',
       methods: ['GET', 'POST'],
@@ -43,38 +43,49 @@ module.exports = function attachSocketServer(httpServer) {
     },
     pingInterval: 25000,
     pingTimeout: 20000,
+    // path: process.env.SIO_PATH || '/socket.io',
   });
 
-  // If you run multiple Node instances, plug in a shared adapter (e.g., Redis):
-  // const { createAdapter } = require('@socket.io/redis-adapter');
-  // const { createClient } = require('redis');
-  // const pubClient = createClient({ url: process.env.REDIS_URL });
-  // const subClient = pubClient.duplicate();
-  // await pubClient.connect(); await subClient.connect();
-  // io.adapter(createAdapter(pubClient, subClient));
-
   const authMiddleware = makeAuthMiddleware();
+
+  // If you’re running multiple Node instances, you can enable the Redis adapter:
+  // let pubClient, subClient;
+  // if (process.env.REDIS_URL) {
+  //   pubClient = createClient({ url: process.env.REDIS_URL });
+  //   subClient = pubClient.duplicate();
+  //   await pubClient.connect();
+  //   await subClient.connect();
+  //   io.adapter(createAdapter(pubClient, subClient));
+  // }
 
   // Namespaces
   const dm = io.of('/dm');
   const live = io.of('/live');
 
-  // Auth on namespaces
+  // Auth per-namespace
   dm.use(authMiddleware);
   live.use(authMiddleware);
 
-  // Wire namespace modules
+  // Wire DM namespace (unchanged)
   nsDirectMessaging(dm);
 
-  // IMPORTANT: modify your liveChatSocket module to *return* emitters:
-  //   const liveBus = setupLiveNamespace(live);
-  // where liveBus = { emitLiveStarted(liveDoc), emitLiveEnded(liveId) }
-  const liveBus = setupLiveNamespace(live);
-  
-  // (Optional) root namespace (unused in your app)
+  // Presence/Bus-backed Live namespace
+  // If you’re using ioredis in presence.js, pass a client here instead of null.
+  // For example:
+  // const Redis = require('ioredis');
+  // const redis = process.env.REDIS_URL ? new Redis(process.env.REDIS_URL) : null;
+  // const liveBus = setupLiveNamespace(live, { redis });
+
+  const liveBus = setupLiveNamespace(live, { redis: null });
+
+  // (Optional) root namespace
   io.on('connection', () => { /* no-op */ });
 
-  // Expose both so routes can import and emit:
-  // e.g. const { liveBus } = require('../socket'); liveBus.emitLiveEnded(id)
+  // Make them available to the rest of the app (handy in routes/webhooks)
+  if (app) {
+    app.set('io', io);
+    app.set('liveBus', liveBus);
+  }
+
   return { io, liveBus };
 };

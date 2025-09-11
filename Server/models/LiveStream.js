@@ -83,5 +83,6 @@ LiveStreamSchema.index(
 // Chat-centric indexes
 LiveStreamSchema.index({ 'chat.lastMessageAt': -1 });
 LiveStreamSchema.index({ 'chat.messageCount': -1 });
+LiveStreamSchema.index({ channelArn: 1, 'recording.s3Key': 1 });
 
 module.exports = model('LiveStream', LiveStreamSchema);
