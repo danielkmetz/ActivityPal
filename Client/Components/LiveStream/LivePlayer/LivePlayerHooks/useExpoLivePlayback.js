@@ -27,13 +27,11 @@ export default function useExpoLivePlayback({ player, log }) {
 
       const isProbablyLive = playableSec > 0 && (playableSec - posSec) > 2;
       if (!isProbablyLive) {
-        log?.(`[useExpoLivePlayback] seekToLiveEdge: not clearly live; reason=${reason}`);
         return;
       }
 
       const edgeSec = Math.max(0, playableSec - padSec);
-      log?.(`[useExpoLivePlayback] seekToLiveEdge`, { reason, playableSec, edgeSec, padSec, isPlaying: !!player.playing });
-
+      
       if (!player.playing) await player.play();
       player.currentTime = edgeSec;
     } catch (err) {
@@ -53,7 +51,6 @@ export default function useExpoLivePlayback({ player, log }) {
       setIsReady(true);
       const stickyMs = 2000;
       stickyLiveUntilRef.current = Date.now() + stickyMs;
-      log?.(`[useExpoLivePlayback] Sticky live ON for ${stickyMs} ms`);
       setTimeout(() => seekToLiveEdge(1.4, 'onReady:initial'), 10);
       setTimeout(() => seekToLiveEdge(1.0, 'onReady:backup250ms'), 250);
     };
@@ -85,7 +82,6 @@ export default function useExpoLivePlayback({ player, log }) {
 
           if (!didAutoCorrectRef.current && diffSec > 2.5) {
             didAutoCorrectRef.current = true;
-            log?.('[useExpoLivePlayback] auto-correcting to live (one-time)', { diffSec });
             seekToLiveEdge(1.2, 'status:auto-correct');
           }
 

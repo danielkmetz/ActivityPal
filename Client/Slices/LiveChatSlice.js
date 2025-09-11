@@ -3,6 +3,8 @@ import axios from 'axios';
 import { getAuthHeaders } from '../utils/Authorization/getAuthHeaders';
 
 const CHAT_API = `${process.env.EXPO_PUBLIC_API_BASE_URL}/live-chat`;
+export const EMPTY_ARR = Object.freeze([]);
+export const EMPTY_OBJ = Object.freeze({});
 
 /** Fetch recent chat (forward pagination from newest) */
 export const fetchRecentChat = createAsyncThunk(
@@ -60,6 +62,7 @@ function ensureStream(state, liveStreamId) {
       joined: false,
       loading: false,
       error: null,
+      presence: { viewerCount: 0, uniqueCount: 0, peak: 0, updatedAt: 0 },
     };
   }
   return state.byId[liveStreamId];
@@ -135,6 +138,20 @@ const liveChatSlice = createSlice({
       const { liveStreamId } = action.payload;
       if (state.byId[liveStreamId]) delete state.byId[liveStreamId];
     },
+    setPresence(state, action) {
+      const { liveStreamId, viewerCount, uniqueCount, peak } = action.payload;
+      const s = ensureStream(state, liveStreamId);
+      s.presence.viewerCount = typeof viewerCount === 'number' ? viewerCount : s.presence.viewerCount;
+      s.presence.uniqueCount = typeof uniqueCount === 'number' ? uniqueCount : s.presence.uniqueCount;
+      // peak from server is authoritative; just set it
+      if (typeof peak === 'number') s.presence.peak = peak;
+      s.presence.updatedAt = Date.now();
+    },
+    clearPresence(state, action) {
+      const { liveStreamId } = action.payload;
+      if (!state.byId[liveStreamId]) return;
+      state.byId[liveStreamId].presence = { viewerCount: 0, uniqueCount: 0, peak: 0, updatedAt: Date.now() };
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -176,12 +193,23 @@ export const {
   addOptimistic,
   removeOptimistic,
   clearLiveChat,
+  setPresence,
+  clearPresence,
 } = liveChatSlice.actions;
 
-export const selectLiveChatState = (state, liveStreamId) => state.liveChat.byId[liveStreamId] || {};
-export const selectLiveMessages = (state, liveStreamId) => (state.liveChat.byId[liveStreamId]?.messages) || [];
-export const selectLivePinnedId = (state, liveStreamId) => state.liveChat.byId[liveStreamId]?.pinnedMessageId || null;
-export const selectLiveTypingMap = (state, liveStreamId) => state.liveChat.byId[liveStreamId]?.typing || {};
+export const selectLiveChatState = (state, liveStreamId) =>
+  state.liveChat.byId[liveStreamId] || EMPTY_OBJ;
+export const selectLiveMessages = (state, liveStreamId) =>
+  state.liveChat.byId[liveStreamId]?.messages || EMPTY_ARR;
+export const selectLivePinnedId = (state, liveStreamId) =>
+  state.liveChat.byId[liveStreamId]?.pinnedMessageId ?? null;
+export const selectLiveTypingMap = (state, liveStreamId) =>
+  state.liveChat.byId[liveStreamId]?.typing || EMPTY_OBJ;
 export const selectLiveConnected = (state) => state.liveChat.connected;
+export const selectLivePresence = (state, liveStreamId) =>
+  state.liveChat.byId[liveStreamId]?.presence || { viewerCount: 0, uniqueCount: 0, peak: 0, updatedAt: 0 };
+export const selectLivePeak = (state, liveStreamId) =>
+  state.liveChat.byId[liveStreamId]?.presence?.peak ?? 0;
+
 
 export default liveChatSlice.reducer;

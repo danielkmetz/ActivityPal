@@ -331,7 +331,6 @@ const liveSlice = createSlice({
       })
       .addCase(startLiveSession.fulfilled, (state, action) => {
         state.starting = 'succeeded';
-        console.log('returned payload in slice', action.payload);
         const { liveId, rtmpUrl, streamKey, playbackUrl, live } = action.payload || {};
         state.currentLive = liveId ? { liveId, rtmpUrl, streamKey, playbackUrl, live } : null;
         // clear any stale replay entry for this id
@@ -563,10 +562,17 @@ export const selectNextCursor = (state) => state.live.nextCursor;
 export const selectLiveFilter = (state) => state.live.activeFilter;
 export const selectCurrentLive = (state) => state.live.currentLive;
 
+export const EMPTY_REPLAY = Object.freeze({
+  status: 'idle',
+  ready: false,
+  playbackUrl: null,
+  error: null,
+});
+
 export const makeSelectReplayById =
   (liveId) =>
     (state) =>
-      state.live.replaysById[liveId] || { status: 'idle', ready: false, playbackUrl: null, error: null };
+      state.live.replaysById[liveId] || EMPTY_REPLAY;
 
 export const selectStarting = (state) => state.live.starting;
 export const selectStartError = (state) => state.live.startError;
