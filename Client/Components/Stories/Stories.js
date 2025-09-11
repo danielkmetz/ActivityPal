@@ -64,8 +64,6 @@ const Stories = ({ stories = [] }) => {
     };
   };
 
-  console.log('lives being passed', lives);
-
   // Build the rail data: [create] + [live...] + [stories...]
   const data = useMemo(() => {
     const createTile = [{ _id: 'create', type: 'create' }];
@@ -90,7 +88,6 @@ const Stories = ({ stories = [] }) => {
         </TouchableOpacity>
       );
     }
-    console.log('item being rendered', item);
     if (item.type === 'live') {
       const pic = item.profilePicUrl || 'https://placehold.co/120x120?text=LIVE';
       return (

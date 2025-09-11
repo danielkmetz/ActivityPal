@@ -1,5 +1,3 @@
-// utils/LiveStream/deactivateAudio.js
-// Helpers for Expo AV enum compatibility (plain JS)
 import { Audio } from 'expo-av';
 import { Platform } from 'react-native';
 
@@ -34,8 +32,6 @@ function resolveInterruptionModes() {
 export async function deactivateExpoAudio() {
   const { iosDoNotMix, androidDoNotMix } = resolveInterruptionModes();
 
-  console.log('[AUDIO] using modes', { iosDoNotMix, androidDoNotMix });
-
   // 1) Put AV in a non-recording, non-mixing, foreground-only mode
   await Audio.setAudioModeAsync({
     allowsRecordingIOS: false,
@@ -50,7 +46,6 @@ export async function deactivateExpoAudio() {
 
   // 2) Fully disable AV so no session is kept alive
   const res = await Audio.setIsEnabledAsync(false);
-  console.log('[AUDIO] setIsEnabledAsync(false) ->', res);
 }
 
 // teardown timer helpers (unchanged)
@@ -59,6 +54,5 @@ export function tick(label) {
   const now = Date.now();
   if (!t0Ref.current) t0Ref.current = now;
   const dt = String(now - t0Ref.current).padStart(4, ' ');
-  console.log(`[TEARDOWN +${dt}ms] ${label}`);
 }
 export function resetTick() { t0Ref.current = 0; }

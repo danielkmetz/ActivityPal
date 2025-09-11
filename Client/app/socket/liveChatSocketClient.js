@@ -1,10 +1,13 @@
 import { Manager } from 'socket.io-client';
 import { v4 as uuid } from 'uuid';
+import store from '../../store';
 import 'react-native-get-random-values';
+import { setPresence, clearPresence, selectLivePresence } from '../../Slices/LiveChatSlice';
 
 let socket = null;     // shared /live namespace socket
 let manager = null;    // per-origin manager
 const joinedRooms = new Set();
+const lastPresence = new Map(); // liveStreamId -> { viewerCount, uniqueCount, peak? }
 
 // -----------------------------
 // Handler registries
@@ -12,30 +15,30 @@ const joinedRooms = new Set();
 
 // 🔒 Global, app-wide lifecycle (rail/presence) handlers
 const globalHandlers = {
-  onLiveStarted: () => {},   // payload: liveDoc (sanitized by server)
-  onLiveEnded: () => {},     // payload: { liveId }
-  onPresence: () => {},      // payload: { liveStreamId, viewerCount, uniqueCount }
+  onLiveStarted: () => { },   // payload: liveDoc (sanitized by server)
+  onLiveEnded: () => { },     // payload: { liveId }
+  onPresence: () => { },      // payload: { liveStreamId, viewerCount, uniqueCount }
 };
 
 // 🎯 Room-scoped chat handlers (message/pin/typing/system)
 let roomHandlers = {
-  onNew: () => {},
-  onDeleted: () => {},
-  onPinned: () => {},
-  onUnpinned: () => {},
-  onSystem: () => {},
-  onTyping: () => {},
-  onTypingStop: () => {},
-  onLiveEnded: () => {}, 
+  onNew: () => { },
+  onDeleted: () => { },
+  onPinned: () => { },
+  onUnpinned: () => { },
+  onSystem: () => { },
+  onTyping: () => { },
+  onTypingStop: () => { },
+  onLiveEnded: () => { },
 };
 
 // -----------------------------
 // Logging helpers (no-ops)
 // -----------------------------
 const CLIENT_SESSION = uuid().slice(0, 8);
-const log  = () => {};
-const warn = () => {};
-const err  = () => {};
+const log = () => { };
+const warn = () => { };
+const err = () => { };
 
 // -----------------------------
 // URL normalizer
@@ -54,10 +57,10 @@ function normalizeOrigin(u) {
 function bindSocketEvents(s) {
   // clear any previously attached listeners we own
   [
-    'connect','connect_error','error','disconnect',
-    'new','deleted','pinned','unpinned','chat:system',
-    'typing','typing:stop','presence','live:started','live:ended'
-  ].forEach(evt => { try { s.off(evt); } catch {} });
+    'connect', 'connect_error', 'error', 'disconnect',
+    'new', 'deleted', 'pinned', 'unpinned', 'chat:system',
+    'typing', 'typing:stop', 'presence', 'live:started', 'live:ended'
+  ].forEach(evt => { try { s.off(evt); } catch { } });
 
   s.on('connect', () => {
     // Re-join rooms after a fresh connect; ack may carry presence counts
@@ -66,39 +69,64 @@ function bindSocketEvents(s) {
         if (!ack?.ok) {
           joinedRooms.delete(liveStreamId);
         } else {
-          if (ack.viewerCount != null || ack.uniqueCount != null) {
+          if (ack.viewerCount != null || ack.uniqueCount != null || ack.peak != null) {
+            lastPresence.set(liveStreamId, {
+              viewerCount: ack.viewerCount ?? 0,
+              uniqueCount: ack.uniqueCount ?? 0,
+              peak: ack.peak,
+            });
             globalHandlers.onPresence?.({
               liveStreamId,
               viewerCount: ack.viewerCount,
               uniqueCount: ack.uniqueCount,
+              peak: ack.peak,
             });
+            store.dispatch(setPresence({
+              liveStreamId,
+              viewerCount: ack.viewerCount ?? 0,
+              uniqueCount: ack.uniqueCount ?? 0,
+              peak: ack.peak,
+            }));
           }
         }
       });
     });
   });
 
-  s.on('connect_error', () => {});
-  s.on('error', () => {});
-  s.on('disconnect', () => {});
+  s.on('connect_error', () => { });
+  s.on('error', () => { });
+  s.on('disconnect', () => { });
 
   // -------- Global lifecycle / presence --------
   s.on('presence', (evt) => {
-    // evt: { liveStreamId, viewerCount, uniqueCount }
+    // evt: { liveStreamId, viewerCount, uniqueCount, peak }
+    if (!evt || !evt.liveStreamId) return;
+    lastPresence.set(evt.liveStreamId, {
+      viewerCount: evt.viewerCount ?? lastPresence.get(evt.liveStreamId)?.viewerCount ?? 0,
+      uniqueCount: evt.uniqueCount ?? lastPresence.get(evt.liveStreamId)?.uniqueCount ?? 0,
+      peak: evt.peak ?? lastPresence.get(evt.liveStreamId)?.peak ?? undefined,
+    });
+    store.dispatch(setPresence({
+      liveStreamId: evt.liveStreamId,
+      viewerCount: evt.viewerCount,
+      uniqueCount: evt.uniqueCount,
+      peak: evt.peak,
+    }));
     globalHandlers.onPresence?.(evt);
   });
 
   s.on('live:started', (live) => {
-    console.log('live from the socket', live);
     globalHandlers.onLiveStarted?.(live);
   });
 
   s.on('live:ended', ({ liveId }) => {
     // if we are in that room, leave it to stop presence/typing noise
     if (joinedRooms.has(liveId)) {
-      try { s.emit('leave', { liveStreamId: liveId }, () => {}); } catch {}
+      try { s.emit('leave', { liveStreamId: liveId }, () => { }); } catch { }
       joinedRooms.delete(liveId);
     }
+    lastPresence.delete(liveId);
+    store.dispatch(clearPresence({ liveStreamId: liveId }));
     globalHandlers.onLiveEnded?.({ liveId });
     roomHandlers.onLiveEnded?.({ liveId });
   });
@@ -153,9 +181,9 @@ export function connectLiveSocket(serverOrigin, token) {
           reconnectionAttempts: 5,
           reconnectionDelay: 700,
         });
-        manager.on('open', () => {});
-        manager.on('error', () => {});
-        manager.on('reconnect_failed', () => {});
+        manager.on('open', () => { });
+        manager.on('error', () => { });
+        manager.on('reconnect_failed', () => { });
       } else if (token) {
         // refresh token on existing manager
         manager.opts.auth = { token };
@@ -194,9 +222,9 @@ export function updateLiveAuth(token) {
 
 /** Cleanly disconnect (and optionally destroy) */
 export function disconnectLiveSocket({ destroy = false } = {}) {
-  try { socket?.disconnect(); } catch {}
+  try { socket?.disconnect(); } catch { }
   if (destroy) {
-    try { manager?.close(); } catch {}
+    try { manager?.close(); } catch { }
     manager = null;
     socket = null;
     joinedRooms.clear();
@@ -219,14 +247,14 @@ export function setRoomLiveHandlers(h = {}) {
 /** ROOM: clear room-scoped chat handlers (does NOT touch global handlers) */
 export function clearRoomLiveHandlers() {
   roomHandlers = {
-    onNew: () => {},
-    onDeleted: () => {},
-    onPinned: () => {},
-    onUnpinned: () => {},
-    onSystem: () => {},
-    onTyping: () => {},
-    onTypingStop: () => {},
-    onLiveEnded: () => {}, 
+    onNew: () => { },
+    onDeleted: () => { },
+    onPinned: () => { },
+    onUnpinned: () => { },
+    onSystem: () => { },
+    onTyping: () => { },
+    onTypingStop: () => { },
+    onLiveEnded: () => { },
   };
 }
 
@@ -272,11 +300,26 @@ export function joinLiveStream(liveStreamId) {
     socket.emit('join', { liveStreamId }, (ack) => {
       if (ack?.ok) {
         joinedRooms.add(liveStreamId);
-        if (ack.viewerCount != null || ack.uniqueCount != null) {
+        if (ack.viewerCount != null || ack.uniqueCount != null || ack.peak != null) {
+          // keep the local cache in sync
+          lastPresence.set(liveStreamId, {
+            viewerCount: ack.viewerCount ?? 0,
+            uniqueCount: ack.uniqueCount ?? 0,
+            peak: ack.peak,
+          });
+          // update Redux
+          store.dispatch(setPresence({
+            liveStreamId,
+            viewerCount: ack.viewerCount ?? 0,
+            uniqueCount: ack.uniqueCount ?? 0,
+            peak: ack.peak,
+          }));
+          // still call the global handler for any UI listeners
           globalHandlers.onPresence?.({
             liveStreamId,
             viewerCount: ack.viewerCount,
             uniqueCount: ack.uniqueCount,
+            peak: ack.peak,
           });
         }
         resolve(ack);
@@ -303,27 +346,6 @@ export function setLiveTyping(liveStreamId, isTyping) {
   socket.emit(evt, { liveStreamId });
 }
 
-/** Request current stats on demand (presence) */
-export function getLiveStats(liveStreamId, timeoutMs = 3000) {
-  return new Promise((resolve) => {
-    if (!socket) {
-      return resolve({ ok: false, error: 'Socket not connected' });
-    }
-    const withTimeout = socket.timeout ? socket.timeout(timeoutMs) : null;
-    const emitter = withTimeout?.emit ? withTimeout.emit.bind(withTimeout) : socket.emit.bind(socket);
-
-    emitter('stats', { liveStreamId }, (err, ack) => {
-      if (err) {
-        return resolve({ ok: false, error: 'timeout' });
-      }
-      if (ack?.ok) {
-        return resolve(ack);
-      }
-      resolve({ ok: false, error: ack?.error || 'stats failed' });
-    });
-  });
-}
-
 /** Fetch the current viewer list (server returns { ok, viewers, total?, unique? }) */
 export function getLiveViewers(liveStreamId, timeoutMs = 4000) {
   return new Promise((resolve) => {
@@ -343,6 +365,12 @@ export function getLiveViewers(liveStreamId, timeoutMs = 4000) {
       resolve({ ok: false, error: ack?.error || 'viewers failed' });
     });
   });
+}
+
+export function getLiveStats(liveStreamId) {
+  const p = selectLivePresence(store.getState(), liveStreamId);
+  if (!p) return Promise.resolve({ ok: false, error: 'no snapshot' });
+  return Promise.resolve({ ok: true, viewerCount: p.viewerCount, uniqueCount: p.uniqueCount, peak: p.peak });
 }
 
 /** Convenience: are we connected to /live? */

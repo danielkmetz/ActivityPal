@@ -18,6 +18,7 @@ const verifyToken = require('../middleware/verifyToken');
 const { liveStreamS3Client: s3 } = require('../liveStreamS3Config');
 const { resolveUserProfilePics } = require('../utils/userPosts');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl');
+const { shapeLiveForWire } = require('../utils/liveChat/shapeLiveForWire');
 
 const ivs = new IvsClient({ region: process.env.AWS_LIVE_STREAM_REGION });
 
@@ -63,20 +64,27 @@ const mkLoggers = (rid) => {
   };
 };
 
-const timeAsync = async (label, fn, { log }) => {
+const noop = () => { };
+function timeAsync(label, fn, { log } = {}) {
+  const logger = typeof log === 'function' ? log : noop;
   const t0 = Date.now();
-  try {
-    const out = await fn();
-    log(`${label} ok`, { ms: Date.now() - t0 });
-    return out;
-  } catch (e) {
-    log(`${label} err`, { ms: Date.now() - t0, err: e?.message });
-    throw e;
-  }
-};
+  return Promise.resolve()
+    .then(fn)
+    .then((res) => {
+      logger(`${label}.ok`, { ms: Math.round(Date.now() - t0) });
+      return res;
+    })
+    .catch((e) => {
+      logger(`${label}.err`, { ms: Math.round(Date.now() - t0), msg: e?.message });
+      throw e;
+    });
+}
 
-const sendIvs = async (name, cmd, { log }) => timeAsync(`ivs:${name}`, () => ivs.send(cmd), { log });
-const sendS3 = async (name, cmd, { log }) => timeAsync(`s3:${name}`, () => s3.send(cmd), { log });
+const sendIvs = async (name, cmd, opts = {}) =>
+  timeAsync(`ivs:${name}`, () => ivs.send(cmd), { log: opts.log });
+
+const sendS3 = async (name, cmd, opts = {}) =>
+  timeAsync(`s3:${name}`, () => s3.send(cmd), { log: opts.log });
 
 /* ---------------------- ivs helpers (sessions only) ---------------------- */
 const channelNameFor = (hostUserId, placeId) =>
@@ -210,32 +218,16 @@ async function getHostWire(hostUserId) {
 
   let profilePicUrl = null;
   if (photoKey) {
-    try { profilePicUrl = await getPresignedUrl(photoKey); } catch (_) {}
+    try { profilePicUrl = await getPresignedUrl(photoKey); } catch (_) { }
   }
 
   const firstName = u.firstName || '';
-  const lastName  = u.lastName  || '';
+  const lastName = u.lastName || '';
   return {
     firstName,
     lastName,
     fullName: [firstName, lastName].filter(Boolean).join(' ').trim(),
     profilePicUrl,
-  };
-}
-
-function shapeLiveWire(session, hostUserId, hostWire) {
-  // One canonical wire shape used for both socket emits and REST response
-  return {
-    _id: String(session._id),
-    hostUserId: String(hostUserId),
-    title: session.title,
-    placeId: session.placeId ?? null,
-    playbackUrl: session.playbackUrl,
-    createdAt: session.startedAt,          // keep UI sort consistent
-    thumbnailUrl: session.thumbnailUrl || null,
-    isActive: true,
-    status: 'live',
-    ...(hostWire ? { host: hostWire } : {}),
   };
 }
 
@@ -291,47 +283,72 @@ router.post('/streams/bootstrap', verifyToken, async (req, res) => {
  */
 // routes/live.js (excerpt)
 router.post('/live/start', verifyToken, async (req, res) => {
-  const rid = genRid('start');
-  const { warn } = mkLoggers(rid);
-
   try {
     const hostUserId = req.user?.id;
-    if (!hostUserId) return res.status(401).json({ message: 'Unauthorized' });
-
-    const rawTitle = (req.body?.title || '').trim();
-    const placeId  = req.body?.placeId ?? null;
-    const fallbackFirst = req.user?.firstName || req.user?.name || ''; // don’t shadow var later
-    const title = rawTitle || (fallbackFirst ? `Live with ${fallbackFirst}` : 'Live');
-
-    // 1) Auto-end any dangling sessions (emit ended in parallel)
-    const autoEnded = await endDanglingSessions({ hostUserId }).catch(() => []);
-    const liveBus = req.app.get('liveBus');
-    if (liveBus && Array.isArray(autoEnded) && autoEnded.length) {
-      await Promise.allSettled(autoEnded.map(id => liveBus.emitLiveEnded(id)));
+    if (!hostUserId) {
+      return res.status(401).json({ ok: false, message: 'Unauthorized' });
     }
 
-    // 2) Resolve channel + ensure not currently live
-    const { channelArn, ingestEndpoint, playbackUrl, recordingEnabled } = await resolveChannel({
-      hostUserId, placeId, recordingArn: process.env.IVS_RECORDING_ARN || undefined, warn,
-    });
+    const rawTitle = (req.body?.title || '').trim();
+    const placeId = req.body?.placeId ?? null;
+    const fallbackFirst = req.user?.firstName || req.user?.name || '';
+    const title = rawTitle || (fallbackFirst ? `Live with ${fallbackFirst}` : 'Live');
 
+    // 1) Best-effort: auto-end any dangling sessions (ignore result)
+    try { await endDanglingSessions({ hostUserId }); } catch { }
+
+    const liveBus = req.app.get('liveBus');
+
+    // 2) Resolve channel (safe without log/warn)
+    let channelArn, ingestEndpoint, playbackUrl, recordingEnabled;
+    try {
+      const resolved = await resolveChannel({
+        hostUserId,
+        placeId,
+        recordingArn: process.env.IVS_RECORDING_ARN || undefined,
+      });
+      ({ channelArn, ingestEndpoint, playbackUrl, recordingEnabled } = resolved || {});
+    } catch {
+      return res.status(500).json({ ok: false, message: 'Channel resolve failed' });
+    }
+
+    // Best-effort: ensure channel not already live
     try {
       if (await isChannelOnline(channelArn)) {
         await sendIvs('StopStream', new StopStreamCommand({ channelArn }));
-        warn('Force-stopped IVS stream before new session');
       }
-    } catch (e) {
-      warn('IVS live check error', { err: e?.message });
-    }
+    } catch { }
 
-    // 3) Reuse active session if one exists for this host/place
+    // 3) Reuse an existing active session (same host/place)
     const existing = await LiveStream.findOne({ hostUserId, placeId, isActive: true }).lean();
     const rtmpsUrl = `rtmps://${ingestEndpoint}:443/app/`;
 
     if (existing) {
-      if (liveBus) {
-        const hostWire = await getHostWire(hostUserId).catch(() => null);
-        await liveBus.emitLiveStarted({
+      try {
+        if (liveBus) {
+          const hostWire = await getHostWire(hostUserId).catch(() => null);
+          await liveBus.emitLiveStarted({
+            _id: String(existing._id),
+            hostUserId: String(hostUserId),
+            title: existing.title || title,
+            placeId,
+            playbackUrl,
+            createdAt: existing.startedAt,
+            isActive: true,
+            status: 'live',
+            ...(hostWire ? { host: hostWire } : {}),
+          });
+        }
+      } catch { }
+
+      return res.json({
+        ok: true,
+        id: String(existing._id),
+        liveId: String(existing._id),
+        rtmpUrl: rtmpsUrl,
+        streamKey: undefined, // no secret on reuse
+        playbackUrl,
+        live: await shapeLiveForWire(existing).catch(() => ({
           _id: String(existing._id),
           hostUserId: String(hostUserId),
           title: existing.title || title,
@@ -340,66 +357,78 @@ router.post('/live/start', verifyToken, async (req, res) => {
           createdAt: existing.startedAt,
           isActive: true,
           status: 'live',
-          ...(hostWire ? { host: hostWire } : {}),
-        });
-      }
-
-      return res.json({
-        ok: true,
-        id: String(existing._id),
-        liveId: String(existing._id),
-        rtmpUrl: rtmpsUrl,
-        streamKey: undefined, // client should have it from the first start
-        playbackUrl,
-        live: shapeLiveWire(existing, hostUserId, await getHostWire(hostUserId).catch(() => null)),
+        })),
       });
     }
 
     // 4) Fresh key + create session
-    const { streamKeyArn, streamKeySecret, streamKeyLast4 } = await freshStreamKey({
-      channelArn, warn, safeRotate: true,
-    });
-
-    const session = await LiveStream.create({
-      hostUserId,
-      placeId,
-      title,
-      status: 'live',
-      isActive: true,
-      startedAt: new Date(),
-      channelArn,
-      ingestEndpoint,
-      playbackUrl,
-      streamKeyArn,
-      streamKeyLast4,
-      recording: { enabled: !!recordingEnabled },
-    });
-
-    // 5) Build host wire once (DRY + cached presign)
-    const hostWire = await getHostWire(hostUserId).catch(() => null);
-
-    // 6) Single canonical wire shape used for emit + response
-    const wire = shapeLiveWire(session, hostUserId, hostWire);
-
-    // 7) Emit without secrets
-    if (liveBus) {
-      await liveBus.emitLiveStarted(wire);
+    let streamKeyArn, streamKeySecret, streamKeyLast4;
+    try {
+      const key = await freshStreamKey({ channelArn, safeRotate: true });
+      streamKeyArn = key.streamKeyArn;
+      streamKeySecret = key.streamKeySecret; // REST only
+      streamKeyLast4 = key.streamKeyLast4;
+    } catch {
+      return res.status(500).json({ ok: false, message: 'Failed to create stream key' });
     }
 
-    // 8) Respond (keep secrets on REST only)
-    const resp = {
+    let session;
+    try {
+      session = await LiveStream.create({
+        hostUserId,
+        placeId,
+        title,
+        status: 'live',
+        isActive: true,
+        startedAt: new Date(),
+        channelArn,
+        ingestEndpoint,
+        playbackUrl,
+        streamKeyArn,
+        streamKeyLast4,
+        recording: { enabled: !!recordingEnabled },
+      });
+    } catch {
+      return res.status(500).json({ ok: false, message: 'Failed to create session' });
+    }
+
+    // 5) Host wire (non-fatal if fails)
+    let hostWire = null;
+    try { hostWire = await getHostWire(hostUserId); } catch { }
+
+    // 6) Canonical wire (IMPORTANT: await if async)
+    let wire;
+    try {
+      wire = await shapeLiveForWire(session, hostUserId, hostWire);
+    } catch {
+      wire = {
+        _id: String(session._id),
+        hostUserId: String(hostUserId),
+        title,
+        placeId,
+        playbackUrl,
+        createdAt: session.startedAt,
+        isActive: true,
+        status: 'live',
+        ...(hostWire ? { host: hostWire } : {}),
+      };
+    }
+
+    // 7) Emit started (no secrets)
+    try { if (liveBus) await liveBus.emitLiveStarted(wire); } catch { }
+
+    // 8) Respond
+    return res.json({
       ok: true,
       id: wire._id,
       liveId: wire._id,
-      rtmpUrl: rtmpsUrl,
-      streamKey: streamKeySecret, // REST only
+      rtmpUrl: `rtmps://${ingestEndpoint}:443/app/`,
+      streamKey: streamKeySecret, // return to client; not persisted
       playbackUrl,
-      live: wire,                 // convenience for immediate client upsert
-    };
-
-    return res.json(resp);
-  } catch (e) {
-    return res.status(500).json({ message: 'Failed to start live' });
+      live: wire,
+    });
+  } catch {
+    return res.status(500).json({ ok: false, message: 'Failed to start live' });
   }
 });
 
@@ -408,50 +437,76 @@ router.post('/live/start', verifyToken, async (req, res) => {
  */
 router.post('/live/stop', verifyToken, async (req, res) => {
   const rid = genRid('stop');
-  const { warn, err } = mkLoggers(rid);
+  const { log, warn, err } = mkLoggers(rid);
+
   try {
-    const id = req.body?.id || req.body?.liveId;
+    const liveId = req.body?.id || req.body?.liveId;
     const hostUserId = req.user?.id;
     if (!hostUserId) return res.status(401).json({ message: 'Unauthorized' });
-    if (!id) return res.status(400).json({ message: 'Missing id' });
+    if (!liveId) return res.status(400).json({ message: 'Missing id' });
 
-    const ls = await LiveStream.findOne({ _id: id, hostUserId });
-    if (!ls) {
-      return res.status(404).json({ message: 'Stream not found' });
-    }
+    // 1) Look up the stream, ensure ownership
+    const ls = await LiveStream.findOne({ _id: liveId, hostUserId });
+    if (!ls) return res.status(404).json({ message: 'Stream not found' });
 
-    // Best-effort IVS stop
+    // 2) Best-effort IVS stop (safe to run even if already ended)
     if (ls.channelArn) {
       try {
-        const status = await sendIvs('GetStream', new GetStreamCommand({ channelArn: ls.channelArn }));
+        const status = await sendIvs('GetStream', new GetStreamCommand({ channelArn: ls.channelArn }, { log }));
         if (status?.stream) {
-          await sendIvs('StopStream', new StopStreamCommand({ channelArn: ls.channelArn }));
-          warn('StopStream called', { channelArnTail: short(ls.channelArn) });
+          await sendIvs('StopStream', new StopStreamCommand({ channelArn: ls.channelArn }, { log }));
+          warn('StopStream called', { rid, channelArnTail: short(ls.channelArn) });
         }
       } catch (e) {
-        warn('StopStream failed', { err: e?.message });
+        warn('StopStream failed', { rid, err: e?.message });
       }
     }
 
-    ls.isActive = false;
-    ls.status = 'ended';
-    ls.endedAt = new Date();
-    await ls.save();
+    // 3) Finalize stats + mark ended via the bus (authoritative presence snapshot)
+    const bus = req.app.get('liveBus');
+    let stats = null;
 
-    // in /live/stop route (after ls.save())
-    try {
-      const rid = genRid('stop');
-      const bus = req.app.get('liveBus');
-      if (bus) bus.emitLiveEnded(ls._id, { rid, userId: req.user?.id, source: 'route' });
-      else console.warn('[live/stop] liveBus missing on app', { rid, liveId: String(ls._id) });
-    } catch (e) {
-      console.warn('[live/stop] emit failed', { err: e?.message });
+    if (bus && typeof bus.finalizeStats === 'function') {
+      // Idempotent: finalizeStats computes duration, writes status/isActive, stats, and cleans presence keys.
+      stats = await bus.finalizeStats(String(ls._id));
+      // Broadcast end to clients (both global and room)
+      await bus.emitLiveEnded(String(ls._id));
+    } else {
+      warn('liveBus missing or finalizeStats not available', { rid, liveId: String(ls._id) });
+
+      // Fallback: if bus missing, at least mark ended and approximate duration
+      const endedAt = new Date();
+      const durationSec = ls.startedAt ? Math.max(0, Math.round((endedAt - ls.startedAt) / 1000)) : (ls.durationSec || 0);
+
+      const updated = await LiveStream.findByIdAndUpdate(
+        ls._id,
+        {
+          $set: {
+            status: 'ended',
+            isActive: false,
+            endedAt,
+            durationSec,
+          },
+        },
+        { new: true }
+      ).lean();
+
+      stats = {
+        durationSec: updated?.durationSec || durationSec,
+        viewerPeak: updated?.stats?.viewerPeak || 0,
+        uniqueViewers: updated?.stats?.uniqueViewers || 0,
+      };
     }
 
-    res.json({ ok: true, id: ls.id, liveId: ls.id });
+    // 4) Respond with the final stats (or at least the id)
+    return res.json({
+      ok: true,
+      liveId: String(ls._id),
+      stats: stats || null,
+    });
   } catch (e) {
     err('ERROR live/stop', { msg: e?.message, stack: e?.stack });
-    res.status(500).json({ message: 'Failed to stop live' });
+    return res.status(500).json({ message: 'Failed to stop live' });
   }
 });
 
@@ -619,7 +674,6 @@ router.post('/live/rotate-key', verifyToken, async (req, res) => {
  * Replay discovery — windowed scan in S3; writes into recording.* on the session doc
  */
 router.get('/live/replay/:id', async (req, res) => {
-  // prevent intermediary caching
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.set('Pragma', 'no-cache');
   res.set('Expires', '0');
@@ -627,14 +681,67 @@ router.get('/live/replay/:id', async (req, res) => {
   try {
     const bucket = process.env.IVS_RECORD_BUCKET;
     const region = process.env.AWS_LIVE_STREAM_REGION;
-    const useCF = !!process.env.CLOUDFRONT_DOMAIN;
+    const useCF  = !!process.env.CLOUDFRONT_DOMAIN;
 
+    // Tunables
+    const COOLDOWN_MS   = Number(process.env.IVS_REPLAY_COOLDOWN_MS   ?? 15_000);
+    const LOWER_SKEW_MS = Number(process.env.IVS_REPLAY_LOWER_SKEW_MS ?? 30_000);     // allow 30s pre-start
+    const UPPER_SKEW_MS = Number(process.env.IVS_REPLAY_UPPER_SKEW_MS ?? 5 * 60_000); // allow 5m post-end
+
+    // ----- helpers (local, DRY) -----
+    const ensureVariantReady = async (key) => {
+      // Read master; find a variant (e.g. 720p30/playlist.m3u8); HEAD it to ensure it exists
+      const masterObj  = await sendS3('GetObject', new GetObjectCommand({ Bucket: bucket, Key: key }), {});
+      const text       = await streamToString(masterObj.Body);
+      const variantRel = text.split('\n').map(l => l.trim()).find(l => l && !l.startsWith('#') && l.endsWith('playlist.m3u8'));
+      if (!variantRel) return null;
+      const variantKey = key.replace(/\/master\.m3u8$/, `/${variantRel}`);
+      const variantUrl = `https://${bucket}.s3.${region}.amazonaws.com/${variantKey}`;
+      const hv = await fetch(variantUrl, { method: 'HEAD' }).catch(() => null);
+      return hv?.ok ? variantKey : null;
+    };
+
+    const listMastersInWindow = async (prefix, earliest, latest) => {
+      let ContinuationToken;
+      const out = [];
+      do {
+        const page = await sendS3(
+          'ListObjectsV2',
+          new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, MaxKeys: 1000, ContinuationToken }),
+          {}
+        );
+        for (const obj of page.Contents || []) {
+          if (!obj.Key.endsWith('/media/hls/master.m3u8')) continue;
+          const lm = new Date(obj.LastModified);
+          if (lm < earliest || lm > latest) continue;
+          out.push({ key: obj.Key, lm, keyTime: parseIvsKeyTime(obj.Key) });
+        }
+        ContinuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+      } while (ContinuationToken);
+      return out;
+    };
+
+    const pickMasterForSession = (masters, startedAt, endedAt, usedKeys) => {
+      // Filter by skew window & de-dupe keys used by other sessions on same channel
+      const lower = new Date(+startedAt - LOWER_SKEW_MS);
+      const upper = new Date(+endedAt   + UPPER_SKEW_MS);
+
+      const filtered = masters.filter(m => {
+        if (usedKeys.has(m.key)) return false;
+        const t = m.keyTime || m.lm;
+        return t >= lower && t <= upper;
+      });
+
+      // Tie-breaker: closest lastModified to session end
+      filtered.sort((a, b) => Math.abs(+a.lm - +endedAt) - Math.abs(+b.lm - +endedAt));
+      return filtered[0] || null;
+    };
+
+    // ----- fetch session -----
     const doc = await LiveStream.findById(req.params.id).lean();
-    if (!doc) {
-      return res.status(404).json({ message: 'Not found' });
-    }
+    if (!doc) return res.status(404).json({ message: 'Not found' });
 
-    // If already cached, return it
+    // Cache hit?
     if (doc?.recording?.vodUrl) {
       return res.json({
         ready: true,
@@ -655,25 +762,20 @@ router.get('/live/replay/:id', async (req, res) => {
     }
 
     const startedAt = doc.startedAt ? new Date(doc.startedAt) : null;
-    let endedAt = doc.endedAt ? new Date(doc.endedAt) : null;
+    let   endedAt   = doc.endedAt   ? new Date(doc.endedAt)   : null;
     if (!startedAt || Number.isNaN(+startedAt)) {
       return res.json({ ready: false });
     }
 
-    let liveNow = false;
-    try {
-      liveNow = await isChannelOnline(doc.channelArn);
-    } catch {
-      return res.json({ ready: false });
-    }
+    // If the channel still looks live, best-effort stop (safe if racey)
+    const liveNow = await isChannelOnline(doc.channelArn).catch(() => false);
     if (liveNow) {
-      try {
-        await sendIvs('StopStream', new StopStreamCommand({ channelArn: doc.channelArn }));
-      } catch {}
+      await sendIvs('StopStream', new StopStreamCommand({ channelArn: doc.channelArn }), {}).catch(() => {});
     }
 
+    // If still marked live with no endedAt, finalize quickly if old enough
     if (!endedAt && (doc.isActive || doc.status === 'live')) {
-      const secondsSinceStart = (Date.now() - startedAt.getTime()) / 1000;
+      const secondsSinceStart = Math.floor((Date.now() - startedAt.getTime()) / 1000);
       if (secondsSinceStart >= 10) {
         await LiveStream.updateOne(
           { _id: doc._id, isActive: true },
@@ -687,94 +789,62 @@ router.get('/live/replay/:id', async (req, res) => {
 
     if (!endedAt) return res.json({ ready: false, live: false });
 
-    // ---- S3 scan within session window ----
-    const earliestAcceptable = new Date(startedAt.getTime() - 30 * 1000);
-    const latestAcceptable = new Date(endedAt.getTime() + 5 * 60 * 1000);
-
-    let ContinuationToken;
-    const masters = [];
-
-    do {
-      const out = await sendS3(
-        'ListObjectsV2',
-        new ListObjectsV2Command({
-          Bucket: bucket,
-          Prefix: `ivs/v1/${accountId}/${channelId}/`,
-          MaxKeys: 1000,
-          ContinuationToken,
-        })
-      );
-
-      for (const obj of out.Contents || []) {
-        if (!obj.Key.endsWith('/media/hls/master.m3u8')) continue;
-        const lm = new Date(obj.LastModified);
-        if (lm < earliestAcceptable || lm > latestAcceptable) continue;
-        const keyTime = parseIvsKeyTime(obj.Key);
-        masters.push({ key: obj.Key, lm, keyTime });
-      }
-
-      ContinuationToken = out.IsTruncated ? out.NextContinuationToken : undefined;
-    } while (ContinuationToken);
-
-    const startedAtMs = +startedAt;
-    const endedAtMs = +endedAt;
-    function score(m) {
-      const penalizeEarly = (m.keyTime && (+m.keyTime < startedAtMs)) ? 1e15 : 0;
-      const distToEnd = Math.abs(+m.lm - endedAtMs);
-      return penalizeEarly + distToEnd;
-    }
-    masters.sort((a, b) => {
-      const s = score(a) - score(b);
-      if (s !== 0) return s;
-      return (+b.lm - +a.lm) || ((a.keyTime && b.keyTime) ? (+b.keyTime - +a.keyTime) : 0);
-    });
-
-    const chosen = masters[0] || null;
-    if (!chosen) return res.json({ ready: false });
-
-    // VARIANT GATE
-    try {
-      const masterObj = await sendS3(
-        'GetObject',
-        new GetObjectCommand({ Bucket: bucket, Key: chosen.key })
-      );
-      const masterText = await streamToString(masterObj.Body);
-      const variantRel = masterText
-        .split('\n')
-        .map(l => l.trim())
-        .find(l => l && !l.startsWith('#') && l.endsWith('playlist.m3u8'));
-
-      if (!variantRel) {
-        return res.json({ ready: false, status: 'warming_up' });
-      }
-
-      const variantKey = chosen.key.replace(/\/master\.m3u8$/, `/${variantRel}`);
-      const variantUrl = `https://${bucket}.s3.${region}.amazonaws.com/${variantKey}`;
-      const hv = await fetch(variantUrl, { method: 'HEAD' });
-      if (!hv.ok) return res.json({ ready: false, status: 'warming_up' });
-    } catch {
+    // Optional cooldown to let manifests settle
+    if (Date.now() - +endedAt < COOLDOWN_MS) {
       return res.json({ ready: false, status: 'warming_up' });
     }
 
+    // Broad scan window around the session (generous)
+    const earliestAcceptable = new Date(+startedAt - 30_000);
+    const latestAcceptable   = new Date(+endedAt   + 5 * 60_000);
+
+    // S3 listing
+    const prefix  = `ivs/v1/${accountId}/${channelId}/`;
+    const masters = await listMastersInWindow(prefix, earliestAcceptable, latestAcceptable);
+
+    // Query prior used keys to avoid reusing a previous session's VOD on same channel
+    const usedKeys = new Set(
+      await LiveStream.find(
+        { channelArn: doc.channelArn, _id: { $ne: doc._id }, 'recording.s3Key': { $exists: true } },
+        { 'recording.s3Key': 1 }
+      ).lean().then(rows => rows.map(r => r.recording.s3Key))
+    );
+
+    // Pick one
+    const chosen = pickMasterForSession(masters, startedAt, endedAt, usedKeys);
+    if (!chosen) {
+      return res.json({ ready: false, status: 'warming_up' });
+    }
+
+    // Variant gate (ensures at least one variant is present)
+    const variantKey = await ensureVariantReady(chosen.key);
+    if (!variantKey) {
+      return res.json({ ready: false, status: 'warming_up' });
+    }
+
+    // Build playback URL (CF if present, else S3)
     const playbackUrl = useCF
       ? `https://${process.env.CLOUDFRONT_DOMAIN}/${chosen.key}`
       : `https://${bucket}.s3.${region}.amazonaws.com/${chosen.key}`;
 
-    // Persist into recording.* and finalize session
-    const update = {
-      $set: {
-        recording: {
-          enabled: !!doc?.recording?.enabled,
-          vodUrl: playbackUrl,
-          s3Key: chosen.key,
+    // Persist
+    await LiveStream.updateOne(
+      { _id: doc._id },
+      {
+        $set: {
+          recording: {
+            enabled: !!doc?.recording?.enabled,
+            vodUrl: playbackUrl,
+            s3Key: chosen.key,
+          },
+          status: 'ended',
+          isActive: false,
+          endedAt: doc.endedAt || endedAt || new Date(),
         },
-        status: 'ended',
-        isActive: false,
-        endedAt: doc.endedAt || endedAt || new Date(),
-      },
-    };
-    await LiveStream.updateOne({ _id: doc._id }, update);
+      }
+    );
 
+    // Respond
     return res.json({
       _id: doc._id,
       ready: true,
@@ -891,7 +961,7 @@ router.post('/live/:id/post', verifyToken, async (req, res) => {
     const isPosted = (typeof bodyIsPosted === 'boolean') ? bodyIsPosted : true;
     const allowedVis = new Set(['public', 'followers', 'private', 'unlisted']);
     const visibility = bodyVisibility && allowedVis.has(bodyVisibility) ? bodyVisibility : undefined;
-    
+
     // Sanitize postId
     let linkedPostId = undefined;
     if (rawPostId !== undefined) {
@@ -904,7 +974,7 @@ router.post('/live/:id/post', verifyToken, async (req, res) => {
         return res.status(400).json({ message: 'Invalid postId' });
       }
     }
-    
+
     // Sanitize caption (trim; allow explicit clearing with null/"")
     // If you want to enforce a max length, add: .slice(0, 2000)
     let caption = undefined;
@@ -918,12 +988,12 @@ router.post('/live/:id/post', verifyToken, async (req, res) => {
         return res.status(400).json({ message: 'Invalid caption' });
       }
     }
-    
+
     const doc = await LiveStream.findOne({ _id: id, hostUserId });
     if (!doc) {
       return res.status(404).json({ message: 'Stream not found' });
     }
-    
+
     const update = { $set: {} };
     update.$set.isPosted = !!isPosted;
     update.$set.savedToProfile = !!isPosted;
@@ -932,9 +1002,9 @@ router.post('/live/:id/post', verifyToken, async (req, res) => {
     if (caption !== undefined) update.$set.caption = caption; // <-- NEW: persist caption (can be string or null)
 
     const updateResult = await LiveStream.updateOne({ _id: doc._id }, update);
-    
+
     const after = await LiveStream.findById(doc._id).lean();
-    
+
     let fullName = null;
     let profilePic = null;      // raw key/blob ref if you keep it
     let profilePicUrl = null;   // must come from resolver only
