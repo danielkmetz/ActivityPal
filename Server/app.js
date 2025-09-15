@@ -129,9 +129,12 @@ app.use('/api/liveStream', liveStream);
 app.use('/api/comments-replies', commentsAndReplies);
 app.use('/api/live-chat', liveChat);
 
-const { io, liveBus } = attachSocketServer(server);   // builds /dm and /live namespaces with auth
-app.set('io', io);
-app.set('liveBus', liveBus);  
+(async () => {
+  const { io, liveBus } = await attachSocketServer(server); // await + correct key
+  app.set('io', io);
+  app.set('liveBus', liveBus);
+  //console.log('[live] namespace ready, bus set?', !!app.get('liveBus'));
+})();
 
 // Start server
 const PORT = process.env.PORT || 5000;
