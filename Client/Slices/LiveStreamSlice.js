@@ -248,7 +248,7 @@ export const clearReplay = createAction('live/clearReplay'); // payload: liveId
 /* ------------------------------------------------------------------ */
 /* Slice                                                               */
 /* ------------------------------------------------------------------ */
-const liveSlice = createSlice({
+const liveStreamSlice = createSlice({
   name: 'live',
   initialState: liveAdapter.getInitialState({
     status: 'idle',          // 'idle' | 'loading' | 'refreshing' | 'succeeded' | 'failed'
@@ -543,8 +543,8 @@ const liveSlice = createSlice({
 /* ------------------------------------------------------------------ */
 /* Exports (reducers/actions)                                          */
 /* ------------------------------------------------------------------ */
-export const { upsertLive, removeLive, clearLive, setFilter, setViewerCount } = liveSlice.actions;
-export default liveSlice.reducer;
+export const { upsertLive, removeLive, clearLive, setFilter, setViewerCount } = liveStreamSlice.actions;
+export default liveStreamSlice.reducer;
 
 /* ------------------------------------------------------------------ */
 /* Selectors                                                           */

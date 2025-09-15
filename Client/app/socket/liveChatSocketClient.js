@@ -4,6 +4,15 @@ import store from '../../store';
 import 'react-native-get-random-values';
 import { setPresence, clearPresence, selectLivePresence } from '../../Slices/LiveChatSlice';
 
+// ---- Add near the top (after imports)
+const DEBUG_LIVE = true; // flip to false in prod or wire to env
+const CLIENT_SESSION = uuid().slice(0, 8);
+
+function dlog(...args) { if (DEBUG_LIVE) console.log('[LIVE]', CLIENT_SESSION, ...args); }
+function dwarn(...args) { if (DEBUG_LIVE) console.warn('[LIVE]', CLIENT_SESSION, ...args); }
+function derr(...args) { if (DEBUG_LIVE) console.error('[LIVE]', CLIENT_SESSION, ...args); }
+
+
 let socket = null;     // shared /live namespace socket
 let manager = null;    // per-origin manager
 const joinedRooms = new Set();
@@ -33,14 +42,6 @@ let roomHandlers = {
 };
 
 // -----------------------------
-// Logging helpers (no-ops)
-// -----------------------------
-const CLIENT_SESSION = uuid().slice(0, 8);
-const log = () => { };
-const warn = () => { };
-const err = () => { };
-
-// -----------------------------
 // URL normalizer
 // -----------------------------
 function normalizeOrigin(u) {
@@ -61,6 +62,11 @@ function bindSocketEvents(s) {
     'new', 'deleted', 'pinned', 'unpinned', 'chat:system',
     'typing', 'typing:stop', 'presence', 'live:started', 'live:ended'
   ].forEach(evt => { try { s.off(evt); } catch { } });
+
+  if (DEBUG_LIVE) {
+    try { s.offAny(); } catch {}
+    s.onAny((event, ...args) => dlog('onAny', event, args?.[0] ?? '(no payload)'));
+  }
 
   s.on('connect', () => {
     // Re-join rooms after a fresh connect; ack may carry presence counts
@@ -165,7 +171,6 @@ function bindSocketEvents(s) {
  */
 export function connectLiveSocket(serverOrigin, token) {
   const origin = normalizeOrigin(serverOrigin);
-
   if (socket?.connected && socket.nsp === '/live') {
     return Promise.resolve(socket);
   }
@@ -174,33 +179,34 @@ export function connectLiveSocket(serverOrigin, token) {
     try {
       if (!manager) {
         manager = new Manager(origin, {
-          // path: '/socket.io', // set if customized server-side
           transports: ['websocket', 'polling'],
           auth: { token },
           extraHeaders: { Authorization: `Bearer ${token}` },
           reconnectionAttempts: 5,
           reconnectionDelay: 700,
         });
-        manager.on('open', () => { });
-        manager.on('error', () => { });
-        manager.on('reconnect_failed', () => { });
-      } else if (token) {
-        // refresh token on existing manager
+        manager.on('open', () => dlog('manager open'));
+        manager.on('error', (e) => derr('manager error', e?.message || e));
+        manager.on('reconnect_failed', () => dwarn('manager reconnect_failed'));
+      } else {
         manager.opts.auth = { token };
         manager.opts.extraHeaders = { ...(manager.opts.extraHeaders || {}), Authorization: `Bearer ${token}` };
       }
 
       const s = manager.socket('/live');
-      bindSocketEvents(s);
-
-      // store and resolve on connect (if already connected, 'connect' may not fire; resolve immediately)
+      
+      bindSocketEvents(s); // will attach onAny too
       socket = s;
+
       if (s.connected) {
         resolve(s);
       } else {
-        s.once('connect', () => resolve(s));
+        s.once('connect', () => {
+          resolve(s);
+        });
       }
     } catch (e) {
+      derr('connectLiveSocket threw', e);
       reject(e);
     }
   });

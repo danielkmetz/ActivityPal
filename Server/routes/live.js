@@ -231,6 +231,34 @@ async function getHostWire(hostUserId) {
   };
 }
 
+const toInt = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+};
+
+const extractViewerStats = (doc) => {
+  const s  = doc?.stats || {};
+  const m  = doc?.metrics || doc?.viewerStats || {};
+  const rs = doc?.recording?.stats || {};
+  const toInt = (v) => Number.isFinite(+v) ? Math.max(0, Math.floor(+v)) : 0;
+
+  const uniqueViewers = toInt(
+    s?.uniqueViewers ??
+    doc?.uniqueViewers ??
+    m?.uniqueViewers ?? m?.unique ??
+    rs?.uniqueViewers ?? 0
+  );
+  const peakViewers = toInt(
+    s?.viewerPeak ?? s?.peakViewers ??   // normalize name
+    doc?.peakViewers ??
+    m?.peakViewers ?? m?.peak ??
+    rs?.peakViewers ?? 0
+  );
+  return { uniqueViewers, peakViewers };
+};
+
+// --------------------------------------------------------------------------
+
 /* ---------------------- util: mark dangling sessions ended ---------------------- */
 async function endDanglingSessions({ hostUserId, placeId = null, maxAgeMinutes = null, log }) {
   const q = { hostUserId, isActive: true };
@@ -678,157 +706,284 @@ router.get('/live/replay/:id', async (req, res) => {
   res.set('Pragma', 'no-cache');
   res.set('Expires', '0');
 
+  // -------------------- logging helpers --------------------
+  const rid = `replay_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,7)}`;
+  res.set('X-Req-Id', rid);
+  const DEBUG_MODE = String(req.query.debug || '') === '1';
+  const dbg = [];
+  const log = (event, meta = {}) => {
+    const line = { rid, event, ...meta };
+    dbg.push(line);
+    try { console.log(JSON.stringify(line)); } catch { console.log(rid, event, meta); }
+  };
+
+  // -------------------- stat helpers -----------------------
+  const toInt = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+  };
+
+  // Read from your canonical path (stats.*) and compatible fallbacks.
+  const extractViewerStats = (doc) => {
+    const s  = doc?.stats || {};
+    const m  = doc?.metrics || doc?.viewerStats || {};
+    const rs = doc?.recording?.stats || {};
+
+    const uniqueViewers = toInt(
+      s?.uniqueViewers ??
+      doc?.uniqueViewers ??
+      m?.uniqueViewers ?? m?.unique ??
+      rs?.uniqueViewers ?? 0
+    );
+
+    const peakViewers = toInt(
+      s?.viewerPeak ?? s?.peakViewers ??
+      doc?.peakViewers ??
+      m?.peakViewers ?? m?.peak ??
+      rs?.peakViewers ?? 0
+    );
+
+    return { uniqueViewers, peakViewers };
+  };
+
+  // If both stats are zero, give a small grace to catch a just-written finalize.
+  async function graceFetchStatsIfZero(docId, msBudget = 1200, step = 250) {
+    let last = { uniqueViewers: 0, peakViewers: 0 };
+    const deadline = Date.now() + msBudget;
+    while (Date.now() < deadline && !(last.uniqueViewers || last.peakViewers)) {
+      await new Promise(r => setTimeout(r, step));
+      const fresh = await LiveStream.findById(docId)
+        .select('stats metrics viewerStats recording.stats uniqueViewers peakViewers')
+        .lean();
+      last = extractViewerStats(fresh || {});
+      log('grace.stats_check', { s: last });
+    }
+    return last;
+  }
+
   try {
     const bucket = process.env.IVS_RECORD_BUCKET;
     const region = process.env.AWS_LIVE_STREAM_REGION;
     const useCF  = !!process.env.CLOUDFRONT_DOMAIN;
+    log('env', { hasBucket: !!bucket, region, useCF });
 
-    // Tunables
-    const COOLDOWN_MS   = Number(process.env.IVS_REPLAY_COOLDOWN_MS   ?? 15_000);
-    const LOWER_SKEW_MS = Number(process.env.IVS_REPLAY_LOWER_SKEW_MS ?? 30_000);     // allow 30s pre-start
-    const UPPER_SKEW_MS = Number(process.env.IVS_REPLAY_UPPER_SKEW_MS ?? 5 * 60_000); // allow 5m post-end
-
-    // ----- helpers (local, DRY) -----
-    const ensureVariantReady = async (key) => {
-      // Read master; find a variant (e.g. 720p30/playlist.m3u8); HEAD it to ensure it exists
-      const masterObj  = await sendS3('GetObject', new GetObjectCommand({ Bucket: bucket, Key: key }), {});
-      const text       = await streamToString(masterObj.Body);
-      const variantRel = text.split('\n').map(l => l.trim()).find(l => l && !l.startsWith('#') && l.endsWith('playlist.m3u8'));
-      if (!variantRel) return null;
-      const variantKey = key.replace(/\/master\.m3u8$/, `/${variantRel}`);
-      const variantUrl = `https://${bucket}.s3.${region}.amazonaws.com/${variantKey}`;
-      const hv = await fetch(variantUrl, { method: 'HEAD' }).catch(() => null);
-      return hv?.ok ? variantKey : null;
-    };
-
-    const listMastersInWindow = async (prefix, earliest, latest) => {
-      let ContinuationToken;
-      const out = [];
-      do {
-        const page = await sendS3(
-          'ListObjectsV2',
-          new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, MaxKeys: 1000, ContinuationToken }),
-          {}
-        );
-        for (const obj of page.Contents || []) {
-          if (!obj.Key.endsWith('/media/hls/master.m3u8')) continue;
-          const lm = new Date(obj.LastModified);
-          if (lm < earliest || lm > latest) continue;
-          out.push({ key: obj.Key, lm, keyTime: parseIvsKeyTime(obj.Key) });
-        }
-        ContinuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
-      } while (ContinuationToken);
-      return out;
-    };
-
-    const pickMasterForSession = (masters, startedAt, endedAt, usedKeys) => {
-      // Filter by skew window & de-dupe keys used by other sessions on same channel
-      const lower = new Date(+startedAt - LOWER_SKEW_MS);
-      const upper = new Date(+endedAt   + UPPER_SKEW_MS);
-
-      const filtered = masters.filter(m => {
-        if (usedKeys.has(m.key)) return false;
-        const t = m.keyTime || m.lm;
-        return t >= lower && t <= upper;
-      });
-
-      // Tie-breaker: closest lastModified to session end
-      filtered.sort((a, b) => Math.abs(+a.lm - +endedAt) - Math.abs(+b.lm - +endedAt));
-      return filtered[0] || null;
-    };
-
-    // ----- fetch session -----
     const doc = await LiveStream.findById(req.params.id).lean();
-    if (!doc) return res.status(404).json({ message: 'Not found' });
+    if (!doc) {
+      log('doc.not_found', { id: req.params.id });
+      return res.status(404).json({ message: 'Not found', ...(DEBUG_MODE ? { debug: dbg } : {}) });
+    }
 
-    // Cache hit?
+    // Initial stats snapshot from DB
+    let stats0 = extractViewerStats(doc);
+    log('doc.loaded', {
+      id: String(doc._id),
+      status: doc.status,
+      isActive: !!doc.isActive,
+      hasVod: !!doc?.recording?.vodUrl,
+      stats0
+    });
+
+    // If a VOD is already cached, return immediately (with stats)
     if (doc?.recording?.vodUrl) {
-      return res.json({
+      const body = {
+        _id: doc._id,
+        id: String(doc._id),
         ready: true,
         type: 'hls',
         playbackUrl: doc.recording.vodUrl,
         durationSec: doc?.durationSec || null,
         title: doc?.title || 'Live replay',
-      });
+        uniqueViewers: stats0.uniqueViewers,
+        peakViewers: stats0.peakViewers,
+      };
+      log('return.cached_vod', { playbackUrl: body.playbackUrl, stats: { u: body.uniqueViewers, p: body.peakViewers } });
+      if (DEBUG_MODE) body.debug = dbg;
+      return res.json(body);
     }
 
     if (!bucket || !doc.channelArn) {
-      return res.json({ ready: false });
+      log('return.not_ready.no_bucket_or_arn', { hasBucket: !!bucket, hasArn: !!doc.channelArn, stats: stats0 });
+      const body = { ready: false, uniqueViewers: stats0.uniqueViewers, peakViewers: stats0.peakViewers };
+      if (DEBUG_MODE) body.debug = dbg;
+      return res.json(body);
     }
 
     const { accountId, channelId } = parseChannelArn(doc.channelArn);
     if (!accountId || !channelId) {
-      return res.json({ ready: false });
+      log('return.not_ready.bad_arn', { channelArn: doc.channelArn });
+      const body = { ready: false, uniqueViewers: stats0.uniqueViewers, peakViewers: stats0.peakViewers };
+      if (DEBUG_MODE) body.debug = dbg;
+      return res.json(body);
     }
 
     const startedAt = doc.startedAt ? new Date(doc.startedAt) : null;
-    let   endedAt   = doc.endedAt   ? new Date(doc.endedAt)   : null;
+    let endedAt     = doc.endedAt ? new Date(doc.endedAt) : null;
     if (!startedAt || Number.isNaN(+startedAt)) {
-      return res.json({ ready: false });
+      log('return.not_ready.bad_startedAt', { startedAt: doc.startedAt });
+      const body = { ready: false, uniqueViewers: stats0.uniqueViewers, peakViewers: stats0.peakViewers };
+      if (DEBUG_MODE) body.debug = dbg;
+      return res.json(body);
     }
 
-    // If the channel still looks live, best-effort stop (safe if racey)
-    const liveNow = await isChannelOnline(doc.channelArn).catch(() => false);
+    // IVS online check (best-effort)
+    let liveNow = false;
+    try {
+      liveNow = await isChannelOnline(doc.channelArn);
+      log('ivs.online_check', { liveNow });
+    } catch (e) {
+      log('ivs.online_check.error', { err: String(e) });
+      const body = { ready: false, uniqueViewers: stats0.uniqueViewers, peakViewers: stats0.peakViewers };
+      if (DEBUG_MODE) body.debug = dbg;
+      return res.json(body);
+    }
     if (liveNow) {
-      await sendIvs('StopStream', new StopStreamCommand({ channelArn: doc.channelArn }), {}).catch(() => {});
+      try {
+        await sendIvs('StopStream', new StopStreamCommand({ channelArn: doc.channelArn }));
+        log('ivs.stop_issued', {});
+      } catch (e) {
+        log('ivs.stop_error', { err: String(e) });
+      }
     }
 
-    // If still marked live with no endedAt, finalize quickly if old enough
+    // If route needs to auto-finalize the session, also finalize STATS via bus.
     if (!endedAt && (doc.isActive || doc.status === 'live')) {
-      const secondsSinceStart = Math.floor((Date.now() - startedAt.getTime()) / 1000);
+      const secondsSinceStart = (Date.now() - startedAt.getTime()) / 1000;
+      log('live.maybe_finalize', { secondsSinceStart });
       if (secondsSinceStart >= 10) {
         await LiveStream.updateOne(
           { _id: doc._id, isActive: true },
           { $set: { isActive: false, status: 'ended', endedAt: new Date() } }
         );
         endedAt = new Date();
+        log('live.finalized', { endedAt });
+
+        // >>> NEW: finalize presence-based stats as we auto-end <<<
+        try {
+          const bus = req.app.get('liveBus');
+          if (bus && typeof bus.finalizeStats === 'function') {
+            const snap = await bus.finalizeStats(String(doc._id));
+            log('auto_finalize.finalizeStats', snap || {});
+          } else {
+            log('auto_finalize.no_bus', {});
+          }
+        } catch (e) {
+          log('auto_finalize.finalizeStats.error', { err: String(e) });
+        }
+
+        // Refresh stats after finalize attempt
+        const fresh = await LiveStream.findById(doc._id)
+          .select('stats metrics viewerStats recording.stats uniqueViewers peakViewers')
+          .lean();
+        stats0 = extractViewerStats(fresh || {});
+        log('stats.after_auto_finalize', { stats0 });
       } else {
-        return res.json({ ready: false, live: false });
+        log('return.not_ready.too_early', {});
+        const body = { ready: false, live: false, uniqueViewers: stats0.uniqueViewers, peakViewers: stats0.peakViewers };
+        if (DEBUG_MODE) body.debug = dbg;
+        return res.json(body);
       }
     }
 
-    if (!endedAt) return res.json({ ready: false, live: false });
-
-    // Optional cooldown to let manifests settle
-    if (Date.now() - +endedAt < COOLDOWN_MS) {
-      return res.json({ ready: false, status: 'warming_up' });
+    if (!endedAt) {
+      log('return.not_ready.no_endedAt', {});
+      const body = { ready: false, live: false, uniqueViewers: stats0.uniqueViewers, peakViewers: stats0.peakViewers };
+      if (DEBUG_MODE) body.debug = dbg;
+      return res.json(body);
     }
 
-    // Broad scan window around the session (generous)
-    const earliestAcceptable = new Date(+startedAt - 30_000);
-    const latestAcceptable   = new Date(+endedAt   + 5 * 60_000);
+    // -------------------- S3 scan in session window --------------------
+    const earliestAcceptable = new Date(startedAt.getTime() - 30 * 1000);
+    const latestAcceptable   = new Date(endedAt.getTime()   + 5 * 60 * 1000);
+    log('s3.scan_window', { earliestAcceptable, latestAcceptable });
 
-    // S3 listing
-    const prefix  = `ivs/v1/${accountId}/${channelId}/`;
-    const masters = await listMastersInWindow(prefix, earliestAcceptable, latestAcceptable);
+    let ContinuationToken;
+    const masters = [];
 
-    // Query prior used keys to avoid reusing a previous session's VOD on same channel
-    const usedKeys = new Set(
-      await LiveStream.find(
-        { channelArn: doc.channelArn, _id: { $ne: doc._id }, 'recording.s3Key': { $exists: true } },
-        { 'recording.s3Key': 1 }
-      ).lean().then(rows => rows.map(r => r.recording.s3Key))
-    );
+    do {
+      const out = await sendS3(
+        'ListObjectsV2',
+        new ListObjectsV2Command({
+          Bucket: bucket,
+          Prefix: `ivs/v1/${accountId}/${channelId}/`,
+          MaxKeys: 1000,
+          ContinuationToken,
+        })
+      );
+      const found = (out.Contents || []).filter(o => o.Key.endsWith('/media/hls/master.m3u8'));
+      log('s3.page', { count: out.KeyCount, foundMasters: found.length, isTruncated: !!out.IsTruncated });
 
-    // Pick one
-    const chosen = pickMasterForSession(masters, startedAt, endedAt, usedKeys);
+      for (const obj of out.Contents || []) {
+        if (!obj.Key.endsWith('/media/hls/master.m3u8')) continue;
+        const lm = new Date(obj.LastModified);
+        if (lm < earliestAcceptable || lm > latestAcceptable) continue;
+        const keyTime = parseIvsKeyTime(obj.Key);
+        masters.push({ key: obj.Key, lm, keyTime });
+      }
+      ContinuationToken = out.IsTruncated ? out.NextContinuationToken : undefined;
+    } while (ContinuationToken);
+
+    log('s3.masters_collected', { count: masters.length });
+
+    const startedAtMs = +startedAt;
+    const endedAtMs   = +endedAt;
+    const score = (m) => {
+      const penalizeEarly = (m.keyTime && (+m.keyTime < startedAtMs)) ? 1e15 : 0;
+      const distToEnd     = Math.abs(+m.lm - endedAtMs);
+      return penalizeEarly + distToEnd;
+    };
+
+    masters.sort((a, b) => {
+      const s = score(a) - score(b);
+      if (s !== 0) return s;
+      return (+b.lm - +a.lm) || ((a.keyTime && b.keyTime) ? (+b.keyTime - +a.keyTime) : 0);
+    });
+
+    const chosen = masters[0] || null;
     if (!chosen) {
-      return res.json({ ready: false, status: 'warming_up' });
+      log('return.not_ready.no_master_found', {});
+      const body = { ready: false, uniqueViewers: stats0.uniqueViewers, peakViewers: stats0.peakViewers };
+      if (DEBUG_MODE) body.debug = dbg;
+      return res.json(body);
+    }
+    log('s3.master_chosen', { key: chosen.key, lm: chosen.lm });
+
+    // -------------------- VARIANT GATE --------------------
+    try {
+      const masterObj  = await sendS3('GetObject', new GetObjectCommand({ Bucket: bucket, Key: chosen.key }));
+      const masterText = await streamToString(masterObj.Body);
+      const variantRel = masterText
+        .split('\n').map(l => l.trim())
+        .find(l => l && !l.startsWith('#') && l.endsWith('playlist.m3u8'));
+
+      if (!variantRel) {
+        log('return.warming_up.no_variant', {});
+        const body = { ready: false, status: 'warming_up', uniqueViewers: stats0.uniqueViewers, peakViewers: stats0.peakViewers };
+        if (DEBUG_MODE) body.debug = dbg;
+        return res.json(body);
+      }
+
+      const variantKey = chosen.key.replace(/\/master\.m3u8$/, `/${variantRel}`);
+      const variantUrl = `https://${bucket}.s3.${region}.amazonaws.com/${variantKey}`;
+      const hv = await fetch(variantUrl, { method: 'HEAD' });
+      log('variant.head', { url: variantUrl, ok: hv.ok, status: hv.status });
+      if (!hv.ok) {
+        const body = { ready: false, status: 'warming_up', uniqueViewers: stats0.uniqueViewers, peakViewers: stats0.peakViewers };
+        if (DEBUG_MODE) body.debug = dbg;
+        return res.json(body);
+      }
+    } catch (e) {
+      log('variant.error', { err: String(e) });
+      const body = { ready: false, status: 'warming_up', uniqueViewers: stats0.uniqueViewers, peakViewers: stats0.peakViewers };
+      if (DEBUG_MODE) body.debug = dbg;
+      return res.json(body);
     }
 
-    // Variant gate (ensures at least one variant is present)
-    const variantKey = await ensureVariantReady(chosen.key);
-    if (!variantKey) {
-      return res.json({ ready: false, status: 'warming_up' });
-    }
-
-    // Build playback URL (CF if present, else S3)
     const playbackUrl = useCF
       ? `https://${process.env.CLOUDFRONT_DOMAIN}/${chosen.key}`
       : `https://${bucket}.s3.${region}.amazonaws.com/${chosen.key}`;
 
-    // Persist
-    await LiveStream.updateOne(
+    // -------------------- Persist recording --------------------
+    const updRes = await LiveStream.updateOne(
       { _id: doc._id },
       {
         $set: {
@@ -836,6 +991,8 @@ router.get('/live/replay/:id', async (req, res) => {
             enabled: !!doc?.recording?.enabled,
             vodUrl: playbackUrl,
             s3Key: chosen.key,
+            // (optional) only if your schema has recording.stats.*
+            // stats: { uniqueViewers: stats0.uniqueViewers, peakViewers: stats0.peakViewers },
           },
           status: 'ended',
           isActive: false,
@@ -843,18 +1000,47 @@ router.get('/live/replay/:id', async (req, res) => {
         },
       }
     );
+    log('db.update_recording', { matched: updRes.matchedCount, modified: updRes.modifiedCount });
 
-    // Respond
-    return res.json({
+    // -------------------- Final stats (re-read + grace) --------------------
+    let statsFinal = extractViewerStats(
+      await LiveStream.findById(doc._id)
+        .select('stats metrics viewerStats recording.stats uniqueViewers peakViewers recording.vodUrl status')
+        .lean() || {}
+    );
+
+    if (!(statsFinal.uniqueViewers || statsFinal.peakViewers)) {
+      statsFinal = await graceFetchStatsIfZero(doc._id);
+    }
+    log('stats.final', { statsFinal });
+
+    // Optional debug readback
+    const afterDoc = await LiveStream.findById(doc._id).select('recording stats').lean();
+    log('doc.after_update', {
+      hasRecording: !!afterDoc?.recording?.vodUrl,
+      statsDot: { u: afterDoc?.stats?.uniqueViewers, p: afterDoc?.stats?.viewerPeak },
+      recStats: { u: afterDoc?.recording?.stats?.uniqueViewers, p: afterDoc?.recording?.stats?.peakViewers },
+    });
+
+    // -------------------- Respond ready --------------------
+    const body = {
       _id: doc._id,
+      id: String(doc._id),
       ready: true,
       type: 'hls',
       playbackUrl,
       durationSec: doc?.durationSec || null,
       title: doc?.title || 'Live replay',
-    });
+      uniqueViewers: statsFinal.uniqueViewers,
+      peakViewers:   statsFinal.peakViewers,
+    };
+    log('return.ready', { playbackUrl: body.playbackUrl, stats: { u: body.uniqueViewers, p: body.peakViewers } });
+    if (DEBUG_MODE) body.debug = dbg;
+    return res.json(body);
+
   } catch (e) {
-    return res.status(500).json({ message: 'Failed to fetch replay' });
+    log('route.error', { err: String(e) });
+    return res.status(500).json({ message: 'Failed to fetch replay', ...(DEBUG_MODE ? { debug: dbg } : {}) });
   }
 });
 
