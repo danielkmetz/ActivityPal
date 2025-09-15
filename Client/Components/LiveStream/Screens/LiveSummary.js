@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { Video } from 'expo-av';
 import ShareOptionsModal from '../../Reviews/SharedPosts/ShareOptionsModal';
 import SharePostModal from '../../Reviews/SharedPosts/SharePostModal';
@@ -90,6 +90,8 @@ export default function LiveSummary({ route, navigation }) {
   const videoRef = useRef(null);
   const pollRef = useRef(null);
 
+  console.log(replay)
+
   useEffect(() => {
     if (!liveId) return;
     dispatch(clearReplay(liveId));
@@ -167,7 +169,6 @@ export default function LiveSummary({ route, navigation }) {
       <View style={S.wrap}>
         <Text style={S.h1}>Live ended</Text>
         <Text style={S.sub}>{title || 'Untitled'}</Text>
-
         {!liveId ? (
           <View style={S.panel}>
             <Text style={S.err}>Missing liveId</Text>
@@ -203,7 +204,6 @@ export default function LiveSummary({ route, navigation }) {
             </View>
           </View>
         )}
-
         <Pressable
           style={[S.cta, !(backendReady && playerReady) && { opacity: 0.6 }]}
           disabled={!(backendReady && playerReady)}
@@ -213,12 +213,10 @@ export default function LiveSummary({ route, navigation }) {
             {backendReady && playerReady ? 'Create Post with Replay' : 'Preparing Replay…'}
           </Text>
         </Pressable>
-
         <Pressable onPress={() => navigation.popToTop()}>
           <Text style={S.link}>Done</Text>
         </Pressable>
       </View>
-
       <ShareOptionsModal
         visible={shareOptionsVisible}
         onClose={closeShareOptions}
