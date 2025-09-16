@@ -76,7 +76,7 @@ export default function SharedPostItem({
                     animation={animation}
                     photoTapped={photoTapped}
                     toggleTaggedUsers={toggleTaggedUsers}
-                    handleLikeWithAnimation={handleLikeWithAnimation}
+                    handleLikeWithAnimation={() => handleLikeWithAnimation(item, true)}
                     handleOpenComments={handleOpenComments}
                     lastTapRef={lastTapRef}
                     handleEdit={handleEdit}

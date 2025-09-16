@@ -14,7 +14,6 @@ import { selectInvites } from "../../Slices/InvitesSlice";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigation } from "@react-navigation/native";
 import SuggestionDetailsModal from "../SuggestionDetails/SuggestionDetailsModal";
-import { eventPromoLikeWithAnimation } from "../../utils/LikeHandlers/promoEventLikes";
 import PostActions from "./PostActions";
 import { selectUser } from "../../Slices/UserSlice";
 import { logEngagementIfNeeded, getEngagementTarget } from "../../Slices/EngagementSlice";
@@ -23,14 +22,13 @@ import PhotoFeed from "./Photos/PhotoFeed";
 
 const screenWidth = Dimensions.get("window").width;
 
-export default function SuggestionItem({ suggestion, onShare, sharedPost }) {
+export default function SuggestionItem({ suggestion, onShare, sharedPost, handleLikeWithAnimation, animation }) {
     const navigation = useNavigation();
     const dispatch = useDispatch();
     const user = useSelector(selectUser);
     const currentIndexRef = useRef(0);
     const [detailsModalVisible, setDetailsModalVisible] = useState(false);
     const [inviteModalVisible, setInviteModalVisible] = useState(false);
-    const [likedAnimations, setLikedAnimations] = useState({});
     const lastTapRef = useRef({});
     const invites = useSelector(selectInvites);
     const tapTimeoutRef = useRef(null);
@@ -97,48 +95,15 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost }) {
         navigation.navigate('EventDetails', { activity: suggestion });
     };
 
-    const handleLikeWithAnimation = (item, force = true) => {
-        eventPromoLikeWithAnimation({
-            type: item.kind.includes('Promo') ? 'promo' : 'event',
-            postId: item._id,
-            item,
-            user,
-            lastTapRef,
-            likedAnimations,
-            setLikedAnimations,
-            dispatch,
-            force,
+    const handleSingleTapOpenDetails = () => {
+        setDetailsModalVisible(true);
+        const { targetType, targetId } = getEngagementTarget(suggestion);
+        logEngagementIfNeeded(dispatch, {
+            targetType,
+            targetId,
+            placeId: suggestion.placeId,
+            engagementType: 'click',
         });
-    };
-
-    const handlePhotoTap = (item) => {
-        const now = Date.now();
-        const lastTap = lastTapRef.current[item._id] || 0;
-        const DOUBLE_TAP_DELAY = 100;
-
-        if (now - lastTap < DOUBLE_TAP_DELAY) {
-            clearTimeout(tapTimeoutRef.current);
-            lastTapRef.current[item._id] = 0;
-            handleLikeWithAnimation(item); // Double tap => like
-        } else {
-            lastTapRef.current[item._id] = now;
-
-            if (tapTimeoutRef.current) {
-                clearTimeout(tapTimeoutRef.current);
-            }
-
-            tapTimeoutRef.current = setTimeout(() => {
-                setDetailsModalVisible(true); // Single tap => open modal
-
-                const { targetType, targetId } = getEngagementTarget(suggestion);
-                logEngagementIfNeeded(dispatch, {
-                    targetType,
-                    targetId,
-                    placeId,
-                    engagementType: 'click',
-                });
-            }, DOUBLE_TAP_DELAY);
-        }
     };
 
     useEffect(() => {
@@ -167,9 +132,10 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost }) {
                 <View style={styles.photoWrapper}>
                     <PhotoFeed
                         media={resolvedMedia}
+                        animation={animation}
                         scrollX={scrollX}
                         currentIndexRef={currentIndexRef}
-                        onOpenFullScreen={handlePhotoTap}
+                        onOpenFullScreen={handleSingleTapOpenDetails}
                         handleLikeWithAnimation={handleLikeWithAnimation}
                         lastTapRef={lastTapRef}
                         reviewItem={suggestion}
@@ -199,9 +165,15 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost }) {
                 </View>
             ) : (
                 <View>
-                    <TouchableOpacity activeOpacity={.85} onPress={() => handlePhotoTap(suggestion)}>
-                        <PhotoItem photo={suggestion} isInteractive={false} />
-                    </TouchableOpacity>
+                    <PhotoItem
+                        photo={suggestion}                // uses url/uri/bannerUrl
+                        reviewItem={suggestion}           // ✅ needed for animation key
+                        index={0}
+                        isInteractive={true}
+                        lastTapRef={lastTapRef}           // ✅ double-tap memory
+                        handleLikeWithAnimation={handleLikeWithAnimation} // ✅ triggers overlay anim
+                        onOpenFullScreen={handleSingleTapOpenDetails}
+                    />
                     <View style={styles.overlayTopText}>
                         <Avatar.Image
                             size={45}
@@ -215,13 +187,8 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost }) {
                                 {distance ? `${(distance / 1609).toFixed(1)} mi away` : null}
                             </Text>
                         </View>
-                        <TouchableOpacity
-                            style={styles.inviteButton}
-                            onPress={inviteCreationEditing}
-                        >
-                            <Text style={styles.inviteText}>
-                                {existingInvite ? "Edit Invite" : "Invite"}
-                            </Text>
+                        <TouchableOpacity style={styles.inviteButton} onPress={inviteCreationEditing}>
+                            <Text style={styles.inviteText}>{existingInvite ? "Edit Invite" : "Invite"}</Text>
                         </TouchableOpacity>
                     </View>
                 </View>

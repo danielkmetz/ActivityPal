@@ -73,6 +73,8 @@ export default function SharedPostContent({
             suggestion={sharedItem}
             onShare={onShare}
             sharedPost={true}
+            animation={animation}
+            handleLikeWithAnimation={handleLikeWithAnimation}
           />
         );
 

@@ -47,9 +47,26 @@ export const updatePostCollections = ({
     try {
       // 6) Update likes on the post itself
       if (u.__updatePostLikes) {
-        const before = Array.isArray(post.likes) ? post.likes.length : 0;
-        post.likes = u.__updatePostLikes;
-        log.info(`__updatePostLikes -> ${before} -> ${post.likes?.length ?? 0}`);
+        const val = u.__updatePostLikes;
+        if (Array.isArray(val)) {
+          // legacy shape: __updatePostLikes = [ ...likes ]
+          const before = Array.isArray(post.likes) ? post.likes.length : 0;
+          post.likes = val;
+          log.info(`__updatePostLikes[array] -> ${before} -> ${post.likes?.length ?? 0}`);
+        } else if (val && typeof val === 'object') {
+          // new shape: __updatePostLikes = { likes, likesCount?, liked? }
+          const before = Array.isArray(post.likes) ? post.likes.length : 0;
+          if (Array.isArray(val.likes)) post.likes = val.likes;
+          if (typeof val.likesCount === 'number') post.likesCount = val.likesCount;
+          if (typeof val.liked === 'boolean') post.liked = val.liked;
+          log.info(
+            `__updatePostLikes[obj] -> ${before} -> ${post.likes?.length ?? 0}` +
+            (val.likesCount !== undefined ? `, likesCount=${val.likesCount}` : '') +
+            (val.liked !== undefined ? `, liked=${val.liked}` : '')
+          );
+        } else {
+          log.warn('__updatePostLikes has unsupported type:', typeof val);
+        }
       }
     } catch (err) {
       log.error('Failed __updatePostLikes:', err, '\ncontext:', safeStringify({ likes: u.__updatePostLikes }));

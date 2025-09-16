@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, Image, Text, Animated, TouchableWithoutFeedback, Dimensions, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { VideoView } from 'expo-video';
@@ -7,6 +7,8 @@ import { isVideo } from '../../../utils/isVideo';
 import { useLikeAnimations } from '../../../utils/LikeHandlers/LikeAnimationContext';
 
 const screenWidth = Dimensions.get("window").width;
+const DOUBLE_TAP_MS = 300;
+const SINGLE_TAP_MS = 330;
 
 const PhotoItem = ({
     photo,
@@ -21,6 +23,7 @@ const PhotoItem = ({
     const { getAnimation, registerAnimation } = useLikeAnimations(); // ✅ use context
     const [animation, setAnimation] = useState(null);
     const player = useSmartVideoPlayer(photo);
+    const timersRef = useRef({});
 
     useEffect(() => {
         if (!reviewItem?._id) return;
@@ -33,26 +36,49 @@ const PhotoItem = ({
     }, [reviewItem?._id]);
 
     const handleTap = () => {
-        if (!isInteractive) return;
+        if (!isInteractive) {
+            return;
+        }
+
+        const id =
+            reviewItem?._id ||
+            reviewItem?.id ||
+            reviewItem?.postId ||
+            reviewItem?.eventId ||
+            reviewItem?.promotionId;
+
+        if (!id) {
+            console.warn('[handleTap] No valid ID found for reviewItem', reviewItem);
+            return;
+        }
 
         const now = Date.now();
+        const last = lastTapRef.current[id] || 0;
+        
+        // Double tap branch
+        if (now - last < DOUBLE_TAP_MS) {
+            if (timersRef.current[id]) {
+                clearTimeout(timersRef.current[id]);
+                timersRef.current[id] = null;
+            }
 
-        if (
-            lastTapRef.current[reviewItem._id] &&
-            now - lastTapRef.current[reviewItem._id] < 300
-        ) {
-            handleLikeWithAnimation(reviewItem);
-            lastTapRef.current[reviewItem._id] = 0;
-        } else {
-            lastTapRef.current[reviewItem._id] = now;
-
-            setTimeout(() => {
-                if (lastTapRef.current[reviewItem._id] === now) {
-                    onOpenFullScreen?.(photo, index);
-                    lastTapRef.current[reviewItem._id] = 0;
-                }
-            }, 200);
+            lastTapRef.current[id] = 0;
+            handleLikeWithAnimation(reviewItem, true); // shows overlay
+            return;
         }
+
+        // Single tap arm
+        lastTapRef.current[id] = now;
+
+        timersRef.current[id] = setTimeout(() => {
+            if (lastTapRef.current[id] === now) {
+                onOpenFullScreen?.(photo, index);
+                lastTapRef.current[id] = 0;
+            } else {
+                console.log(`[handleTap -> timer] Ignored timer for id=${id}, lastTapRef changed`);
+            }
+            timersRef.current[id] = null;
+        }, SINGLE_TAP_MS);
     };
 
     return (

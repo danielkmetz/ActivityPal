@@ -64,6 +64,7 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
     const animation = getAnimation(review._id);
     return sharedHandleLikeWithAnimation({
       postType: review.type,
+      kind: review.kind,
       postId: review._id,
       review,
       user,
@@ -270,6 +271,7 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
             return (
               <SuggestionItem
                 suggestion={item}
+                handleLikeWithAnimation={handleLikeWithAnimation}
                 onShare={openShareOptions}
               />
             );

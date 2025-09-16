@@ -1,10 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
 import { Avatar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import profilePicPlaceholder from '../../../assets/pics/profile-pic-placeholder.jpg';
-import PhotoItem from '../../Reviews/Photos/PhotoItem';
-import PhotoPaginationDots from '../../Reviews/Photos/PhotoPaginationDots';
 import { useNavigation } from '@react-navigation/native';
 import { useDispatch, useSelector } from 'react-redux';
 import { selectLogo, fetchLogo } from '../../../Slices/PhotosSlice';
@@ -13,6 +11,7 @@ import PostActions from '../../Reviews/PostActions';
 import { resetSelectedEvent } from '../../../Slices/EventsSlice';
 import { resetSelectedPromotion } from '../../../Slices/PromotionsSlice';
 import { logEngagementIfNeeded, getEngagementTarget } from '../../../Slices/EngagementSlice';
+import PhotoFeed from '../../Reviews/Photos/PhotoFeed';
 
 const DetailsHeader = ({ activity, getTimeSincePosted, handleLikeWithAnimation, lastTapRef }) => {
     const navigation = useNavigation();
@@ -21,6 +20,8 @@ const DetailsHeader = ({ activity, getTimeSincePosted, handleLikeWithAnimation, 
     const [cachedLogo, setCachedLogo] = useState(null);
     const selectedType = activity?.kind?.toLowerCase().includes('event') ? 'event' : 'promo'
     const { placeId, businessName } = activity || {};
+    const currentIndexRef = useRef(0);
+    const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
     const scrollX = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
@@ -47,6 +48,7 @@ const DetailsHeader = ({ activity, getTimeSincePosted, handleLikeWithAnimation, 
     const onOpenFullScreen = (photo, index) => {
         navigation.navigate('FullScreenPhoto', {
             reviewId: activity?._id,
+            selectedType,
             initialIndex: activity.photos.findIndex(p => p._id === photo._id),
             taggedUsersByPhotoKey: activity.taggedUsersByPhotoKey || {},
             isEventPromo: true,
@@ -94,39 +96,17 @@ const DetailsHeader = ({ activity, getTimeSincePosted, handleLikeWithAnimation, 
                     <Text style={styles.itemDescription}>{activity?.description}</Text>
                 </View>
                 {activity?.photos?.length > 0 && (
-                    <View >
-                        <FlatList
-                            data={activity?.photos}
-                            horizontal
-                            pagingEnabled
-                            bounces={false}
-                            showsHorizontalScrollIndicator={false}
-                            keyExtractor={(item) => item?._id}
-                            onScroll={Animated.event(
-                                [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-                                { useNativeDriver: false }
-                            )}
-                            scrollEventThrottle={16}
-                            // onTouchStart={() => {
-                            //     setIsPhotoListActive(true);
-                            // }}
-                            // onTouchEnd={() => {
-                            //     setIsPhotoListActive(false);
-                            // }}
-                            renderItem={({ item: photo }) => (
-                                <PhotoItem
-                                    photo={photo}
-                                    reviewItem={activity}
-                                    onOpenFullScreen={onOpenFullScreen}
-                                    handleLikeWithAnimation={handleLikeWithAnimation}
-                                    lastTapRef={lastTapRef}
-                                />
-                            )}
-                        />
-                        {activity.photos?.length > 1 && (
-                            <PhotoPaginationDots photos={activity?.photos} scrollX={scrollX} />
-                        )}
-                    </View>
+                    <PhotoFeed
+                        media={activity.photos}
+                        scrollX={scrollX}
+                        currentIndexRef={currentIndexRef}
+                        setCurrentPhotoIndex={setCurrentPhotoIndex}
+                        reviewItem={activity}
+                        photoTapped={null} // hook up if you have a tap handler
+                        handleLikeWithAnimation={() => handleLikeWithAnimation(activity)}
+                        lastTapRef={lastTapRef}
+                        onOpenFullScreen={onOpenFullScreen}
+                    />
                 )}
             </View>
             <View style={{ paddingLeft: 15 }}>
