@@ -13,10 +13,13 @@ export const updateEvents = ({
   const applyCustomUpdate = (post) => {
     if (!post) return;
     const u = updates || {};
-
+    
     // Update likes on the event itself
     if (u.__updatePostLikes) {
-      post.likes = u.__updatePostLikes;
+      const { likes, likesCount, liked } = u.__updatePostLikes;
+      if (Array.isArray(likes)) post.likes = likes;           // array
+      if (typeof likesCount === 'number') post.likesCount = likesCount; // number
+      if (typeof liked === 'boolean') post.liked = liked;     // boolean
     }
 
     // Append a top-level comment

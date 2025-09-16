@@ -29,33 +29,6 @@ export const createSharedPost = createAsyncThunk(
   }
 );
 
-export const toggleLikeOnSharedPost = createAsyncThunk(
-  'sharedPosts/toggleLike',
-  async ({ postId, userId, fullName }, { dispatch, rejectWithValue }) => {
-    try {
-      const config = await getAuthHeaders();
-      const res = await axios.post(`${API_BASE}/${postId}/like`, {
-        userId,
-        fullName,
-      }, config);
-
-      const updatedLikes = res.data.likes;
-
-      dispatch(updateSharedPostInReviews({
-        postId,
-        updates: {
-          __updatePostLikes: updatedLikes,
-        },
-      }));
-
-      return { postId, likes: updatedLikes };
-    } catch (err) {
-      console.error('❌ Error toggling like on shared post:', err.response?.data || err.message);
-      return rejectWithValue(err.response?.data || { error: 'Failed to toggle like' });
-    }
-  }
-);
-
 // Get a shared post by ID
 export const fetchSharedPostById = createAsyncThunk(
   'sharedPosts/fetchById',
@@ -179,17 +152,6 @@ const sharedPostsSlice = createSlice({
         const id = action.payload;
         delete state.byId[id];
         state.userPosts = state.userPosts.filter((post) => post._id !== id);
-      })
-      .addCase(toggleLikeOnSharedPost.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(toggleLikeOnSharedPost.fulfilled, (state) => {
-        state.loading = false;
-      })
-      .addCase(toggleLikeOnSharedPost.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload?.error || 'Failed to toggle like';
       })
       .addCase(editSharedPost.pending, (state) => {
         state.status = 'loading';

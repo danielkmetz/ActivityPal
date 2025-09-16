@@ -219,7 +219,7 @@ export default function ReviewItem({
                                                     >
                                                         <Text style={styles.userEmailText}>
                                                             {user.fullName}
-                                                            {index < item.taggedUsers.length - 1 ? ", " : ""}
+                                                            {index < item?.taggedUsers?.length - 1 ? ", " : ""}
                                                         </Text>
                                                     </TouchableWithoutFeedback>
                                                 ))}
@@ -258,7 +258,7 @@ export default function ReviewItem({
                     />
                 </View>
                 {/* ✅ Photos */}
-                {postPhotos.length > 0 && (
+                {postPhotos?.length > 0 && (
                     <PhotoFeed
                         media={postPhotos}
                         scrollX={scrollX}

@@ -39,6 +39,7 @@ const insights = require('./routes/insights');
 const liveStream = require('./routes/live');
 const commentsAndReplies = require('./routes/commentsAndReplies');
 const liveChat = require('./routes/LiveChat');
+const likes = require('./routes/likes');
 
 // Initialize app
 const app = express();
@@ -128,6 +129,7 @@ app.use('/api/engagementInsights', insights);
 app.use('/api/liveStream', liveStream);
 app.use('/api/comments-replies', commentsAndReplies);
 app.use('/api/live-chat', liveChat);
+app.use('/api/likes', likes);
 
 (async () => {
   const { io, liveBus } = await attachSocketServer(server); // await + correct key

@@ -200,48 +200,6 @@ router.get('/:sharedPostId', verifyToken, async (req, res) => {
   }
 });
 
-//toggle like
-router.post("/:postId/like", verifyToken, async (req, res) => {
-  const { postId } = req.params;
-  const { userId, fullName } = req.body;
-
-  if (!userId || !fullName) {
-    console.warn("⚠️ Missing userId or fullName in request body.");
-    return res.status(400).json({ message: "Missing userId or fullName" });
-  }
-
-  try {
-    const sharedPost = await SharedPost.findById(postId);
-    if (!sharedPost) {
-      return res.status(404).json({ message: "Shared post not found" });
-    }
-
-    sharedPost.likes = sharedPost.likes || [];
-    const existingIndex = sharedPost.likes.findIndex(like => like.userId.toString() === userId);
-    const isUnliking = existingIndex > -1;
-
-    if (isUnliking) {
-      sharedPost.likes.splice(existingIndex, 1);
-    } else {
-      sharedPost.likes.push({
-        userId,
-        fullName,
-        date: new Date(),
-      });
-    }
-
-    await sharedPost.save();
-
-    res.status(200).json({
-      message: "Like toggled successfully",
-      likes: sharedPost.likes,
-    });
-  } catch (error) {
-    console.error("❌ Error toggling shared post like:", error.message, error.stack);
-    res.status(500).json({ message: "Internal Server Error" });
-  }
-});
-
 // ✅ GET shared posts by user
 router.get('/by-user/:userId', verifyToken, async (req, res) => {
   try {

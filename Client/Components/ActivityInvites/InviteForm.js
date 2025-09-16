@@ -5,8 +5,6 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  ScrollView,
-  Image,
   Switch,
   Platform,
 } from 'react-native';
@@ -17,11 +15,10 @@ import { sendInvite, editInvite } from '../../Slices/InvitesSlice';
 import { selectFriends } from '../../Slices/friendsSlice';
 import { FontAwesome } from '@expo/vector-icons';
 import { selectUser } from '../../Slices/UserSlice';
-import { selectUserAndFriendsReviews, setUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
+import { addPostToFeeds } from '../../Slices/ReviewsSlice';
 import { googlePlacesDefaultProps } from '../../utils/googleplacesDefaults';
 import TagFriendsModal from '../Reviews/TagFriendsModal';
 import { useNavigation } from '@react-navigation/native';
-import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import SectionHeader from '../Reviews/SectionHeader';
 import FriendPills from '../Reviews/FriendPills';
 
@@ -32,7 +29,6 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
   const navigation = useNavigation();
   const user = useSelector(selectUser);
   const friends = useSelector(selectFriends);
-  const userAndFriendReviews = useSelector(selectUserAndFriendsReviews);
   const [showFriendsModal, setShowFriendsModal] = useState(false);
   const [selectedPlace, setSelectedPlace] = useState(null);
   const [dateTime, setDateTime] = useState(null);
@@ -53,16 +49,34 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
       setNote(initialInvite.note || '');
       setDateTime(new Date(initialInvite.dateTime));
 
-      const normalizedIds =
-        initialInvite.recipients?.map(r => getUserId(r.user || r)) || [];
+      // Normalize recipients → friend objects
+      const toId = (u) =>
+        u?._id || u?.id || u?.userId || u?.user?._id || u?.user?.id;
 
-      setSelectedFriends(normalizedIds);
+      const selectedAsObjects = (initialInvite.recipients || [])
+        .map((r) => {
+          const id = toId(r.user || r);
+          if (!id) return null;
+
+          // try to find in your friends list first
+          const fromFriends = (friends || []).find((f) => toId(f) === id);
+          if (fromFriends) return fromFriends;
+
+          // fall back to shaping from the invite payload if present
+          const src = r.user || r;
+          return {
+            _id: id,
+            id,
+            userId: id,
+            username: src?.username || src?.fullName || src?.firstName || 'Unknown',
+            profilePicUrl: src?.profilePicUrl || src?.presignedProfileUrl || null,
+          };
+        })
+        .filter(Boolean);
+
+      setSelectedFriends(selectedAsObjects);
     }
-  }, [isEditing, initialInvite]);
-
-  const getUserId = (user) => {
-    return user?._id || user?.id || user?.userId || user?.user?._id || user?.user?.id;
-  };
+  }, [isEditing, initialInvite, friends]);
 
   const handleConfirmInvite = async () => {
     if (!selectedPlace || !dateTime || selectedFriends.length === 0) {
@@ -79,8 +93,6 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
       isPublic,
     };
     try {
-      let finalFeed = [...(userAndFriendReviews || [])];
-
       if (isEditing && initialInvite) {
         const updates = {
           placeId: selectedPlace.placeId,
@@ -98,42 +110,21 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
           businessName: selectedPlace.name,
         }));
 
-        finalFeed = updateFeedWithItem(finalFeed, {
-          ...updatedInvite,
-          type: 'invite',
-          createdAt: updatedInvite.dateTime,
-        });
+        await dispatch(addPostToFeeds(updatedInvite));
 
         alert('Invite updated!');
       } else {
         const { payload: newInvite } = await dispatch(sendInvite(invitePayload));
 
-        finalFeed = updateFeedWithItem(finalFeed, {
-          ...newInvite.invite,
-          type: 'invite',
-          createdAt: newInvite.invite.dateTime,
-        });
+        await dispatch(addPostToFeeds(newInvite?.invite));
 
         alert('Invite sent!');
       }
-      dispatch(setUserAndFriendsReviews(finalFeed));
       navigation.goBack();
     } catch (err) {
       alert('Something went wrong. Please try again.');
     }
   };
-
-  const updateFeedWithItem = (feed, item) => {
-    const normalized = (feed || [])
-      .filter(f => f._id !== item._id)
-      .concat(item)
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    return normalized;
-  };
-
-  const displayFriends = [...friends].filter(friend =>
-    selectedFriends.includes(getUserId(friend))
-  );
 
   return (
     <View style={styles.container}>
@@ -174,9 +165,9 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
           thumbColor={Platform.OS === 'android' ? '#fff' : undefined}
         />
       </View>
-      <View style={{marginTop: 10}}>
+      <View style={{ marginTop: 10 }}>
         <SectionHeader title="Date & Time" />
-        <View style={{marginTop: 5, marginLeft: -10}}>
+        <View style={{ marginTop: 5, marginLeft: -10 }}>
           <DateTimePicker
             value={dateTime || new Date()}
             mode="datetime"
@@ -203,11 +194,12 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
           {selectedFriends.length > 0 ? `👥 ${selectedFriends.length} Selected` : '➕ Select Friends'}
         </Text>
       </TouchableOpacity>
-      <FriendPills 
-        friends={selectedFriends} 
+      <FriendPills
+        friends={selectedFriends}
         onRemove={(userToRemove) => {
-          setSelectedFriends(prev => prev.filter(u => u._id !== userToRemove._id));
-        }} 
+          const id = userToRemove?._id || userToRemove?.id || userToRemove;
+          setSelectedFriends(prev => prev.filter(u => u !== id));
+        }}
       />
       <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmInvite}>
         <Text style={styles.confirmText}>{isEditing ? 'Save Edit' : 'Send Invite'}</Text>

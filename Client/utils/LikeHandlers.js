@@ -1,40 +1,125 @@
 import { Animated } from 'react-native';
-import { toggleLike } from '../Slices/ReviewsSlice';
-import { toggleLikeOnSharedPost } from '../Slices/SharedPostsSlice';
-import { toggleLiveLike } from '../Slices/LiveStreamSlice'; // 👈 NEW
+import store from '../store';
+import { toggleLike as togglePostLike } from '../Slices/LikesSlice';
+
+// Notifications
 import {
   createNotification,
   deleteNotification,
   selectNotificationByFields,
 } from '../Slices/NotificationsSlice';
-import store from '../store';
 
 /* ---------------------------------- */
-/* Helpers                            */
+/* Debug helpers                       */
 /* ---------------------------------- */
-const typeRefFor = (postType) => {
-  switch (postType) {
-    case 'review': return 'Review';
-    case 'check-in': return 'CheckIn';
-    case 'invite': return 'ActivityInvite';
-    case 'sharedPost': return 'SharedPost';
-    case 'liveStream': return 'LiveStream'; // 👈 NEW
-    default: return 'SharedPost';
+
+const DEBUG_LIKES = true;
+
+const ts = () => new Date().toISOString().split('T')[1].replace('Z', '');
+const log = (...a) => DEBUG_LIKES && console.log(`[likes ${ts()}]`, ...a);
+const warn = (...a) => DEBUG_LIKES && console.warn(`[likes ${ts()}]`, ...a);
+const err = (...a) => DEBUG_LIKES && console.error(`[likes ${ts()}]`, ...a);
+
+const pickId = (e) =>
+  e?._id || e?.id || e?.linkedPostId || e?.eventId || e?.promotionId || e?.postId || null;
+
+/* ---------------------------------- */
+/* Type helpers                        */
+/* ---------------------------------- */
+
+// Resolve the underlying post id when dealing with suggestion cards
+const resolveSuggestionPostId = (entity, fallback) => {
+  const resolved =
+    entity?._id ||
+    entity?.id ||
+    entity?.linkedPostId ||
+    entity?.eventId ||
+    entity?.promotionId ||
+    entity?.postId ||
+    fallback;
+  log('resolveSuggestionPostId:', { resolved, fallback, entityKey: pickId(entity) });
+  return resolved;
+};
+
+// Map any legacy/singular UI type → backend router key.
+const normalizePostType = (t, entity) => {
+  if (!t) {
+    const kind = String(entity?.kind || '').toLowerCase();
+    if (kind.includes('event')) return 'events';
+    if (kind.includes('promo')) return 'promotions';
+    // schema/type-based fallbacks
+    const tn = String(entity?.__typename || '').toLowerCase();
+    if (tn === 'event') return 'events';
+    if (tn === 'promotion') return 'promotions';
+    if (tn === 'review') return 'reviews';
+    if (tn === 'checkin' || tn === 'check-in') return 'checkins';
+  }
+  if (t === 'suggestion') {
+    const kind = String(entity?.kind || '').toLowerCase();
+    return kind.includes('promo') ? 'promotions' : 'events';
+  }
+  switch (t) {
+    case 'review': return 'reviews';
+    case 'check-in':
+    case 'checkin': return 'checkins';
+    case 'invite': return 'invites';
+    case 'promotion': return 'promotions';
+    case 'event': return 'events';
+    case 'sharedPost': return 'sharedPosts';
+    case 'liveStream': return 'liveStreams';
+    default: return t;
   }
 };
 
-const likeMessageFor = (postType) => {
-  switch (postType) {
-    case 'liveStream': return 'liked your live stream.'; // 👈 NEW
-    case 'sharedPost': return 'liked your shared post.';
-    case 'check-in': return 'liked your check-in.';
-    case 'invite': return 'liked your invite.';
-    default: return `liked your ${postType}.`;
+// For notifications.typeRef
+const typeRefFor = (t) => {
+  const map = {
+    reviews: 'Review',
+    checkins: 'CheckIn',
+    invites: 'ActivityInvite',
+    sharedPosts: 'SharedPost',
+    liveStreams: 'LiveStream',
+    promotions: 'Promotion',
+    events: 'Event',
+  };
+  const out = map[t] || 'SharedPost';
+  log('typeRefFor:', { in: t, out });
+  return out;
+};
+
+const likeMessageFor = (t) => {
+  const map = {
+    liveStreams: 'liked your live stream.',
+    sharedPosts: 'liked your shared post.',
+    checkins: 'liked your check-in.',
+    invites: 'liked your invite.',
+    promotions: 'liked your promotion.',
+    events: 'liked your event.',
+    reviews: 'liked your post.',
+  };
+  const out = map[t] || map.reviews;
+  log('likeMessageFor:', { type: t, msg: out });
+  return out;
+};
+
+// Best-effort owner resolution
+const getOwnerId = (postType, entity) => {
+  let owner = null;
+  if (postType === 'reviews' || postType === 'checkins') {
+    owner = entity?.userId || entity?.user?.id || null;
+  } else if (postType === 'invites') {
+    owner = entity?.senderId || entity?.sender?.id || null;
+  } else if (postType === 'sharedPosts') {
+    owner = entity?.originalOwner?.id || entity?.originalOwner || null;
+  } else if (postType === 'liveStreams') {
+    owner = entity?.hostUserId || entity?.userId || null;
   }
+  log('getOwnerId:', { postType, owner });
+  return owner; // business-owned returns null
 };
 
 /* ---------------------------------- */
-/* Core like handler                  */
+/* Core like handler (centralized)     */
 /* ---------------------------------- */
 export const handleLike = async ({
   postType,
@@ -44,100 +129,86 @@ export const handleLike = async ({
   fullName,
   dispatch,
 }) => {
-  if (!review) {
-    console.warn(`handleLike: No review/live doc provided for postId ${postId}`);
+  if (!postId) {
+    warn('handleLike: missing postId', { postType, reviewId: pickId(review) });
     return;
   }
 
-  // ownerId is the content owner's user id
-  let ownerId = null;
-  let placeId = review?.placeId || null;
-
-  if (postType === 'invite') {
-    ownerId = review?.sender?.id || review?.senderId;
-  } else if (postType === 'sharedPost') {
-    ownerId = review?.originalOwner?.id || review?.originalOwner;
-  } else if (postType === 'liveStream') {
-    ownerId = review?.userId;                     // 👈 server sets host user id here
-  } else {
-    ownerId = review?.userId;
-  }
+  const normalizedType = normalizePostType(postType, review);
+  log('handleLike: dispatch toggle', { normalizedType, postId, userId });
 
   try {
-    let payload;
+    const result = await dispatch(togglePostLike({ postType: normalizedType, postId }));
+    const payload = result?.payload;
+    const data = payload?.data || {};
+    log('handleLike: dispatch result (trimmed)', {
+      ok: !!payload,
+      hasData: !!data,
+      liked: data?.liked,
+      likesCount: Array.isArray(data?.likes) ? data.likes.length : undefined,
+      status: result?.meta?.requestStatus,
+    });
 
-    if (postType === 'sharedPost') {
-      const result = await dispatch(toggleLikeOnSharedPost({ postId, userId, fullName }));
-      payload = result?.payload;
-    } else if (postType === 'liveStream') {
-      const result = await dispatch(toggleLiveLike({ liveId: postId })); // 👈 NEW
-      payload = result?.payload; // expected: { liveId, liked, likes, likesCount }
-      // Normalize to match downstream check
-      if (payload && !payload.likes && Array.isArray(review?.likes)) {
-        // if API returns only counts, fallback to local review.likes
-        payload.likes = review.likes;
-      }
-    } else {
-      const result = await dispatch(toggleLike({ postType, postId, placeId, userId, fullName }));
-      payload = result?.payload;
+    const userLiked = typeof data.liked === 'boolean'
+      ? data.liked
+      : Array.isArray(data.likes)
+        ? data.likes.some(l => String(l.userId) === String(userId))
+        : false;
+
+    const ownerId = getOwnerId(normalizedType, review);
+    log('handleLike: computed', { userLiked, ownerId });
+
+    if (!ownerId || String(ownerId) === String(userId)) {
+      log('handleLike: skip notification (no owner or self-like)', { ownerId, userId });
+      return;
     }
 
-    const userLiked = Array.isArray(payload?.likes)
-      ? payload.likes.some(like => String(like.userId) === String(userId))
-      : !!payload?.liked; // live stream thunk returns { liked }
-
-    // No notification if liking your own content
-    if (!ownerId || String(ownerId) === String(userId)) return;
-
-    const typeRef = typeRefFor(postType);
+    const typeRef = typeRefFor(normalizedType);
 
     if (userLiked) {
+      const msg = `${fullName} ${likeMessageFor(normalizedType)}`;
+      log('handleLike: createNotification →', { ownerId, typeRef, postId, msg });
       await dispatch(createNotification({
         userId: ownerId,
         type: 'like',
-        message: `${fullName} ${likeMessageFor(postType)}`,
+        message: msg,
         relatedId: userId,
         typeRef,
-        targetId: postId,     // liveId for live streams
-        postType,
+        targetId: postId,
+        postType: normalizedType,
       }));
     } else {
-      // Remove like notification on unlike
       const state = store.getState();
-      const existingNotification = selectNotificationByFields(state, {
+      const existing = selectNotificationByFields(state, {
         relatedId: userId,
         targetId: postId,
         typeRef,
       });
-
-      if (existingNotification?._id) {
-        await dispatch(deleteNotification({ userId: ownerId, notificationId: existingNotification._id }));
+      log('handleLike: unlike path; existing notif?', { hasExisting: !!existing?._id, existingId: existing?._id });
+      if (existing?._id) {
+        await dispatch(deleteNotification({ userId: ownerId, notificationId: existing._id }));
+        log('handleLike: deleteNotification dispatched');
       }
     }
-  } catch (error) {
-    console.error(`Error toggling like for ${postType} (${postId}):`, error);
+  } catch (e) {
+    err(`handleLike: Error toggling like for ${postType} (${postId})`, e);
   }
 };
 
 /* ---------------------------------- */
-/* Animation helper (unchanged)       */
+/* Animation helper                   */
 /* ---------------------------------- */
 const runLikeAnimation = (animation) => {
   if (!(animation instanceof Animated.Value)) {
-    console.warn('⚠️ Invalid or missing Animated.Value passed to runLikeAnimation');
+    warn('runLikeAnimation: invalid or missing Animated.Value', { animation });
     return;
   }
-  Animated.timing(animation, {
-    toValue: 1,
-    duration: 50,
-    useNativeDriver: true,
-  }).start(() => {
+  log('runLikeAnimation: start');
+  Animated.timing(animation, { toValue: 1, duration: 50, useNativeDriver: true }).start(() => {
     setTimeout(() => {
-      Animated.timing(animation, {
-        toValue: 0,
-        duration: 500,
-        useNativeDriver: true,
-      }).start(() => console.log('✅ Animation back to 0 complete'));
+      Animated.timing(animation, { toValue: 0, duration: 500, useNativeDriver: true }).start(() => {
+        log('runLikeAnimation: end');
+      });
     }, 500);
   });
 };
@@ -155,34 +226,72 @@ export const handleLikeWithAnimation = async ({
   dispatch,
   force = false,
 }) => {
-  const now = Date.now();
+  // Resolve normalized type + effective id (suggestions may point to underlying post)
+  const normalizedType = normalizePostType(postType, review);
+  const suggested = postType === 'suggestion';
+  const effectivePostId = suggested ? resolveSuggestionPostId(review, postId) : postId;
+
+  const hasAnim = animation instanceof Animated.Value;
+  const wasLikedBefore = Array.isArray(review?.likes)
+    ? review.likes.some((like) => String(like.userId) === String(user?.id))
+    : !!review?.liked || !!review?.likedByMe;
+
+  // ⚠️ We log both keys to catch mismatches
+  const lk = String(postId || '');
+  const ek = String(effectivePostId || '');
 
   lastTapRef.current ||= {};
-  lastTapRef.current[postId] ||= 0;
+  if (lk && lastTapRef.current[lk] == null) lastTapRef.current[lk] = 0;
+  if (ek && lastTapRef.current[ek] == null) lastTapRef.current[ek] = 0;
 
-  const wasLikedBefore = Array.isArray(review?.likes)
-    ? review.likes.some(like => String(like.userId) === String(user?.id))
-    : !!review?.likedByMe; // live entities may store a boolean
+  const now = Date.now();
+  const lastForPostId = lk ? lastTapRef.current[lk] : undefined;
+  const lastForEffective = ek ? lastTapRef.current[ek] : undefined;
 
-  const shouldAnimate = force || (now - lastTapRef.current[postId] < 300);
+  // This internal gate expects *two* quick calls; but your UI already did the double-tap.
+  // Prefer passing force=true from PhotoItem’s double-tap handler.
+  const shouldAnimate = force || (lk && now - (lastForPostId || 0) < 300);
 
+  log('handleLikeWithAnimation:init', {
+    input: { postType, postId },
+    normalizedType,
+    suggested,
+    effectivePostId,
+    hasAnim,
+    wasLikedBefore,
+    lastForPostId,
+    lastForEffective,
+    force,
+    shouldAnimate,
+  });
+
+  // Arm-and-exit path (if you keep internal gating)
   if (!shouldAnimate) {
-    lastTapRef.current[postId] = now;
+    if (lk) lastTapRef.current[lk] = now;
+    log('handleLikeWithAnimation: armed gate, returning (call again within 300ms or pass force=true)');
     return;
   }
 
+  // Proceed to like toggle
   await handleLike({
-    postType,
-    postId,
+    postType: normalizedType,
+    postId: effectivePostId,
     review,
     userId: user?.id,
     fullName: `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim(),
     dispatch,
   });
 
-  if (!wasLikedBefore && animation instanceof Animated.Value) {
+  // Only show overlay when we flipped from unliked → liked
+  if (!wasLikedBefore && hasAnim) {
+    log('handleLikeWithAnimation: run overlay animation');
     runLikeAnimation(animation);
+  } else {
+    log('handleLikeWithAnimation: skip overlay animation', { wasLikedBefore, hasAnim });
   }
 
-  lastTapRef.current[postId] = now;
+  // Update both keys so subsequent calls aren’t misleading
+  if (lk) lastTapRef.current[lk] = now;
+  if (ek) lastTapRef.current[ek] = now;
+  log('handleLikeWithAnimation: complete', { lk, ek, now });
 };

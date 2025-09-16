@@ -10,8 +10,7 @@ import BottomCommentsModal from './BottomCommentsModal';
 import { isVideo } from '../../utils/isVideo';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import VideoThumbnail from './VideoThumbnail';
-import { handleLikeWithAnimation } from '../../utils/LikeHandlers';
-import { eventPromoLikeWithAnimation } from '../../utils/LikeHandlers/promoEventLikes';
+import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from '../../utils/LikeHandlers';
 import { selectReviewById } from '../../utils/reviewSelectors';
 import { useLikeAnimations } from '../../utils/LikeHandlers/LikeAnimationContext';
 import { selectNearbySuggestionById } from '../../Slices/GooglePlacesSlice';
@@ -19,6 +18,9 @@ import StoryAvatar from '../Stories/StoryAvatar';
 import ExpandableText from './ExpandableText';
 import ShareOptionsModal from './SharedPosts/ShareOptionsModal';
 import SharePostModal from './SharedPosts/SharePostModal';
+import { typeFromKind, pickPostId } from '../../utils/posts/postIdentity';
+import { selectPromotionById } from '../../Slices/PromotionsSlice';
+import { selectEventById } from '../../Slices/EventsSlice';
 import PostActions from './PostActions';
 
 const { width, height } = Dimensions.get('window');
@@ -29,13 +31,24 @@ const FullScreenPhoto = () => {
   const navigation = useNavigation();
   const {
     reviewId,
+    selectedType,
     initialIndex = 0,
     taggedUsersByPhotoKey,
     isEventPromo = false,
   } = route?.params;
   const user = useSelector(selectUser);
-  const review = isEventPromo ?
-    useSelector((state) => selectNearbySuggestionById(state, reviewId)) : useSelector(selectReviewById(reviewId));
+  const review = useSelector((state) => {
+    if (isEventPromo) {
+      if (selectedType === 'event') {
+        return selectEventById(state, reviewId);
+      }
+      if (selectedType === 'promo') {
+        return selectPromotionById(state, reviewId);
+      }
+      return selectNearbySuggestionById(state, reviewId);
+    }
+    return selectReviewById(state, reviewId);
+  });
   const flatListRef = useRef();
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
@@ -51,36 +64,33 @@ const FullScreenPhoto = () => {
   const animation = getAnimation(review?._id);
   const lastTapRef = useRef({});
   const taggedUsers = taggedUsersByPhotoKey?.[currentPhoto?.photoKey] || [];
-  const eventPromoType = ["activeEvent", "upcomingEvent"].includes(review.kind) ? "event" : "promo";
-  const postText = review.reviewText || review.message || null;
+  const postText = review?.reviewText || review?.message || review?.description || null;
+  const ownerId = review?.userId || review?.placeId;
+  const ownerPic = review?.profilePicUrl || review?.businessLogoUrl;
+  const ownerName = review?.fullName || review?.businessName;
 
-  const likeWithAnimation = (force = false) => {
-    const postId = review._id;
+
+  console.log(review)
+  const handleLikeWithAnimation = (review, force = true) => {
+    const derivedType =
+      (review?.type && String(review.type).toLowerCase()) ||
+      typeFromKind(review?.kind) ||
+      (review?.__typename && String(review.__typename).toLowerCase());
+
+    const postId = pickPostId(review);
     const animation = getAnimation(postId);
 
-    if (isEventPromo) {
-      return eventPromoLikeWithAnimation({
-        type: eventPromoType,
-        postId,
-        item: review,
-        user,
-        lastTapRef,
-        animation,
-        dispatch,
-        force,
-      })
-    } else {
-      return handleLikeWithAnimation({
-        postType: review.type,
-        postId,
-        review,
-        user,
-        animation,
-        lastTapRef,
-        dispatch,
-        force,
-      });
-    }
+    return sharedHandleLikeWithAnimation({
+      postType: derivedType || 'suggestion', // or pass 'event'/'promotion' explicitly if you know it
+      kind: review.kind,
+      postId,
+      review,            // ✅ IMPORTANT: shared uses `review`, not `item`
+      user,
+      animation,
+      dispatch,
+      lastTapRef,
+      force,                   // ✅ we already confirmed double-tap in UI
+    });
   };
 
   const handleTap = () => {
@@ -90,7 +100,7 @@ const FullScreenPhoto = () => {
     if (!lastTapRef.current[postId]) lastTapRef.current[postId] = 0;
 
     if (now - lastTapRef.current[postId] < 300) {
-      likeWithAnimation(review);
+      handleLikeWithAnimation(review);
       lastTapRef.current[postId] = 0;
     } else {
       lastTapRef.current[postId] = now;
@@ -216,22 +226,25 @@ const FullScreenPhoto = () => {
           />
         )}
         <View style={styles.actionsContainer}>
-        <PostActions
-          item={review}
-          onShare={openShareOptions}
-          handleLikeWithAnimation={() => likeWithAnimation(true)}
-          handleOpenComments={() => setCommentsVisible(true)}
-          toggleTaggedUsers={() => setShowTags((prev) => !prev)}
-          photo={currentPhoto}
-          isCommentScreen={false}
-          orientation="column"
-        />
+          <PostActions
+            item={review}
+            onShare={openShareOptions}
+            handleLikeWithAnimation={() => likeWithAnimation(true)}
+            handleOpenComments={() => setCommentsVisible(true)}
+            toggleTaggedUsers={() => setShowTags((prev) => !prev)}
+            photo={currentPhoto}
+            isCommentScreen={false}
+            orientation="column"
+          />
         </View>
         <View style={styles.bottomOverlay}>
           <View style={styles.postOwner}>
-            <StoryAvatar userId={review?.userId} profilePicUrl={review.profilePicUrl} />
-            <Text style={styles.postOwnerName}>{review.fullName}</Text>
+            <StoryAvatar userId={ownerId} profilePicUrl={ownerPic} />
+            <Text style={styles.postOwnerName}>{ownerName}</Text>
           </View>
+          {review?.title && (
+            <Text style={styles.title}>{review?.title}</Text>
+          )}
           <ExpandableText
             text={postText}
             maxLines={3}
@@ -336,6 +349,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 10,
+  },
+  title: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: '600',
+    marginVertical: 5,
   },
   reviewText: {
     color: '#fff',

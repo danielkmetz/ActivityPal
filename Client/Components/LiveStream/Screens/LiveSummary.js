@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-nati
 import { Video } from 'expo-av';
 import ShareOptionsModal from '../../Reviews/SharedPosts/ShareOptionsModal';
 import SharePostModal from '../../Reviews/SharedPosts/SharePostModal';
+import ReplayStatsRow from '../ReplayStats/ReplayStatsRow';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchReplay, makeSelectReplayById, clearReplay } from '../../../Slices/LiveStreamSlice';
 
@@ -89,8 +90,9 @@ export default function LiveSummary({ route, navigation }) {
   const [postToFeedModal, setPostToFeedModal] = useState(false);
   const videoRef = useRef(null);
   const pollRef = useRef(null);
-
-  console.log(replay)
+  const uniqueViewers = replay?.uniqueViewers;
+  const peakViewers = replay?.peakViewers;
+  const durationSec = replay?.durationSec;
 
   useEffect(() => {
     if (!liveId) return;
@@ -140,9 +142,9 @@ export default function LiveSummary({ route, navigation }) {
     return () => { cancelled = true; };
   }, [backendReady, playbackUrl]);
 
-  const handleLoadStart = () => {};
-  const handleLoad = () => {};
-  const handleError = () => {};
+  const handleLoadStart = () => { };
+  const handleLoad = () => { };
+  const handleError = () => { };
 
   const handleShareToStory = () => {
     setShareOptionsVisible(false);
@@ -178,12 +180,22 @@ export default function LiveSummary({ route, navigation }) {
             <ActivityIndicator />
             <Text style={S.hint}>Processing replay…</Text>
             {replay?.live ? <Text style={S.hint}>Stream still looks live—finalizing…</Text> : null}
+            <ReplayStatsRow
+              uniqueViewers={uniqueViewers}
+              peakViewers={peakViewers}
+              durationSec={durationSec}
+            />
             {replay?.status === 'failed' ? <Text style={S.err}>{replay?.error}</Text> : null}
           </View>
         ) : !playerReady ? (
           <View style={S.panel}>
             <ActivityIndicator />
             <Text style={S.hint}>Preparing replay…</Text>
+            <ReplayStatsRow
+              uniqueViewers={uniqueViewers}
+              peakViewers={peakViewers}
+              durationSec={durationSec}
+            />
             {playerErr ? <Text style={S.hint}>Waiting for HLS variants… ({playerErr})</Text> : null}
           </View>
         ) : (
@@ -198,6 +210,11 @@ export default function LiveSummary({ route, navigation }) {
               onLoadStart={handleLoadStart}
               onLoad={handleLoad}
               onError={handleError}
+            />
+            <ReplayStatsRow
+              uniqueViewers={uniqueViewers}
+              peakViewers={peakViewers}
+              durationSec={durationSec}
             />
             <View style={S.meta}>
               <Text style={S.metaLine}>URL: {playbackUrl}</Text>

@@ -71,37 +71,6 @@ export const deletePromotion = createAsyncThunk(
   }
 );
 
-export const togglePromoLike = createAsyncThunk(
-  "promotions/togglePromoLike",
-  async ({ placeId, id, userId, fullName }, { rejectWithValue, dispatch }) => {
-    try {
-      const response = await axios.post(`${API_URL}/${id}/like`,
-        {
-          userId,
-          fullName,
-        }
-      );
-
-      const newLikes = response.data.likes;
-
-      dispatch(updateNearbySuggestionLikes({
-        postId: id,
-        likes: newLikes,
-      }))
-
-      return {
-        promoId: id,
-        likes: newLikes,
-      };
-    } catch (error) {
-      const errorMessage =
-        error.response?.data?.message || error.message || "Failed to like promotion";
-
-      return rejectWithValue(errorMessage);
-    }
-  }
-);
-
 // 📌 Slice Definition
 const promotionsSlice = createSlice({
   name: "promotions",
@@ -130,8 +99,10 @@ const promotionsSlice = createSlice({
         state.error = null;
       })
       .addCase(fetchPromotions.fulfilled, (state, action) => {
+        const { promotions } = action.payload;
+
         state.loading = false;
-        state.promotions = action.payload;
+        state.promotions = promotions;
       })
       .addCase(fetchPromotions.rejected, (state, action) => {
         state.loading = false;
@@ -159,26 +130,6 @@ const promotionsSlice = createSlice({
         state.promotions = state.promotions.filter(promo => promo._id !== action.payload);
       })
       .addCase(deletePromotion.rejected, (state, action) => {
-        state.error = action.payload;
-      })
-      .addCase(togglePromoLike.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(togglePromoLike.fulfilled, (state, action) => {
-        state.loading = false;
-        const { promoId, likes } = action.payload;
-
-        const index = state.promotions.findIndex((p) => p._id === promoId);
-        if (index !== -1) {
-          state.promotions[index].likes = likes;
-        }
-        if (state.selectedPromotion?._id === promoId) {
-          state.selectedPromotion.likes = likes;
-        }
-      })
-      .addCase(togglePromoLike.rejected, (state, action) => {
-        state.loading = false;
         state.error = action.payload;
       })
       .addCase(fetchPromotionById.pending, (state) => {

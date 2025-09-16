@@ -4,7 +4,6 @@ const Business = require('../models/Business');
 const Review = require('../models/Reviews');
 const User = require('../models/User');
 const ActivityInvite = require('../models/ActivityInvites.js');
-const CheckIn = require('../models/CheckIns.js');
 const mongoose = require('mongoose');
 const { resolveTaggedPhotoUsers, resolveTaggedUsers, resolveUserProfilePics, enrichComments } = require('../utils/userPosts.js')
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
@@ -533,67 +532,6 @@ router.get('/:placeId', async (req, res) => {
     res.status(200).json({ reviews: enrichedReviews });
   } catch (error) {
     console.error('❌ Error retrieving reviews by placeId:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// Toggle like on a review, invite or check-in
-router.post('/:postType/:placeId/:postId/like', async (req, res) => {
-  const { postType, placeId, postId } = req.params;
-  const { userId, fullName } = req.body;
-
-  try {
-    let post = null;
-    let ownerId = null;
-    let model = null;
-
-    switch (postType) {
-      case 'review':
-        model = Review;
-        break;
-      case 'check-in':
-      case 'checkin':
-        model = CheckIn;
-        break;
-      case 'invite':
-        model = ActivityInvite;
-        break;
-      default:
-        return res.status(400).json({ message: 'Invalid post type' });
-    }
-
-    post = await model.findById(postId);
-    if (!post) return res.status(404).json({ message: `${postType} not found` });
-
-    ownerId = post.userId?.toString() || post.senderId?.toString(); // Reviews/CheckIns use userId; invites use senderId
-
-    const likeIndex = post.likes.findIndex(
-      (like) => like.userId.toString() === userId
-    );
-    const isLiking = likeIndex === -1;
-
-    if (isLiking) {
-      post.likes.push({ userId, fullName, date: new Date() });
-    } else {
-      post.likes.splice(likeIndex, 1);
-    }
-
-    await post.save();
-
-    // 🛎️ Optionally remove notification if unliking
-    if (!isLiking && ownerId && ownerId !== userId) {
-      await User.findByIdAndUpdate(ownerId, {
-        $pull: { notifications: { type: 'like', targetId: post._id } },
-      });
-    }
-
-    return res.status(200).json({
-      message: isLiking ? 'Like added' : 'Like removed',
-      likes: post.likes,
-    });
-
-  } catch (error) {
-    console.error('❌ Like toggle error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

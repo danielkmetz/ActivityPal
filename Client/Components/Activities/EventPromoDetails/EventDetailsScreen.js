@@ -5,7 +5,7 @@ import { KeyboardAwareFlatList } from 'react-native-keyboard-aware-scroll-view';
 import DetailsHeader from './DetailsHeader';
 import EventPromoCommentThread from './EventPromoCommentThread';
 import CommentInputFooter from '../../Reviews/CommentINputFooter';
-import { eventPromoLikeWithAnimation } from '../../../utils/LikeHandlers/promoEventLikes';
+import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from '../../../utils/LikeHandlers';
 import { useDispatch, useSelector } from 'react-redux';
 import dayjs from 'dayjs';
 import { selectUser } from '../../../Slices/UserSlice';
@@ -15,6 +15,7 @@ import { useLikeAnimations } from '../../../utils/LikeHandlers/LikeAnimationCont
 import { uploadReviewPhotos } from '../../../Slices/PhotosSlice';
 import { selectSelectedPromotion, selectPromotionById } from '../../../Slices/PromotionsSlice';
 import { selectEventById, selectSelectedEvent } from '../../../Slices/EventsSlice';
+import { typeFromKind, pickPostId } from '../../../utils/posts/postIdentity';
 import { addComment, toApiPostType } from '../../../Slices/CommentsSlice';
 
 export default function EventDetailsScreen() {
@@ -22,7 +23,7 @@ export default function EventDetailsScreen() {
     const { params } = useRoute();
     const { activity } = params;
     const selectedType = activity?.kind?.toLowerCase().includes('event') ? 'event' : 'promo'
-    const eventOrPromo = selectedType === ('promo' || 'promotion') ? 
+    const eventOrPromo = selectedType === ('promo' || 'promotion') ?
         useSelector((state) => selectPromotionById(state, activity?._id)) :
         useSelector((state) => selectEventById(state, activity?._id));
     const selectedEvent = useSelector(selectSelectedEvent);
@@ -85,17 +86,26 @@ export default function EventDetailsScreen() {
         }
     };
 
-    const handleLikeWithAnimation = (item, force = false) => {
-        const animation = getAnimation(item._id);
-        return eventPromoLikeWithAnimation({
-            type: selectedType,
-            postId: item._id,
-            item,
+    const handleLikeWithAnimation = (item, force = true) => {
+        // Derive type from kind (e.g., "Event", "Promotion", "activeEvent", "upcomingPromo")
+        const derivedType =
+            (item?.type && String(item.type).toLowerCase()) ||
+            typeFromKind(item?.kind) ||
+            (item?.__typename && String(item.__typename).toLowerCase());
+
+        const postId = pickPostId(item);
+        const animation = getAnimation(postId);
+
+        return sharedHandleLikeWithAnimation({
+            postType: derivedType || 'suggestion', // or pass 'event'/'promotion' explicitly if you know it
+            kind: item.kind,
+            postId,
+            review: item,            // ✅ IMPORTANT: shared uses `review`, not `item`
             user,
-            lastTapRef,
             animation,
             dispatch,
-            force,
+            lastTapRef,
+            force,                   // ✅ we already confirmed double-tap in UI
         });
     };
 

@@ -129,6 +129,7 @@ router.post('/send', async (req, res) => {
         ...invite.toObject(),
         sender: enrichedSender,
         recipients: enrichedRecipients,
+        type: 'invite',
         business: {
           ...business,
           presignedPhotoUrl: businessLogoUrl,
@@ -655,8 +656,7 @@ router.delete('/delete', async (req, res) => {
 
 router.post('/request', async (req, res) => {
     const { userId, inviteId } = req.body;
-    console.log('📥 Incoming /request payload:', { userId, inviteId });
-
+    
     try {
         const invite = await ActivityInvite.findById(inviteId);
         if (!invite) {
@@ -675,12 +675,10 @@ router.post('/request', async (req, res) => {
         // Add request
         invite.requests.push({ userId });
         await invite.save();
-        console.log('✅ Added request to invite. New requests array:', invite.requests);
-
+        
         // Enrich recipients
         const recipientIds = invite.recipients.map(r => r.userId);
-        console.log('🔍 Recipient IDs to enrich:', recipientIds);
-
+        
         const recipientUsers = await User.find({ _id: { $in: recipientIds } })
             .select('_id firstName lastName profilePic')
             .lean();
@@ -705,8 +703,7 @@ router.post('/request', async (req, res) => {
 
         // Enrich requests
         const requestIds = invite.requests.map(r => r.userId);
-        console.log('🔍 Request IDs to enrich:', requestIds);
-
+        
         const requestUsers = await User.find({ _id: { $in: requestIds } })
             .select('_id firstName lastName profilePic')
             .lean();
@@ -770,8 +767,6 @@ router.post('/request', async (req, res) => {
                 presignedPhotoUrl,
             },
         };
-
-        console.log('✅ Final enriched invite:', enrichedInvite);
 
         res.status(200).json({
             success: true,

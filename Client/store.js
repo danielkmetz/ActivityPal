@@ -26,8 +26,10 @@ import insightsReducer from './Slices/InsightsSlice';
 import liveStreamReducer from './Slices/LiveStreamSlice';
 import commentsReducer from './Slices/CommentsSlice';
 import { commentsListener } from './Listeners/comments';
+import { likesListener } from './Listeners/likes';
 import { crashLoggerMiddleware } from './crashLoggerMiddleware';
 import LiveChatReducer from './Slices/LiveChatSlice';
+import likesReducer from './Slices/LikesSlice';
 
 const store = configureStore({
     reducer: combineReducers({
@@ -58,11 +60,13 @@ const store = configureStore({
         live: liveStreamReducer,
         comments: commentsReducer,
         liveChat: LiveChatReducer,
+        likes: likesReducer,
     }),
     middleware: (getDefault) =>
         getDefault({ serializableCheck: false })
             .prepend(crashLoggerMiddleware)   // <— FIRST
-            .concat(commentsListener.middleware),
+            .concat(commentsListener.middleware)
+            .concat(likesListener.middleware),
 });
 
 export default store;

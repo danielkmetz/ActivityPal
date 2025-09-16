@@ -54,22 +54,6 @@ export const createReview = createAsyncThunk(
   }
 );
 
-export const toggleLike = createAsyncThunk(
-  'reviews/toggleLike',
-  async ({ postType, placeId, postId, userId, fullName }, { rejectWithValue }) => {
-    try {
-      const response = await axios.post(
-        `${BASE_URL}/reviews/${postType}/${placeId}/${postId}/like`,
-        { userId, fullName }
-      );
-
-      return { postType, postId, likes: response.data.likes };
-    } catch (error) {
-      return rejectWithValue(error.response?.data?.message || 'Failed to toggle like');
-    }
-  }
-);
-
 export const fetchReviewsByUserId = createAsyncThunk(
   'reviews/fetchReviewsByUserId',
   async ({ userId, limit = 15, after }, { rejectWithValue }) => {
@@ -342,6 +326,24 @@ const reviewsSlice = createSlice({
         ...state.profileReviews,
       ]
     },
+    addPostToFeeds: (state, action) => {
+      const newPost = action.payload;
+      const newId = newPost?._id || newPost?.id;
+
+      const upsert = (arr) => {
+        if (!Array.isArray(arr)) return;
+        const idx = arr.findIndex(p => (p?._id || p?.id) === newId);
+        if (idx !== -1) {
+          // Replace existing (immer lets us mutate)
+          arr[idx] = { ...arr[idx], ...newPost };
+        } else {
+          arr.unshift(newPost);
+        }
+      };
+
+      upsert(state.profileReviews);
+      upsert(state.userAndFriendsReviews);
+    },
     updatePostInReviewState: (state, action) => {
       const updatedPost = action.payload;
 
@@ -500,18 +502,6 @@ const reviewsSlice = createSlice({
         state.loading = "idle";
         state.error = action.payload;
       })
-      .addCase(toggleLike.fulfilled, (state, action) => {
-        const { postId, likes } = action.payload;
-
-        const updateLikes = (arr) =>
-          arr.map((review) => (review._id === postId ? { ...review, likes: [...likes] } : review));
-
-        state.profileReviews = updateLikes(state.profileReviews);
-        state.userAndFriendsReviews = updateLikes(state.userAndFriendsReviews);
-        state.otherUserReviews = updateLikes(state.otherUserReviews);
-        state.businessReviews = updateLikes(state.businessReviews);
-        state.suggestedPosts = updateLikes(state.suggestedPosts);
-      })
       .addCase(fetchReviewsByUserAndFriends.pending, (state) => {
         state.loading = "pending";
         state.error = null;
@@ -594,6 +584,7 @@ export const {
   updateSharedPostInReviews,
   applyPostUpdates,
   applyBulkPostUpdates,
+  addPostToFeeds,
 } = reviewsSlice.actions;
 
 export const selectProfileReviews = (state) => state.reviews.profileReviews || [];

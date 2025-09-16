@@ -9,6 +9,32 @@ import CommentButton from "./PostActions/CommentButton";
 import SendButton from './PostActions/SendButton';
 import ShareButton from './PostActions/ShareButton';
 
+function deriveLikeState(item, currentUserId) {
+  // Normalize possible shapes:
+  // - item.likes: array of { userId, ... }
+  // - item.likesCount: number
+  // - item.liked / item.likedByMe: boolean
+  // - (sometimes likes may be missing or an object)
+  const likesArray =
+    Array.isArray(item?.likes) ? item.likes
+    : Array.isArray(item?.likes?.items) ? item.likes.items
+    : [];
+
+  const count =
+    typeof item?.likesCount === 'number' ? item.likesCount
+    : Array.isArray(likesArray) ? likesArray.length
+    : 0;
+
+  const hasLiked =
+    typeof item?.liked === 'boolean' ? item.liked
+    : typeof item?.likedByMe === 'boolean' ? item.likedByMe
+    : Array.isArray(likesArray)
+      ? likesArray.some(like => String(like?.userId) === String(currentUserId))
+      : false;
+
+  return { hasLiked, count };
+}
+
 export default function PostActions({
   item,
   onShare,
@@ -22,7 +48,7 @@ export default function PostActions({
   const navigation = useNavigation();
   const user = useSelector(selectUser);
   const currentUserId = user?.id;
-  const hasLiked = item?.likes?.some((like) => like.userId === currentUserId);
+  const { hasLiked, count } = deriveLikeState(item, currentUserId);
   const shouldRenderTagButton =
     item?.type !== "invite" && photo?.taggedUsers?.length > 0;
 
@@ -59,7 +85,7 @@ export default function PostActions({
         {/* Like */}
         <LikeButton
           hasLiked={hasLiked}
-          count={item?.likes?.length || 0}
+          count={count}
           onPress={() => handleLikeWithAnimation(item, true)}
           orientation={orientation}
         />
