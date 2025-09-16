@@ -14,8 +14,12 @@ export const toApiPostType = (t) => {
         case 'sharedPost': return 'sharedPosts';
         case 'review': return 'reviews';
         case 'liveStream': return 'liveStreams';
+        case 'liveStreams': return 'liveStreams';
         case 'promotion': return 'promotions';
+        case 'promotions': return 'promotions';
+        case 'promos': return 'promotions';
         case 'event': return 'events';
+        case 'events': return 'events';
         case 'checkin': return 'checkins';
         case 'check-in': return 'checkins';
         case 'checkIn': return 'checkins';
@@ -32,8 +36,10 @@ export const addComment = createAsyncThunk(
     async ({ postType, postId, commentText, media }, { rejectWithValue }) => {
         try {
             const auth = await getAuthHeaders();
+            const resolvedType = toApiPostType(postType);
+
             const { data } = await axios.post(
-                `${API}/${postType}/${postId}/comments`,
+                `${API}/${resolvedType}/${postId}/comments`,
                 { commentText, media },
                 auth
             );
@@ -93,8 +99,10 @@ export const editComment = createAsyncThunk(
     async ({ postType, postId, commentId, newText, media }, { rejectWithValue }) => {
         try {
             const auth = await getAuthHeaders();
+            const resolvedType = toApiPostType(postType);
+
             const { data } = await axios.patch(
-                `${API}/${postType}/${postId}/comments/${commentId}`,
+                `${API}/${resolvedType}/${postId}/comments/${commentId}`,
                 { newText, media },
                 auth
             );
@@ -111,7 +119,9 @@ export const deleteComment = createAsyncThunk(
     async ({ postType, postId, commentId }, { rejectWithValue }) => {
         try {
             const auth = await getAuthHeaders();
-            await axios.delete(`${API}/${postType}/${postId}/comments/${commentId}`, auth);
+            const resolvedType = toApiPostType(postType);
+
+            await axios.delete(`${API}/${resolvedType}/${postId}/comments/${commentId}`, auth);
             return { postType, postId, commentId };
         } catch (err) {
             return rejectWithValue(err.response?.data || { message: 'Failed to delete comment' });

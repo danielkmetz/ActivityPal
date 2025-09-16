@@ -69,41 +69,66 @@ router.get("/promotion/:promotionId", async (req, res) => {
 router.get('/:placeId', async (req, res) => {
   try {
     const { placeId } = req.params;
-    
-    const business = await Business.findOne({ placeId }).lean();
+
+    const safePresign = async (photoKey) => {
+      if (!photoKey) return null;
+      try {
+        return await getPresignedUrl(photoKey);
+      } catch (e) {
+        console.error(`❌ Failed to get presigned URL for photoKey: ${photoKey}`, e);
+        return null;
+      }
+    };
+
+    // Fetch business + promotions in parallel
+    const [business, promotions] = await Promise.all([
+      Business.findOne(
+        { placeId },
+        { _id: 1, businessName: 1, placeId: 1, logoKey: 1 }
+      ).lean(),
+      Promotion.find({ placeId }).lean(),
+    ]);
+
     if (!business) {
       console.warn(`⚠️ Business not found for placeId: ${placeId}`);
       return res.status(404).json({ message: 'Business not found' });
     }
-    
-    const promotions = await Promotion.find({ placeId }).lean();
-    
-    const enhanced = await Promise.all(promotions.map(async (promo, index) => {
-      const photos = await Promise.all((promo.photos || []).map(async (photo, i) => {
-        if (!photo?.photoKey) {
-          console.warn(`⚠️ Promo ${promo._id} has invalid photo at index ${i}`);
-          return { ...photo, url: null };
-        }
 
-        try {
-          const url = await getPresignedUrl(photo.photoKey);
-          return { ...photo, url };
-        } catch (err) {
-          console.error(`❌ Failed to get presigned URL for photoKey: ${photo.photoKey}`, err);
-          return { ...photo, url: null };
-        }
-      }));
+    // Compute logo URL once
+    const businessLogoUrl = business.logoKey ? await safePresign(business.logoKey) : null;
 
-      return {
-        ...promo,
-        photos,
-        kind: 'promo',
-        ownerId: business._id?.toString?.() || null,
-        businessName: business.businessName || 'Unknown',
-      };
-    }));
+    const enhanced = await Promise.all(
+      promotions.map(async (promo) => {
+        // Enrich photos + comments in parallel
+        const [photos, comments] = await Promise.all([
+          Promise.all(
+            (promo.photos || []).map(async (photo, i) => {
+              if (!photo?.photoKey) {
+                console.warn(`⚠️ Promo ${promo._id} has invalid photo at index ${i}`);
+                return { ...photo, url: null };
+              }
+              const url = await safePresign(photo.photoKey);
+              return { ...photo, url };
+            })
+          ),
+          enrichComments(promo.comments || []),
+        ]);
 
-    res.json(enhanced);
+        return {
+          ...promo,
+          _id: promo._id?.toString?.() || promo._id,
+          photos,
+          comments,                 // ✅ enriched comments (with nested replies/media)
+          kind: 'promo',
+          ownerId: business._id?.toString?.() || null,
+          businessName: business.businessName || 'Unknown',
+          businessLogoUrl,          // ✅ convenient per-item
+        };
+      })
+    );
+
+    // Top-level logo also included if the client wants it
+    res.json({ promotions: enhanced, businessLogoUrl });
   } catch (err) {
     console.error('🔥 Unexpected error in GET /:placeId promotions route:', err);
     res.status(500).json({ message: 'Internal Server Error' });
@@ -272,72 +297,6 @@ router.delete("/:promotionId", async (req, res) => {
     res.json({ message: "Promotion deleted successfully" });
   } catch (error) {
     console.error("Error deleting promotion:", error);
-    res.status(500).json({ message: "Internal Server Error" });
-  }
-});
-
-// 📌 POST: Toggle like on a promotion
-router.post("/:postId/like", async (req, res) => {
-  const { postId } = req.params;
-  const { userId, fullName } = req.body;
-
-  if (!userId || !fullName) {
-    console.warn("⚠️ Missing userId or fullName in request body.");
-    return res.status(400).json({ message: "Missing userId or fullName" });
-  }
-
-  try {
-    const promotion = await Promotion.findById(postId);
-    if (!promotion) {
-      return res.status(404).json({ message: "Promotion not found" });
-    }
-
-    const placeId = promotion.placeId;
-    const business = await Business.findOne({ placeId });
-    if (!business) {
-      return res.status(404).json({ message: "Business not found" });
-    }
-
-    promotion.likes = promotion.likes || [];
-    const existingIndex = promotion.likes.findIndex(like => like.userId.toString() === userId);
-    const isUnliking = existingIndex > -1;
-
-    let promoModified = false;
-    let businessModified = false;
-
-    const notificationMatch = (n) =>
-      n.type === 'like' &&
-      n.relatedId?.toString() === userId &&
-      n.targetId?.toString() === postId &&
-      n.postType === 'promotion';
-
-    if (isUnliking) {
-      promotion.likes.splice(existingIndex, 1);
-      promoModified = true;
-
-      const notifIndex = business.notifications.findIndex(notificationMatch);
-      if (notifIndex !== -1) {
-        business.notifications.splice(notifIndex, 1);
-        businessModified = true;
-      }
-    } else {
-      promotion.likes.push({ userId, fullName, date: new Date() });
-      promoModified = true;
-
-      // ✅ Notification creation intentionally skipped
-    }
-
-    await Promise.all([
-      promoModified ? promotion.save() : null,
-      businessModified ? business.save() : null
-    ]);
-
-    res.status(200).json({
-      message: "Like toggled successfully",
-      likes: promotion.likes,
-    });
-  } catch (error) {
-    console.error("❌ Error toggling promotion like:", error.message, error.stack);
     res.status(500).json({ message: "Internal Server Error" });
   }
 });

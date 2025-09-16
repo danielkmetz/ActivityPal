@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, FlatList, TouchableOpacity, Animated, Dimensions } from 'react-native';
+import { View, FlatList, Animated, Dimensions } from 'react-native';
 import PhotoItem from './PhotoItem';
 import PhotoPaginationDots from './PhotoPaginationDots';
 
@@ -46,10 +46,6 @@ export default function PhotoFeed({
         onTouchEnd={() => onActiveChange?.(false)}
         renderItem={({ item, index }) => (
           <View style={{ width: screenWidth }}>
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={() => photoTapped?.(item)}   // ← fixed
-            >
               <PhotoItem
                 photo={item}
                 reviewItem={reviewItem}
@@ -59,7 +55,6 @@ export default function PhotoFeed({
                 lastTapRef={lastTapRef}
                 onOpenFullScreen={onOpenFullScreen}
               />
-            </TouchableOpacity>
           </View>
         )}
       />

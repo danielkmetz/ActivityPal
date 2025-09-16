@@ -70,37 +70,65 @@ router.get("/event/:eventId", async (req, res) => {
 router.get("/events/:placeId", async (req, res) => {
   const { placeId } = req.params;
 
+  // tiny helper to avoid blowing up on a bad/missing photoKey
+  const safePresign = async (photoKey) => {
+    if (!photoKey) return null;
+    try {
+      return await getPresignedUrl(photoKey);
+    } catch (e) {
+      console.warn("Failed to presign photoKey:", photoKey, e?.message || e);
+      return null;
+    }
+  };
+
   try {
-    // Lean query for better performance
-    const business = await Business.findOne({ placeId }).lean();
+    // Only pull what we need from Business for speed
+    const business = await Business.findOne(
+      { placeId },
+      { _id: 1, placeId: 1, businessName: 1, logoKey: 1 }
+    ).lean();
+
     if (!business) {
       return res.status(404).json({ message: "Business not found" });
     }
+
+    // Compute the logo URL once (if there is a logoKey)
+    const businessLogoUrl = business.logoKey
+      ? await safePresign(business.logoKey)
+      : null;
 
     // Lean event fetch for lightweight objects
     const events = await Event.find({ placeId }).lean();
 
     const enhancedEvents = await Promise.all(
       events.map(async (event) => {
-        const photos = await Promise.all(
-          (event.photos || []).map(async (photo) => ({
-            ...photo,
-            url: await getPresignedUrl(photo.photoKey),
-          }))
-        );
+        // Enrich photos and comments in parallel
+        const [photos, comments] = await Promise.all([
+          Promise.all(
+            (event.photos || []).map(async (photo) => ({
+              ...photo,
+              url: await safePresign(photo.photoKey),
+            }))
+          ),
+          enrichComments(event.comments || []), // <- uses your helper chain
+        ]);
 
         return {
           ...event,
+          _id: event._id?.toString?.() || event._id,
           photos,
+          comments, // <- now included on each event
           businessName: business.businessName,
           ownerId: business._id.toString(),
           placeId: business.placeId,
-          kind: 'Event',
+          kind: "Event",
+          businessLogoUrl, // convenient per-event
         };
       })
     );
 
-    res.status(200).json({ events: enhancedEvents });
+    // Also return top-level businessLogoUrl if you want it handy at the page level
+    res.status(200).json({ events: enhancedEvents, businessLogoUrl });
   } catch (error) {
     console.error("Error fetching events:", error);
     res.status(500).json({ message: "Server error" });
@@ -255,69 +283,6 @@ router.delete("/events/:placeId/:eventId", async (req, res) => {
     res.status(200).json({ message: "Event deleted successfully", eventId });
   } catch (error) {
     console.error("Error deleting event:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-//toggle a like on a event
-router.post("/events/:placeId/:eventId/like", async (req, res) => {
-  const { placeId, eventId } = req.params;
-  const { userId, fullName } = req.body;
-
-  if (!userId || !fullName) {
-    return res.status(400).json({ message: "Missing userId or fullName" });
-  }
-
-  try {
-    const [business, event] = await Promise.all([
-      Business.findOne({ placeId }),
-      Event.findById(eventId)
-    ]);
-
-    if (!business || !event) {
-      return res.status(404).json({ message: "Business or event not found" });
-    }
-
-    const likeIndex = event.likes.findIndex((like) => like.userId.toString() === userId);
-    const isUnliking = likeIndex > -1;
-
-    const notificationMatch = (n) =>
-      n.type === 'like' &&
-      n.relatedId?.toString() === userId &&
-      n.targetId?.toString() === eventId &&
-      n.postType === 'event';
-
-    let eventModified = false;
-    let businessModified = false;
-
-    if (isUnliking) {
-      event.likes.splice(likeIndex, 1);
-      eventModified = true;
-
-      const notifIndex = business.notifications.findIndex(notificationMatch);
-      if (notifIndex !== -1) {
-        business.notifications.splice(notifIndex, 1);
-        businessModified = true;
-        console.log(`🗑️ Removed like notification for user ${userId} on event ${eventId}`);
-      }
-    } else {
-      event.likes.push({ userId, fullName, date: new Date() });
-      eventModified = true;
-
-      // ✅ Notification creation intentionally removed
-    }
-
-    await Promise.all([
-      eventModified ? event.save() : null,
-      businessModified ? business.save() : null
-    ]);
-
-    res.status(200).json({
-      message: "Like toggled successfully",
-      likes: event.likes
-    });
-  } catch (error) {
-    console.error("Error toggling event like:", error);
     res.status(500).json({ message: "Server error" });
   }
 });

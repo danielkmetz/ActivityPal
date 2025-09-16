@@ -6,7 +6,6 @@ import {
   FlatList,
   TouchableOpacity,
   Alert,
-  Dimensions,
   Animated,
 } from "react-native";
 import { useSelector, useDispatch } from "react-redux";
@@ -18,12 +17,11 @@ import {
   deletePromotion,
   fetchPromotionById,
 } from "../../Slices/PromotionsSlice";
-import PhotoItem from "../Reviews/Photos/PhotoItem";
-import PhotoPaginationDots from '../Reviews/Photos/PhotoPaginationDots';
-import EventDetailsCard from "./EventDetailsCard";
 import { useNavigation } from "@react-navigation/native";
-import PostActions from "../Reviews/PostActions";
-import { eventPromoLikeWithAnimation } from "../../utils/LikeHandlers/promoEventLikes";
+import { pickPostId, typeFromKind } from '../../utils/posts/postIdentity';
+import { useLikeAnimations } from "../../utils/LikeHandlers/LikeAnimationContext";
+import EventPromoItem from './EventPromoItem/EventPromoItem';
+import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from "../../utils/LikeHandlers";
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
@@ -32,12 +30,14 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
   const navigation = useNavigation();
   const [selectedTab, setSelectedTab] = useState("events"); // Toggle state for Events & Promotions
   const [dropdownVisible, setDropdownVisible] = useState(null);
-  const [likedAnimations, setLikedAnimations] = useState(null);
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(null);
+  const currentIndexRef = useRef(0);
   const user = useSelector(selectUser);
   const events = useSelector(selectEvents);
   const promotions = useSelector(selectPromotions) || [];
   const placeId = user?.businessDetails?.placeId;
   const scrollX = useRef(new Animated.Value(0)).current;
+  const { registerAnimation, getAnimation } = useLikeAnimations();
   const lastTapRef = useRef({});
 
   // Fetch data on component mount
@@ -114,22 +114,31 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
   };
 
   const handleLikeWithAnimation = (item, force = true) => {
-    eventPromoLikeWithAnimation({
-      type: item.kind.includes('Promo') ? 'promo' : 'event',
-      postId: item._id,
-      item,
+    // Derive type from kind (e.g., "Event", "Promotion", "activeEvent", "upcomingPromo")
+    const derivedType =
+      (item?.type && String(item.type).toLowerCase()) ||
+      typeFromKind(item?.kind) ||
+      (item?.__typename && String(item.__typename).toLowerCase());
+
+    const postId = pickPostId(item);
+    const animation = getAnimation(postId);
+
+    return sharedHandleLikeWithAnimation({
+      postType: derivedType || 'suggestion', // or pass 'event'/'promotion' explicitly if you know it
+      kind: item.kind,
+      postId,
+      review: item,            // ✅ IMPORTANT: shared uses `review`, not `item`
       user,
-      lastTapRef,
-      likedAnimations,
-      setLikedAnimations,
+      animation,
       dispatch,
-      force,
+      lastTapRef,
+      force,                   // ✅ we already confirmed double-tap in UI
     });
   };
 
   const handleOpenComments = (item) => {
     if (item.kind === "Event") {
-      dispatch(fetchEventById({ eventId: item._id}))
+      dispatch(fetchEventById({ eventId: item._id }))
     } else {
       dispatch(fetchPromotionById({ promotionId: item._id }))
     }
@@ -179,76 +188,24 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
             : onScroll || undefined
         }
         ListHeaderComponent={<View style={styles.buffer} />}
-        renderItem={({ item }) => (
-          <View style={styles.itemCard}>
-            {/* Three-dot menu */}
-            <View style={styles.menuContainer}>
-              <TouchableOpacity onPress={() => toggleDropdown(item._id)}>
-                <Text style={styles.menuDots}>⋮</Text>
-              </TouchableOpacity>
-
-              {/* Dropdown Menu */}
-              {dropdownVisible === item._id && (
-                <View style={styles.dropdownMenu}>
-                  <TouchableOpacity
-                    style={[styles.dropdownItem, styles.editButton]}
-                    onPress={() => handleEdit(item)}
-                  >
-                    <Text style={styles.dropdownText}>Edit</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.dropdownItem, styles.deleteButton]}
-                    onPress={() => handleDelete(item)}
-                  >
-                    <Text style={styles.dropdownText}>Delete</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-            <View style={styles.itemInfo}>
-              <EventDetailsCard item={item} selectedTab={selectedTab} styles={styles} />
-              {item.photos.length > 0 && (
-                <>
-                  <FlatList
-                    data={item.photos}
-                    horizontal
-                    pagingEnabled
-                    showsHorizontalScrollIndicator={false}
-                    keyExtractor={(photo, index) => index.toString()}
-                    scrollEnabled={item.photos.length > 1}
-                    onScroll={Animated.event(
-                      [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-                      { useNativeDriver: false } // Native driver is false since we animate layout properties
-                    )}
-                    scrollEventThrottle={16}
-
-                    renderItem={({ item: photo }) => (
-                      <PhotoItem
-                        photo={photo}
-                        reviewItem={item} // can rename if not actually a review
-                        likedAnimations={{}} // or pass in your real likedAnimations object
-                        photoTapped={null} // pass in correct value if needed
-                        toggleTaggedUsers={() => { }} // no-op unless you need tag functionality
-                        handleLikeWithAnimation={handleLikeWithAnimation} // no-op unless using like animation
-                        isInteractive={false}
-                      />
-                    )}
-                    style={{ width: Dimensions.get('window').width, marginTop: -10, }}
-                  />
-                  <PhotoPaginationDots photos={item.photos} scrollX={scrollX} />
-                </>
-              )}
-              <View style={{ paddingLeft: 15 }}>
-                <PostActions
-                  item={item}
-                  handleLikeWithAnimation={handleLikeWithAnimation}
-                  handleOpenComments={() => handleOpenComments(item)}
-                />
-              </View>
-            </View>
-          </View>
+         renderItem={({ item }) => (
+          <EventPromoItem
+            item={item}
+            selectedTab={selectedTab}
+            isDropdownOpen={dropdownVisible === item._id}
+            onToggleDropdown={toggleDropdown}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            onLikeWithAnimation={handleLikeWithAnimation}
+            onOpenComments={handleOpenComments}
+            scrollX={scrollX}
+            currentIndexRef={currentIndexRef}
+            setCurrentPhotoIndex={setCurrentPhotoIndex}
+            lastTapRef={lastTapRef}
+            onActiveChange={() => {}}
+            styleOverrides={styles} // pass through if EventDetailsCard expects it
+          />
         )}
-
       />
       {/* Create Button */}
       <TouchableOpacity style={styles.createButton} onPress={handleCreateItem}>
