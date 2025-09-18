@@ -243,25 +243,29 @@ export default function OtherUserProfile({ route, navigation }) {
       </View>
       {isFollowing ? (
         <View style={styles.buttonRow}>
-          <TouchableOpacity
-            style={styles.friendsButton}
-            onPress={() => setDropdownVisible(!dropdownVisible)}
-          >
-            <Text style={styles.friendsText}>Following</Text>
-          </TouchableOpacity>
+          <View style={styles.followBtnWrapper}>
+            <TouchableOpacity
+              style={styles.friendsButton}
+              onPress={() => setDropdownVisible((v) => !v)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.friendsText}>Following</Text>
+            </TouchableOpacity>
+
+            {dropdownVisible && (
+              <View style={styles.dropdown}>
+                <TouchableOpacity style={styles.dropdownItem} onPress={handleUnfollow}>
+                  <Text style={styles.dropdownText}>Unfollow</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
           <TouchableOpacity
             style={styles.messageButton}
             onPress={handleSendMessage}
           >
             <Text style={styles.friendsText}>Message</Text>
           </TouchableOpacity>
-          {dropdownVisible && (
-            <View style={styles.dropdown}>
-              <TouchableOpacity style={styles.dropdownItem} onPress={handleUnfollow}>
-                <Text style={styles.dropdownText}>Unfollow</Text>
-              </TouchableOpacity>
-            </View>
-          )}
         </View>
       ) : isRequestReceived ? (
         <View style={styles.requestButtonsContainer}>
@@ -384,7 +388,13 @@ const styles = StyleSheet.create({
   buttonRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    width: '100%'
+    width: '100%',
+    overflow: 'visible'
+  },
+  followBtnWrapper: {
+    position: 'relative',   // anchor for the dropdown
+    width: '40%',
+    alignItems: 'center',
   },
   addFriendButton: {
     backgroundColor: "#009999",
@@ -415,14 +425,14 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   friendsButton: {
-    backgroundColor: "gray",
-    marginHorizontal: 20,
+    backgroundColor: 'gray',
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 25,
-    alignItems: "center",
+    alignItems: 'center',
     marginTop: 20,
-    width: '40%'
+    width: '100%',
+    marginLeft: 25,
   },
   friendsText: {
     color: "#fff",
@@ -430,19 +440,23 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   dropdown: {
-    backgroundColor: "#fff",
+    position: 'absolute',
+    top: 60,                 // drop it below the button (tweak as needed)
+    left: 25,
+    right: 0,
+    backgroundColor: '#fff',
     borderRadius: 8,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    marginHorizontal: 30,
-    padding: 10,
-    width: '40%',
+    paddingVertical: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 10,           // Android stacking
+    zIndex: 999,             // iOS stacking
   },
   dropdownItem: {
     paddingVertical: 10,
-    alignItems: "center",
+    alignItems: 'center',
   },
   dropdownText: {
     color: "red",
