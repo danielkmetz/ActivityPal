@@ -60,19 +60,22 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
     });
   };
 
-  const handleLikeWithAnimation = (review, force = false) => {
-    const animation = getAnimation(review._id);
+  const handleLikeWithAnimation = (entity, opts = {}) => {
+    const { force = false, animateTarget = null } = opts;
+    const animKey = (animateTarget?._id) || entity?._id || entity?.id;
+    const animation = getAnimation(animKey);
+
     return sharedHandleLikeWithAnimation({
-      postType: review.type,
-      kind: review.kind,
-      postId: review._id,
-      review,
+      postType: entity?.type,
+      kind: entity?.kind,
+      postId: entity?._id || entity?.id,
+      review: entity,         // the thing whose likes/owner we reason about
       user,
-      reviews,
-      animation,
+      animation,              // Animated.Value looked up by the animation target
       dispatch,
       lastTapRef,
       force,
+      animateTarget,          // NEW: tells the helper where to overlay
     });
   };
 
@@ -191,8 +194,10 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
 
   useEffect(() => {
     reviews?.forEach(post => {
-      if (post?._id) {
-        registerAnimation(post._id);
+      if (post?._id) registerAnimation(post._id);
+      // If it's a shared post, also register the inner/original
+      if (post?.type === 'sharedPost' && post?.original?._id) {
+        registerAnimation(post.original._id);
       }
     });
   }, [reviews]);
@@ -284,7 +289,6 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
                 photoTapped={photoTapped}
                 toggleTaggedUsers={toggleTaggedUsers}
                 handleLikeWithAnimation={handleLikeWithAnimation}
-                handleLike={handleLikeWithAnimation}
                 handleOpenComments={handleOpenComments}
                 lastTapRef={lastTapRef}
                 handleDelete={handleDeletePost}

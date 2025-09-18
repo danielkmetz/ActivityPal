@@ -216,63 +216,65 @@ const runLikeAnimation = (animation) => {
 /* ---------------------------------- */
 /* Public API with double-tap logic   */
 /* ---------------------------------- */
+const getLikedState = (entity, userId) => {
+  if (!entity) return false;
+  if (Array.isArray(entity.likes)) {
+    return entity.likes.some(l => String(l.userId) === String(userId));
+  }
+  return !!entity.liked || !!entity.likedByMe;
+};
+
 export const handleLikeWithAnimation = async ({
+  // LIKE (logical) target — what you actually toggle on the backend
   postType,
-  postId,
-  review,
+  postId,          // may be undefined for suggestions; we’ll resolve below
+  review,          // the entity being liked (share doc, review, suggestion, etc.)
+
+  // WHO/WHERE
   user,
-  animation,
-  lastTapRef,
   dispatch,
-  force = false,
+
+  // UI / gesture
+  animation,       // Animated.Value registered for the *animation target* (usually from PhotoItem/Feed)
+  lastTapRef,
+  force = false,   // pass true from your double-tap handler
+
+  // NEW: ANIMATION TARGET — what the heart should overlay on (e.g., inner original)
+  // If omitted, we animate over `review`.
+  animateTarget = null,
 }) => {
-  // Resolve normalized type + effective id (suggestions may point to underlying post)
   const normalizedType = normalizePostType(postType, review);
-  const suggested = postType === 'suggestion';
-  const effectivePostId = suggested ? resolveSuggestionPostId(review, postId) : postId;
 
-  const hasAnim = animation instanceof Animated.Value;
-  const wasLikedBefore = Array.isArray(review?.likes)
-    ? review.likes.some((like) => String(like.userId) === String(user?.id))
-    : !!review?.liked || !!review?.likedByMe;
+  // 1) Compute the effective LIKE id (suggestions may map to their underlying post)
+  const effectivePostId = postType === 'suggestion'
+    ? resolveSuggestionPostId(review, postId)
+    : (postId || pickId(review));
 
-  // ⚠️ We log both keys to catch mismatches
-  const lk = String(postId || '');
-  const ek = String(effectivePostId || '');
-
-  lastTapRef.current ||= {};
-  if (lk && lastTapRef.current[lk] == null) lastTapRef.current[lk] = 0;
-  if (ek && lastTapRef.current[ek] == null) lastTapRef.current[ek] = 0;
-
-  const now = Date.now();
-  const lastForPostId = lk ? lastTapRef.current[lk] : undefined;
-  const lastForEffective = ek ? lastTapRef.current[ek] : undefined;
-
-  // This internal gate expects *two* quick calls; but your UI already did the double-tap.
-  // Prefer passing force=true from PhotoItem’s double-tap handler.
-  const shouldAnimate = force || (lk && now - (lastForPostId || 0) < 300);
-
-  log('handleLikeWithAnimation:init', {
-    input: { postType, postId },
-    normalizedType,
-    suggested,
-    effectivePostId,
-    hasAnim,
-    wasLikedBefore,
-    lastForPostId,
-    lastForEffective,
-    force,
-    shouldAnimate,
-  });
-
-  // Arm-and-exit path (if you keep internal gating)
-  if (!shouldAnimate) {
-    if (lk) lastTapRef.current[lk] = now;
-    log('handleLikeWithAnimation: armed gate, returning (call again within 300ms or pass force=true)');
+  if (!effectivePostId) {
+    warn('handleLikeWithAnimation: missing effectivePostId', { postType, reviewId: pickId(review) });
     return;
   }
 
-  // Proceed to like toggle
+  // 2) Decide where to ANIMATE: default to the liked entity, or use the provided animateTarget
+  const animEntity = animateTarget || review;
+  const animKey = pickId(animEntity) || effectivePostId;     // the key your PhotoItem registered with
+  const hasAnim = animation instanceof Animated.Value;
+
+  // 3) Compute pre-toggle liked state on the LIKE (logical) entity
+  const wasLikedBefore = getLikedState(review, user?.id);
+
+  // 4) Double-tap gate – only key off the ANIMATION TARGET
+  lastTapRef.current ||= {};
+  const now = Date.now();
+  const last = lastTapRef.current[animKey] || 0;
+  const shouldAnimate = force || (now - last < 300);
+
+  if (!shouldAnimate) {
+    lastTapRef.current[animKey] = now; // arm
+    return;
+  }
+
+  // 5) Perform the LIKE toggle on the logical target
   await handleLike({
     postType: normalizedType,
     postId: effectivePostId,
@@ -282,16 +284,21 @@ export const handleLikeWithAnimation = async ({
     dispatch,
   });
 
-  // Only show overlay when we flipped from unliked → liked
+  // 6) Run overlay only on unliked → liked transition
   if (!wasLikedBefore && hasAnim) {
-    log('handleLikeWithAnimation: run overlay animation');
-    runLikeAnimation(animation);
+    Animated.timing(animation, { toValue: 1, duration: 50, useNativeDriver: true }).start(() => {
+      setTimeout(() => {
+        Animated.timing(animation, { toValue: 0, duration: 500, useNativeDriver: true }).start(() => {
+          log('handleLikeWithAnimation: overlay end', { animKey });
+        });
+      }, 500);
+    });
   } else {
-    log('handleLikeWithAnimation: skip overlay animation', { wasLikedBefore, hasAnim });
+    log('handleLikeWithAnimation: skip overlay (already liked or no anim)', {
+      wasLikedBefore, hasAnim, animKey,
+    });
   }
 
-  // Update both keys so subsequent calls aren’t misleading
-  if (lk) lastTapRef.current[lk] = now;
-  if (ek) lastTapRef.current[ek] = now;
-  log('handleLikeWithAnimation: complete', { lk, ek, now });
+  // 7) Update the tap time for the animation key
+  lastTapRef.current[animKey] = now;
 };

@@ -15,7 +15,6 @@ export default function SharedPostItem({
     photoTapped,
     toggleTaggedUsers,
     handleLikeWithAnimation,
-    handleLike,
     handleOpenComments,
     lastTapRef,
     handleEdit,
@@ -33,11 +32,24 @@ export default function SharedPostItem({
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
     const [dropdownVisible, setDropdownVisible] = useState(false);
     const currentPhoto = item.photos?.[currentPhotoIndex];
-    
+
     const navigateToProfile = () => {
         if (item.user?.id) {
             navigation.navigate('OtherUserProfile', { userId: item.user.id });
         }
+    };
+
+    const normalizeOpts = (optsOrForce) =>
+        typeof optsOrForce === 'boolean' ? { force: optsOrForce } : (optsOrForce || {});
+
+    const likeShareAnimateInner = (innerEntity, optsOrForce) => {
+        const opts = normalizeOpts(optsOrForce);
+        return handleLikeWithAnimation(item, { ...opts, animateTarget: innerEntity });
+    };
+
+    const likeShareAnimateOriginal = (_ignored, optsOrForce) => {
+        const opts = normalizeOpts(optsOrForce);
+        return handleLikeWithAnimation(item, { ...opts, animateTarget: item.original });
     };
 
     return (
@@ -76,7 +88,7 @@ export default function SharedPostItem({
                     animation={animation}
                     photoTapped={photoTapped}
                     toggleTaggedUsers={toggleTaggedUsers}
-                    handleLikeWithAnimation={() => handleLikeWithAnimation(item, true)}
+                    handleLikeWithAnimation={likeShareAnimateInner}
                     handleOpenComments={handleOpenComments}
                     lastTapRef={lastTapRef}
                     handleEdit={handleEdit}
@@ -89,7 +101,7 @@ export default function SharedPostItem({
             <View style={{ padding: 15 }}>
                 <PostActions
                     item={item}
-                    handleLikeWithAnimation={handleLikeWithAnimation}
+                    handleLikeWithAnimation={likeShareAnimateOriginal}
                     handleOpenComments={handleOpenComments}
                     toggleTaggedUsers={toggleTaggedUsers}
                     photo={currentPhoto}

@@ -86,7 +86,7 @@ export default function PostActions({
         <LikeButton
           hasLiked={hasLiked}
           count={count}
-          onPress={() => handleLikeWithAnimation(item, true)}
+          onPress={() => handleLikeWithAnimation(item, { force: true })}
           orientation={orientation}
         />
         {/* Comment */}
