@@ -63,7 +63,7 @@ const PhotoItem = ({
             }
 
             lastTapRef.current[id] = 0;
-            handleLikeWithAnimation(reviewItem, true); // shows overlay
+            handleLikeWithAnimation(reviewItem, { force: true }); // shows overlay
             return;
         }
 
