@@ -12,7 +12,7 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import VideoThumbnail from '../Reviews/VideoThumbnail';
 import PostOptionsMenu from '../Reviews/PostOptionsMenu';
-import PostActions from '../Reviews/PostActions';
+import PostActions from '../Reviews/PostActions/PostActions';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser } from '../../Slices/UserSlice';
 

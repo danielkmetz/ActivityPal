@@ -2,12 +2,13 @@ import React from "react";
 import { View, StyleSheet, TouchableWithoutFeedback } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import { selectUser } from "../../Slices/UserSlice";
+import { selectUser } from "../../../Slices/UserSlice";
 import { useSelector } from "react-redux";
-import LikeButton from "./PostActions/LikeButton";
-import CommentButton from "./PostActions/CommentButton";
-import SendButton from './PostActions/SendButton';
-import ShareButton from './PostActions/ShareButton';
+import LikeButton from "./LikeButton";
+import CommentButton from "./CommentButton";
+import SendButton from './SendButton';
+import ShareButton from './ShareButton';
+import { medium } from "../../../utils/Haptics/haptics";
 
 function deriveLikeState(item, currentUserId) {
   // Normalize possible shapes:
@@ -53,6 +54,7 @@ export default function PostActions({
     item?.type !== "invite" && photo?.taggedUsers?.length > 0;
 
   const handleSend = () => {
+    medium();
     const kind = item?.kind?.toLowerCase();
     const derivedType = kind?.includes("event")
       ? "event"

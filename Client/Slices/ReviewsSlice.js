@@ -3,6 +3,7 @@ import { GET_USER_ACTIVITY_QUERY } from "./GraphqlQueries/Queries/getUserActivit
 import { GET_USER_POSTS_QUERY } from "./GraphqlQueries/Queries/getUserPosts";
 import { GET_BUSINESS_REVIEWS_QUERY } from "./GraphqlQueries/Queries/getBusinessReviews";
 import { updatePostCollections } from "../utils/posts/UpdatePostCollections";
+import { createSelector } from "@reduxjs/toolkit";
 import client from "../apolloClient";
 import axios from "axios";
 
@@ -257,9 +258,6 @@ const reviewsSlice = createSlice({
     setHasFetchedOnce: (state, action) => {
       state.hasFetchedOnce = action.payload;
     },
-    setLocalReviews: (state, action) => {
-      state.localReviews = action.payload;
-    },
     resetOtherUserReviews: (state) => {
       state.otherUserReviews = [];
     },
@@ -309,23 +307,6 @@ const reviewsSlice = createSlice({
     setSelectedReview: (state, action) => {
       state.selectedReview = action.payload;
     },
-    addCheckInUserAndFriendsReviews: (state, action) => {
-      const newCheckIn = action.payload;
-
-      // ✅ Add new check-in to the top of the list
-      state.userAndFriendsReviews = [
-        newCheckIn,
-        ...state.userAndFriendsReviews,
-      ];
-    },
-    addCheckInProfileReviews: (state, action) => {
-      const newCheckIn = action.payload;
-
-      state.profileReviews = [
-        newCheckIn,
-        ...state.profileReviews,
-      ]
-    },
     addPostToFeeds: (state, action) => {
       const newPost = action.payload;
       const newId = newPost?._id || newPost?.id;
@@ -360,36 +341,6 @@ const reviewsSlice = createSlice({
       updateInArray(state.businessReviews);
       updateInArray(state.suggestedPosts);
     },
-    pushSharedPostToUserAndFriends: (state, action) => {
-      const sharedPost = action.payload;
-
-      if (!sharedPost || !sharedPost._id) {
-        console.warn('[reviews] pushSharedPostToUserAndFriends: invalid payload');
-        return;
-      }
-
-      // Ensure list exists
-      if (!Array.isArray(state.userAndFriendsReviews)) {
-        console.log('[reviews] init userAndFriendsReviews []');
-        state.userAndFriendsReviews = [];
-      }
-
-      // Optional: also keep a safe byId map so any code that indexes by ID won’t explode
-      if (!state.byId) {
-        console.log('[reviews] init byId {}');
-        state.byId = {};
-      }
-      state.byId[sharedPost._id] = sharedPost; // ← if some selector/UI expects a map, it’s now safe
-
-      // Prepend to the feed
-      state.userAndFriendsReviews = [sharedPost, ...state.userAndFriendsReviews];
-    },
-    pushSharedPostToProfileReviews: (state, action) => {
-      const sharedPost = action.payload;
-      if (sharedPost && sharedPost._id) {
-        state.profileReviews = [sharedPost, ...state.profileReviews];
-      }
-    },
     resetAllReviews: (state) => {
       state.profileReviews = [];
       state.userAndFriendsReviews = [];
@@ -413,6 +364,29 @@ const reviewsSlice = createSlice({
         if (!postId || !updates) continue;
         updatePostCollections({ state, postId, updates, postKeys });
       }
+    },
+    removePostFromFeeds: (state, action) => {
+      const postId = action?.payload?.postId ?? action?.payload;
+      if (!postId) return;
+
+      const notThisPost = (p) => (p?._id || p?.id) !== postId;
+
+      state.userAndFriendsReviews = (state.userAndFriendsReviews || []).filter(notThisPost);
+      state.profileReviews = (state.profileReviews || []).filter(notThisPost);
+    },
+    replacePostInFeeds: (state, action) => {
+      const updatedPost = action.payload;
+      if (!updatedPost?._id && !updatedPost?.id) return;
+
+      const matchId = updatedPost._id || updatedPost.id;
+
+      const updateArray = (arr) =>
+        (arr || []).map((item) =>
+          (item?._id || item?.id) === matchId ? updatedPost : item
+        );
+
+      state.userAndFriendsReviews = updateArray(state.userAndFriendsReviews);
+      state.profileReviews = updateArray(state.profileReviews);
     },
   },
   extraReducers: (builder) => {
@@ -570,7 +544,6 @@ export const {
   addCheckInUserAndFriendsReviews,
   addCheckInProfileReviews,
   resetProfileReviews,
-  setLocalReviews,
   resetOtherUserReviews,
   resetBusinessReviews,
   clearSelectedReview,
@@ -578,14 +551,34 @@ export const {
   setHasFetchedOnce,
   setSuggestedPosts,
   updatePostInReviewState,
-  pushSharedPostToProfileReviews,
-  pushSharedPostToUserAndFriends,
   updateReviewFieldsById,
   updateSharedPostInReviews,
   applyPostUpdates,
   applyBulkPostUpdates,
   addPostToFeeds,
+  removePostFromFeeds,
+  replacePostInFeeds,
 } = reviewsSlice.actions;
+
+export const selectAllPosts = createSelector(
+  [
+    (state) => state.reviews.businessReviews || [],
+    (state) => state.reviews.userAndFriendsReviews || [],
+    (state) => state.reviews.otherUserReviews || [],
+    (state) => state.reviews.profileReviews || [],
+    (state) => state.reviews.suggestedPosts || [],
+  ],
+  (business, userAndFriends, otherUser, profile, suggested) => {
+    // Order here sets precedence if the same id exists in multiple buckets
+    return [
+      ...business,
+      ...userAndFriends,
+      ...otherUser,
+      ...profile,
+      ...suggested,
+    ];
+  }
+);
 
 export const selectProfileReviews = (state) => state.reviews.profileReviews || [];
 export const selectHasFetchedOnce = state => state.reviews.hasFetchedOnce;
@@ -597,3 +590,8 @@ export const selectLocalReviews = (state) => state.reviews.localReviews || [];
 export const selectUserAndFriendsReviews = (state) => state.reviews.userAndFriendsReviews || [];
 export const selectSelectedReview = (state) => state.reviews.selectedReview;
 export const selectSuggestedPosts = state => state.reviews.suggestedPosts;
+export const selectPostById = createSelector(
+  [selectAllPosts, (_state, reviewId) => reviewId],
+  (allPosts, reviewId) =>
+    allPosts.find((p) => (p?._id || p?.id) === reviewId) || null
+);

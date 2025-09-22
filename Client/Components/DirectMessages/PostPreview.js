@@ -12,38 +12,37 @@ export default function PostPreview({
     showPostText = false,
 }) {
     if (!postPreview) return null;
+    const canonicalType = postPreview.canonicalType || postPreview.postType || postPreview.type;
+    const isInvite = canonicalType === 'invites' || postPreview.postType === 'invite';
+    const isEvent = canonicalType === 'events' || postPreview.postType === 'event';
+    const isPromo = canonicalType === 'promotions' || postPreview.postType === 'promotion' || postPreview.postType === 'promo';
+    const isEventOrPromo = isEvent || isPromo;
+    const isShared = canonicalType === 'sharedPosts';
+    const isLive = canonicalType === 'liveStreams';
 
-    // --------- Type & ownership ----------
-    const postType = postPreview?.postType || postPreview?.type; // 'invite' | 'review' | 'check-in' | 'event' | 'promotion' | ...
-    const isInvite = postType === 'invite';
-    const isEventOrPromo = postType === 'event' || postType === 'promotion' || postType === 'promo';
-
-    // Prefer explicit ownership when present (from your enriched shape)
+    // Owner model when relevant
     const ownerModel =
         postPreview?.originalOwnerModel ||
         postPreview?.originalOwner?.__typename ||
         null;
 
-    // Business-owned iff it's an event/promo AND owner is a Business OR the poster is a business account
+    // Business-owned iff it's an event/promo AND owner is Business OR user is business account
     const isBusinessOwnedEventOrPromo =
-        isEventOrPromo &&
-        (ownerModel === 'Business' || !!postPreview?.user?.businessName);
+        isEventOrPromo && (ownerModel === 'Business' || !!postPreview?.user?.businessName);
 
-    // --------- Names (people first) ----------
+    // Names
     const senderName = `${postPreview?.sender?.firstName || ''} ${postPreview?.sender?.lastName || ''}`.trim();
-
-    console.log('post preview', postPreview);
-    console.log('sender name', senderName);
-
     const originalOwnerUserName =
         postPreview?.originalOwner?.__typename === 'User'
             ? `${postPreview?.originalOwner?.firstName || ''} ${postPreview?.originalOwner?.lastName || ''}`.trim()
             : '';
-
     const userObjName =
         (postPreview?.user?.firstName || postPreview?.user?.lastName)
             ? `${postPreview?.user?.firstName || ''} ${postPreview?.user?.lastName || ''}`.trim()
             : '';
+
+    // Shared posts: use sharer's name first
+    const sharerName = isShared ? (postPreview?.fullName || senderName || userObjName || '') : '';
 
     // Person-first name for invites/reviews/other user posts
     const personName =
@@ -59,41 +58,94 @@ export default function PostPreview({
         postPreview?.businessName ||
         null;
 
-    // Final display name rule:
-    // - If business-owned event/promo => business name
-    // - Else => person name (fallback to 'Someone')
     const displayName = isBusinessOwnedEventOrPromo
         ? (businessLabel || 'A business')
         : (personName || 'Someone');
 
-    // --------- Primary / secondary labels ----------
-    const primaryLabel =
-        overlayText ||
-        (isInvite
-            ? `${personName || 'Someone'}'s invite`
-            : `${displayName}'s ${postType || 'post'}`);
-
-    // Only show place/business under the title for INVITES
-    const secondaryLabel =
-        isInvite && (postPreview?.businessName || postPreview?.placeName)
-            ? (postPreview.businessName || postPreview.placeName)
-            : null;
-
-    // --------- Media selection ----------
-    let mediaKind = 'none';
-    if (isInvite) {
-        mediaKind = (postPreview?.businessLogoUrl || postPreview?.sender?.profilePicUrl) ? 'image' : 'none';
-    } else if (postPreview?.mediaType === 'video') {
-        mediaKind = 'video';
-    } else if (postPreview?.mediaType === 'image') {
-        mediaKind = 'image';
+    // Primary label rules
+    let primaryLabel;
+    if (overlayText) {
+        primaryLabel = overlayText;
+    } else if (isShared) {
+        const sharedType = postPreview?.shared?.originalType || 'post';
+        // originalType is canonical (e.g., 'reviews', 'events', 'promotions')
+        const friendly = (
+            sharedType === 'reviews' ? 'review' :
+                sharedType === 'checkins' ? 'check-in' :
+                    sharedType === 'invites' ? 'invite' :
+                        sharedType === 'events' ? 'event' :
+                            sharedType === 'promotions' ? 'promotion' :
+                                sharedType
+        );
+        primaryLabel = `${sharerName || 'Someone'} shared a ${friendly}`;
+    } else if (isLive) {
+        primaryLabel = `${postPreview?.fullName || 'Someone'} is live`;
+    } else if (isInvite) {
+        primaryLabel = `${personName || 'Someone'}'s invite`;
+    } else {
+        const baseType = (
+            canonicalType === 'reviews' ? 'review' :
+                canonicalType === 'checkins' ? 'check-in' :
+                    canonicalType === 'events' ? 'event' :
+                        canonicalType === 'promotions' ? 'promotion' :
+                            canonicalType === 'invites' ? 'invite' :
+                                canonicalType === 'liveStreams' ? 'live' :
+                                    'post'
+        );
+        primaryLabel = `${displayName}'s ${baseType}`;
     }
 
-    const mediaUri = isInvite
-        ? (postPreview?.businessLogoUrl || postPreview?.sender?.profilePicUrl || null)
-        : (postPreview?.mediaUrl || null);
+    // Secondary label
+    let secondaryLabel = null;
+    if (isInvite) {
+        secondaryLabel = postPreview?.businessName || postPreview?.placeName || null;
+    } else if (isLive) {
+        secondaryLabel = postPreview?.live?.title || null;
+    } else if (isShared) {
+        // Pull secondary details from the original preview if available
+        const op = postPreview?.shared?.originalPreview;
+        if (op?.business?.businessName) {
+            secondaryLabel = op.business.businessName;
+        } else if (op?.placeName) {
+            secondaryLabel = op.placeName;
+        }
+    }
 
-    // --------- Bottom text & date chip ----------
+    // Media selection
+    let mediaKind = 'none';
+    let mediaUri = null;
+
+    if (isInvite) {
+        mediaKind = (postPreview?.businessLogoUrl || postPreview?.sender?.profilePicUrl) ? 'image' : 'none';
+        mediaUri = postPreview?.businessLogoUrl || postPreview?.sender?.profilePicUrl || null;
+    } else if (isShared) {
+        // Prefer mediaUrl (already bubbled from original by helper)
+        if (postPreview?.mediaType === 'video') mediaKind = 'video';
+        else if (postPreview?.mediaType === 'image') mediaKind = 'image';
+        mediaUri = postPreview?.mediaUrl || null;
+
+        // If nothing bubbled, fall back to originalPreview media
+        if (!mediaUri && postPreview?.shared?.originalPreview) {
+            const op = postPreview.shared.originalPreview;
+            if (op.mediaType === 'video') mediaKind = 'video';
+            else if (op.mediaType === 'image') mediaKind = 'image';
+            mediaUri = op.mediaUrl || null;
+        }
+    } else if (isLive) {
+        // Helper sets mediaType to 'live' when status === 'live', otherwise 'video'
+        if (postPreview?.mediaType === 'live') mediaKind = 'image'; // show cover image with LIVE chip
+        else if (postPreview?.mediaType === 'video') mediaKind = 'image'; // still image cover; playback handled on tap
+        else mediaKind = 'none';
+        mediaUri = postPreview?.mediaUrl || null;
+    } else if (postPreview?.mediaType === 'video') {
+        mediaKind = 'video';
+        mediaUri = postPreview?.mediaUrl || null;
+    } else if (postPreview?.mediaType === 'image') {
+        mediaKind = 'image';
+        mediaUri = postPreview?.mediaUrl || null;
+    }
+
+    // Bottom text & date chip (existing behavior)
     const previewBottomText = isInvite
         ? (postPreview?.note || postPreview?.message || '')
         : (postPreview?.reviewText || '');
@@ -107,27 +159,32 @@ export default function PostPreview({
             {showOverlay && (
                 <View style={styles.overlay}>
                     <Text style={styles.overlayText} numberOfLines={1}>{primaryLabel}</Text>
-                    {secondaryLabel ? (
+                    {!!secondaryLabel && (
                         <Text style={styles.overlaySubText} numberOfLines={1}>{secondaryLabel}</Text>
-                    ) : null}
-                    {dateChip ? (
+                    )}
+                    {!!dateChip && (
                         <View style={styles.dateChip}>
                             <Text style={styles.dateChipText}>{dateChip}</Text>
                         </View>
-                    ) : null}
+                    )}
+                    {isLive && postPreview?.live?.status === 'live' && (
+                        <View style={styles.livePill}>
+                            <Text style={styles.liveText}>LIVE</Text>
+                        </View>
+                    )}
                 </View>
             )}
-
             {mediaKind === 'image' && mediaUri ? (
                 <Image source={{ uri: mediaUri }} style={styles.media} resizeMode="cover" />
             ) : mediaKind === 'video' && mediaUri ? (
                 <VideoThumbnail file={{ uri: mediaUri }} width={width} height={height} shouldPlay={false} />
             ) : (
                 <View style={[styles.media, styles.placeholder]}>
-                    <Text style={styles.placeholderEmoji}>{isInvite ? '🎟️' : '🖼️'}</Text>
+                    <Text style={styles.placeholderEmoji}>
+                        {isInvite ? '🎟️' : isLive ? '🔴' : isShared ? '🔁' : '🖼️'}
+                    </Text>
                 </View>
             )}
-
             {showPostText && !!previewBottomText && (
                 <View style={styles.reviewOverlay}>
                     <Text numberOfLines={2} ellipsizeMode="tail" style={styles.reviewText}>
@@ -168,4 +225,13 @@ const styles = StyleSheet.create({
         zIndex: 2,
     },
     reviewText: { color: '#fff', fontSize: 16, fontWeight: '400', padding: 2 },
+    livePill: {
+        marginTop: 6,
+        alignSelf: 'flex-start',
+        backgroundColor: 'rgba(255, 0, 0, 0.85)',
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 8,
+    },
+    liveText: { color: '#fff', fontSize: 11, fontWeight: '700' },
 });

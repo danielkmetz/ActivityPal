@@ -6,6 +6,7 @@ import { selectMediaFromGallery } from '../../utils/selectPhotos';
 import { isVideo } from '../../utils/isVideo';
 import VideoThumbnail from './VideoThumbnail';
 import MediaPreview from './Photos/MediaPreview';
+import { selection } from '../../utils/Haptics/haptics';
 
 const CommentBubble = ({
   fullName,

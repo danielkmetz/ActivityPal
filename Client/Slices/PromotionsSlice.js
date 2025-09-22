@@ -1,5 +1,4 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
-import { updateNearbySuggestionLikes } from "./GooglePlacesSlice";
 import { updatePromotions } from '../utils/posts/UpdatePromotions';
 import axios from "axios";
 

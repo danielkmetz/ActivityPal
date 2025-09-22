@@ -3,7 +3,7 @@ import { View, FlatList, Dimensions, Animated, StyleSheet } from 'react-native';
 import EventDetailsCard from './EventDetailsCard';
 import PhotoItem from '../Reviews/Photos/PhotoItem';
 import PhotoPaginationDots from '../Reviews/Photos/PhotoPaginationDots';
-import PostActions from '../Reviews/PostActions';
+import PostActions from '../Reviews/PostActions/PostActions';
 
 export default function EventPromoFeed({
   data,

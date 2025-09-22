@@ -7,7 +7,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useDispatch, useSelector } from 'react-redux';
 import { selectLogo, fetchLogo } from '../../../Slices/PhotosSlice';
 import { getTimeLabel } from '../../../utils/formatEventPromoTime';
-import PostActions from '../../Reviews/PostActions';
+import PostActions from '../../Reviews/PostActions/PostActions';
 import { resetSelectedEvent } from '../../../Slices/EventsSlice';
 import { resetSelectedPromotion } from '../../../Slices/PromotionsSlice';
 import { logEngagementIfNeeded, getEngagementTarget } from '../../../Slices/EngagementSlice';

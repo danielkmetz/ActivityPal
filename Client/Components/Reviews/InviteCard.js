@@ -6,9 +6,9 @@ import { requestInvite, deleteInvite } from '../../Slices/InvitesSlice';
 import { createNotification } from '../../Slices/NotificationsSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { useSelector, useDispatch } from 'react-redux';
-import { setUserAndFriendsReviews, selectUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
+import { removePostFromFeeds, replacePostInFeeds } from '../../Slices/ReviewsSlice';
 import InviteModal from '../ActivityInvites/InviteModal';
-import PostActions from './PostActions';
+import PostActions from './PostActions/PostActions';
 import PostOptionsMenu from './PostOptionsMenu';
 import { useNavigation } from '@react-navigation/native';
 import InviteHeader from './Invites/InviteHeader';
@@ -16,6 +16,7 @@ import BusinessBadge from './Invites/BusinessBadge';
 import CountdownPill from './Invites/CountdownPill';
 import AttendanceRow from './Invites/AttendanceRow';
 import { useInviteState } from './Invites/useInviteState';
+import { medium } from '../../utils/Haptics/haptics';
 
 const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onShare, sharedPost }) => {
     const dispatch = useDispatch();
@@ -26,7 +27,6 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onSha
     const [isEditing, setIsEditing] = useState(false);
     const [dropdownVisible, setDropdownVisible] = useState(false);
     const user = useSelector(selectUser);
-    const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const businessName = invite.businessName || invite.business?.businessName || 'Unnamed Location';
     const totalInvited = invite.recipients?.length || 0;
     const totalGoing = invite.recipients?.filter(r => r.status === 'accepted').length || 0;
@@ -73,9 +73,8 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onSha
                             ).unwrap();
 
                             // ✅ Remove invite from local state
-                            dispatch(setUserAndFriendsReviews(
-                                userAndFriendsReviews.filter(item => item._id !== invite._id)
-                            ));
+                            await dispatch(removePostFromFeeds(invite._id));
+                            medium();
 
                             // ✅ Close out UI
                             setIsEditing(false);
@@ -121,12 +120,7 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onSha
 
             await dispatch(createNotification(notificationPayload)).unwrap();
 
-            // ✅ Replace the invite in the feed
-            const updatedList = userAndFriendsReviews.map(item =>
-                item._id === updatedInvite._id ? updatedInvite : item
-            );
-
-            dispatch(setUserAndFriendsReviews(updatedList));
+            dispatch(replacePostInFeeds(updatedInvite));
 
             setRequested(true);
 

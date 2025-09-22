@@ -24,13 +24,13 @@ import { useSelector, useDispatch } from 'react-redux';
 import { sendInvite, editInvite } from '../../Slices/InvitesSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { GestureDetector } from 'react-native-gesture-handler';
-import { setUserAndFriendsReviews, selectUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
+import { addPostToFeeds } from '../../Slices/ReviewsSlice';
 import useSlideDownDismiss from '../../utils/useSlideDown';
 import { googlePlacesDefaultProps } from '../../utils/googleplacesDefaults';
 import Notch from '../Notch/Notch';
+import { medium } from '../../utils/Haptics/haptics';
 
 const google_key = process.env.EXPO_PUBLIC_GOOGLE_KEY;
-
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 const InviteModal = ({
@@ -44,7 +44,6 @@ const InviteModal = ({
 }) => {
     const dispatch = useDispatch();
     const user = useSelector(selectUser);
-    const userAndFriendReviews = useSelector(selectUserAndFriendsReviews);
     const friends = useSelector(selectFriends);
     const [showFriendsModal, setShowFriendsModal] = useState(false);
     const [selectedPlace, setSelectedPlace] = useState(null);
@@ -52,7 +51,6 @@ const InviteModal = ({
     const [selectedFriends, setSelectedFriends] = useState([]);
     const [isPublic, setIsPublic] = useState(true);
     const [note, setNote] = useState('');
-
     const googleRef = useRef(null);
     const { gesture, animateIn, animateOut, animatedStyle, } = useSlideDownDismiss(onClose);
 
@@ -112,7 +110,6 @@ const InviteModal = ({
             alert('Please complete all invite details.');
             return;
         }
-
         const invitePayload = {
             senderId: user.id,
             recipientIds: selectedFriends,
@@ -123,28 +120,7 @@ const InviteModal = ({
             note,
             isPublic,
         };
-
         try {
-            const normalizeCreatedAt = (item) => {
-                if (item.createdAt) return item;
-                const dateSource = item.dateTime || item.date;
-                return {
-                    ...item,
-                    createdAt: dateSource || new Date().toISOString(),
-                };
-            };
-
-            function updateFeedWithItem(feed, updatedItem) {
-                const normalizedFeed = (feed || [])
-                    .filter(item => item._id !== updatedItem._id)
-                    .concat(updatedItem)
-                    .map(normalizeCreatedAt)
-                    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-                return normalizedFeed;
-            }
-
-            let finalFeed = [...(userAndFriendReviews || [])];
-
             if (isEditing && initialInvite) {
                 const updates = {
                     placeId: selectedPlace.placeId,
@@ -153,7 +129,6 @@ const InviteModal = ({
                     note,
                     isPublic,
                 };
-
                 const { payload: updatedInvite } = await dispatch(editInvite({
                     recipientId: user.id,
                     inviteId: initialInvite._id,
@@ -162,36 +137,19 @@ const InviteModal = ({
                     businessName: selectedPlace.name,
                 }));
 
-                const enrichedInvite = {
-                    ...updatedInvite,
-                    type: 'invite',
-                    createdAt: updatedInvite.dateTime,
-                };
-
-                finalFeed = updateFeedWithItem(userAndFriendReviews, enrichedInvite);
+                await dispatch(addPostToFeeds(updatedInvite));
+                medium();
                 setInviteToEdit(null);
                 setIsEditing(false);
-            
                 alert('Invite updated!');
             } else {
                 const { payload: newInvite } = await dispatch(sendInvite(invitePayload));
 
-                const enrichedInvite = {
-                    ...newInvite.invite,
-                    type: 'invite',
-                    createdAt: newInvite.invite.dateTime,
-                };
-
-                finalFeed = [...finalFeed, enrichedInvite]
-                    .map(normalizeCreatedAt)
-                    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
+                await dispatch(addPostToFeeds(newInvite?.invite));
+                medium();
                 alert('Invite sent!');
             }
 
-            dispatch(setUserAndFriendsReviews(finalFeed));
-
-            // Reset form
             setSelectedFriends([]);
             setNote('');
             setSelectedPlace(null);

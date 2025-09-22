@@ -37,6 +37,7 @@ const LikeButton = ({
         commentId: node._id,
       })
     );
+    medium();
   };
 
   return (

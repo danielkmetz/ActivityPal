@@ -4,12 +4,11 @@ import {
     Text,
     StyleSheet,
     Animated,
-    Dimensions,
     TouchableWithoutFeedback,
     TouchableOpacity,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import PostActions from "./PostActions";
+import PostActions from "./PostActions/PostActions";
 import PostOptionsMenu from "./PostOptionsMenu";
 import ExpandableText from "./ExpandableText";
 import { selectUser } from '../../Slices/UserSlice';
@@ -22,6 +21,8 @@ import RatingsBreakdownModal from "./metricRatings/RatingsBreakdownModal";
 import { declineFollowRequest, cancelFollowRequest, approveFollowRequest } from "../../Slices/friendsSlice";
 import { logEngagementIfNeeded } from "../../Slices/EngagementSlice";
 import PhotoFeed from "./Photos/PhotoFeed";
+import { selection } from "../../utils/Haptics/haptics";
+import RatingsButton from './ReviewItem/RatingsButton';
 
 export default function ReviewItem({
     item,
@@ -48,7 +49,6 @@ export default function ReviewItem({
     const [ratingsOpen, setRatingsOpen] = useState(false);
     const [isRequestSent, setIsRequestSent] = useState(false);
     const [isRequestReceived, setIsRequestReceived] = useState(false);
-
     const scrollX = useRef(new Animated.Value(0)).current;
     const currentPhoto = item.photos?.[currentPhotoIndex];
     const { isSuggestedFollowPost } = item;
@@ -124,6 +124,11 @@ export default function ReviewItem({
         // ✅ Explicitly update the state to ensure UI reflects the change
         setIsRequestSent(false);
     };
+
+    const openRatings = () => {
+        selection();
+        setRatingsOpen(true);
+    }
 
     useEffect(() => {
         if (!user || !followRequests || !following) return;
@@ -237,7 +242,7 @@ export default function ReviewItem({
                     <TouchableOpacity onPress={navigateToBusiness}>
                         <Text style={styles.business}>{item.businessName}</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => setRatingsOpen(true)} activeOpacity={0.7}>
+                    <TouchableOpacity onPress={openRatings} activeOpacity={0.7}>
                         <View style={styles.ratingButton}>
                             <View style={styles.ratingStars}>
                                 {Array.from({ length: item.rating }).map((_, index) => (

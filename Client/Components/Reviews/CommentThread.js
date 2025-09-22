@@ -36,6 +36,7 @@ import {
   deleteComment as deleteCommentGeneric,
   toApiPostType,
 } from '../../Slices/CommentsSlice';
+import { selection } from '../../utils/Haptics/haptics';
 
 export default function CommentThread({
   item,                  // the top-level comment object
@@ -148,6 +149,7 @@ export default function CommentThread({
     if (!review || !commentId) return;
     const targetId = replyId || commentId;
     dispatch(toggleLikeGeneric({ postType, postId, commentId: targetId }));
+    selection();
   };
 
   const handleReplyToggle = () => {
@@ -360,7 +362,6 @@ export default function CommentThread({
                   selectedMedia={selectedMedia}
                   setSelectedEditMedia={setSelectedEditMedia}
                   setSelectedMedia={setSelectedMedia}
-                  onToggleLike={(id) => handleToggleLike(id)} // for Reply bubble
                 />
               ))}
             </View>

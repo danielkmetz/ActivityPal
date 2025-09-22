@@ -7,7 +7,7 @@ import {
   Text,
 } from "react-native";
 import { deleteCheckIn } from "../../Slices/CheckInsSlice";
-import { deleteReview, selectUserAndFriendsReviews, setUserAndFriendsReviews, setProfileReviews, selectProfileReviews, setSelectedReview } from "../../Slices/ReviewsSlice";
+import { deleteReview, removePostFromFeeds, setSelectedReview } from "../../Slices/ReviewsSlice";
 import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
 import InviteCard from "./InviteCard";
@@ -24,6 +24,7 @@ import { deleteSharedPost } from "../../Slices/SharedPostsSlice";
 import ShareOptionsModal from "./SharedPosts/ShareOptionsModal";
 import LiveStreamCard from '../LiveStream/LiveStreamCard';
 import { unpostLiveSession } from "../../Slices/LiveStreamSlice";
+import { medium } from "../../utils/Haptics/haptics";
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
@@ -40,13 +41,11 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
   const [editingSharedPost, setEditingSharedPost] = useState(false);
   const lastTapRef = useRef({});
   const { registerAnimation, getAnimation } = useLikeAnimations();
-  const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
-  const profileReviews = useSelector(selectProfileReviews);
-
   const userId = user?.id;
 
   const handleOpenComments = (review) => {
     if (!review) return;
+    medium();
     const sharedPost = review?.original ? true : false;
 
     navigation.navigate('CommentScreen', {
@@ -107,31 +106,22 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
                 case "review":
                   await dispatch(deleteReview({ placeId: post.placeId, reviewId: post._id }));
                   break;
-
                 case "check-in":
                   await dispatch(deleteCheckIn({ userId, checkInId: post._id }));
                   break;
-
                 case "sharedPost":
                   await dispatch(deleteSharedPost(post._id));
                   break;
-
                 case "liveStream":
                   await dispatch(unpostLiveSession({ liveId: post._id, removeLinkedPost: true }));
                   break;
-
                 default:
                   console.warn("Unsupported post type:", post.type);
                   return;
               }
 
-              // For all deletions, remove from feeds
-              dispatch(setUserAndFriendsReviews(
-                (userAndFriendsReviews || []).filter(p => p._id !== post._id)
-              ));
-              dispatch(setProfileReviews(
-                (profileReviews || []).filter(p => p._id !== post._id)
-              ));
+             await dispatch(removePostFromFeeds(post._id));
+             medium();
             } catch (error) {
               console.error("Error deleting post:", error);
               Alert.alert("Error", "Something went wrong while deleting the post.");
@@ -167,7 +157,8 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
 
   const openShareOptions = (post) => {
     setShareOptionsVisible(true);
-    setSelectedPostForShare(post)
+    setSelectedPostForShare(post);
+    medium();
   };
 
   const openShareToFeedModal = () => {

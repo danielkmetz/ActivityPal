@@ -1,116 +1,249 @@
+// utils/getPostPreviews.js
 const Review = require('../models/Reviews');
 const CheckIn = require('../models/CheckIns');
 const ActivityInvite = require('../models/ActivityInvites');
 const Event = require('../models/Events');
 const Promotion = require('../models/Promotions');
+const LiveStream = require('../models/LiveStream');
+const SharedPost = require('../models/SharedPost');
+
 const User = require('../models/User');
 const Business = require('../models/Business');
 const { getPresignedUrl } = require('./cachePresignedUrl');
 
-const getPostPreviews = async (postRefs = []) => {
-  const previews = await Promise.all(
-    postRefs.map(async ({ postType, postId }) => {
-      try {
-        let post = null;
-        let user = null;
-        let business = null;
-        let firstMediaKey = null;
-        let mediaType = null;
+/* ----------------------------- Normalization ----------------------------- */
 
-        switch (postType) {
-          case 'review': {
-            post = await Review.findById(postId).lean();
-            if (!post) return null;
+function normalizePostType(t = '') {
+  const s = String(t).trim().toLowerCase();
 
-            user = await User.findById(post.userId).select("firstName lastName").lean();
+  if (['review', 'reviews'].includes(s)) return 'reviews';
+  if (['check-in', 'checkin', 'checkins'].includes(s)) return 'checkins';
+  if (['invite', 'invites', 'activityinvite', 'activityinvites'].includes(s)) return 'invites';
+  if (['event', 'events'].includes(s)) return 'events';
+  if (['promotion', 'promotions', 'promo', 'promos'].includes(s)) return 'promotions';
+  if (['livestream', 'live-stream', 'live', 'livestreams', 'live-streams', 'livestreams'].includes(s)) return 'liveStreams';
+  if (['sharedpost', 'sharedposts'].includes(s)) return 'sharedPosts';
 
-            if (post.photos?.length > 0) {
-              const first = post.photos[0];
-              firstMediaKey = first.photoKey;
-              mediaType = first.photoKey?.endsWith('.mp4') ? 'video' : 'image';
-            }
-            break;
-          }
+  return s;
+}
 
-          case 'check-in': {
-            post = await CheckIn.findById(postId).lean();
-            if (!post) return null;
+function mediaFromArray(arr = []) {
+  if (!Array.isArray(arr) || arr.length === 0) return { key: null, type: null };
+  const first = arr[0] || {};
+  if (first.videoKey) return { key: first.videoKey, type: 'video' };
+  if (first.photoKey) {
+    const isVideo = String(first.photoKey).toLowerCase().endsWith('.mp4');
+    return { key: first.photoKey, type: isVideo ? 'video' : 'image' };
+  }
+  return { key: null, type: null };
+}
 
-            user = await User.findById(post.userId).select("firstName lastName").lean();
+async function nameFromUserId(userId) {
+  if (!userId) return '';
+  const u = await User.findById(userId).select('firstName lastName').lean();
+  if (!u) return '';
+  return `${u.firstName || ''} ${u.lastName || ''}`.trim();
+}
 
-            if (post.photos?.length > 0) {
-              const first = post.photos[0];
-              firstMediaKey = first.photoKey;
-              mediaType = first.photoKey?.endsWith('.mp4') ? 'video' : 'image';
-            }
-            break;
-          }
+async function businessFromPlaceId(placeId) {
+  if (!placeId) return null;
+  return Business.findOne({ placeId }).select('businessName placeId _id').lean();
+}
 
-          case 'invite': {
-            post = await ActivityInvite.findById(postId).lean();
-            if (!post) return null;
+async function nameFromOwner(originalOwnerId, originalOwnerModel) {
+  if (!originalOwnerId || !originalOwnerModel) return '';
+  if (originalOwnerModel === 'User') {
+    return nameFromUserId(originalOwnerId);
+  }
+  if (originalOwnerModel === 'Business') {
+    const b = await Business.findById(originalOwnerId).select('businessName').lean();
+    return b?.businessName || '';
+  }
+  return '';
+}
 
-            user = await User.findById(post.senderId).select("firstName lastName").lean();
+/* --------------------------- Per-type previewers -------------------------- */
 
-            if (post.media?.length > 0) {
-              const first = post.media[0];
-              firstMediaKey = first.photoKey || first.videoKey;
-              mediaType = first.videoKey ? 'video' : 'image';
-            }
-            break;
-          }
+async function buildPreviewForRef({ postType, postId }) {
+  try {
+    const canonicalType = normalizePostType(postType);
 
-          case 'event': {
-            post = await Event.findById(postId).lean();
-            if (!post) return null;
+    let post = null;
+    let fullName = '';
+    let business = null;
+    let mediaKey = null;
+    let mediaType = null;
 
-            business = await Business.findOne({placeId: post.placeId}).select("businessName").lean();
+    switch (canonicalType) {
+      /* -------------------- REVIEWS -------------------- */
+      case 'reviews': {
+        post = await Review.findById(postId).lean();
+        if (!post) return null;
+        fullName = await nameFromUserId(post.userId);
+        const m = mediaFromArray(post.photos);
+        mediaKey = m.key; mediaType = m.type;
+        break;
+      }
 
-            if (post.photos?.length > 0) {
-              const first = post.photos[0];
-              firstMediaKey = first.photoKey || first.videoKey;
-              mediaType = first.videoKey ? 'video' : 'image';
-            }
-            break;
-          }
+      /* -------------------- CHECKINS ------------------- */
+      case 'checkins': {
+        post = await CheckIn.findById(postId).lean();
+        if (!post) return null;
+        fullName = await nameFromUserId(post.userId);
+        const m = mediaFromArray(post.photos);
+        mediaKey = m.key; mediaType = m.type;
+        break;
+      }
 
-          case 'promotion':
-          case 'promo': {
-            post = await Promotion.findById(postId).lean();
-            if (!post) return null;
+      /* -------------------- INVITES -------------------- */
+      case 'invites': {
+        post = await ActivityInvite.findById(postId).lean();
+        if (!post) return null;
+        fullName = await nameFromUserId(post.senderId);
+        const m = mediaFromArray(post.media);
+        mediaKey = m.key; mediaType = m.type;
+        break;
+      }
 
-            business = await Business.findOne({placeId: post.placeId}).select("businessName").lean();
+      /* -------------------- EVENTS --------------------- */
+      case 'events': {
+        post = await Event.findById(postId).lean();
+        if (!post) return null;
+        business = await businessFromPlaceId(post.placeId);
+        const m = mediaFromArray(post.photos);
+        mediaKey = m.key; mediaType = m.type;
+        break;
+      }
 
-            if (post.photos?.length > 0) {
-              const first = post.photos[0];
-              firstMediaKey = first.photoKey || first.videoKey;
-              mediaType = first.videoKey ? 'video' : 'image';
-            }
-            break;
-          }
+      /* ------------------ PROMOTIONS ------------------- */
+      case 'promotions': {
+        post = await Promotion.findById(postId).lean();
+        if (!post) return null;
+        business = await businessFromPlaceId(post.placeId);
+        const m = mediaFromArray(post.photos);
+        mediaKey = m.key; mediaType = m.type;
+        break;
+      }
 
-          default:
-            return null;
-        }
+      /* ------------------ LIVE STREAMS ----------------- */
+      case 'liveStreams': {
+        post = await LiveStream.findById(postId).lean();
+        if (!post) return null;
 
-        const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim();
-        const mediaUrl = firstMediaKey ? await getPresignedUrl(firstMediaKey) : null;
+        // Host name
+        fullName = await nameFromUserId(post.hostUserId);
+
+        // Prefer a coverKey image if present; otherwise no mediaKey
+        mediaKey = post.coverKey || null;
+        mediaType = post.status === 'live' ? 'live' : 'video';
+
+        const mediaUrl = mediaKey ? await getPresignedUrl(mediaKey) : null;
 
         return {
           postId,
-          postType,
-          fullName,
-          business,
-          mediaUrl,
-          mediaType,
+          postType,                // original as sent
+          canonicalType,           // normalized
+          fullName,                // host’s name
+          business: null,
+          mediaUrl,                // cover image if present
+          mediaType,               // 'live' | 'video' | null
+          live: {
+            playbackUrl: post.playbackUrl || null,
+            vodUrl: post?.recording?.vodUrl || null,
+            status: post.status || 'idle',
+            isActive: !!post.isActive,
+            title: post.title || '',
+            durationSec: post.durationSec || null,
+            placeId: post.placeId || null,
+          },
         };
-      } catch (err) {
-        console.warn(`⚠️ Failed to fetch preview for ${postType} ${postId}:`, err.message);
-        return null;
       }
-    })
-  );
 
+      /* ------------------- SHARED POSTS ---------------- */
+      case 'sharedPosts': {
+        const sp = await SharedPost.findById(postId).lean();
+        if (!sp) return null;
+
+        // Person who shared:
+        fullName = await nameFromUserId(sp.user);
+
+        // Original owner name (User/Business)
+        const originalOwnerName = await nameFromOwner(sp.originalOwner, sp.originalOwnerModel);
+
+        // Build a **minimal original preview** by reusing this helper recursively.
+        // Normalize the original type to whatever our helper expects.
+        const normalizedOriginalType = normalizePostType(sp.postType);
+        const originalPreview =
+          (await buildPreviewForRef({
+            postType: normalizedOriginalType,
+            postId: sp.originalPostId,
+          })) || null;
+
+        // For card thumb, prefer the original’s media if it exists.
+        // (We don’t store media on SharedPost itself.)
+        let mediaUrl = null;
+        let typeForShared = null;
+        if (originalPreview?.mediaUrl) {
+          mediaUrl = originalPreview.mediaUrl;
+          typeForShared = originalPreview.mediaType;
+        }
+
+        // Bubble up business only if the original had a business (events/promotions).
+        business = originalPreview?.business || null;
+
+        return {
+          postId,
+          postType,               // original as sent
+          canonicalType,          // 'sharedPosts'
+          fullName,               // sharer’s full name
+          business,               // carries through from original (if any)
+          mediaUrl,               // from original post’s first media (if any)
+          mediaType: typeForShared || null,
+
+          shared: {
+            caption: sp.caption || '',
+            originalType: normalizedOriginalType,   // canonical original type
+            originalId: sp.originalPostId,
+            originalOwner: {
+              id: sp.originalOwner,
+              model: sp.originalOwnerModel,        // 'User' | 'Business'
+              name: originalOwnerName,
+            },
+            originalPreview,                        // minimal preview object
+            createdAt: sp.createdAt,
+          },
+        };
+      }
+
+      default:
+        return null;
+    }
+
+    const mediaUrl = mediaKey ? await getPresignedUrl(mediaKey) : null;
+
+    return {
+      postId,
+      postType,        // original string sent in
+      canonicalType,   // normalized router key
+      fullName,        // owner’s (or sender’s) full name
+      business,        // for events/promotions (null otherwise)
+      mediaUrl,        // signed URL or null
+      mediaType,       // 'image' | 'video' | 'live' | null
+    };
+  } catch (err) {
+    console.warn(`⚠️ Failed to fetch preview for ${postType} ${postId}:`, err.message);
+    return null;
+  }
+}
+
+/* ---------------------------------- API ---------------------------------- */
+
+const getPostPreviews = async (postRefs = []) => {
+  const previews = await Promise.all(
+    (postRefs || []).map(({ postType, postId }) =>
+      buildPreviewForRef({ postType, postId })
+    )
+  );
   return previews.filter(Boolean);
 };
 

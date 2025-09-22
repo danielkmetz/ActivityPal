@@ -9,6 +9,7 @@ import { selectFollowing } from '../../Slices/friendsSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { chooseUserToMessage, sendMessage } from '../../Slices/DirectMessagingSlice';
 import { logEngagementIfNeeded, getEngagementTarget } from '../../Slices/EngagementSlice';
+import { medium } from '../../utils/Haptics/haptics';
 
 const SearchFollowingScreen = ({ route }) => {
     const { postId, postType, placeId } = route.params || {};
@@ -56,6 +57,7 @@ const SearchFollowingScreen = ({ route }) => {
     };
 
     const handleSendMessage = () => {
+        medium();
         const currentUserId = user.id;
         const allParticipantIds = [...selectedUsers.map(u => u._id), currentUserId].sort();
 
@@ -113,6 +115,7 @@ const SearchFollowingScreen = ({ route }) => {
 
             if (sendMessage.fulfilled.match(resultAction)) {
                 Alert.alert('Post sent!');
+                medium();
 
                 const { targetType, targetId } = getEngagementTarget({ postType, postId, placeId });
                 logEngagementIfNeeded(dispatch, {

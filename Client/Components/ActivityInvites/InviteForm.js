@@ -21,6 +21,7 @@ import TagFriendsModal from '../Reviews/TagFriendsModal';
 import { useNavigation } from '@react-navigation/native';
 import SectionHeader from '../Reviews/SectionHeader';
 import FriendPills from '../Reviews/FriendPills';
+import { medium } from '../../utils/Haptics/haptics';
 
 const google_key = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 
@@ -111,12 +112,14 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
         }));
 
         await dispatch(addPostToFeeds(updatedInvite));
+        medium();
 
         alert('Invite updated!');
       } else {
         const { payload: newInvite } = await dispatch(sendInvite(invitePayload));
 
         await dispatch(addPostToFeeds(newInvite?.invite));
+        medium();
 
         alert('Invite sent!');
       }

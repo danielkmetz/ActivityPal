@@ -47,6 +47,9 @@ router.post('/message', verifyToken, async (req, res) => {
   const senderId = req.user.id;
   let { conversationId, recipientIds = [], content, messageType, media } = req.body;
 
+  console.log('media', media);
+  console.log('content', content);
+
   try {
     let conversation;
     let createdNewConversation = false;

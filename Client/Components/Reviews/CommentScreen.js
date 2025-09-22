@@ -18,11 +18,15 @@ import {
 } from '../../Slices/CommentThreadSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { formatEventDate, getTimeLeft } from '../../functions';
-import { selectReviewById } from '../../utils/reviewSelectors';
 import { uploadReviewPhotos } from '../../Slices/PhotosSlice';
 import { useLikeAnimations } from '../../utils/LikeHandlers/LikeAnimationContext';
 import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from '../../utils/LikeHandlers';
 import { addComment as addCommentGeneric, toApiPostType } from '../../Slices/CommentsSlice';
+import { selectPostById } from '../../Slices/ReviewsSlice';
+import ShareOptionsModal from './SharedPosts/ShareOptionsModal';
+import SharePostModal from './SharedPosts/SharePostModal';
+import { medium } from '../../utils/Haptics/haptics';
+import { useNavigation } from '@react-navigation/native';
 
 dayjs.extend(relativeTime);
 
@@ -36,7 +40,8 @@ export default function CommentScreen() {
         sharedPost, // can still pass to header/UI if it changes look/feel
     } = route.params || {};
     const dispatch = useDispatch();
-    const review = useSelector(selectReviewById(reviewId));
+    const navigation = useNavigation();
+    const review = useSelector((state) => selectPostById(state, reviewId));
     const replyingTo = useSelector(selectReplyingTo);
     const nestedExpandedReplies = useSelector(selectNestedExpandedReplies);
     const isEditing = useSelector(selectIsEditing);
@@ -44,6 +49,7 @@ export default function CommentScreen() {
     const user = useSelector(selectUser);
     const dateTime = review?.dateTime || review?.date;
     const isInvite = review?.type === 'invite';
+
     const [commentText, setCommentText] = useState('');
     const [keyboardHeight, setKeyboardHeight] = useState(null);
     const [isInputCovered, setIsInputCovered] = useState(false);
@@ -52,6 +58,11 @@ export default function CommentScreen() {
     const [inputHeight, setInputHeight] = useState(40);
     const [contentHeight, setContentHeight] = useState(40);
     const [selectedMedia, setSelectedMedia] = useState([]);
+    const [shareOptions, setShareOptions] = useState(false);
+    const [shareToFeedVisible, setShareToFeedVisible] = useState(false);
+    const [selectedPostForShare, setSelectedPostForShare] = useState(null);
+    const [editingSharedPost, setEditingSharedPost] = useState(false);
+
     const { registerAnimation, getAnimation } = useLikeAnimations();
     const shiftAnim = useRef(new Animated.Value(0)).current;
     const flatListRef = useRef(null);
@@ -100,6 +111,26 @@ export default function CommentScreen() {
         setInputHeight(Math.min(Math.max(40, contentHeight), 150));
     }, [contentHeight]);
 
+    const openShareOptions = (post) => {
+        setSelectedPostForShare(post);
+        setShareOptions(true);
+        medium();
+    };
+
+    const closeShareOptions = () => {
+        setShareOptions(false);
+    };
+
+    const openShareToFeedModal = () => {
+        setShareOptions(false);
+        setShareToFeedVisible(true);
+    };
+
+    const closeShareToFeed = () => {
+        setShareToFeedVisible(false);
+        setSelectedPostForShare(null);
+    };
+
     const handleLikeWithAnimation = (_ignored, force) => {
         const animation = getAnimation(review._id);
         return sharedHandleLikeWithAnimation({
@@ -114,7 +145,14 @@ export default function CommentScreen() {
         });
     };
 
-    // ✅ Centralized "add comment" using generic thunk
+    const handleShareToStory = () => {
+        setShareOptions(false);
+
+        navigation.navigate('StoryPreview', {
+            post: selectedPostForShare,
+        })
+    };
+
     // ✅ Centralized "add comment" with deep logging
     const handleAddComment = async () => {
         const TAG = '[addCommentGeneric]';
@@ -387,6 +425,7 @@ export default function CommentScreen() {
                         lastTapRef={lastTapRef}
                         setIsPhotoListActive={setIsPhotoListActive}
                         sharedPost={sharedPost}
+                        onShare={openShareOptions}
                     />
                 }
                 renderItem={({ item }) => (
@@ -415,6 +454,19 @@ export default function CommentScreen() {
                     setSelectedMedia={setSelectedMedia}
                 />
             )}
+            <SharePostModal
+                visible={shareToFeedVisible}
+                onClose={closeShareToFeed}
+                post={selectedPostForShare}
+                isEditing={editingSharedPost}
+                setIsEditing={setEditingSharedPost}
+            />
+            <ShareOptionsModal
+                visible={shareOptions}
+                onClose={closeShareOptions}
+                onShareToFeed={openShareToFeedModal}
+                onShareToStory={handleShareToStory}
+            />
         </Animated.View>
     );
 }

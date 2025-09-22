@@ -26,7 +26,7 @@ import StoryViewer from '../Stories/StoryViewer';
 import CreatePost from '../Reviews/CreatePost/CreatePost';
 import CreateEventPage from '../BusinessEvents/CreateEventPage';
 import CreatePromotionPage from '../BusinessEvents/CreatePromotionPage';
-import FullScreenPhoto from '../Reviews/FullScreenPhoto';
+import FullScreenPhoto from '../Reviews/Photos/FullScreenPhoto';
 import DirectMessagesScreen from '../DirectMessages/DirectMessagesScreen';
 import MessageThreadScreen from '../DirectMessages/MessageThreadScreen';
 import SearchFollowingScreen from '../SearchFollowingUsers/SearchFollowingScreen';
