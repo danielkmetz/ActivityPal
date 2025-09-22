@@ -3,14 +3,13 @@ import {
     View,
     Text,
     Image,
-    FlatList,
     Animated,
     StyleSheet,
     Dimensions,
     TouchableWithoutFeedback,
     TouchableOpacity,
 } from "react-native";
-import PostActions from './PostActions';
+import PostActions from './PostActions/PostActions';
 import { selectUser } from "../../Slices/UserSlice";
 import { useSelector, useDispatch } from "react-redux";
 import { useNavigation } from "@react-navigation/native";

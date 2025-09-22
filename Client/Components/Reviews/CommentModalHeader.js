@@ -3,7 +3,7 @@ import { View, Text, Image, Animated, StyleSheet, Dimensions } from "react-nativ
 import dayjs from 'dayjs';
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useNavigation } from "@react-navigation/native";
-import PostActions from './PostActions';
+import PostActions from './PostActions/PostActions';
 import PostUserInfo from "./CommentScreen/PostUserInfo";
 import SharedPostContent from "./SharedPosts/SharedPostContent";
 import VideoThumbnail from "./VideoThumbnail";
@@ -22,6 +22,7 @@ const CommentModalHeader = ({
     lastTapRef,
     setIsPhotoListActive,
     sharedPost,
+    onShare
 }) => {
     const dispatch = useDispatch();
     const navigation = useNavigation();
@@ -179,6 +180,7 @@ const CommentModalHeader = ({
                     photo={currentPhoto}
                     handleLikeWithAnimation={handleLikeWithAnimation}
                     isCommentScreen={true}
+                    onShare={onShare}
                 />
             </View>
         </View>

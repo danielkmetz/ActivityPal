@@ -16,6 +16,7 @@ import {
   toggleLike as toggleLikeGeneric,
   toApiPostType,
 } from '../../../Slices/CommentsSlice';
+import { selection } from '../../../utils/Haptics/haptics';
 
 const Reply = ({
   reply,
@@ -118,6 +119,7 @@ const Reply = ({
         commentId: reply._id,             // listener figures out if it’s nested and finds top-level id
       })
     );
+    selection();
   };
 
   return (

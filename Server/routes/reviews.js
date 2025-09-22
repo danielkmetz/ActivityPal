@@ -7,6 +7,7 @@ const ActivityInvite = require('../models/ActivityInvites.js');
 const mongoose = require('mongoose');
 const { resolveTaggedPhotoUsers, resolveTaggedUsers, resolveUserProfilePics, enrichComments } = require('../utils/userPosts.js')
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
+const { normalizePostType } = require('../utils/normalizePostType.js');
 
 async function formatPhotoWithTaggedUsers(photo) {
   const taggedUsers = await User.find(
@@ -50,7 +51,8 @@ async function getProfilePicUrl(user) {
 
 /////// Retrieve a review by its reviewId
 router.get('/:postType/:postId', async (req, res) => {
-  const { postType, postId } = req.params;
+  let { postType, postId } = req.params;
+  postType = normalizePostType(postType);
 
   try {
     let post = null;
