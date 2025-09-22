@@ -13,6 +13,7 @@ export const toApiPostType = (t) => {
     switch (t) {
         case 'sharedPost': return 'sharedPosts';
         case 'review': return 'reviews';
+        case 'reviews': return 'reviews';
         case 'liveStream': return 'liveStreams';
         case 'liveStreams': return 'liveStreams';
         case 'promotion': return 'promotions';

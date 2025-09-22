@@ -14,11 +14,12 @@ import { selectInvites } from "../../Slices/InvitesSlice";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigation } from "@react-navigation/native";
 import SuggestionDetailsModal from "../SuggestionDetails/SuggestionDetailsModal";
-import PostActions from "./PostActions";
+import PostActions from "./PostActions/PostActions";
 import { selectUser } from "../../Slices/UserSlice";
 import { logEngagementIfNeeded, getEngagementTarget } from "../../Slices/EngagementSlice";
 import profilePicPlaceholder from "../../assets/pics/profile-pic-placeholder.jpg";
 import PhotoFeed from "./Photos/PhotoFeed";
+import { medium, selection } from "../../utils/Haptics/haptics";
 
 const screenWidth = Dimensions.get("window").width;
 
@@ -39,6 +40,24 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost, handle
     const resolvedMedia = photos || media || [];
     const overlayTextSize = sharedPost ? 14 : 16;
     const dotsExist = photos?.length > 1;
+
+    const isSameLocalDay = (a, b) => {
+        const da = new Date(a);
+        const db = new Date(b);
+        return (
+            da.getFullYear() === db.getFullYear() &&
+            da.getMonth() === db.getMonth() &&
+            da.getDate() === db.getDate()
+        );
+    };
+
+    const getInviteSentAt = (invite) =>
+        invite?.createdAt ||
+        invite?.sentAt ||
+        invite?.createdOn ||
+        invite?.timestamp ||
+        invite?.updatedAt ||
+        invite?.dateTime; // last-resort fallback if others aren’t present
 
     const rawInvite = invites.find(invite => {
         if (!invite.placeId || !invite.dateTime) return false;
@@ -61,7 +80,9 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost, handle
         return isSamePlace && (isActive || isUpcoming);
     });
 
-    const existingInvite = rawInvite ? { ...rawInvite, type: 'invite' } : null;
+    const sentAt = rawInvite ? getInviteSentAt(rawInvite) : null;
+    const wasSentToday = sentAt ? isSameLocalDay(sentAt, new Date()) : false;
+    const existingInvite = rawInvite && wasSentToday ? { ...rawInvite, type: "invite" } : false;
 
     const suggestedPlace = {
         placeId: suggestion.placeId,
@@ -71,6 +92,7 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost, handle
     };
 
     const inviteCreationEditing = () => {
+        selection();
         if (existingInvite) {
             navigation.navigate('CreatePost', {
                 postType: 'invite',
@@ -84,6 +106,7 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost, handle
 
     const handleOpenComments = () => {
         const { targetType, targetId } = getEngagementTarget(suggestion);
+        medium();
 
         logEngagementIfNeeded(dispatch, {
             targetType,
@@ -96,6 +119,7 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost, handle
     };
 
     const handleSingleTapOpenDetails = () => {
+        selection();
         setDetailsModalVisible(true);
         const { targetType, targetId } = getEngagementTarget(suggestion);
         logEngagementIfNeeded(dispatch, {

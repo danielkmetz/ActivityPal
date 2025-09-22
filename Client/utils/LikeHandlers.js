@@ -1,13 +1,13 @@
 import { Animated } from 'react-native';
 import store from '../store';
 import { toggleLike as togglePostLike } from '../Slices/LikesSlice';
-
-// Notifications
+import { medium, selection } from '../utils/Haptics/haptics';
 import {
   createNotification,
   deleteNotification,
   selectNotificationByFields,
 } from '../Slices/NotificationsSlice';
+import { fireHapticOnce } from './Haptics/fireHapticOnce';
 
 /* ---------------------------------- */
 /* Debug helpers                       */
@@ -37,7 +37,6 @@ const resolveSuggestionPostId = (entity, fallback) => {
     entity?.promotionId ||
     entity?.postId ||
     fallback;
-  log('resolveSuggestionPostId:', { resolved, fallback, entityKey: pickId(entity) });
   return resolved;
 };
 
@@ -114,7 +113,6 @@ const getOwnerId = (postType, entity) => {
   } else if (postType === 'liveStreams') {
     owner = entity?.hostUserId || entity?.userId || null;
   }
-  log('getOwnerId:', { postType, owner });
   return owner; // business-owned returns null
 };
 
@@ -135,20 +133,11 @@ export const handleLike = async ({
   }
 
   const normalizedType = normalizePostType(postType, review);
-  log('handleLike: dispatch toggle', { normalizedType, postId, userId });
 
   try {
     const result = await dispatch(togglePostLike({ postType: normalizedType, postId }));
     const payload = result?.payload;
     const data = payload?.data || {};
-    log('handleLike: dispatch result (trimmed)', {
-      ok: !!payload,
-      hasData: !!data,
-      liked: data?.liked,
-      likesCount: Array.isArray(data?.likes) ? data.likes.length : undefined,
-      status: result?.meta?.requestStatus,
-    });
-
     const userLiked = typeof data.liked === 'boolean'
       ? data.liked
       : Array.isArray(data.likes)
@@ -156,10 +145,8 @@ export const handleLike = async ({
         : false;
 
     const ownerId = getOwnerId(normalizedType, review);
-    log('handleLike: computed', { userLiked, ownerId });
 
     if (!ownerId || String(ownerId) === String(userId)) {
-      log('handleLike: skip notification (no owner or self-like)', { ownerId, userId });
       return;
     }
 
@@ -167,7 +154,6 @@ export const handleLike = async ({
 
     if (userLiked) {
       const msg = `${fullName} ${likeMessageFor(normalizedType)}`;
-      log('handleLike: createNotification →', { ownerId, typeRef, postId, msg });
       await dispatch(createNotification({
         userId: ownerId,
         type: 'like',
@@ -184,33 +170,13 @@ export const handleLike = async ({
         targetId: postId,
         typeRef,
       });
-      log('handleLike: unlike path; existing notif?', { hasExisting: !!existing?._id, existingId: existing?._id });
       if (existing?._id) {
         await dispatch(deleteNotification({ userId: ownerId, notificationId: existing._id }));
-        log('handleLike: deleteNotification dispatched');
       }
     }
   } catch (e) {
     err(`handleLike: Error toggling like for ${postType} (${postId})`, e);
   }
-};
-
-/* ---------------------------------- */
-/* Animation helper                   */
-/* ---------------------------------- */
-const runLikeAnimation = (animation) => {
-  if (!(animation instanceof Animated.Value)) {
-    warn('runLikeAnimation: invalid or missing Animated.Value', { animation });
-    return;
-  }
-  log('runLikeAnimation: start');
-  Animated.timing(animation, { toValue: 1, duration: 50, useNativeDriver: true }).start(() => {
-    setTimeout(() => {
-      Animated.timing(animation, { toValue: 0, duration: 500, useNativeDriver: true }).start(() => {
-        log('runLikeAnimation: end');
-      });
-    }, 500);
-  });
 };
 
 /* ---------------------------------- */
@@ -225,22 +191,14 @@ const getLikedState = (entity, userId) => {
 };
 
 export const handleLikeWithAnimation = async ({
-  // LIKE (logical) target — what you actually toggle on the backend
   postType,
   postId,          // may be undefined for suggestions; we’ll resolve below
   review,          // the entity being liked (share doc, review, suggestion, etc.)
-
-  // WHO/WHERE
   user,
   dispatch,
-
-  // UI / gesture
   animation,       // Animated.Value registered for the *animation target* (usually from PhotoItem/Feed)
   lastTapRef,
   force = false,   // pass true from your double-tap handler
-
-  // NEW: ANIMATION TARGET — what the heart should overlay on (e.g., inner original)
-  // If omitted, we animate over `review`.
   animateTarget = null,
 }) => {
   const normalizedType = normalizePostType(postType, review);
@@ -283,6 +241,11 @@ export const handleLikeWithAnimation = async ({
     fullName: `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim(),
     dispatch,
   });
+
+  try {
+    const nextLiked = !wasLikedBefore; // optimistic: we just toggled it
+    fireHapticOnce(animKey, () => (nextLiked ? medium() : selection()));
+  } catch { }
 
   // 6) Run overlay only on unliked → liked transition
   if (!wasLikedBefore && hasAnim) {

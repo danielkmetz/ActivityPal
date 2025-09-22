@@ -5,23 +5,23 @@ import {
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSelector, useDispatch } from 'react-redux';
-import { selectUser } from '../../Slices/UserSlice';
-import BottomCommentsModal from './BottomCommentsModal';
-import { isVideo } from '../../utils/isVideo';
+import { selectUser } from '../../../Slices/UserSlice';
+import BottomCommentsModal from '../BottomCommentsModal';
+import { isVideo } from '../../../utils/isVideo';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import VideoThumbnail from './VideoThumbnail';
-import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from '../../utils/LikeHandlers';
-import { selectReviewById } from '../../utils/reviewSelectors';
-import { useLikeAnimations } from '../../utils/LikeHandlers/LikeAnimationContext';
-import { selectNearbySuggestionById } from '../../Slices/GooglePlacesSlice';
-import StoryAvatar from '../Stories/StoryAvatar';
-import ExpandableText from './ExpandableText';
-import ShareOptionsModal from './SharedPosts/ShareOptionsModal';
-import SharePostModal from './SharedPosts/SharePostModal';
-import { typeFromKind, pickPostId } from '../../utils/posts/postIdentity';
-import { selectPromotionById } from '../../Slices/PromotionsSlice';
-import { selectEventById } from '../../Slices/EventsSlice';
-import PostActions from './PostActions';
+import VideoThumbnail from '../VideoThumbnail';
+import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from '../../../utils/LikeHandlers';
+import { useLikeAnimations } from '../../../utils/LikeHandlers/LikeAnimationContext';
+import { selectNearbySuggestionById } from '../../../Slices/GooglePlacesSlice';
+import StoryAvatar from '../../Stories/StoryAvatar';
+import ExpandableText from '../ExpandableText';
+import ShareOptionsModal from '../SharedPosts/ShareOptionsModal';
+import SharePostModal from '../SharedPosts/SharePostModal';
+import { typeFromKind, pickPostId } from '../../../utils/posts/postIdentity';
+import { selectPromotionById } from '../../../Slices/PromotionsSlice';
+import { selectEventById } from '../../../Slices/EventsSlice';
+import PostActions from '../PostActions/PostActions';
+import { selectPostById } from '../../../Slices/ReviewsSlice';
 
 const { width, height } = Dimensions.get('window');
 
@@ -39,15 +39,11 @@ const FullScreenPhoto = () => {
   const user = useSelector(selectUser);
   const review = useSelector((state) => {
     if (isEventPromo) {
-      if (selectedType === 'event') {
-        return selectEventById(state, reviewId);
-      }
-      if (selectedType === 'promo') {
-        return selectPromotionById(state, reviewId);
-      }
+      if (selectedType === 'event') return selectEventById(state, reviewId);
+      if (selectedType === 'promo') return selectPromotionById(state, reviewId);
       return selectNearbySuggestionById(state, reviewId);
     }
-    return selectReviewById(state, reviewId);
+    return selectPostById(state, reviewId); // ← now correct, no factory
   });
   const flatListRef = useRef();
   const [commentsVisible, setCommentsVisible] = useState(false);
@@ -68,9 +64,7 @@ const FullScreenPhoto = () => {
   const ownerId = review?.userId || review?.placeId;
   const ownerPic = review?.profilePicUrl || review?.businessLogoUrl;
   const ownerName = review?.fullName || review?.businessName;
-
-
-  console.log(review)
+  console.log(reviewId)
   const handleLikeWithAnimation = (review, force = true) => {
     const derivedType =
       (review?.type && String(review.type).toLowerCase()) ||

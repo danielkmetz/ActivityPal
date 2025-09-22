@@ -36,7 +36,7 @@ const MessageSchema = new mongoose.Schema({
     postId: { type: mongoose.Schema.Types.ObjectId },
     postType: {
       type: String,
-      enum: ['review', 'check-in', 'invite', 'suggestion', 'event', 'promo'],  
+      enum: ['review', 'check-in', 'invite', 'suggestion', 'event', 'promo', 'sharedPost', 'liveStream'],  
     },
   },
   isRead: {

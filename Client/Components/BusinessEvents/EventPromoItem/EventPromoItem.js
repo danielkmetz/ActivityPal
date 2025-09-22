@@ -2,7 +2,7 @@ import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import EventDetailsCard from "../EventDetailsCard";
 import PhotoFeed from '../../Reviews/Photos/PhotoFeed';
-import PostActions from "../../Reviews/PostActions";
+import PostActions from "../../Reviews/PostActions/PostActions";
 import { useNavigation } from "@react-navigation/native";
 
 export default function EventPromoItem({

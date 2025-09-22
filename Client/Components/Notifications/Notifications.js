@@ -100,9 +100,6 @@ export default function Notifications() {
             } else {
                 navigation.navigate("CommentScreen", {
                     reviewId: targetId,
-                    setSelectedReview,
-                    likedAnimations,
-                    handleLikeWithAnimation,
                     toggleTaggedUsers,
                     lastTapRef,
                     photoTapped,
@@ -114,6 +111,7 @@ export default function Notifications() {
             Alert.alert("Error", "Unable to load the content.");
         }
     };
+    
     const handleAcceptRequest = async (senderId) => {
         try {
             // Optimistic UI update first

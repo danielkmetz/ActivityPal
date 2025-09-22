@@ -13,22 +13,26 @@ import { selectNearbySuggestionById } from '../../../Slices/GooglePlacesSlice';
 import { selectIsEditing, selectNestedReplyInput, selectReplyingTo, setReplyingTo } from '../../../Slices/CommentThreadSlice';
 import { useLikeAnimations } from '../../../utils/LikeHandlers/LikeAnimationContext';
 import { uploadReviewPhotos } from '../../../Slices/PhotosSlice';
-import { selectSelectedPromotion, selectPromotionById } from '../../../Slices/PromotionsSlice';
-import { selectEventById, selectSelectedEvent } from '../../../Slices/EventsSlice';
+import { selectSelectedPromotion, selectPromotionById, fetchPromotionById } from '../../../Slices/PromotionsSlice';
+import { selectEventById, selectSelectedEvent, fetchEventById } from '../../../Slices/EventsSlice';
 import { typeFromKind, pickPostId } from '../../../utils/posts/postIdentity';
 import { addComment, toApiPostType } from '../../../Slices/CommentsSlice';
+import { normalizeActivityType } from '../../../utils/normalizeActivityType';
 
 export default function EventDetailsScreen() {
     const dispatch = useDispatch();
     const { params } = useRoute();
     const { activity } = params;
-    const selectedType = activity?.kind?.toLowerCase().includes('event') ? 'event' : 'promo'
-    const eventOrPromo = selectedType === ('promo' || 'promotion') ?
-        useSelector((state) => selectPromotionById(state, activity?._id)) :
-        useSelector((state) => selectEventById(state, activity?._id));
+    const activityKind = activity?.postType || activity?.kind;
+    const activityId = activity?.postId || activity?._id;
+    const selectedType = normalizeActivityType(activityKind);
+    const isPromo = selectedType === 'promotion';
+    const eventOrPromo = isPromo ?
+        useSelector((state) => selectPromotionById(state, activityId)) :
+        useSelector((state) => selectEventById(state, activityId));
     const selectedEvent = useSelector(selectSelectedEvent);
     const selectedPromo = useSelector(selectSelectedPromotion);
-    const suggestion = useSelector((state) => selectNearbySuggestionById(state, activity?._id));
+    const suggestion = useSelector((state) => selectNearbySuggestionById(state, activityId));
     const post = eventOrPromo || selectedEvent || selectedPromo || suggestion;
     const user = useSelector(selectUser);
     const replyingTo = useSelector(selectReplyingTo);
@@ -38,7 +42,7 @@ export default function EventDetailsScreen() {
     const lastTapRef = useRef({});
     const nestedreplyInput = useSelector(selectNestedReplyInput);
     const { getAnimation, registerAnimation } = useLikeAnimations();
-    const animation = getAnimation(activity._id);
+    const animation = getAnimation(activityId);
     const apiPostType = toApiPostType(selectedType);
 
     const handleAddComment = async () => {
@@ -108,6 +112,12 @@ export default function EventDetailsScreen() {
             force,                   // ✅ we already confirmed double-tap in UI
         });
     };
+
+    useEffect(() => {
+        if (!activityId || !selectedType) return;
+        if (selectedType === 'event' && !eventOrPromo) dispatch(fetchEventById({ eventId: activityId }));
+        if (selectedType === 'promotion' && !eventOrPromo) dispatch(fetchPromotionById({ promoId: activityId }));
+    }, [activityId, selectedType, eventOrPromo, dispatch]);
 
     useEffect(() => {
         if (post?._id) {

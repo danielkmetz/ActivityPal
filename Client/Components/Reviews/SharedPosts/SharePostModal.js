@@ -16,7 +16,7 @@ import Animated from 'react-native-reanimated';
 import Notch from '../../Notch/Notch';
 import useSlideDownDismiss from '../../../utils/useSlideDown';
 import { GestureDetector } from 'react-native-gesture-handler';
-import PostPreviewCard from '../PostPreviewCard';
+import PostPreviewCard from '../PostPreviewCard/index';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser } from '../../../Slices/UserSlice';
 import { selectProfilePic } from '../../../Slices/PhotosSlice';

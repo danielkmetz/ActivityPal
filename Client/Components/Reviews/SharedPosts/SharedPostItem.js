@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import StoryAvatar from '../../Stories/StoryAvatar';
-import PostActions from '../PostActions';
+import PostActions from '../PostActions/PostActions';
 import ExpandableText from '../ExpandableText';
 import PostOptionsMenu from '../PostOptionsMenu';
 import { useSelector } from 'react-redux';
