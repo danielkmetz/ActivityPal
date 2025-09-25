@@ -1,430 +1,360 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { View, TouchableOpacity, StyleSheet, Text, Alert } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, useIsFocused } from '@react-navigation/native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { useSharedValue, runOnJS, useAnimatedStyle, withTiming, } from 'react-native-reanimated';
-import Animated from 'react-native-reanimated';
+import Animated, {
+  useSharedValue,
+  runOnJS,
+  useAnimatedStyle,
+  withTiming,
+  useAnimatedProps,
+} from 'react-native-reanimated';
+import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
 
-const CameraScreen = () => {
-    const [permission, requestPermission] = useCameraPermissions();
-    const [facing, setFacing] = useState("back");
-    const [isRecording, setIsRecording] = useState(false);
-    const [cameraIsReady, setCameraIsReady] = useState(false);
-    const zoomShared = useSharedValue(0.1);
-    const [zoom, setZoom] = useState(0.1); // still needed to sync with CameraView
-    const [mode, setMode] = useState('photo');
-    const wasZoomingRef = useRef(false);
-    const cameraRef = useRef(null);
-    const navigation = useNavigation();
-    const recordingPromiseRef = useRef(null);
-    const baseZoom = useSharedValue(0);
-    const buttonRecording = useRef(false);
-    const gestureInProgress = useRef(false);
-    const recordedSegments = useRef([]); // Store multiple segments if flipped during recording
-    const justFlippedRef = useRef(false);
-    const animatedSize = useSharedValue(60); // Initial circle size
-    const animatedRadius = useSharedValue(30); // Initial border radius
+const AnimatedCamera = Animated.createAnimatedComponent(Camera);
 
-    useEffect(() => {
-        if (cameraIsReady) {
-            const initialZoom = 0.01;
-            setZoom(initialZoom);
-            zoomShared.value = initialZoom;
-        }
-    }, [cameraIsReady]);
+export default function CameraScreen() {
+  const nav = useNavigation();
+  const route = useRoute();
+  const isFocused = useIsFocused();
+  const { onCapture } = route.params || {};
+  const cameraRef = useRef(null);
+  const [facing, setFacing] = useState('back');
+  const device = useCameraDevice(facing);
+  const { hasPermission, requestPermission } = useCameraPermission();
+  const [mode, setMode] = useState('photo');
+  const [isRecording, setIsRecording] = useState(false);
+  const [cameraActive] = useState(true);
+  const [flashEnabled, setFlashEnabled] = useState(false);
+  const hasFlash = !!device?.hasFlash;
 
-    useEffect(() => {
-        const unsubscribe = navigation.addListener('focus', () => {
-            setIsRecording(false);
-            buttonRecording.current = false;
-            justFlippedRef.current = false;
-            zoomShared.value = 0.1;
-            setZoom(0.1);
-        });
+  // ===== Normalized zoom (0..1) -> mapped to device zoom via animatedProps =====
+  const normZoom = useSharedValue(0); // 0..1
+  const minSV = useSharedValue(1);
+  const maxSV = useSharedValue(1);
+  const isRecordingSV = useSharedValue(false);
 
-        return unsubscribe;
-    }, [navigation]);
+  useEffect(() => {
+    if (device) {
+      const min = device?.minZoom ?? 1;
+      const max = Math.min(device?.maxZoom ?? 1, 16);
+      const neutral = device?.neutralZoom ?? min;
+      const range = Math.max(max - min, 1e-6);
 
-    useEffect(() => {
-        if (mode === 'video') {
-            if (isRecording) {
-                animatedSize.value = withTiming(28, { duration: 300 });
-                animatedRadius.value = withTiming(6, { duration: 300 });
-            } else {
-                animatedSize.value = withTiming(60, { duration: 300 }); // match styles.videoInner
-                animatedRadius.value = withTiming(30, { duration: 300 }); // perfect circle again
-            }
-        }
-    }, [isRecording]);
+      minSV.value = min;
+      maxSV.value = max;
 
-    const toggleCameraFacing = async () => {
-        if (isRecording && cameraRef.current) {
-            try {
-                justFlippedRef.current = true;
-
-                const segmentPromise = recordingPromiseRef.current;
-                await cameraRef.current.stopRecording();
-
-                // Store the resolved video segment
-                segmentPromise.then((video) => {
-                    if (video?.uri) {
-                        recordedSegments.current.push({ uri: video.uri, camera: facing });
-                    }
-                });
-
-                // Flip camera
-                setFacing(prev => (prev === 'back' ? 'front' : 'back'));
-
-                // Restart recording after delay
-                setTimeout(() => {
-                    startRecording();
-                }, 500);
-            } catch (err) {
-                console.log("⚠️ Flip + stopRecording failed:", err);
-            }
-        } else {
-            setFacing(prev => (prev === 'back' ? 'front' : 'back'));
-        }
-    };
-
-    const markZooming = () => {
-        wasZoomingRef.current = true;
-    };
-
-    const endZooming = () => {
-        wasZoomingRef.current = false;
+      const initialNorm = (neutral - min) / range;
+      normZoom.value = initialNorm < 0 ? 0 : initialNorm > 1 ? 1 : initialNorm;
     }
+  }, [device, minSV, maxSV, normZoom]);
 
-    const pinchGesture = Gesture.Pinch()
-        .onChange((e) => {
-            'worklet';
-            const ZOOM_SENSITIVITY = 0.1;
-            let delta = (e.scale - 1) * ZOOM_SENSITIVITY;
-            let nextZoom = zoomShared.value + delta;
-            nextZoom = Math.max(0, Math.min(nextZoom, 1)); // clamp
+  useEffect(() => {
+    isRecordingSV.value = isRecording;
+  }, [isRecording, isRecordingSV]);
 
-            zoomShared.value = nextZoom;
-            runOnJS(setZoom)(nextZoom);
-        });
+  const animatedCameraProps = useAnimatedProps(() => {
+    'worklet';
+    const min = minSV.value;
+    const max = maxSV.value;
+    const range = max - min;
+    const z = min + (range <= 0 ? 0 : normZoom.value * range);
+    const clamped = z < min ? min : z > max ? max : z;
+    return { zoom: clamped };
+  });
 
-    const panGesture = Gesture.Pan()
-        .onChange((e) => {
-            'worklet';
-            if (isRecording) {
-                const zoomDelta = -e.changeY / 300;
-                let nextZoom = zoomShared.value + zoomDelta;
-                nextZoom = Math.max(0, Math.min(nextZoom, 1));
-                zoomShared.value = nextZoom;
-                runOnJS(setZoom)(nextZoom);
-            }
-        });
+  // ==== Shutter UI ====
+  const animatedSize = useSharedValue(60);
+  const animatedRadius = useSharedValue(30);
+  useEffect(() => {
+    if (mode === 'video') {
+      if (isRecording) {
+        animatedSize.value = withTiming(28, { duration: 300 });
+        animatedRadius.value = withTiming(6, { duration: 300 });
+      } else {
+        animatedSize.value = withTiming(60, { duration: 300 });
+        animatedRadius.value = withTiming(30, { duration: 300 });
+      }
+    }
+  }, [isRecording, mode, animatedSize, animatedRadius]);
 
-    const takePhoto = async () => {
-        try {
-            if (!cameraRef.current) return;
-            const photo = await cameraRef.current.takePictureAsync();
-            console.log('📷 photo taken:', photo);
-            if (photo?.uri) {
-                navigation.navigate('StoryPreview', { file: { ...photo, mediaType: 'photo' } });
-            } else {
-                throw new Error("No photo URI returned");
-            }
-        } catch (err) {
-            Alert.alert('Error', 'Failed to take photo');
-        }
-    };
+  const animatedStyle = useAnimatedStyle(() => ({
+    width: animatedSize.value,
+    height: animatedSize.value,
+    borderRadius: animatedRadius.value,
+  }));
 
-    const startRecording = () => {
-        if (!cameraIsReady || !cameraRef.current) {
-            console.log("🚫 startRecording aborted — camera not ready");
-            return;
-        }
-        setIsRecording(true);
+  useEffect(() => {
+    if (!hasPermission) requestPermission();
+  }, [hasPermission, requestPermission]);
 
-        try {
-            const promise = cameraRef.current.recordAsync({ maxDuration: 60 });
-            recordingPromiseRef.current = promise;
-
-            promise
-                .then((video) => {
-                    if (!justFlippedRef.current) {
-                        setIsRecording(false);
-                    } else {
-                        console.log("🔁 Just flipped — keeping isRecording true");
-                    }
-                    if (wasZoomingRef.current) {
-                        return;
-                    }
-
-                    if (video?.uri) {
-                        if (buttonRecording.current || justFlippedRef.current) {
-                            recordedSegments.current.push({ uri: video.uri, camera: facing });
-                        } else {
-                            console.log("🧼 Skipping duplicate push for final segment");
-                        }
-                        if (justFlippedRef.current) {
-                            justFlippedRef.current = false;
-                            return;
-                        }
-                    } else {
-                        Alert.alert('Error', 'Recording completed but no video URI returned.');
-                    }
-                })
-                .catch((err) => {
-                    setIsRecording(false);
-                    Alert.alert('Error', 'Failed to record video');
-                });
-        } catch (err) {
-            setIsRecording(false);
-            Alert.alert('Error', 'Recording failed unexpectedly');
-        }
-    };
-
-    const stopRecording = async () => {
-        if (!cameraRef.current || !isRecording) {
-            return;
-        }
-
-        try {
-            buttonRecording.current = false;
-            const lastSegmentPromise = recordingPromiseRef.current;
-
-            await cameraRef.current.stopRecording();
-
-            const lastSegment = await lastSegmentPromise;
-            if (lastSegment?.uri) {
-                recordedSegments.current.push({ uri: lastSegment.uri, camera: facing });
-            } else {
-                console.log("⚠️ Final segment missing URI");
-            }
-
-            const allSegments = [...recordedSegments.current];
-            recordedSegments.current = [];
-            setIsRecording(false);
-
-            navigation.navigate('StoryPreview', {
-                file: {
-                    mediaType: 'video',
-                    segments: allSegments,
-                }
-            });
-        } catch (err) {
-            setIsRecording(false);
-        }
-    };
-
-    const handleCapturePress = () => {
-        if (mode === 'photo') {
-            takePhoto();
-        } else {
-            if (isRecording) {
-                stopRecording();
-            } else {
-                startRecording();
-            }
-        }
-    };
-
-    const doubleTapGesture = Gesture.Tap()
-        .numberOfTaps(2)
-        .onEnd(() => {
-            runOnJS(toggleCameraFacing)();
-        });
-
-    const combinedGesture = Gesture.Simultaneous(
-        panGesture,
-        pinchGesture,
-        doubleTapGesture,
-    );
-    const animatedStyle = useAnimatedStyle(() => {
-        return {
-            width: animatedSize.value,
-            height: animatedSize.value,
-            borderRadius: animatedRadius.value,
-        };
+  // ==================== Gestures ====================
+  const pinchGesture = Gesture.Pinch()
+    .onStart(() => {
+      'worklet';
+    })
+    .onChange((e) => {
+      'worklet';
+      const SENS = 0.12; // tweak
+      const delta = (e.scale - 1) * SENS;
+      let next = normZoom.value + delta;
+      next = next < 0 ? 0 : next > 1 ? 1 : next;
+      normZoom.value = next;
     });
 
+  const panGesture = Gesture.Pan()
+    .onChange((e) => {
+      'worklet';
+      if (!isRecordingSV.value) return;
+      const delta = -e.changeY / 300; // tweak sensitivity
+      let next = normZoom.value + delta;
+      next = next < 0 ? 0 : next > 1 ? 1 : next;
+      normZoom.value = next;
+    });
 
-    if (!permission || !permission.granted) {
-        return (
-            <View style={styles.container}>
-                <Text style={styles.message}>We need your permission to access the camera</Text>
-                <TouchableOpacity onPress={requestPermission}>
-                    <Text style={styles.buttonText}>Grant Permission</Text>
-                </TouchableOpacity>
-            </View>
-        );
-    };
+  // ====== Segments + recording bridge ======
+  const segmentsRef = useRef([]);
+  const recordingDonePromiseRef = useRef(null);
+  const resolveRecordingDoneRef = useRef(null);
 
+  const isRecordingRef = useRef(false);
+  const facingRef = useRef(facing);
+  useEffect(() => { facingRef.current = facing; }, [facing]);
+
+  const initializedPromiseRef = useRef(Promise.resolve());
+  const resolveInitializedRef = useRef(null);
+
+  // ==== Video (with segments) ====
+  const toFileUri = (p) => (p?.startsWith('file://') ? p : `file://${p}`);
+
+  const startRecording = useCallback(() => {
+    if (!cameraRef.current || isRecordingRef.current) return;
+
+    isRecordingRef.current = true;
+    recordingDonePromiseRef.current = new Promise((resolve) => {
+      resolveRecordingDoneRef.current = resolve;
+    });
+
+    cameraRef.current.startRecording({
+      flash: 'off', // not used for video; torch prop controls light
+      onRecordingFinished: (video) => {
+        const uri = video?.path ? toFileUri(video.path) : null;
+        if (uri) {
+          segmentsRef.current.push({ uri, camera: facingRef.current });
+        }
+        isRecordingRef.current = false;
+        resolveRecordingDoneRef.current?.(video);
+        resolveRecordingDoneRef.current = null;
+      },
+      onRecordingError: () => {
+        isRecordingRef.current = false;
+        resolveRecordingDoneRef.current?.(null);
+        resolveRecordingDoneRef.current = null;
+        Alert.alert('Error', 'Failed to record video.');
+      },
+    });
+
+    setIsRecording(true);
+  }, []);
+
+  const stopRecording = useCallback(async () => {
+    if (!cameraRef.current || !isRecordingRef.current) return;
+    try {
+      await cameraRef.current.stopRecording();
+      if (recordingDonePromiseRef.current) {
+        await recordingDonePromiseRef.current;
+      }
+
+      const segments = [...segmentsRef.current];
+      segmentsRef.current = [];
+
+      setIsRecording(false);
+
+      const file = { mediaType: 'video', segments };
+      if (onCapture) { onCapture([file]); nav.goBack(); }
+      else { nav.navigate('StoryPreview', { file }); }
+    } catch (e) {
+      console.log(e);
+      setIsRecording(false);
+    } finally {
+      recordingDonePromiseRef.current = null;
+      resolveRecordingDoneRef.current = null;
+      isRecordingRef.current = false;
+    }
+  }, [nav, onCapture]);
+
+  // ==== Flip handling ====
+  const toggleCameraFacing = useCallback(async () => {
+    if (mode === 'video' && isRecordingRef.current && cameraRef.current) {
+      try {
+        await cameraRef.current.stopRecording();
+        if (recordingDonePromiseRef.current) {
+          await recordingDonePromiseRef.current;
+        }
+
+        setFacing((prev) => (prev === 'back' ? 'front' : 'back'));
+
+        initializedPromiseRef.current = new Promise((resolve) => {
+          resolveInitializedRef.current = resolve;
+        });
+        await new Promise((r) => setTimeout(r, 120));
+        await initializedPromiseRef.current;
+        await new Promise((r) => setTimeout(r, 50));
+
+        startRecording();
+      } catch (e) {
+        console.log('⚠️ Flip flow failed:', e);
+      }
+    } else {
+      setFacing((prev) => (prev === 'back' ? 'front' : 'back'));
+    }
+  }, [mode, startRecording]);
+
+  const doubleTapGesture = Gesture.Tap().numberOfTaps(2).onEnd(() => runOnJS(toggleCameraFacing)());
+  const combinedGesture = Gesture.Simultaneous(panGesture, pinchGesture, doubleTapGesture);
+
+  // ==== Photo ====
+  const takePhoto = useCallback(async () => {
+    try {
+      if (!cameraRef.current) return;
+      const photo = await cameraRef.current.takePhoto({
+        flash: flashEnabled && hasFlash ? 'on' : 'off',
+        enableShutterSound: true,
+      });
+      const file = {
+        uri: `file://${photo.path}`,
+        width: photo.width,
+        height: photo.height,
+        mediaType: 'photo',
+        taggedUsers: [],
+        description: '',
+      };
+      if (onCapture) { onCapture([file]); nav.goBack(); }
+      else { nav.navigate('StoryPreview', { file }); }
+    } catch {
+      Alert.alert('Error', 'Failed to take photo.');
+    }
+  }, [nav, onCapture, flashEnabled, hasFlash]);
+
+  const handleCapturePress = () => {
+    if (mode === 'photo') takePhoto();
+    else isRecordingRef.current ? stopRecording() : startRecording();
+  };
+
+  if (!hasPermission) {
     return (
-        <GestureDetector gesture={combinedGesture}>
-            <View style={styles.container}>
-                <View style={StyleSheet.absoluteFill}>
-                    <CameraView
-                        style={styles.camera}
-                        facing={facing}
-                        ref={cameraRef}
-                        mode={mode}
-                        zoom={zoom}
-                        enableZoomGesture={true} // we're handling zoom ourselves
-                        onCameraReady={() => setCameraIsReady(true)}
-                    />
-                </View>
-                <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()}>
-                    <Ionicons name="close" size={40} color="#fff" />
-                </TouchableOpacity>
-
-                <View style={styles.controls}>
-                    <TouchableOpacity style={styles.flipButton} onPress={toggleCameraFacing}>
-                        <Ionicons name="camera-reverse" size={28} color="#fff" />
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                        style={[
-                            styles.captureButtonWrapper,
-                            mode === 'video' && styles.videoWrapper,
-                            mode === 'photo' && styles.photoWrapper,
-                        ]}
-                        onPress={handleCapturePress}
-                    >
-                        {mode === 'video' && (
-                            <Animated.View style={[styles.videoInner, animatedStyle]} />
-                        )}
-                        {mode === 'photo' && (
-                            <View style={styles.photoInner} />
-                        )}
-                    </TouchableOpacity>
-
-                    <View style={styles.modeToggle}>
-                        <TouchableOpacity onPress={() => setMode('photo')}>
-                            <Text style={[styles.modeText, mode === 'photo' && styles.activeMode]}>PHOTO</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => setMode('video')}>
-                            <Text style={[styles.modeText, mode === 'video' && styles.activeMode]}>VIDEO</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </View>
-        </GestureDetector>
+      <View style={styles.container}>
+        <Text style={styles.message}>We need your permission to access the camera</Text>
+        <TouchableOpacity onPress={requestPermission}>
+          <Text style={styles.buttonText}>Grant Permission</Text>
+        </TouchableOpacity>
+      </View>
     );
-};
+  }
 
-export default CameraScreen;
+  if (!device) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.message}>No camera device available</Text>
+      </View>
+    );
+  }
+
+  return (
+    <GestureDetector gesture={combinedGesture}>
+      <View style={styles.container}>
+        <View style={StyleSheet.absoluteFill}>
+          <AnimatedCamera
+            ref={cameraRef}
+            style={styles.camera}
+            device={device}
+            isActive={isFocused && cameraActive}
+            photo={mode === 'photo'}
+            video={mode === 'video'}
+            audio={mode === 'video'}
+            // Torch controls continuous light (video). We keep it off for photo preview.
+            torch={mode === 'video' && flashEnabled && hasFlash ? 'on' : 'off'}
+            animatedProps={animatedCameraProps}
+            onInitialized={() => {
+              if (resolveInitializedRef.current) {
+                resolveInitializedRef.current();
+                resolveInitializedRef.current = null;
+              }
+            }}
+            onError={(e) => {
+              console.log('Camera onError:', e);
+            }}
+          />
+        </View>
+
+        <TouchableOpacity style={styles.closeButton} onPress={() => nav.goBack()}>
+          <Ionicons name="close" size={40} color="#fff" />
+        </TouchableOpacity>
+
+        <View style={styles.controls}>
+          {/* 🔦 Flash toggle (above flip) */}
+          {hasFlash && (
+            <TouchableOpacity
+              style={styles.flashButton}
+              onPress={() => setFlashEnabled((v) => !v)}
+            >
+              <Ionicons
+                name={flashEnabled ? 'flash' : 'flash-off'}
+                size={28}
+                color={flashEnabled ? '#FFD700' : '#fff'}
+              />
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity style={styles.flipButton} onPress={toggleCameraFacing}>
+            <Ionicons name="camera-reverse" size={28} color="#fff" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.captureButtonWrapper,
+              mode === 'video' && styles.videoWrapper,
+              mode === 'photo' && styles.photoWrapper,
+            ]}
+            onPress={handleCapturePress}
+          >
+            {mode === 'video' ? (
+              <Animated.View style={[styles.videoInner, animatedStyle]} />
+            ) : (
+              <View style={styles.photoInner} />
+            )}
+          </TouchableOpacity>
+
+          <View style={styles.modeToggle}>
+            <TouchableOpacity onPress={() => setMode('photo')}>
+              <Text style={[styles.modeText, mode === 'photo' && styles.activeMode]}>PHOTO</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setMode('video')}>
+              <Text style={[styles.modeText, mode === 'video' && styles.activeMode]}>VIDEO</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </GestureDetector>
+  );
+}
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: 'black',
-    },
-    message: {
-        textAlign: 'center',
-        marginTop: 40,
-        color: '#fff',
-    },
-    camera: {
-        flex: 1,
-    },
-    controls: {
-        position: 'absolute',
-        bottom: 40,
-        width: '100%',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    captureButton: {
-        backgroundColor: '#fff',
-        borderRadius: 40,
-        width: 80,
-        height: 80,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    flipButton: {
-        position: 'absolute',
-        top: -60,
-        right: 30,
-    },
-    buttonText: {
-        color: '#1e90ff',
-        fontWeight: 'bold',
-        fontSize: 16,
-        textAlign: 'center',
-        marginTop: 10,
-    },
-    closeButton: {
-        position: 'absolute',
-        top: 60,
-        left: 20,
-        zIndex: 10,
-        padding: 8,
-        borderRadius: 20,
-    },
-    captureWrapper: {
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderRadius: 50,
-        padding: 5,
-    },
-    modeToggle: {
-        flexDirection: 'row',
-        marginTop: 20,
-        justifyContent: 'center',
-    },
-    modeText: {
-        fontSize: 16,
-        color: '#888',
-        marginHorizontal: 20,
-    },
-    activeMode: {
-        color: '#fff',
-        fontWeight: 'bold',
-    },
-    captureButtonWrapper: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    // ==== VIDEO ====
-    videoWrapper: {
-        borderWidth: 4,
-        borderColor: '#fff',
-        backgroundColor: 'transparent',
-    },
-
-    videoInner: {
-        width: 60,
-        height: 60,
-        backgroundColor: 'red',
-    },
-
-    recordingCircle: {
-        borderRadius: 30,
-    },
-
-    recordingSquare: {
-        borderRadius: 10,
-        width: 35,
-        height: 35,
-    },
-
-    // ==== PHOTO ====
-    photoWrapper: {
-        borderWidth: 4,
-        borderColor: '#fff',
-        backgroundColor: '#fff',
-    },
-
-    photoInner: {
-        width: 64,
-        height: 64,
-        backgroundColor: '#fff',
-        borderRadius: 32,
-        borderWidth: 2,
-        borderColor: '#eee', // Slight gray to separate from outer white
-    },
-
+  container: { flex: 1, backgroundColor: 'black' },
+  message: { textAlign: 'center', marginTop: 40, color: '#fff' },
+  camera: { flex: 1 },
+  controls: { position: 'absolute', bottom: 40, width: '100%', alignItems: 'center', justifyContent: 'center' },
+  flashButton: { position: 'absolute', top: -100, right: 30 },
+  flipButton: { position: 'absolute', top: -60, right: 30 },
+  buttonText: { color: '#1e90ff', fontWeight: 'bold', fontSize: 16, textAlign: 'center', marginTop: 10 },
+  closeButton: { position: 'absolute', top: 60, left: 20, zIndex: 10, padding: 8, borderRadius: 20 },
+  modeToggle: { flexDirection: 'row', marginTop: 20, justifyContent: 'center' },
+  modeText: { fontSize: 16, color: '#888', marginHorizontal: 20 },
+  activeMode: { color: '#fff', fontWeight: 'bold' },
+  captureButtonWrapper: { width: 80, height: 80, borderRadius: 40, justifyContent: 'center', alignItems: 'center' },
+  videoWrapper: { borderWidth: 4, borderColor: '#fff', backgroundColor: 'transparent' },
+  videoInner: { width: 60, height: 60, backgroundColor: 'red' },
+  photoWrapper: { borderWidth: 4, borderColor: '#fff', backgroundColor: '#fff' },
+  photoInner: { width: 64, height: 64, backgroundColor: '#fff', borderRadius: 32, borderWidth: 2, borderColor: '#eee' },
 });

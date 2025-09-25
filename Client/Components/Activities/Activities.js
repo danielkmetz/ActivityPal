@@ -86,12 +86,10 @@ const Activities = ({ activity }) => {
                         )}
                     </View>
                 )}
-
                 {/* Icon fallback */}
                 {activity.icon && !activity.photoUrl && (
                     <Image source={{ uri: activity.icon }} style={styles.icon} />
                 )}
-
                 {/* Basic Info */}
                 <View style={styles.infoContainer}>
                     {activity.name && <Text style={styles.name}>{activity.name}</Text>}
@@ -100,7 +98,6 @@ const Activities = ({ activity }) => {
                         <Text style={styles.vicinity}>{Number(activity.distance).toFixed(3)} miles</Text>
                     )}
                 </View>
-
                 {/* EVENTS DROPDOWN */}
                 {activity.events.length > 0 && (
                     <View style={styles.dropdownContainer}>
@@ -115,7 +112,6 @@ const Activities = ({ activity }) => {
                             </View>
                             <Text style={styles.dropIcon}>{showEvents ? '▲' : '▼'}</Text>
                         </TouchableOpacity>
-
                         {showEvents && (
                             <View style={styles.dropdownContent}>
                                 {activity.events.map((event, idx) => (
@@ -130,7 +126,6 @@ const Activities = ({ activity }) => {
                         )}
                     </View>
                 )}
-
                 {/* PROMOTIONS DROPDOWN */}
                 {activity.promotions.length > 0 && (
                     <View style={styles.dropdownContainer}>
@@ -143,7 +138,6 @@ const Activities = ({ activity }) => {
                             </View>
                             <Text style={styles.dropIcon}>{showPromotions ? '▲' : '▼'}</Text>
                         </TouchableOpacity>
-
                         {showPromotions && (
                             <View style={styles.dropdownContent}>
                                 {activity.promotions.map((promo, idx) => (
