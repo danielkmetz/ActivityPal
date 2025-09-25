@@ -32,7 +32,7 @@
     "expo-av": "^15.1.4",
     "expo-camera": "^16.1.6",
     "expo-dev-client": "~5.2.4",
-    "expo-file-system": "^18.1.10",
+    "expo-file-system": "^18.1.11",
     "expo-font": "~13.3.1",
     "expo-haptics": "^15.0.7",
     "expo-image-picker": "~16.1.4",
@@ -41,6 +41,7 @@
     "expo-status-bar": "~2.2.3",
     "expo-updates": "^0.28.17",
     "expo-video": "^2.1.8",
+    "ffmpeg-kit-react-native": "^6.0.2",
     "graphql": "^16.11.0",
     "haversine-distance": "^1.2.3",
     "lodash": "^4.17.21",
@@ -68,9 +69,11 @@
     "react-native-svg": "15.11.2",
     "react-native-vector-icons": "^10.2.0",
     "react-native-view-shot": "^4.0.3",
+    "react-native-vision-camera": "^4.7.2",
     "react-native-web": "^0.20.0",
     "react-redux": "^9.2.0",
-    "socket.io-client": "^4.8.1"
+    "socket.io-client": "^4.8.1",
+    "story-composer": "file:../story-composer"
   },
   "devDependencies": {
     "@babel/core": "^7.26.0",

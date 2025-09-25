@@ -6,6 +6,7 @@ import {
     Animated,
     Dimensions,
     TouchableOpacity,
+    TouchableWithoutFeedback,
 } from "react-native";
 import { Avatar } from "react-native-paper";
 import PhotoItem from "./Photos/PhotoItem";
@@ -130,6 +131,16 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost, handle
         });
     };
 
+    const navigateToBusiness = () => {
+        logEngagementIfNeeded(dispatch, {
+            targetType: 'place',
+            targetId: placeId,
+            placeId,
+            engagementType: 'click',
+        })
+        navigation.navigate("BusinessProfile", { business: suggestion });
+    }
+
     useEffect(() => {
         return () => {
             if (tapTimeoutRef.current) clearTimeout(tapTimeoutRef.current);
@@ -165,18 +176,22 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost, handle
                         reviewItem={suggestion}
                     />
                     <View style={styles.overlayTopText}>
-                        <Avatar.Image
-                            size={45}
-                            rounded
-                            source={resolvedLogoUrl ? { uri: resolvedLogoUrl } : profilePicPlaceholder}
-                            containerStyle={styles.overlayAvatar}
-                        />
-                        <View style={styles.overlayTextContainer}>
-                            <Text style={[styles.overlayText, { fontSize: overlayTextSize }]}>{businessName}</Text>
-                            <Text style={styles.overlaySubText}>
-                                {distance ? `${(distance / 1609).toFixed(1)} mi away` : null}
-                            </Text>
-                        </View>
+                        <TouchableWithoutFeedback onPress={navigateToBusiness}>
+                            <View style={styles.overlayBusiness}>
+                                <Avatar.Image
+                                    size={45}
+                                    rounded
+                                    source={resolvedLogoUrl ? { uri: resolvedLogoUrl } : profilePicPlaceholder}
+                                    containerStyle={styles.overlayAvatar}
+                                />
+                                <View style={styles.overlayTextContainer}>
+                                    <Text style={[styles.overlayText, { fontSize: overlayTextSize }]}>{businessName}</Text>
+                                    <Text style={styles.overlaySubText}>
+                                        {distance ? `${(distance / 1609).toFixed(1)} mi away` : null}
+                                    </Text>
+                                </View>
+                            </View>
+                        </TouchableWithoutFeedback>
                         <TouchableOpacity
                             style={styles.inviteButton}
                             onPress={inviteCreationEditing}
@@ -199,18 +214,22 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost, handle
                         onOpenFullScreen={handleSingleTapOpenDetails}
                     />
                     <View style={styles.overlayTopText}>
-                        <Avatar.Image
-                            size={45}
-                            rounded
-                            source={resolvedLogoUrl ? { uri: resolvedLogoUrl } : profilePicPlaceholder}
-                            containerStyle={styles.overlayAvatar}
-                        />
-                        <View style={styles.overlayTextContainer}>
-                            <Text style={[styles.overlayText, { fontSize: sharedPost ? 14 : 16 }]}>{businessName}</Text>
-                            <Text style={styles.overlaySubText}>
-                                {distance ? `${(distance / 1609).toFixed(1)} mi away` : null}
-                            </Text>
-                        </View>
+                        <TouchableWithoutFeedback onPress={navigateToBusiness}>
+                            <View style={styles.overlayBusiness}>
+                                <Avatar.Image
+                                    size={45}
+                                    rounded
+                                    source={resolvedLogoUrl ? { uri: resolvedLogoUrl } : profilePicPlaceholder}
+                                    containerStyle={styles.overlayAvatar}
+                                />
+                                <View style={styles.overlayTextContainer}>
+                                    <Text style={[styles.overlayText, { fontSize: sharedPost ? 14 : 16 }]}>{businessName}</Text>
+                                    <Text style={styles.overlaySubText}>
+                                        {distance ? `${(distance / 1609).toFixed(1)} mi away` : null}
+                                    </Text>
+                                </View>
+                            </View>
+                        </TouchableWithoutFeedback>
                         <TouchableOpacity style={styles.inviteButton} onPress={inviteCreationEditing}>
                             <Text style={styles.inviteText}>{existingInvite ? "Edit Invite" : "Invite"}</Text>
                         </TouchableOpacity>
@@ -296,6 +315,10 @@ const styles = StyleSheet.create({
         position: 'relative',
         alignSelf: 'center',
     },
+    overlayBusiness: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
     overlayTopText: {
         position: 'absolute',
         bottom: 15,
@@ -314,6 +337,7 @@ const styles = StyleSheet.create({
     },
     overlayTextContainer: {
         flexShrink: 1,
+        marginLeft: 5,
     },
     overlayText: {
         color: 'white',

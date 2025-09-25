@@ -21,6 +21,7 @@ import { burnCaptionsToImage } from '../../utils/burnCaptionsToImages';
 import StoryMediaRenderer from './StoryMediaRenderer';
 import { postSharedStory } from '../../Slices/StoriesSlice';
 import { getValidPostType } from '../../utils/posts/getValidPostType';
+import { composeOnePassNoList } from '../CameraScreen/videoCompose';
 
 const screenHeight = Dimensions.get('window').height;
 
@@ -38,20 +39,36 @@ const StoryPreview = () => {
     const file = fileParam;
     const mediaUri = file?.uri;
     const mediaType = fileParam?.mediaType;
-    const isMultiSegmentVideo = mediaType === 'video' && Array.isArray(file?.segments);
-    const effectiveUri = isMultiSegmentVideo && file.segments.length > 0
-        ? file.segments[0].uri
-        : file?.uri;
     const fileName = effectiveUri ? effectiveUri.split('/').pop() : `story_${Date.now()}.mp4`;
 
     const [captions, setCaptions] = useState([]);
     const [loading, setLoading] = useState(false);
     const [keyboardVisible, setKeyboardVisible] = useState(false);
-    const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
     const [focusedCaptionId, setFocusedCaptionId] = useState(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const currentSegment = segments?.[currentSegmentIndex] || file;
     const imageWithCaptionsRef = useRef();
+
+    const normalizeFileUri = (u = '') => {
+        if (!u) return u;
+        // collapse 'file://file:///...' to 'file:///'
+        const collapsed = u.replace(/^file:\/+file:\/+/, 'file://');
+        // ensure exactly three slashes after scheme
+        return collapsed.replace(/^file:\/{2,}/, 'file:///');
+    };
+
+    const normalizedSegments = Array.isArray(segments)
+        ? segments.map(s => ({ ...s, uri: normalizeFileUri(s.uri) }))
+        : [];
+
+    const effectiveUri = normalizedSegments[0]?.uri || normalizeFileUri(fileParam?.uri);
+    const isMultiSegmentVideo =
+        mediaType === 'video' && normalizedSegments.length > 0;
+
+    // state using normalized segments
+    const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
+    const currentSegment = isMultiSegmentVideo
+        ? normalizedSegments[currentSegmentIndex]
+        : { uri: effectiveUri };
 
     const createCaption = () => ({ id: `${Date.now()}`, text: '', y: screenHeight * 0.4 });
 
@@ -64,18 +81,68 @@ const StoryPreview = () => {
         setFocusedCaptionId(newCaption.id);
     };
 
+    const composeIfNeeded = async () => {
+        const isVideo = mediaType === 'video';
+        const hasSegments = Array.isArray(normalizedSegments) && normalizedSegments.length > 0;
+        const hasCaptions = captions.some(c => c.text.trim().length > 0);
+
+        if (!isVideo) return { composed: false };
+
+        // Build the input list for ffmpeg – if you only have a single file, treat it like 1 segment.
+        const segsForFfmpeg = hasSegments
+            ? normalizedSegments
+            : effectiveUri
+                ? [{ uri: effectiveUri }]
+                : [];
+
+        // If either multiple segments OR you want to burn captions into video → compose.
+        if (segsForFfmpeg.length > 1 || hasCaptions) {
+            // Map your caption objects to ffmpeg captions; use ratio-based y so it matches preview dragging.
+            const ffmpegCaptions = captions
+                .filter(c => c.text.trim().length)
+                .map(c => ({
+                    text: c.text,
+                    // center x; if you later support horizontal drag, pass x as an expression
+                    x: '(w-text_w)/2',
+                    // we’ll map screen Y to video Y inside the helper via screenHeight
+                    y, // optional, you can omit and rely on yExpr mapping using screenHeight
+                    start: 0,
+                    end: 9999,
+                    fontSize: 24,
+                    color: '#ffffff',
+                    boxcolor: 'black@0.5',
+                    boxborderw: 16,
+                    yExpr: null, // let helper compute from c.y + screenHeight
+                    // keep the raw pixel so helper can compute ratio:
+                    y: c.y
+                }));
+
+            const outPath = await composeOnePassNoList(segsForFfmpeg, {
+                captions: ffmpegCaptions,
+                screenHeight, // from Dimensions.get('window').height already in your file
+                // Optional: override fontfile if you ship one with your app
+                // fontfile: `${FileSystem.documentDirectory}MyFont.ttf`,
+                preset: 'veryfast',
+                crf: 20,
+            });
+
+            return { composed: true, localPath: `file://${outPath}` };
+        }
+
+        return { composed: false };
+    };
+
     const handlePost = async () => {
         try {
-            console.log('🚀 handlePost: started');
             setIsSubmitting(true);
             setLoading(true);
 
-            const isMultiPartVideo = mediaType === 'video' && Array.isArray(file?.segments);
             const isPhoto = mediaType === 'photo';
+            const isVideo = mediaType === 'video';
 
+            // Shared post flow (no upload)
             if (isSharedPost) {
                 const derivedPostType = getValidPostType(post);
-
                 const sharedPayload = {
                     postType: derivedPostType,
                     originalPostId,
@@ -91,7 +158,6 @@ const StoryPreview = () => {
                 };
 
                 const sharedRes = await dispatch(postSharedStory(sharedPayload));
-
                 if (!postSharedStory.fulfilled.match(sharedRes)) {
                     throw new Error(sharedRes.payload || 'Failed to share post to story');
                 }
@@ -101,88 +167,67 @@ const StoryPreview = () => {
                 return;
             }
 
-            console.log('🔍 isPhoto:', isPhoto);
-            console.log('🔍 isMultiPartVideo:', isMultiPartVideo);
+            // If video, compose if needed (merge segments and/or burn captions)
+            let composedResult = { composed: false, localPath: null };
+            if (isVideo) {
+                // composeIfNeeded should return { composed: true/false, localPath: 'file://...' }
+                composedResult = await composeIfNeeded();
+            }
+
+            // Request a SINGLE upload URL (photo OR video)
+            const baseFileName =
+                fileName || (isPhoto ? `story_${Date.now()}.jpg` : `story_${Date.now()}.mp4`);
 
             const uploadRes = await dispatch(
                 getUploadUrls({
                     mediaType,
-                    fileName: isPhoto ? fileName : undefined,
-                    fileNames: isMultiPartVideo
-                        ? file.segments.map((_, i) => `${fileName}_seg${i}.mp4`)
-                        : undefined,
+                    fileName: baseFileName, // always one file now
                 })
             );
-
             if (!getUploadUrls.fulfilled.match(uploadRes)) {
-                console.error('❌ Failed to get upload URLs:', uploadRes.payload);
-                throw new Error(uploadRes.payload || 'Failed to get upload URL(s)');
+                throw new Error(uploadRes.payload || 'Failed to get upload URL');
             }
+            const { uploadData } = uploadRes.payload; // { uploadUrl, mediaKey }
 
-            const { uploadData } = uploadRes.payload;
-            const { mediaKey } = uploadData;
+            // Upload the media
+            let mediaKey = null;
 
             if (isPhoto) {
                 let finalUploadUri = mediaUri;
-
                 if (captions.length > 0 && imageWithCaptionsRef.current) {
-                    console.log('🖊️ Burning captions into image...');
-                    await new Promise(resolve => setTimeout(resolve, 300)); // Add delay
+                    // Burn captions into the image snapshot
+                    await new Promise(r => setTimeout(r, 300));
                     finalUploadUri = await burnCaptionsToImage(imageWithCaptionsRef.current);
                 }
 
-                const uploadResult = await FileSystem.uploadAsync(uploadData.uploadUrl, finalUploadUri, {
+                const put = await FileSystem.uploadAsync(uploadData.uploadUrl, finalUploadUri, {
                     httpMethod: 'PUT',
                     uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
                     headers: { 'Content-Type': 'image/jpeg' },
                 });
-
-                if (uploadResult.status !== 200) {
-                    throw new Error('Upload failed. Please try again.');
-                }
+                if (put.status < 200 || put.status >= 300) throw new Error('Upload failed.');
+                mediaKey = uploadData.mediaKey;
+            } else if (isVideo) {
+                const sourceUri = composedResult.localPath || effectiveUri; // composed or original single-clip
+                const put = await FileSystem.uploadAsync(uploadData.uploadUrl, sourceUri, {
+                    httpMethod: 'PUT',
+                    uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+                    headers: { 'Content-Type': 'video/mp4' },
+                });
+                if (put.status < 200 || put.status >= 300) throw new Error('Upload failed.');
+                mediaKey = uploadData.mediaKey;
             }
 
-            if (isMultiPartVideo) {
-                if (!Array.isArray(uploadData)) {
-                    throw new Error('Upload data for segments is missing or malformed.');
-                }
-
-                for (let i = 0; i < uploadData.length; i++) {
-                    const segment = uploadData[i];
-                    const localSegment = file.segments[i];
-
-                    const uploadResult = await FileSystem.uploadAsync(segment.uploadUrl, localSegment.uri, {
-                        httpMethod: 'PUT',
-                        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-                        headers: { 'Content-Type': 'video/mp4' },
-                    });
-
-                    if (uploadResult.status !== 200) {
-                        throw new Error(`Upload failed for segment ${i + 1}`);
-                    }
-
-                    file.segments[i] = {
-                        ...localSegment,
-                        mediaKey: segment.mediaKey,
-                    };
-                }
-            }
-
+            // Build payload for story creation (single mediaKey; no segments for video)
             const postPayload = {
                 mediaType,
-                visibility: contentVisibility,
-                fileName,
+                visibility: contentVisibility || 'public',
+                fileName: baseFileName,
+                mediaKey,
             };
 
-            if (isPhoto && mediaKey) {
-                postPayload.mediaKey = mediaKey;
-            }
-
-            if (isMultiPartVideo) {
-                postPayload.segments = file.segments.map(({ mediaKey }) => ({ mediaKey }));
-            }
-
-            if (captions.length > 0) {
+            // Keep captions metadata only for photos (video captions are burned in)
+            if (isPhoto && captions.length > 0) {
                 postPayload.captions = captions.map(c => ({
                     text: c.text,
                     y: c.y,
@@ -193,8 +238,6 @@ const StoryPreview = () => {
                 }));
             }
 
-            console.log('📤 Posting final story:', postPayload);
-
             const postRes = await dispatch(postStory(postPayload));
             if (!postStory.fulfilled.match(postRes)) {
                 throw new Error(postRes.payload || 'Failed to post story');
@@ -202,12 +245,10 @@ const StoryPreview = () => {
 
             Alert.alert('Success', 'Your story has been posted!');
             navigation.navigate('TabNavigator', { screen: 'Home' });
-
         } catch (err) {
             console.error('❌ handlePost error:', err);
             Alert.alert('Error', err.message || 'Something went wrong.');
         } finally {
-            console.log('✅ handlePost: finished');
             setIsSubmitting(false);
             setLoading(false);
         }
@@ -251,10 +292,10 @@ const StoryPreview = () => {
                     <StoryMediaRenderer
                         isSharedPost={isSharedPost}
                         post={post}
-                        mediaUri={mediaUri}
+                        mediaUri={effectiveUri}
                         currentSegment={currentSegment}
                         mediaType={mediaType}
-                        segments={segments}
+                        segments={normalizedSegments}
                         currentSegmentIndex={currentSegmentIndex}
                         setCurrentSegmentIndex={setCurrentSegmentIndex}
                         captions={captions}

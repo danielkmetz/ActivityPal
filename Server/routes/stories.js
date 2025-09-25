@@ -68,147 +68,61 @@ router.post('/', verifyToken, async (req, res) => {
   try {
     const {
       mediaType,
-      captions = [],
-      visibility,
+      captions = [],    // keep only as metadata if you want
+      visibility = 'public',
       taggedUsers = [],
-      segments = [],
       mediaKey,
+      segments = [],    // no longer used
     } = req.body;
 
-    console.log('📥 Incoming request:', {
-      mediaType,
-      visibility,
-      taggedUsersCount: taggedUsers.length,
-      segmentsCount: segments.length,
-      hasMediaKey: !!mediaKey,
-      captionsCount: captions.length,
-    });
-
-    if (!mediaType || !['photo', 'video'].includes(mediaType)) {
-      console.warn('❗ Invalid mediaType:', mediaType);
+    // Basic validation
+    if (!['photo', 'video'].includes(mediaType)) {
       return res.status(400).json({ error: 'Invalid or missing mediaType' });
     }
-
-    const user = await User.findById(req.user.id);
-    if (!user) {
-      console.warn('❗ User not found:', req.user.id);
-      return res.status(404).json({ error: 'User not found' });
+    if (!mediaKey) {
+      return res.status(400).json({ error: 'Missing mediaKey; client must upload a single composed file.' });
     }
 
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-    if (mediaType === 'photo') {
-      user.stories.push({ mediaKey, mediaType, visibility, taggedUsers, expiresAt });
-      await user.save();
-
-      const objectReady = await waitForObjectReady(BUCKET_NAME, mediaKey);
-      if (!objectReady) {
-        console.warn('❌ S3 object not ready:', mediaKey);
-        return res.status(503).json({ error: 'Video not ready yet. Try again shortly.' });
-      }
-
-      const mediaUrl = await getPresignedUrl(mediaKey);
-      const profilePicUrl = user.profilePic?.photoKey
-        ? await getPresignedUrl(user.profilePic.photoKey)
-        : null;
-
-      console.log('✅ Photo story created for user:', user._id);
-      return res.status(201).json({
-        message: 'Photo story created.',
-        story: {
-          ...user.stories[user.stories.length - 1].toObject(),
-          mediaUrl,
-          profilePicUrl,
-          user: {
-            _id: user._id,
-            firstName: user.firstName,
-            lastName: user.lastName,
-          },
-          isViewed: false,
-          viewedBy: [],
-        },
+    // (Optional, recommended) Enforce new contract
+    if (Array.isArray(segments) && segments.length > 0) {
+      return res.status(400).json({
+        error: 'As of 2025-09-24, segments must be merged client-side; send only mediaKey.',
       });
     }
 
-    if (!segments.length && !mediaKey) {
-      console.warn('⚠️ Missing video mediaKey or segments[]');
-      return res.status(400).json({ error: 'Missing video data' });
-    }
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
-    let finalMediaKey;
-    let insertableImages = [];
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-    // 1. Process captions into overlay images
-    if (captions.length > 0) {
-      console.log('🖼️ Processing captions to insertable images...');
-      insertableImages = await processCaptionsToInsertableImages(captions, user._id);
-
-      for (const img of insertableImages) {
-        const key = img.s3Key;
-        const ready = await waitForObjectReady(BUCKET_NAME, key);
-        console.log('image ready', ready);
-        if (!ready) {
-          throw new Error(`Caption image not ready in S3: ${key}`);
-        }
-      }
-      console.log('🖼️ Insertable images prepared:', insertableImages.length);
-    };
-
-    console.log('📦 segments payload:', segments);
-    console.log('📦 segmentKeys:', segments.map(s => s.mediaKey));
-
-    // 2. Merge segments and apply overlays via FFmpeg
-    if (segments.length > 0) {
-      const mergedFileName = `ffmpeg_merged_${uuidv4()}.mp4`;
-      const outputKey = `stories/${mergedFileName}`;
-
-      console.log(`🎬 Merging ${segments.length} segment(s) with FFmpeg and overlaying ${insertableImages.length} image(s)...`);
-
-      try {
-        const result = await mergeSegmentsWithOverlays({
-          segments,
-          overlays: insertableImages,
-          outputKey,
-        });
-        console.log('🎉 Story processed and uploaded:', result);
-        finalMediaKey = `${outputKey}`
-      } catch (err) {
-        console.error('❌ Failed to process story:', err);
-        res.status(500).json({ error: 'Story processing failed' });
-      }
-    } else if (mediaKey) {
-      finalMediaKey = mediaKey;
-      console.log('✅ Using original mediaKey without processing:', finalMediaKey);
-    }
-
-    user.stories.push({
-      mediaKey: finalMediaKey,
-      mediaType: 'video',
-      captions,
+    // Store story; keep captions only for photos (or as optional metadata)
+    const storyDoc = {
+      mediaKey,
+      mediaType,
       visibility,
       taggedUsers,
       expiresAt,
-    });
+      ...(mediaType === 'photo' ? { captions } : {}), // captions for video are burned-in already
+    };
 
+    user.stories.push(storyDoc);
     await user.save();
-    console.log('📤 Story saved to user document.');
 
-    const createdStory = user.stories[user.stories.length - 1].toObject();
+    // Ensure the uploaded object is available
+    const ready = await waitForObjectReady(BUCKET_NAME, mediaKey);
+    if (!ready) {
+      return res.status(503).json({ error: 'Media not ready yet. Try again shortly.' });
+    }
+
+    const mediaUrl = await getPresignedUrl(mediaKey);
     const profilePicUrl = user.profilePic?.photoKey
       ? await getPresignedUrl(user.profilePic.photoKey)
       : null;
 
-    const objectReady = await waitForObjectReady(BUCKET_NAME, finalMediaKey);
-    if (!objectReady) {
-      console.warn('❌ Final video not yet available in S3:', finalMediaKey);
-      return res.status(503).json({ error: 'Video not ready yet. Try again shortly.' });
-    }
+    const createdStory = user.stories[user.stories.length - 1].toObject();
 
-    const mediaUrl = await getPresignedUrl(finalMediaKey);
-
-    console.log('✅ Video story ready:', mediaUrl);
     return res.status(201).json({
-      message: 'Video story created. MediaConvert job submitted.',
+      message: 'Story created.',
       story: {
         ...createdStory,
         mediaUrl,
@@ -223,109 +137,8 @@ router.post('/', verifyToken, async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('❌ Failed to process story:', err);
+    console.error('❌ Failed to create story:', err);
     return res.status(500).json({ error: 'Failed to create story' });
-  }
-});
-
-router.post('/from-post', verifyToken, async (req, res) => {
-  try {
-    const { postType, originalPostId, caption = '', visibility = 'public', captions = [] } = req.body;
-    const userId = req.user?.id;
-    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
-
-    if (!['review', 'check-in', 'invite', 'promotion', 'event'].includes(postType)) {
-      return res.status(400).json({ error: 'Invalid postType' });
-    }
-
-    const { original, originalOwner, originalOwnerModel } =
-      await resolveSharedPostData(postType, originalPostId);
-
-    if (!original) {
-      return res.status(404).json({ error: 'Original post not found' });
-    }
-
-    // Fallback owner for invites
-    let ownerId = originalOwner;
-    let ownerModel = originalOwnerModel;
-    if (!ownerId && postType === 'invite') {
-      ownerId = original?.sender?._id || original?.sender?.id || null;
-      if (ownerId) ownerModel = 'User';
-    }
-
-    const user = await User.findById(userId);           // <-- pass full user below
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-    const story = {
-      mediaType: 'photo',
-      caption,
-      visibility,
-      originalPostId,
-      postType,
-      originalOwner: ownerId || null,
-      originalOwnerModel: ownerModel || null,
-      expiresAt,
-      captions,
-      viewedBy: [],
-    };
-
-    user.stories.push(story);
-    await user.save();
-
-    const createdStory = user.stories[user.stories.length - 1];
-    const createdStoryObj = createdStory.toObject?.() || createdStory;
-
-    const idsToResolve = [userId];
-    if (ownerModel === 'User' && ownerId) idsToResolve.push(ownerId.toString());
-    const profilePicMap = await resolveUserProfilePics(idsToResolve);
-
-    // ⚠️ Pass FULL user (not just id), and guard the return
-    const enrichedOriginal = await enrichSharedPost(
-      {
-        user,                             // full user doc
-        originalOwner: ownerId,
-        originalOwnerModel: ownerModel,
-        postType,
-        originalPostId,
-        original,
-      },
-      profilePicMap
-    );
-
-    const profilePicUrl = user.profilePic?.photoKey
-      ? await getPresignedUrl(user.profilePic.photoKey)
-      : null;
-
-    // Safe unwraps with fallbacks
-    const safeOriginal =
-      enrichedOriginal?.original?.toObject?.() ||
-      enrichedOriginal?.original ||
-      original?.toObject?.() ||
-      original;
-
-    return res.status(201).json({
-      ...createdStoryObj,
-      user: {
-        id: user._id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        profilePicUrl,
-        ...profilePicMap[userId],
-      },
-      originalOwner: {
-        id: ownerId ?? null,
-        model: ownerModel ?? null,
-        ...(ownerModel === 'User' && ownerId ? profilePicMap[ownerId.toString()] : {}),
-      },
-      original: safeOriginal,                  // <-- guarded
-      type: 'sharedStory',
-      isViewed: false,
-    });
-  } catch (err) {
-    console.error('❌ Error creating shared story:', err);
-    res.status(500).json({ error: err.message || 'Internal server error' });
   }
 });
 

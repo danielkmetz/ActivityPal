@@ -152,7 +152,7 @@ const styles = StyleSheet.create({
   },
   actionsContainerColumn: {
     position: "absolute",
-    right: 20,
+    right: 5,
     top: "45%",
     transform: [{ translateY: -50 }],
     zIndex: 10,

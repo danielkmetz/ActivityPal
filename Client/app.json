@@ -49,9 +49,11 @@
     "plugins": [
       "expo-font",
       [
-        "expo-camera",
+        "react-native-vision-camera",
         {
-          "cameraPermission": "We need access to your camera to let you create stories and record videos."
+          "cameraPermissionText": "$(PRODUCT_NAME) needs access to your Camera.",
+          "enableMicrophonePermission": true,
+          "microphonePermissionText": "$(PRODUCT_NAME) needs access to your Microphone."
         }
       ],
       [

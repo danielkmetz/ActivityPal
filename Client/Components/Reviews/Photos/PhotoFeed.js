@@ -26,6 +26,7 @@ export default function PhotoFeed({
         showsHorizontalScrollIndicator={false}
         keyExtractor={(photo, index) => index.toString()}
         scrollEnabled={media?.length > 1}
+        overScrollMode='never'
         onScroll={Animated.event(
           [{ nativeEvent: { contentOffset: { x: scrollX } } }],
           {

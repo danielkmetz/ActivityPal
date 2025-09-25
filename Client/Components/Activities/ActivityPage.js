@@ -10,6 +10,7 @@ import {
     Animated,
 } from 'react-native';
 import PreferencesModal from '../Preferences/Preferences';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { selectEvents, selectBusinessData, fetchBusinessData, selectIsMapView, } from '../../Slices/PlacesSlice';
 import { fetchGooglePlaces, selectGooglePlaces, selectGoogleStatus, fetchDining } from '../../Slices/GooglePlacesSlice';
 import Activities from './Activities';
@@ -19,17 +20,6 @@ import { selectEventType } from '../../Slices/PreferencesSlice';
 import { selectCoordinates, selectManualCoordinates } from '../../Slices/LocationSlice';
 import { milesToMeters } from '../../functions';
 import { selectPagination, incrementPage, selectIsOpen, selectSortOptions } from '../../Slices/PaginationSlice';
-import heart from '../../assets/pics/heart2.png';
-import tableware from '../../assets/pics/tableware.webp';
-import tickets from '../../assets/pics/tickets2.png';
-import hiking from '../../assets/pics/hiking.png';
-import popcorn from '../../assets/pics/popcorn.png';
-import arcade from '../../assets/pics/arcade.png';
-import art from '../../assets/pics/art.png';
-import family from '../../assets/pics/family.png';
-import dog from '../../assets/pics/dog.png';
-import microphone from '../../assets/pics/microphone.png';
-import map from '../../assets/pics/map.png';
 import { useNavigation } from '@react-navigation/native';
 import Map from '../Map/Map';
 import SearchBar from './SearchBar';
@@ -38,6 +28,20 @@ import sortActivities from '../../utils/sortActivities';
 
 const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
+
+const filterIcons = {
+  dateNight: (p) => <MaterialCommunityIcons name="heart-outline" {...p} />,
+  drinksAndDining: (p) => <MaterialCommunityIcons name="silverware-fork-knife" {...p} />,
+  outdoor: (p) => <MaterialCommunityIcons name="pine-tree" {...p} />,
+  movieNight: (p) => <MaterialCommunityIcons name="movie-outline" {...p} />,
+  gaming: (p) => <MaterialCommunityIcons name="gamepad-variant-outline" {...p} />,
+  artAndCulture: (p) => <MaterialCommunityIcons name="palette-outline" {...p} />,
+  familyFun: (p) => <MaterialCommunityIcons name="account-group-outline" {...p} />,
+  petFriendly: (p) => <MaterialCommunityIcons name="dog" {...p} />,
+  liveMusic: (p) => <MaterialCommunityIcons name="music-note-outline" {...p} />,
+  whatsClose: (p) => <MaterialCommunityIcons name="map-marker-radius-outline" {...p} />,
+  Dining: (p) => <MaterialCommunityIcons name="silverware" {...p} />,
+};
 
 const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
     const dispatch = useDispatch();
@@ -66,8 +70,6 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
     const eventDistance = 50;
     const manualBudget = "$$$$";
     const listRef = useRef(null);
-
-    console.log(activities);
 
     useEffect(() => {
         if (!(scrollY instanceof Animated.Value)) return;
@@ -354,7 +356,7 @@ const ActivityPage = ({ scrollY, onScroll, customNavTranslateY }) => {
                                         <QuickFilters
                                             keyboardOpen={keyboardOpen}
                                             onFilterPress={handleActivityFetch}
-                                            icons={{ heart, tableware, tickets, hiking, popcorn, arcade, art, family, dog, microphone, map }}
+                                            icons={filterIcons}
                                         />
                                     </>
                                 )}

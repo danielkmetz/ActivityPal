@@ -64,7 +64,7 @@ const FullScreenPhoto = () => {
   const ownerId = review?.userId || review?.placeId;
   const ownerPic = review?.profilePicUrl || review?.businessLogoUrl;
   const ownerName = review?.fullName || review?.businessName;
-  console.log(reviewId)
+  
   const handleLikeWithAnimation = (review, force = true) => {
     const derivedType =
       (review?.type && String(review.type).toLowerCase()) ||
@@ -170,6 +170,7 @@ const FullScreenPhoto = () => {
               }, 100);
             }}
             showsHorizontalScrollIndicator={false}
+            overScrollMode='never'
             data={photos}
             keyExtractor={(item, index) => index.toString()}
             onMomentumScrollEnd={(e) => {
