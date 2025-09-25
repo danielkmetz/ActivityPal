@@ -242,20 +242,16 @@ export default function ReviewItem({
                     <TouchableOpacity onPress={navigateToBusiness}>
                         <Text style={styles.business}>{item.businessName}</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={openRatings} activeOpacity={0.7}>
-                        <View style={styles.ratingButton}>
-                            <View style={styles.ratingStars}>
-                                {Array.from({ length: item.rating }).map((_, index) => (
-                                    <MaterialCommunityIcons
-                                        key={index}
-                                        name="star"
-                                        size={18}
-                                        color="gold"
-                                    />
-                                ))}
-                            </View>
-                        </View>
-                    </TouchableOpacity>
+                    <RatingsButton
+                        rating={item.rating}
+                        ratings={{
+                            rating: item.rating,
+                            priceRating: item.priceRating,
+                            serviceRating: item.serviceRating,
+                            atmosphereRating: item.atmosphereRating,
+                            wouldRecommend: item.wouldRecommend,
+                        }}
+                    />
                     <ExpandableText
                         text={item.reviewText}
                         maxLines={4}
@@ -349,10 +345,6 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: "bold",
         color: "#555",
-    },
-    rating: {
-        fontSize: 14,
-        flexDirection: "row",
     },
     review: {
         fontSize: 16,

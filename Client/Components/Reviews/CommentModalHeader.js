@@ -1,7 +1,6 @@
 import React, { useRef, useMemo, useState, useEffect } from "react";
 import { View, Text, Image, Animated, StyleSheet, Dimensions } from "react-native";
 import dayjs from 'dayjs';
-import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import { useNavigation } from "@react-navigation/native";
 import PostActions from './PostActions/PostActions';
 import PostUserInfo from "./CommentScreen/PostUserInfo";
@@ -9,6 +8,7 @@ import SharedPostContent from "./SharedPosts/SharedPostContent";
 import VideoThumbnail from "./VideoThumbnail";
 import { useDispatch } from "react-redux";
 import PhotoFeed from "./Photos/PhotoFeed";
+import RatingsButton from "./ReviewItem/RatingsButton";
 
 const { width, height } = Dimensions.get('window');
 
@@ -119,16 +119,16 @@ const CommentModalHeader = ({
                         </View>
                     </>
                 )}
-                <View style={styles.rating}>
-                    {Array.from({ length: review?.rating }).map((_, index) => (
-                        <MaterialCommunityIcons
-                            key={index}
-                            name="star"
-                            size={20}
-                            color="gold"
-                        />
-                    ))}
-                </View>
+                <RatingsButton
+                    rating={review.rating}
+                    ratings={{
+                        rating: review.rating,
+                        priceRating: review.priceRating,
+                        serviceRating: review.serviceRating,
+                        atmosphereRating: review.atmosphereRating,
+                        wouldRecommend: review.wouldRecommend,
+                    }}
+                />
                 <Text style={styles.reviewText}>
                     {review?.type === "review" ? review?.reviewText : review?.message}
                 </Text>
@@ -230,10 +230,6 @@ const styles = StyleSheet.create({
         fontSize: 18,
         fontWeight: 'bold',
         color: '#007bff',
-    },
-    rating: {
-        fontSize: 14,
-        flexDirection: 'row',
     },
     reviewText: {
         fontSize: 15,

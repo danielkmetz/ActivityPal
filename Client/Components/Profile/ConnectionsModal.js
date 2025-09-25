@@ -36,8 +36,8 @@ export default function ConnectionsModal({ visible, initialTab, onClose, followe
     };
 
     return (
-        <Modal visible={visible} animationType="slide" transparent>
-            <TouchableWithoutFeedback onPress={onClose}>
+        <Modal visible={visible} transparent>
+            <TouchableWithoutFeedback onPress={animateOut}>
                 <View style={styles.overlay}>
                     <KeyboardAvoidingView
                                 behavior="padding"

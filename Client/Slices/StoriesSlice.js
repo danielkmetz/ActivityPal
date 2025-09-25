@@ -104,9 +104,9 @@ export const postStory = createAsyncThunk(
       mediaType,
       visibility = 'public',
       taggedUsers = [],
-      segments = [],
       mediaKey,
       captions = [],
+      segments = [],
     },
     thunkAPI
   ) => {
@@ -116,33 +116,34 @@ export const postStory = createAsyncThunk(
       const payload = {
         fileName,
         mediaType,
-        captions,
         visibility,
         taggedUsers,
-        mediaKey,
       };
 
-      // Only include segments for video posts
-      if (mediaType === 'video' && segments.length > 0) {
-        payload.segments = segments;
+      if (mediaType === 'photo') {
+        // photos still use captions metadata even if burned to image (harmless)
+        payload.mediaKey = mediaKey;
+        if (captions?.length) payload.captions = captions;
+      } else if (mediaType === 'video') {
+        // new contract: always one composed mp4 uploaded; no segments here
+        if (!mediaKey) {
+          return thunkAPI.rejectWithValue('Missing mediaKey for video; upload composed file first.');
+        }
+        payload.mediaKey = mediaKey;
+        // do NOT send captions (already burned-in)
+        // do NOT send segments
       }
 
       const res = await axios.post(`${BASE_URL}`, payload, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
       return res.data.story;
-
     } catch (err) {
       if (err.response) {
         console.error('↪️ Status:', err.response.status);
         console.error('↪️ Data:', err.response.data);
       }
-
-      return thunkAPI.rejectWithValue(
-        err.response?.data || 'Failed to post story'
-      );
+      return thunkAPI.rejectWithValue(err.response?.data || 'Failed to post story');
     }
   }
 );
