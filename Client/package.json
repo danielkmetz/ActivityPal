@@ -41,7 +41,6 @@
     "expo-status-bar": "~2.2.3",
     "expo-updates": "^0.28.17",
     "expo-video": "^2.1.8",
-    "ffmpeg-kit-react-native": "^6.0.2",
     "graphql": "^16.11.0",
     "haversine-distance": "^1.2.3",
     "lodash": "^4.17.21",
@@ -73,7 +72,7 @@
     "react-native-web": "^0.20.0",
     "react-redux": "^9.2.0",
     "socket.io-client": "^4.8.1",
-    "story-composer": "file:../story-composer"
+    "story-composer": "file:../story-composer/story-composer-0.0.6.tgz"
   },
   "devDependencies": {
     "@babel/core": "^7.26.0",

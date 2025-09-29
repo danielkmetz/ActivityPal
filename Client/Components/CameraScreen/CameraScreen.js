@@ -1,8 +1,10 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { View, TouchableOpacity, StyleSheet, Text, Alert } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Text, Alert, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, useIsFocused } from '@react-navigation/native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import * as FileSystem from 'expo-file-system';
+import { Audio } from 'expo-av';
 import Animated, {
   useSharedValue,
   runOnJS,
@@ -53,6 +55,16 @@ export default function CameraScreen() {
   useEffect(() => {
     isRecordingSV.value = isRecording;
   }, [isRecording, isRecordingSV]);
+
+  useEffect(() => {
+    Audio.setAudioModeAsync({
+      allowsRecordingIOS: true,
+      playsInSilentModeIOS: true,
+      interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DO_NOT_MIX,
+      shouldDuckAndroid: true,
+      staysActiveInBackground: false,
+    }).catch(() => { });
+  }, []);
 
   const animatedCameraProps = useAnimatedProps(() => {
     'worklet';
@@ -125,11 +137,57 @@ export default function CameraScreen() {
   const initializedPromiseRef = useRef(Promise.resolve());
   const resolveInitializedRef = useRef(null);
 
-  // ==== Video (with segments) ====
-  const toFileUri = (p) => (p?.startsWith('file://') ? p : `file://${p}`);
+  const dePrivatize = (u = '') => u.replace(/^file:\/\/\/private\//, 'file:///');
+
+  const normalizeFileUri = (u = '') =>
+        u
+      ? dePrivatize(
+          u.replace(/^file:\/+file:\/+/, 'file://').replace(/^file:\/{2,}/, 'file:///')
+        )
+      : u;
+
+  const toFileUri = (p) => {
+    if (!p) return null;
+    const prefixed = p.startsWith('file://') ? p : `file://${p}`;
+    return normalizeFileUri(prefixed);
+  };
+
+  const inferExt = (path = '') => {
+    const raw = path.split('?')[0];
+    const ext = raw.slice(raw.lastIndexOf('.') + 1).toLowerCase();
+    return ext || (Platform.OS === 'ios' ? 'mov' : 'mp4');
+  };
+
+  // Move the just-recorded file into a stable cache dir and log size/exists
+  const stabilizeRecording = async (srcFileUri) => {
+    try {
+      const info = await FileSystem.getInfoAsync(srcFileUri, { size: true });
+      console.log('🎥 src file info', info);
+      if (!info.exists || !info.size) {
+        // Small wait can help if FS is catching up
+        await new Promise((r) => setTimeout(r, 60));
+      }
+      const dir = `${FileSystem.cacheDirectory}stories/`;
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => { });
+      const ext = inferExt(srcFileUri.replace('file://', ''));
+      const dest = normalizeFileUri(`${dir}rec_${Date.now()}.${ext}`);
+      // Copy instead of move: moving from tmp → caches can fail on iOS
+      await FileSystem.copyAsync({ from: srcFileUri, to: dest });
+      // Best-effort cleanup of the tmp file
+      try { await FileSystem.deleteAsync(srcFileUri, { idempotent: true }); } catch {}
+      const finfo = await FileSystem.getInfoAsync(dest, { size: true });
+      console.log('🎥 stabilized file', finfo);
+      return dest;
+    } catch (e) {
+      console.log('🎥 stabilize failed, using source', e?.message);
+      return normalizeFileUri(srcFileUri);
+    }
+  };
 
   const startRecording = useCallback(() => {
     if (!cameraRef.current || isRecordingRef.current) return;
+
+    Audio.setAudioModeAsync({ allowsRecordingIOS: true }).catch(() => {});
 
     isRecordingRef.current = true;
     recordingDonePromiseRef.current = new Promise((resolve) => {
@@ -138,11 +196,23 @@ export default function CameraScreen() {
 
     cameraRef.current.startRecording({
       flash: 'off', // not used for video; torch prop controls light
-      onRecordingFinished: (video) => {
-        const uri = video?.path ? toFileUri(video.path) : null;
-        if (uri) {
-          segmentsRef.current.push({ uri, camera: facingRef.current });
-        }
+      fileType: 'mp4',
+      videoCodec: 'h264',
+      onRecordingFinished: async (video) => {
+        const rawUri = video?.path ? toFileUri(video.path) : null;
+        console.log('🎥 onRecordingFinished rawUri=', rawUri);
+        let stableUri = rawUri;
+        if (rawUri) stableUri = await stabilizeRecording(rawUri);
+            if (stableUri) {
+      // Canonicalize '/private/var' → '/var'
+      const finalUri = normalizeFileUri(stableUri);
+      // Double-check on disk, log size for sanity
+      try {
+        const check = await FileSystem.getInfoAsync(finalUri, { size: true });
+       console.log('🎥 final segment uri', finalUri, check);
+      } catch {}
+      segmentsRef.current.push({ uri: finalUri, camera: facingRef.current });
+    }
         isRecordingRef.current = false;
         resolveRecordingDoneRef.current?.(video);
         resolveRecordingDoneRef.current = null;
@@ -166,10 +236,19 @@ export default function CameraScreen() {
         await recordingDonePromiseRef.current;
       }
 
+      await new Promise((r) => setTimeout(r, 40));
+
       const segments = [...segmentsRef.current];
       segmentsRef.current = [];
 
       setIsRecording(false);
+
+      for (let i = 0; i < segments.length; i++) {
+        try {
+          const info = await FileSystem.getInfoAsync(segments[i].uri, { size: true });
+          console.log(`🎯 segment[${i}]`, segments[i].uri, info);
+        } catch {}
+      }
 
       const file = { mediaType: 'video', segments };
       if (onCapture) { onCapture([file]); nav.goBack(); }
