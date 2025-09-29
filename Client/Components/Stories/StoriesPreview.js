@@ -12,16 +12,15 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useDispatch, useSelector } from 'react-redux';
-import { postStory, getUploadUrls } from '../../Slices/StoriesSlice';
+import { postStory, getUploadUrls, postSharedStory } from '../../Slices/StoriesSlice';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { selectPrivacySettings } from '../../Slices/UserSlice';
 import * as FileSystem from 'expo-file-system';
 import CaptionInput from './CaptionInput';
 import { burnCaptionsToImage } from '../../utils/burnCaptionsToImages';
 import StoryMediaRenderer from './StoryMediaRenderer';
-import { postSharedStory } from '../../Slices/StoriesSlice';
 import { getValidPostType } from '../../utils/posts/getValidPostType';
-import { composeOnePassNoList } from '../CameraScreen/videoCompose';
+import { compose as composeStory, addProgressListener, addLogListener } from 'story-composer';
 
 const screenHeight = Dimensions.get('window').height;
 
@@ -36,23 +35,21 @@ const StoryPreview = () => {
     const originalPostId = post?._id;
     const isSharedPost = !!postType && !!originalPostId;
     const segments = fileParam?.segments;
-    const file = fileParam;
-    const mediaUri = file?.uri;
+    const mediaUri = fileParam?.uri;
     const mediaType = fileParam?.mediaType;
-    const fileName = effectiveUri ? effectiveUri.split('/').pop() : `story_${Date.now()}.mp4`;
 
     const [captions, setCaptions] = useState([]);
     const [loading, setLoading] = useState(false);
     const [keyboardVisible, setKeyboardVisible] = useState(false);
     const [focusedCaptionId, setFocusedCaptionId] = useState(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [composeProgress, setComposeProgress] = useState(0); // optional
     const imageWithCaptionsRef = useRef();
 
+    // ---- helpers & normalized inputs ----
     const normalizeFileUri = (u = '') => {
         if (!u) return u;
-        // collapse 'file://file:///...' to 'file:///'
         const collapsed = u.replace(/^file:\/+file:\/+/, 'file://');
-        // ensure exactly three slashes after scheme
         return collapsed.replace(/^file:\/{2,}/, 'file:///');
     };
 
@@ -60,9 +57,13 @@ const StoryPreview = () => {
         ? segments.map(s => ({ ...s, uri: normalizeFileUri(s.uri) }))
         : [];
 
-    const effectiveUri = normalizedSegments[0]?.uri || normalizeFileUri(fileParam?.uri);
-    const isMultiSegmentVideo =
-        mediaType === 'video' && normalizedSegments.length > 0;
+    const effectiveUri = normalizedSegments[0]?.uri || normalizeFileUri(mediaUri);
+    const isMultiSegmentVideo = mediaType === 'video' && normalizedSegments.length > 0;
+
+    // fileName must be computed AFTER effectiveUri is known
+    const fileName =
+        (effectiveUri && effectiveUri.split('/').pop()) ||
+        (mediaType === 'photo' ? `story_${Date.now()}.jpg` : `story_${Date.now()}.mp4`);
 
     // state using normalized segments
     const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
@@ -74,62 +75,63 @@ const StoryPreview = () => {
 
     const addNewCaption = () => {
         const hasEmptyCaption = captions.some(c => c.text.trim() === '');
-        if (hasEmptyCaption) return; // Don't add another empty one
-
+        if (hasEmptyCaption) return;
         const newCaption = createCaption();
         setCaptions(prev => [...prev, newCaption]);
         setFocusedCaptionId(newCaption.id);
     };
 
+    // ---- NEW compose using story-composer ----
     const composeIfNeeded = async () => {
         const isVideo = mediaType === 'video';
         const hasSegments = Array.isArray(normalizedSegments) && normalizedSegments.length > 0;
         const hasCaptions = captions.some(c => c.text.trim().length > 0);
-
         if (!isVideo) return { composed: false };
 
-        // Build the input list for ffmpeg – if you only have a single file, treat it like 1 segment.
-        const segsForFfmpeg = hasSegments
-            ? normalizedSegments
-            : effectiveUri
-                ? [{ uri: effectiveUri }]
-                : [];
+        const segs = hasSegments ? normalizedSegments : (effectiveUri ? [{ uri: effectiveUri }] : []);
+        if (segs.length <= 1 && !hasCaptions) return { composed: false };
 
-        // If either multiple segments OR you want to burn captions into video → compose.
-        if (segsForFfmpeg.length > 1 || hasCaptions) {
-            // Map your caption objects to ffmpeg captions; use ratio-based y so it matches preview dragging.
-            const ffmpegCaptions = captions
-                .filter(c => c.text.trim().length)
-                .map(c => ({
-                    text: c.text,
-                    // center x; if you later support horizontal drag, pass x as an expression
-                    x: '(w-text_w)/2',
-                    // we’ll map screen Y to video Y inside the helper via screenHeight
-                    y, // optional, you can omit and rely on yExpr mapping using screenHeight
-                    start: 0,
-                    end: 9999,
-                    fontSize: 24,
-                    color: '#ffffff',
-                    boxcolor: 'black@0.5',
-                    boxborderw: 16,
-                    yExpr: null, // let helper compute from c.y + screenHeight
-                    // keep the raw pixel so helper can compute ratio:
-                    y: c.y
-                }));
+        const sub = addProgressListener(e => {
+            if (typeof e?.progress === 'number') setComposeProgress(e.progress);
+        });
+        const logSub = addLogListener(e => {
+            if (e?.message) console.log('🧩 [SC]', e.message);
+        });
 
-            const outPath = await composeOnePassNoList(segsForFfmpeg, {
-                captions: ffmpegCaptions,
-                screenHeight, // from Dimensions.get('window').height already in your file
-                // Optional: override fontfile if you ship one with your app
-                // fontfile: `${FileSystem.documentDirectory}MyFont.ttf`,
-                preset: 'veryfast',
-                crf: 20,
+        try {
+            console.log('🧩 composeIfNeeded →', {
+                isVideo, hasSegments, hasCaptions,
+                seg0: segs[0]?.uri?.slice(0, 80)
             });
 
-            return { composed: true, localPath: `file://${outPath}` };
-        }
+            const res = await composeStory({
+                debug: true, // 👈 turn on native logs
+                segments: segs,
+                captions: captions.filter(c => c.text.trim()).map(c => ({
+                    text: c.text, x: 0.5, y: c.y / screenHeight,
+                    startMs: 0, endMs: 9_999_000, fontSize: 24,
+                    color: '#FFFFFF', bgColor: 'rgba(0,0,0,0.5)', padding: 16
+                })),
+                outFileName: `story_${Date.now()}.mp4`,
+            });
 
-        return { composed: false };
+            console.log('🧩 compose result', res);
+
+            // Probe the file we’re about to upload
+            if (res?.uri) {
+                const info = await FileSystem.getInfoAsync(res.uri, { size: true, md5: false });
+                console.log('🧩 output file info', info); // { exists, size, uri, modificationTime }
+            }
+
+            return { composed: true, localPath: res?.uri };
+        } catch (e) {
+            console.error('🧩 compose failed', e);
+            throw e;
+        } finally {
+            sub.remove();
+            logSub.remove();
+            setComposeProgress(0);
+        }
     };
 
     const handlePost = async () => {
@@ -140,7 +142,7 @@ const StoryPreview = () => {
             const isPhoto = mediaType === 'photo';
             const isVideo = mediaType === 'video';
 
-            // Shared post flow (no upload)
+            // Shared post (no upload)
             if (isSharedPost) {
                 const derivedPostType = getValidPostType(post);
                 const sharedPayload = {
@@ -167,21 +169,23 @@ const StoryPreview = () => {
                 return;
             }
 
-            // If video, compose if needed (merge segments and/or burn captions)
+            // If video, compose if needed (merge segments/burn captions)
             let composedResult = { composed: false, localPath: null };
             if (isVideo) {
-                // composeIfNeeded should return { composed: true/false, localPath: 'file://...' }
                 composedResult = await composeIfNeeded();
             }
 
-            // Request a SINGLE upload URL (photo OR video)
-            const baseFileName =
-                fileName || (isPhoto ? `story_${Date.now()}.jpg` : `story_${Date.now()}.mp4`);
+            const sourceUri = composedResult.localPath || effectiveUri;
+            const info = await FileSystem.getInfoAsync(sourceUri, { size: true });
+            console.log('📦 uploading', { sourceUri, size: info.size });
+
+            // Request a SINGLE upload URL
+            const baseFileName = fileName;
 
             const uploadRes = await dispatch(
                 getUploadUrls({
                     mediaType,
-                    fileName: baseFileName, // always one file now
+                    fileName: baseFileName,
                 })
             );
             if (!getUploadUrls.fulfilled.match(uploadRes)) {
@@ -195,7 +199,6 @@ const StoryPreview = () => {
             if (isPhoto) {
                 let finalUploadUri = mediaUri;
                 if (captions.length > 0 && imageWithCaptionsRef.current) {
-                    // Burn captions into the image snapshot
                     await new Promise(r => setTimeout(r, 300));
                     finalUploadUri = await burnCaptionsToImage(imageWithCaptionsRef.current);
                 }
@@ -208,7 +211,7 @@ const StoryPreview = () => {
                 if (put.status < 200 || put.status >= 300) throw new Error('Upload failed.');
                 mediaKey = uploadData.mediaKey;
             } else if (isVideo) {
-                const sourceUri = composedResult.localPath || effectiveUri; // composed or original single-clip
+                const sourceUri = composedResult.localPath || effectiveUri;
                 const put = await FileSystem.uploadAsync(uploadData.uploadUrl, sourceUri, {
                     httpMethod: 'PUT',
                     uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
@@ -218,7 +221,7 @@ const StoryPreview = () => {
                 mediaKey = uploadData.mediaKey;
             }
 
-            // Build payload for story creation (single mediaKey; no segments for video)
+            // Build payload
             const postPayload = {
                 mediaType,
                 visibility: contentVisibility || 'public',
@@ -226,7 +229,6 @@ const StoryPreview = () => {
                 mediaKey,
             };
 
-            // Keep captions metadata only for photos (video captions are burned in)
             if (isPhoto && captions.length > 0) {
                 postPayload.captions = captions.map(c => ({
                     text: c.text,
@@ -303,12 +305,15 @@ const StoryPreview = () => {
                         imageWithCaptionsRef={imageWithCaptionsRef}
                         isPreview={true}
                     />
+
                     <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()}>
                         <Ionicons name="close" size={40} color="#fff" />
                     </TouchableOpacity>
+
                     <TouchableOpacity style={styles.captionToggle} onPress={addNewCaption}>
                         <Text style={styles.captionToggleText}>T</Text>
                     </TouchableOpacity>
+
                     {captions.map((caption) => {
                         if (!isSubmitting) {
                             return (
@@ -337,6 +342,7 @@ const StoryPreview = () => {
                             )
                         }
                     })}
+
                     <View style={styles.buttonRow}>
                         <TouchableOpacity
                             style={styles.snapPostButton}
@@ -350,6 +356,13 @@ const StoryPreview = () => {
                             )}
                         </TouchableOpacity>
                     </View>
+
+                    {/* Optional: show compose progress */}
+                    {isSubmitting && composeProgress > 0 && composeProgress < 1 && (
+                        <View style={{ position: 'absolute', bottom: 110, right: 32 }}>
+                            <Text style={{ color: '#fff' }}>{Math.round(composeProgress * 100)}%</Text>
+                        </View>
+                    )}
                 </View>
             </TouchableWithoutFeedback>
         </View>

@@ -1,0 +1,30 @@
+plugins {
+  id 'com.android.library'
+  id 'org.jetbrains.kotlin.android'
+}
+
+android {
+  namespace "com.storycomposer"
+  compileSdkVersion 34
+
+  defaultConfig {
+    minSdkVersion 24
+  }
+
+  sourceSets {
+    main {
+      java.srcDirs = ['src/main/java']
+    }
+  }
+
+  buildFeatures {
+    buildConfig = false
+  }
+}
+
+dependencies {
+  implementation "com.facebook.react:react-android"
+  implementation "androidx.media3:media3-transformer:1.8.0"
+  implementation "androidx.media3:media3-effect:1.8.0"
+  implementation "androidx.media3:media3-common:1.8.0"
+}

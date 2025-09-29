@@ -1,4 +1,3 @@
-// utils/getPostPreviews.js
 const Review = require('../models/Reviews');
 const CheckIn = require('../models/CheckIns');
 const ActivityInvite = require('../models/ActivityInvites');
@@ -6,7 +5,6 @@ const Event = require('../models/Events');
 const Promotion = require('../models/Promotions');
 const LiveStream = require('../models/LiveStream');
 const SharedPost = require('../models/SharedPost');
-
 const User = require('../models/User');
 const Business = require('../models/Business');
 const { getPresignedUrl } = require('./cachePresignedUrl');

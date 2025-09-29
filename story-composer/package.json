@@ -1,0 +1,17 @@
+{
+  "name": "story-composer",
+  "version": "0.0.6",
+  "description": "Native video composer for ActivityPal stories (concat + burned captions)",
+  "main": "src/index.js",
+  "react-native": "src/index.js",
+  "keywords": ["react-native", "expo", "media3", "avfoundation", "video", "composer"],
+  "license": "MIT",
+  "scripts": {
+    "prepare": "echo \"story-composer prepared\""
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-native": ">=0.73.0"
+  },
+  "types": "index.d.ts" 
+}
