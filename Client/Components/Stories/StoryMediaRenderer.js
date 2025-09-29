@@ -1,47 +1,89 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Image, StyleSheet, Dimensions } from 'react-native';
-import { Video } from 'expo-av';
-import SharedPostStoryContent from './SharedPostStoryContent';
+import { VideoView, useVideoPlayer } from 'expo-video';
 
-const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const { width: screenWidth } = Dimensions.get('window');
 
-export default function StoryMediaRenderer({
-  isSharedPost,
-  post,
-  mediaUri,
-  currentSegment,
-  mediaType,
-  segments = [],
-  currentSegmentIndex,
-  setCurrentSegmentIndex,
-  captions = [],
-  isSubmitting,
-  imageWithCaptionsRef,
-  onPressIn,
-  onPressOut,
-  isPreview,
-}) {
+export default function StoryMediaRenderer(props) {
+  const {
+    isSharedPost,
+    post,
+    mediaUri,
+    currentSegment,
+    mediaType,
+    segments = [],
+    currentSegmentIndex,
+    setCurrentSegmentIndex,
+    captions = [],
+    isSubmitting,
+    imageWithCaptionsRef,
+    onPressIn,
+    onPressOut,
+    isPreview,
+  } = props;
+
   if (isSharedPost && post) {
-    return (
-      <SharedPostStoryContent
-        post={post}
-        onPressIn={onPressIn}
-        onPressOut={onPressOut}
-        isPreview={isPreview}
-      />
-    );
+    const SharedPostStoryContent = require('./SharedPostStoryContent').default;
+    return <SharedPostStoryContent post={post} onPressIn={onPressIn} onPressOut={onPressOut} isPreview={isPreview} />;
   }
 
   const isMulti = mediaType === 'video' && Array.isArray(segments) && segments.length > 0;
   const sourceUri = isMulti ? currentSegment?.uri : mediaUri;
+  const isRemote = typeof sourceUri === 'string' && /^https?:\/\//i.test(sourceUri || '');
+  const [headInfo, setHeadInfo] = useState(null);
+
+  // Preflight for remote URLs (same logic you already had)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!isRemote || !sourceUri) return;
+      try {
+        const ctrl = new AbortController();
+        const r = await fetch(sourceUri, {
+          method: 'GET',
+          headers: { Range: 'bytes=0-0' }, // probe just 1 byte
+          cache: 'no-store',
+          signal: ctrl.signal,
+        });
+        const info = {
+          ok: r.ok,
+          status: r.status,                       // expect 206
+          contentRange: r.headers.get('content-range'),
+          acceptRanges: r.headers.get('accept-ranges'), // expect "bytes"
+          contentType: r.headers.get('content-type'),   // expect "video/mp4"
+        };
+        if (!cancelled) setHeadInfo(info);
+        console.log('🎯 RANGE probe', info);
+      } catch (e) {
+        if (!cancelled) setHeadInfo({ ok: false, error: String(e) });
+        console.log('🎯 RANGE probe failed', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [sourceUri, isRemote]);
+
+  // (Re)create a player when the URI changes
+  const player = useVideoPlayer(sourceUri || null, (p) => {
+    if (!sourceUri) return;
+    p.muted = true;
+    p.loop = !isMulti;    // loop only for single video
+    p.play();
+  });
+
+  // Segment advancing
+  useEffect(() => {
+    if (!isMulti) return;
+    const sub = player.addListener('playToEnd', () => {
+      if (currentSegmentIndex < segments.length - 1) {
+        setCurrentSegmentIndex((i) => i + 1);
+      } else {
+        setCurrentSegmentIndex(0); // loop segments
+      }
+    });
+    return () => sub.remove();
+  }, [isMulti, player, currentSegmentIndex, segments.length, setCurrentSegmentIndex]);
 
   if (!sourceUri) return null;
-
-  // Force remount when the URI changes so the player truly reloads the new clip
-  const videoKey = useMemo(
-    () => `${sourceUri}#${isMulti ? currentSegmentIndex : 'single'}`,
-    [sourceUri, isMulti, currentSegmentIndex]
-  );
 
   return (
     <View
@@ -52,74 +94,54 @@ export default function StoryMediaRenderer({
       {mediaType === 'photo' ? (
         <Image source={{ uri: mediaUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
       ) : (
-        <View style={styles.video}>
-          <Video
-            key={videoKey}
-            source={{ uri: sourceUri }}
-            shouldPlay
-            isLooping={isMulti ? false : true}          // ⟵ don't loop when using segments
-            isMuted
-            resizeMode="cover"
-            useNativeControls={false}
-            style={StyleSheet.absoluteFill}
-            progressUpdateIntervalMillis={250}
-            onPlaybackStatusUpdate={(s) => {
-              if (!s?.isLoaded) return;
-
-              // Advance only when the current clip actually finished
-              if (s.didJustFinish) {
-                if (isMulti) {
-                  if (currentSegmentIndex < segments.length - 1) {
-                    setCurrentSegmentIndex((prev) => prev + 1); // go to next segment
-                  } else {
-                    // Reached last segment — choose your behavior:
-                    // (a) loop back to start:
-                    setCurrentSegmentIndex(0);
-                    // (b) or stop on last clip: do nothing
-                  }
-                }
-                // Single video: if you set isLooping=true, it will loop automatically.
-              }
-            }}
-            onError={(e) => {
-              console.log('Video error:', e);
-            }}
-          />
-        </View>
+        <VideoView
+          style={StyleSheet.absoluteFill}
+          player={player}
+          contentFit="cover"
+          allowsFullscreen={false}
+          allowsPictureInPicture={false}
+          onLoadStart={() => console.log('📺 onLoadStart', { uri: sourceUri })}
+          onError={(e) => {
+            console.log('📼 Video onError', e?.nativeEvent ?? e);
+            if (isRemote) {
+              console.log('⚠️ Remote video error. Check: HTTPS, fresh presigned URL, Accept-Ranges=bytes, Content-Type=video/mp4.');
+              console.log('HEAD result was:', headInfo);
+            }
+          }}
+          onStatusUpdate={(status) => {
+            // status.playbackState, duration, currentTime, etc.
+            // console.log('status', status);
+          }}
+        />
       )}
 
-      {isSubmitting &&
-        captions.map((caption, index) => (
-          <View
-            key={caption.id}
-            style={{
-              position: 'absolute',
-              top: caption.y ?? 100 + 40 * index,
-              left: screenWidth / 2,
-              transform: [{ translateX: -screenWidth / 2 }],
-              width: '100%',
-              alignItems: 'center',
-            }}
-          >
-            <Text style={styles.captionOverlay}>{caption.text}</Text>
-          </View>
-        ))}
+      {isSubmitting && captions.map((caption, idx) => (
+        <View
+          key={caption.id}
+          style={{
+            position: 'absolute',
+            top: caption.y ?? 100 + 40 * idx,
+            left: screenWidth / 2,
+            transform: [{ translateX: -screenWidth / 2 }],
+            width: '100%',
+            alignItems: 'center',
+          }}
+        >
+          <Text style={styles.captionOverlay}>{caption.text}</Text>
+        </View>
+      ))}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  video: {
-    ...StyleSheet.absoluteFillObject,
-  },
   captureContainer: {
     position: 'absolute',
-    top: 0,
-    left: 0,
+    top: 0, left: 0,
     width: Dimensions.get('window').width,
     height: Dimensions.get('window').height,
     opacity: 1,
-    zIndex: -1,
+    zIndex: 0, // keep >=0 so it’s visible
     backgroundColor: 'black',
     pointerEvents: 'none',
   },

@@ -1,24 +1,106 @@
-const { getPresignedUrl } = require('./cachePresignedUrl');
+// utils/enrichStories.js
+const { getPresignedUrl } = require('./cachePresignedUrl'); // or wherever yours lives
 const User = require('../models/User');
+
+const DEBUG_STORIES = process.env.DEBUG_STORIES === '1';
+const DEBUG_HTTP = process.env.DEBUG_STORIES_HTTP_HEAD === '1'; // optional: do HTTP HEAD probes
+
+function maskUrl(u) {
+  try {
+    const url = new URL(u);
+    return `${url.origin}${url.pathname}?<sig>`;
+  } catch {
+    return (u || '').split('?')[0] + '?<sig>';
+  }
+}
+function log(...args) {
+  if (DEBUG_STORIES) console.log('[enrichStory]', ...args);
+}
+
+async function headProbe(url) {
+  if (!DEBUG_HTTP || typeof fetch !== 'function') return null;
+  try {
+    const head = await fetch(url, { method: 'HEAD' });
+    const headers = Object.fromEntries([...head.headers.entries()]);
+    let rangeInfo = null;
+    try {
+      const range = await fetch(url, { headers: { Range: 'bytes=0-0' } });
+      rangeInfo = {
+        status: range.status,
+        contentRange: range.headers.get('content-range'),
+        contentType: range.headers.get('content-type'),
+      };
+    } catch (e) {
+      rangeInfo = { error: String(e) };
+    }
+    return {
+      status: head.status,
+      ok: head.ok,
+      contentType: headers['content-type'],
+      contentLength: headers['content-length'],
+      acceptRanges: headers['accept-ranges'],
+      rangeProbe: rangeInfo,
+    };
+  } catch (e) {
+    return { error: String(e) };
+  }
+}
 
 const enrichStory = async (story, uploaderUser, currentUserId = null, originalOwner = null) => {
   const storyObj = story?.toObject ? story.toObject() : story;
   const rawUploader = uploaderUser?.toObject ? uploaderUser.toObject() : uploaderUser;
 
+  const storyId = storyObj?._id?.toString?.() || '(no-id)';
+  const mediaKey = storyObj?.mediaKey || null;
+
   // --- media
-  const mediaUrl = storyObj.mediaKey ? await getPresignedUrl(storyObj.mediaKey) : null;
+  let mediaUrl = null;
+  if (mediaKey) {
+    const t0 = Date.now();
+    try {
+      log(`presign mediaKey="${mediaKey}" storyId=${storyId}`);
+      mediaUrl = await getPresignedUrl(mediaKey);
+      const took = Date.now() - t0;
+      log(`presign OK in ${took}ms url=${maskUrl(mediaUrl)}`);
+
+      const probe = await headProbe(mediaUrl);
+      if (probe) log('HEAD probe', {
+        url: maskUrl(mediaUrl),
+        status: probe.status,
+        ok: probe.ok,
+        contentType: probe.contentType,
+        contentLength: probe.contentLength,
+        acceptRanges: probe.acceptRanges,
+        rangeProbe: probe.rangeProbe,
+      });
+    } catch (e) {
+      log(`presign FAILED mediaKey="${mediaKey}"`, e?.name || '', e?.message || String(e));
+    }
+  } else {
+    log('no mediaKey on story', { storyId });
+  }
 
   // --- uploader (shape as OriginalOwner union)
   const uploaderIsBusiness = !!(rawUploader?.businessName || rawUploader?.placeId);
   const uploaderId = rawUploader?._id?.toString?.() || rawUploader?.id || null;
 
-  const uploaderProfilePicUrl = rawUploader?.profilePic?.photoKey
-    ? await getPresignedUrl(rawUploader.profilePic.photoKey)
-    : null;
+  const getOptionalPresign = async (label, key) => {
+    if (!key) return null;
+    const t0 = Date.now();
+    try {
+      log(`presign ${label} key="${key}" storyId=${storyId}`);
+      const url = await getPresignedUrl(key);
+      const took = Date.now() - t0;
+      log(`presign ${label} OK in ${took}ms url=${maskUrl(url)}`);
+      return url;
+    } catch (e) {
+      log(`presign ${label} FAILED key="${key}"`, e?.name || '', e?.message || String(e));
+      return null;
+    }
+  };
 
-  const uploaderLogoUrl = rawUploader?.logoKey
-    ? await getPresignedUrl(rawUploader.logoKey)
-    : null;
+  const uploaderProfilePicUrl = await getOptionalPresign('uploader.profilePic', rawUploader?.profilePic?.photoKey);
+  const uploaderLogoUrl = await getOptionalPresign('uploader.logo', rawUploader?.logoKey);
 
   const uploader = uploaderIsBusiness
     ? {
@@ -45,10 +127,8 @@ const enrichStory = async (story, uploaderUser, currentUserId = null, originalOw
 
     viewedBy = await Promise.all(
       viewerUsers.map(async (viewer) => {
-        const viewerPicUrl = viewer?.profilePic?.photoKey
-          ? await getPresignedUrl(viewer.profilePic.photoKey)
-          : null;
-
+        const picKey = viewer?.profilePic?.photoKey;
+        const viewerPicUrl = picKey ? await getOptionalPresign('viewer.profilePic', picKey) : null;
         return {
           __typename: 'User',
           id: viewer._id.toString(),
@@ -66,10 +146,9 @@ const enrichStory = async (story, uploaderUser, currentUserId = null, originalOw
     storyObj.viewedBy.some((id) => id?.toString?.() === currentUserId?.toString?.())
   );
 
+  // --- originalOwner (optional)
   let typedOriginalOwner = null;
-
-  const storyReferencesOriginalOwner =
-    !!(storyObj?.originalOwner || storyObj?.originalOwnerModel);
+  const storyReferencesOriginalOwner = !!(storyObj?.originalOwner || storyObj?.originalOwnerModel);
 
   if (storyReferencesOriginalOwner) {
     if (originalOwner && typeof originalOwner === 'object') {
@@ -77,48 +156,54 @@ const enrichStory = async (story, uploaderUser, currentUserId = null, originalOw
       const ownerId = originalOwner._id?.toString?.() || originalOwner.id;
 
       if (isBiz) {
+        const logoUrl =
+          originalOwner.logoKey
+            ? await getOptionalPresign('originalOwner.logo', originalOwner.logoKey)
+            : (originalOwner.logoUrl || null);
+
         typedOriginalOwner = {
           __typename: 'Business',
           id: ownerId,
           businessName: originalOwner.businessName || null,
-          logoUrl: originalOwner.logoKey ? await getPresignedUrl(originalOwner.logoKey) : (originalOwner.logoUrl || null),
+          logoUrl,
         };
       } else {
+        const ppUrl =
+          originalOwner.profilePicUrl ||
+          (originalOwner.profilePic?.photoKey
+            ? await getOptionalPresign('originalOwner.profilePic', originalOwner.profilePic.photoKey)
+            : null);
+
         typedOriginalOwner = {
           __typename: 'User',
           id: ownerId,
           firstName: originalOwner.firstName || null,
           lastName: originalOwner.lastName || null,
-          profilePicUrl:
-            originalOwner.profilePicUrl ||
-            (originalOwner.profilePic?.photoKey
-              ? await getPresignedUrl(originalOwner.profilePic.photoKey)
-              : null),
+          profilePicUrl: ppUrl,
         };
       }
 
       if (!typedOriginalOwner?.id) {
-        console.error(`❌ [enrichStory] Missing required "id" for story ${storyObj._id} originalOwner:`, originalOwner);
+        console.error(`❌ [enrichStory] Missing required "id" for story ${storyId} originalOwner:`, originalOwner);
       }
       if (!typedOriginalOwner?.__typename) {
-        console.error(`❌ [enrichStory] Missing __typename for story ${storyObj._id} originalOwner:`, originalOwner);
+        console.error(`❌ [enrichStory] Missing __typename for story ${storyId} originalOwner:`, originalOwner);
       }
     } else {
-      // We expected an owner but didn't get an object (could be null or an ObjectId string) – warn once, quietly.
       console.warn('⚠️ [enrichStory] story references originalOwner, but helper received none or non-object:', {
-        storyId: storyObj?._id,
+        storyId,
         originalOwnerReceived: originalOwner,
       });
     }
   }
-  
+
   const enriched = {
     ...storyObj,
     mediaUrl,
     viewedBy,
     isViewed,
-    user: uploader,            // GraphQL: Story.user is OriginalOwner union
-    _originalOwner: typedOriginalOwner, // internal convenience (ignored by GraphQL selection)
+    user: uploader,
+    _originalOwner: typedOriginalOwner,
   };
 
   return enriched;
