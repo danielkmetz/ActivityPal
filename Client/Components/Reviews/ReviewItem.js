@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, Fragment } from "react";
 import {
     View,
     Text,
@@ -7,7 +7,6 @@ import {
     TouchableWithoutFeedback,
     TouchableOpacity,
 } from "react-native";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
 import PostActions from "./PostActions/PostActions";
 import PostOptionsMenu from "./PostOptionsMenu";
 import ExpandableText from "./ExpandableText";
@@ -21,8 +20,14 @@ import RatingsBreakdownModal from "./metricRatings/RatingsBreakdownModal";
 import { declineFollowRequest, cancelFollowRequest, approveFollowRequest } from "../../Slices/friendsSlice";
 import { logEngagementIfNeeded } from "../../Slices/EngagementSlice";
 import PhotoFeed from "./Photos/PhotoFeed";
-import { selection } from "../../utils/Haptics/haptics";
 import RatingsButton from './ReviewItem/RatingsButton';
+
+const MaybeTWF = ({ enabled, onPress, children }) =>
+    enabled ? (
+        <TouchableWithoutFeedback onPress={onPress}>{children}</TouchableWithoutFeedback>
+    ) : (
+        <Fragment>{children}</Fragment>
+    );
 
 export default function ReviewItem({
     item,
@@ -125,11 +130,6 @@ export default function ReviewItem({
         setIsRequestSent(false);
     };
 
-    const openRatings = () => {
-        selection();
-        setRatingsOpen(true);
-    }
-
     useEffect(() => {
         if (!user || !followRequests || !following) return;
 
@@ -191,103 +191,109 @@ export default function ReviewItem({
         }
     };
 
-    return (
-        <View>
-            <View style={styles.reviewCard}>
-                {!sharedPost && (
-                    <PostOptionsMenu
-                        isSender={isSender}
-                        dropdownVisible={dropdownVisible}
-                        setDropdownVisible={setDropdownVisible}
-                        handleEdit={handleEdit}
-                        handleDelete={handleDelete}
-                        postData={item}
-                    />
-                )}
-                <View style={styles.section}>
-                    <View>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <View style={[styles.userPicAndName, { flex: 1, flexShrink: 1 }]}>
-                                <StoryAvatar userId={postOwnerId} profilePicUrl={item.profilePicUrl} />
-                                <View style={{ flexShrink: 1 }}>
-                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-                                        <TouchableWithoutFeedback onPress={() => navigateToOtherUserProfile(item.userId)}>
-                                            <Text style={styles.userEmailText}>{item.fullName}</Text>
-                                        </TouchableWithoutFeedback>
-                                        {item.taggedUsers?.length > 0 && (
-                                            <>
-                                                <Text style={styles.business}> is with </Text>
-                                                {item.taggedUsers.map((user, index) => (
-                                                    <TouchableWithoutFeedback
-                                                        key={user.userId || index}
-                                                        onPress={() => navigateToOtherUserProfile(user.userId)}
-                                                    >
-                                                        <Text style={styles.userEmailText}>
-                                                            {user.fullName}
-                                                            {index < item?.taggedUsers?.length - 1 ? ", " : ""}
-                                                        </Text>
-                                                    </TouchableWithoutFeedback>
-                                                ))}
-                                            </>
-                                        )}
-                                    </View>
-                                    {isSuggestedFollowPost && (
-                                        <Text style={styles.subText}>Suggested user for you</Text>
+    const card = (
+        <View style={styles.reviewCard}>
+            {!sharedPost && (
+                <PostOptionsMenu
+                    isSender={isSender}
+                    dropdownVisible={dropdownVisible}
+                    setDropdownVisible={setDropdownVisible}
+                    handleEdit={handleEdit}
+                    handleDelete={handleDelete}
+                    postData={item}
+                />
+            )}
+            <View style={styles.section}>
+                <View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <View style={[styles.userPicAndName, { flex: 1, flexShrink: 1 }]}>
+                            <StoryAvatar userId={postOwnerId} profilePicUrl={item.profilePicUrl} />
+                            <View style={{ flexShrink: 1 }}>
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                                    <TouchableWithoutFeedback onPress={() => navigateToOtherUserProfile(item.userId)}>
+                                        <Text style={styles.userEmailText}>{item.fullName}</Text>
+                                    </TouchableWithoutFeedback>
+                                    {item.taggedUsers?.length > 0 && (
+                                        <>
+                                            <Text style={styles.business}> is with </Text>
+                                            {item.taggedUsers.map((user, index) => (
+                                                <TouchableWithoutFeedback
+                                                    key={user.userId || index}
+                                                    onPress={() => navigateToOtherUserProfile(user.userId)}
+                                                >
+                                                    <Text style={styles.userEmailText}>
+                                                        {user.fullName}
+                                                        {index < item?.taggedUsers?.length - 1 ? ", " : ""}
+                                                    </Text>
+                                                </TouchableWithoutFeedback>
+                                            ))}
+                                        </>
                                     )}
                                 </View>
+                                {isSuggestedFollowPost && (
+                                    <Text style={styles.subText}>Suggested user for you</Text>
+                                )}
                             </View>
-                            {renderFollowButton()}
                         </View>
+                        {renderFollowButton()}
                     </View>
-                    <TouchableOpacity onPress={navigateToBusiness}>
-                        <Text style={styles.business}>{item.businessName}</Text>
-                    </TouchableOpacity>
-                    <RatingsButton
-                        rating={item.rating}
-                        ratings={{
-                            rating: item.rating,
-                            priceRating: item.priceRating,
-                            serviceRating: item.serviceRating,
-                            atmosphereRating: item.atmosphereRating,
-                            wouldRecommend: item.wouldRecommend,
-                        }}
-                    />
-                    <ExpandableText
-                        text={item.reviewText}
-                        maxLines={4}
-                        textStyle={styles.review}
+                </View>
+                <TouchableOpacity onPress={navigateToBusiness}>
+                    <Text style={styles.business}>{item.businessName}</Text>
+                </TouchableOpacity>
+                <RatingsButton
+                    rating={item.rating}
+                    ratings={{
+                        rating: item.rating,
+                        priceRating: item.priceRating,
+                        serviceRating: item.serviceRating,
+                        atmosphereRating: item.atmosphereRating,
+                        wouldRecommend: item.wouldRecommend,
+                    }}
+                />
+                <ExpandableText
+                    text={item.reviewText}
+                    maxLines={4}
+                    textStyle={styles.review}
+                />
+            </View>
+            {/* ✅ Photos */}
+            {postPhotos?.length > 0 && (
+                <PhotoFeed
+                    media={postPhotos}
+                    scrollX={scrollX}
+                    currentIndexRef={currentIndexRef}
+                    reviewItem={item}
+                    photoTapped={photoTapped}
+                    handleLikeWithAnimation={handleLikeWithAnimation}
+                    lastTapRef={lastTapRef}
+                    onOpenFullScreen={handleOpenFullScreen}
+                    setCurrentPhotoIndex={setCurrentPhotoIndex}
+                />
+            )}
+            <Text style={styles.date}>
+                Posted: {item.date ? new Date(item.date).toISOString().split("T")[0] : "Now"}
+            </Text>
+            {!sharedPost && (
+                <View style={{ padding: 15 }}>
+                    <PostActions
+                        item={item}
+                        handleLikeWithAnimation={handleLikeWithAnimation}
+                        handleOpenComments={handleOpenComments}
+                        toggleTaggedUsers={toggleTaggedUsers}
+                        photo={currentPhoto}
+                        onShare={onShare}
                     />
                 </View>
-                {/* ✅ Photos */}
-                {postPhotos?.length > 0 && (
-                    <PhotoFeed
-                        media={postPhotos}
-                        scrollX={scrollX}
-                        currentIndexRef={currentIndexRef}
-                        reviewItem={item}
-                        photoTapped={photoTapped}
-                        handleLikeWithAnimation={handleLikeWithAnimation}
-                        lastTapRef={lastTapRef}
-                        onOpenFullScreen={handleOpenFullScreen}
-                        setCurrentPhotoIndex={setCurrentPhotoIndex}
-                    />
-                )}
-                <Text style={styles.date}>
-                    Posted: {item.date ? new Date(item.date).toISOString().split("T")[0] : "Now"}
-                </Text>
-                {!sharedPost && (
-                    <View style={{ padding: 15 }}>
-                        <PostActions
-                            item={item}
-                            handleLikeWithAnimation={handleLikeWithAnimation}
-                            handleOpenComments={handleOpenComments}
-                            toggleTaggedUsers={toggleTaggedUsers}
-                            photo={currentPhoto}
-                            onShare={onShare}
-                        />
-                    </View>
-                )}
-            </View>
+            )}
+        </View>
+    )
+
+    return (
+        <View>
+            <MaybeTWF enabled={!!sharedPost} onPress={() => handleOpenComments(item)}>
+                {card}
+            </MaybeTWF>
             <RatingsBreakdownModal
                 visible={ratingsOpen}
                 onClose={() => setRatingsOpen(false)}
@@ -310,23 +316,9 @@ const styles = StyleSheet.create({
         marginBottom: 10,
         elevation: 2,
     },
-    sharedPostWrapper: {
-        borderWidth: 1,
-        borderColor: '#ccc',
-        borderRadius: 8,
-        backgroundColor: '#f9f9f9',
-        marginBottom: 10,
-        overflow: 'hidden', // ensures border doesn't get clipped
-    },
     section: {
         padding: 10,
         flexShrink: 1,
-    },
-    sharedHeader: {
-        borderColor: '#ccc',
-        borderRadius: 8,
-        backgroundColor: '#f9f9f9', // optional for "Facebook shared" look
-        marginBottom: 10,
     },
     profilePic: {
         marginRight: 10,
@@ -408,30 +400,5 @@ const styles = StyleSheet.create({
         fontSize: 15,
         fontWeight: 'bold',
         color: '#fff',
-    },
-    ratingButtonContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: 4,
-        marginBottom: 4,
-    },
-    ratingButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        alignSelf: 'flex-start',
-        backgroundColor: '#bfbfbf',
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        borderRadius: 2,
-        elevation: 2, // Android
-        shadowColor: '#000', // iOS
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.2,
-        shadowRadius: 2,
-        marginTop: 6,
-        marginBottom: 4,
-    },
-    ratingStars: {
-        flexDirection: 'row',
     },
 });

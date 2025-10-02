@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { View, Text, Image, StyleSheet, Dimensions } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
+import { useEventListener } from 'expo';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -20,6 +21,9 @@ export default function StoryMediaRenderer(props) {
     onPressIn,
     onPressOut,
     isPreview,
+    onVideoProgress,
+    onVideoEndedLastSegment,
+    paused,
   } = props;
 
   if (isSharedPost && post) {
@@ -27,61 +31,96 @@ export default function StoryMediaRenderer(props) {
     return <SharedPostStoryContent post={post} onPressIn={onPressIn} onPressOut={onPressOut} isPreview={isPreview} />;
   }
 
-  const isMulti = mediaType === 'video' && Array.isArray(segments) && segments.length > 0;
+  const isMulti = mediaType === 'video' && segments.length > 0;
   const sourceUri = isMulti ? currentSegment?.uri : mediaUri;
-  const isRemote = typeof sourceUri === 'string' && /^https?:\/\//i.test(sourceUri || '');
-  const [headInfo, setHeadInfo] = useState(null);
 
-  // Preflight for remote URLs (same logic you already had)
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!isRemote || !sourceUri) return;
-      try {
-        const ctrl = new AbortController();
-        const r = await fetch(sourceUri, {
-          method: 'GET',
-          headers: { Range: 'bytes=0-0' }, // probe just 1 byte
-          cache: 'no-store',
-          signal: ctrl.signal,
-        });
-        const info = {
-          ok: r.ok,
-          status: r.status,                       // expect 206
-          contentRange: r.headers.get('content-range'),
-          acceptRanges: r.headers.get('accept-ranges'), // expect "bytes"
-          contentType: r.headers.get('content-type'),   // expect "video/mp4"
-        };
-        if (!cancelled) setHeadInfo(info);
-        console.log('🎯 RANGE probe', info);
-      } catch (e) {
-        if (!cancelled) setHeadInfo({ ok: false, error: String(e) });
-        console.log('🎯 RANGE probe failed', e);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [sourceUri, isRemote]);
+  // keep latest cb + a token to ignore stale events after source changes
+  const onVideoProgressRef = useRef(onVideoProgress);
+  useEffect(() => { onVideoProgressRef.current = onVideoProgress; }, [onVideoProgress]);
+  const tokenRef = useRef(0);
+  useEffect(() => { tokenRef.current += 1; }, [sourceUri]); // bump token whenever the source changes
+  const pausedRef = useRef(paused);
+  useEffect(() => { pausedRef.current = paused; }, [paused]);
 
-  // (Re)create a player when the URI changes
-  const player = useVideoPlayer(sourceUri || null, (p) => {
-    if (!sourceUri) return;
-    p.muted = true;
-    p.loop = !isMulti;    // loop only for single video
-    p.play();
+  const player = useVideoPlayer(
+    mediaType === 'video' ? (sourceUri || null) : null,
+    (p) => {
+      if (!sourceUri) return;
+      p.muted = true;
+      p.loop = !!isPreview && !isMulti;
+      p.timeUpdateEventInterval = 0.05; // ← seconds (≈50ms)
+      onVideoProgressRef.current?.(0);
+      if (pausedRef.current) p.pause(); else p.play();
+    }
+  );
+
+  const toSec = (x) => (typeof x === 'number' && x > 1000 ? x / 1000 : (x || 0));
+
+  // Prefer the Expo hook for time updates
+  useEventListener(player, 'timeUpdate', (e) => {
+    if (pausedRef.current) return;        // don't advance while paused
+    report(e?.currentTime, e?.duration);
   });
 
-  // Segment advancing
+  const report = (t, d) => {
+    if (pausedRef.current) return;
+    const myToken = tokenRef.current;
+    const tSec = toSec(t);
+    const dSec = toSec(d || currentSegment?.duration || 0);
+    if (dSec <= 0) return;
+    const per = Math.max(0, Math.min(1, tSec / dSec));
+    const overall = isMulti ? (currentSegmentIndex + per) / segments.length : per;
+    // ignore late events from a previous player/source
+    if (myToken !== tokenRef.current) return;
+    onVideoProgressRef.current?.(overall);
+  };
+
+  // Fallback: poll currentTime/duration (works even if events are quiet)
   useEffect(() => {
-    if (!isMulti) return;
-    const sub = player.addListener('playToEnd', () => {
-      if (currentSegmentIndex < segments.length - 1) {
-        setCurrentSegmentIndex((i) => i + 1);
+    if (!player) return;
+    let mounted = true;
+    const id = setInterval(() => {
+      if (!mounted) return;
+      const t = player.currentTime;
+      const d = player.duration;
+      if (typeof t === 'number' && typeof d === 'number') report(t, d);
+    }, 100); // 10fps is plenty for a thin progress bar
+    return () => { mounted = false; clearInterval(id); };
+  }, [player, isMulti, currentSegmentIndex, segments.length]);
+
+  useEffect(() => {
+    if (!player) return;
+    const endSub = player.addListener('playToEnd', () => {
+      // finish bar visually, but still guard with token
+      const myToken = tokenRef.current;
+      if (myToken === tokenRef.current) onVideoProgressRef.current?.(1);
+
+      // If it's multi-segment, cycle through segments instead of stopping.
+      if (isPreview) {
+        if (isMulti) {
+          setCurrentSegmentIndex(i => (i + 1) % segments.length);
+        }
+        return; // don't call onVideoEndedLastSegment in preview
+      }
+
+      if (isMulti) {
+        if (currentSegmentIndex < segments.length - 1) {
+          setCurrentSegmentIndex((i) => i + 1);
+        } else {
+          onVideoEndedLastSegment?.();
+        }
       } else {
-        setCurrentSegmentIndex(0); // loop segments
+        onVideoEndedLastSegment?.();
       }
     });
-    return () => sub.remove();
-  }, [isMulti, player, currentSegmentIndex, segments.length, setCurrentSegmentIndex]);
+    return () => endSub.remove();
+  }, [player, isMulti, currentSegmentIndex, segments.length]);
+
+  useEffect(() => {
+    if (!player) return;
+    if (paused) player.pause();
+    else player.play();
+  }, [paused, player]);
 
   if (!sourceUri) return null;
 
@@ -95,29 +134,24 @@ export default function StoryMediaRenderer(props) {
         <Image source={{ uri: mediaUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
       ) : (
         <VideoView
+          key={sourceUri}
           style={StyleSheet.absoluteFill}
           player={player}
           contentFit="cover"
-          allowsFullscreen={false}
+          allowsFullscreen
           allowsPictureInPicture={false}
-          onLoadStart={() => console.log('📺 onLoadStart', { uri: sourceUri })}
-          onError={(e) => {
-            console.log('📼 Video onError', e?.nativeEvent ?? e);
-            if (isRemote) {
-              console.log('⚠️ Remote video error. Check: HTTPS, fresh presigned URL, Accept-Ranges=bytes, Content-Type=video/mp4.');
-              console.log('HEAD result was:', headInfo);
-            }
-          }}
-          onStatusUpdate={(status) => {
-            // status.playbackState, duration, currentTime, etc.
-            // console.log('status', status);
+          onError={(e) => console.log('📼 Video onError', e?.nativeEvent ?? e)}
+          onStatusUpdate={(s) => {
+            // Some SDKs emit time here as well
+            const t = s?.currentTime;
+            const d = s?.duration;
+            if (typeof t === 'number' && typeof d === 'number') report(t, d);
           }}
         />
       )}
-
       {isSubmitting && captions.map((caption, idx) => (
         <View
-          key={caption.id}
+          key={caption.id ?? idx}
           style={{
             position: 'absolute',
             top: caption.y ?? 100 + 40 * idx,
@@ -141,7 +175,7 @@ const styles = StyleSheet.create({
     width: Dimensions.get('window').width,
     height: Dimensions.get('window').height,
     opacity: 1,
-    zIndex: 0, // keep >=0 so it’s visible
+    zIndex: 0,
     backgroundColor: 'black',
     pointerEvents: 'none',
   },
