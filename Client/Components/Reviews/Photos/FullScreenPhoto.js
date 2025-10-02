@@ -224,7 +224,7 @@ const FullScreenPhoto = () => {
           <PostActions
             item={review}
             onShare={openShareOptions}
-            handleLikeWithAnimation={() => likeWithAnimation(true)}
+            handleLikeWithAnimation={handleLikeWithAnimation}
             handleOpenComments={() => setCommentsVisible(true)}
             toggleTaggedUsers={() => setShowTags((prev) => !prev)}
             photo={currentPhoto}

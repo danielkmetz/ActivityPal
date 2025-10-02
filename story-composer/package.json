@@ -1,6 +1,6 @@
 {
   "name": "story-composer",
-  "version": "0.0.6",
+  "version": "0.0.13",
   "description": "Native video composer for ActivityPal stories (concat + burned captions)",
   "main": "src/index.js",
   "react-native": "src/index.js",

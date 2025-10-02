@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import UIKit
+import CoreText
 import React
 
 @objc(StoryComposer)
@@ -41,9 +42,31 @@ class StoryComposer: RCTEventEmitter {
     let render = CGSize(width: abs(naturalRect.width), height: abs(naturalRect.height))
     let translate = CGAffineTransform(translationX: -naturalRect.minX, y: -naturalRect.minY)
     let applied = t.concatenating(translate)
-    // floor to avoid fractional pixels in renderSize
-    let rs = CGSize(width: floor(render.width), height: floor(render.height))
+    let rs = CGSize(width: floor(render.width), height: floor(render.height)) // avoid fractional pixels
     return (rs, applied, naturalRect)
+  }
+
+  // MARK: - Small helpers
+
+  private func number(from any: Any?) -> Double? {
+    if let n = any as? NSNumber { return n.doubleValue }
+    if let s = any as? String, let d = Double(s.trimmingCharacters(in: .whitespacesAndNewlines)) { return d }
+    return nil
+  }
+
+  private func weight(from name: String) -> UIFont.Weight {
+    switch name.lowercased() {
+    case "ultralight": return .ultraLight
+    case "thin": return .thin
+    case "light": return .light
+    case "regular", "normal": return .regular
+    case "medium": return .medium
+    case "semibold", "semi-bold": return .semibold
+    case "bold": return .bold
+    case "heavy": return .heavy
+    case "black": return .black
+    default: return .semibold
+    }
   }
 
   // MARK: - API
@@ -62,12 +85,27 @@ class StoryComposer: RCTEventEmitter {
     let captions = (options["captions"] as? [NSDictionary]) ?? []
     let outFileName = (options["outFileName"] as? String) ?? "story_\(Int(Date().timeIntervalSince1970)).mp4"
 
+    // Global style defaults (each caption can override)
+    let globalFontSize = CGFloat(number(from: options["fontSize"]) ?? 32) // points (preview units)
+    let globalPaddingX = CGFloat(number(from: options["padding"])  ?? 20) // horizontal padding (X)
+    let globalVPadD = number(from: options["vPadding"]) ?? number(from: options["paddingY"]) ?? Double(globalPaddingX)
+    let globalPaddingY = CGFloat(globalVPadD) // vertical padding (Y)
+    let globalMinBar   = CGFloat(number(from: options["minBannerHeight"]) ?? 56)
+    let globalSide     = CGFloat(number(from: options["sideMargin"]) ?? 0)
+    let globalFg       = (options["color"] as? String) ?? "#FFFFFF"
+    let globalBg       = (options["bgColor"] as? String) ?? "rgba(0,0,0,0.55)"
+    let globalFontFamily = options["fontFamily"] as? String
+    let globalFontWeight = (options["fontWeight"] as? String) ?? "semibold"
+
+    // Optional preview width (points). Used to scale geometry to pixel render space.
+    let jsScreenWidth = CGFloat(number(from: options["screenWidth"]) ?? 0)
+
     // Write to Caches (stable for session)
     let cachesDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
     let outURL = cachesDir.appendingPathComponent(outFileName)
     try? FileManager.default.removeItem(at: outURL)
 
-    dlog("compose(): segments=\(segments.count) captions=\(captions.count) out=\(outURL.path)")
+    dlog("compose(): segments=\(segments.count) captions=\(captions.count) out=\(outURL.path) fontSize(default)=\(Int(globalFontSize)) paddingX=\(Int(globalPaddingX)) paddingY=\(Int(globalPaddingY))")
 
     // Build composition
     let mix = AVMutableComposition()
@@ -178,6 +216,12 @@ class StoryComposer: RCTEventEmitter {
     vcomp.instructions = [instruction]
     dlog("vcomp: renderSize=\(str(renderSize)) frameDuration=\(vcomp.frameDuration.value)/\(vcomp.frameDuration.timescale) instr=\(vcomp.instructions.count)")
 
+    // --- Geometry scale (preview points -> export pixels) ---
+    let baseScreenWidth = jsScreenWidth > 0 ? jsScreenWidth : UIScreen.main.bounds.width
+    let geomScale = renderSize.width / max(1, baseScreenWidth)
+    dlog(String(format: "geometryScale: screenWidth=%.1f renderWidth=%.1f -> scale=%.3f",
+                baseScreenWidth, renderSize.width, geomScale))
+
     // Overlays (CoreAnimation tool only if captions present)
     if !captions.isEmpty {
       let parentLayer = CALayer()
@@ -186,42 +230,96 @@ class StoryComposer: RCTEventEmitter {
       videoLayer.frame = parentLayer.frame
       parentLayer.addSublayer(videoLayer)
 
+      // ✅ Make CA use top-left origin so Y matches RN/UIView coordinates
+      parentLayer.isGeometryFlipped = true
+
       for (i, cap) in captions.enumerated() {
-        guard let text = (cap["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { continue }
-        let x = (cap["x"] as? NSNumber)?.doubleValue ?? 0.5
-        let y = (cap["y"] as? NSNumber)?.doubleValue ?? 0.5
-        let startMs = (cap["startMs"] as? NSNumber)?.doubleValue ?? 0
-        let endMs = (cap["endMs"] as? NSNumber)?.doubleValue ?? 9_999_000
-        let fontSize = CGFloat((cap["fontSize"] as? NSNumber)?.doubleValue ?? 24)
-        let fg = (cap["color"] as? String) ?? "#FFFFFF"
-        let bg = (cap["bgColor"] as? String) ?? "rgba(0,0,0,0.5)"
-        let padding = CGFloat((cap["padding"] as? NSNumber)?.doubleValue ?? 16)
+        guard let text = (cap["text"] as? String)?
+          .trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { continue }
 
-        let font = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
-        let maxW = renderSize.width * 0.8
-        let measured = measure(text: text, font: font, maxWidth: maxW)
-        let frame = CGRect(x: 0, y: 0, width: measured.width + padding*2, height: measured.height + padding*2)
+        // Inputs (keep y; ignore x for full-width banner)
+        _ = number(from: cap["x"]) // x ignored for full-width
+        let y = number(from: cap["y"]) ?? 0.5
+        let startMs = number(from: cap["startMs"]) ?? 0
+        let endMs = number(from: cap["endMs"]) ?? 9_999_000
 
+        // Style with per-caption override, falling back to global defaults
+        let providedFontSize = CGFloat(number(from: cap["fontSize"]) ?? 0)
+        let rawFontSize = providedFontSize > 0 ? providedFontSize : globalFontSize
+        let scaledFontSize = rawFontSize * geomScale
+
+        // Independent X/Y padding (Y can be smaller to reduce banner thickness)
+        let capPadXRaw = CGFloat(number(from: cap["padding"]) ?? Double(globalPaddingX))
+        let capPadYRawD = number(from: cap["vPadding"]) ?? number(from: cap["paddingY"]) ?? Double(globalPaddingY)
+        let capPadYRaw = CGFloat(capPadYRawD)
+
+        let padX = capPadXRaw * geomScale
+        let padY = capPadYRaw * geomScale
+
+        let rawMinBannerHeight = CGFloat(number(from: cap["minBannerHeight"]) ?? Double(globalMinBar))
+        let minBannerHeight = rawMinBannerHeight * geomScale
+
+        let fg = (cap["color"] as? String) ?? globalFg
+        let textColor = colorFromString(fg)
+
+        let bg = (cap["bgColor"] as? String) ?? globalBg
+
+        // Optional font family / weight
+        let capFontFamily = (cap["fontFamily"] as? String) ?? globalFontFamily
+        let capFontWeight = (cap["fontWeight"] as? String) ?? globalFontWeight
+        let uiWeight = weight(from: capFontWeight)
+        let uiFont: UIFont = {
+          if let fam = capFontFamily, let f = UIFont(name: fam, size: scaledFontSize) { return f }
+          return UIFont.systemFont(ofSize: scaledFontSize, weight: uiWeight)
+        }()
+
+        // Snapchat-style: full-width banner; sideMargin optional
+        let sideMargin = CGFloat(number(from: cap["sideMargin"]) ?? Double(globalSide)) * geomScale
+        let availableWidth = max(1, renderSize.width - sideMargin * 2)
+
+        // ---------- Robust text measurement with CATextLayer ----------
+        // Build the text layer FIRST using the exact font/size we will render with.
         let textLayer = CATextLayer()
         textLayer.contentsScale = UIScreen.main.scale
-        textLayer.string = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: colorFromString(fg).cgColor])
+        textLayer.isWrapped = true
+        textLayer.truncationMode = .none
         textLayer.alignmentMode = .center
-        textLayer.frame = frame
+        textLayer.foregroundColor = textColor.cgColor
+
+        let ctFont = CTFontCreateWithName(uiFont.fontName as CFString, uiFont.pointSize, nil)
+        textLayer.font = ctFont
+        textLayer.fontSize = uiFont.pointSize
+        textLayer.string = text
+
+        // Constrain wrapping width and ask the layer for its preferred height.
+        let textWidth = max(1, availableWidth - padX * 2)
+        textLayer.frame = CGRect(x: 0, y: 0, width: textWidth, height: 0)
+        let prefSize = textLayer.preferredFrameSize()
+        let textHeight = ceil(prefSize.height)
+
+        // Banner height uses vertical padding; enforce minimum
+        let bannerHeight = max(minBannerHeight, textHeight + padY * 2)
+        let bannerFrame = CGRect(x: 0, y: 0, width: availableWidth, height: bannerHeight)
 
         let bgLayer = CALayer()
         bgLayer.backgroundColor = colorFromString(bg).cgColor
-        bgLayer.cornerRadius = min(frame.height, frame.width) * 0.15
-        bgLayer.frame = frame
+        bgLayer.cornerRadius = min(24 * geomScale, bannerHeight / 2) // pleasant pill on single line
+        bgLayer.frame = bannerFrame
 
+        // Container spans full width; x is sideMargin, y is normalized center
         let container = CALayer()
-        container.frame = CGRect(x: CGFloat(x) * renderSize.width - frame.width/2,
-                                 y: CGFloat(y) * renderSize.height - frame.height/2,
-                                 width: frame.width, height: frame.height)
-        bgLayer.frame = container.bounds
-        textLayer.frame = container.bounds
-        container.addSublayer(bgLayer)
-        container.addSublayer(textLayer)
+        let normY = max(0, min(1, CGFloat(y))) // clamp normalized y
+        var cy = normY * renderSize.height - bannerHeight / 2
+        cy = max(0, min(renderSize.height - bannerHeight, cy)) // keep fully on screen
+        container.frame = CGRect(x: sideMargin, y: cy,
+                                 width: bannerFrame.width, height: bannerFrame.height)
 
+        // Vertically center the text inside the padded area
+        let innerHeight = bannerHeight - padY * 2
+        let yCenterOffset = (innerHeight - textHeight) / 2
+        textLayer.frame = CGRect(x: padX, y: padY + yCenterOffset, width: textWidth, height: textHeight)
+
+        // Visibility window
         let start = CMTime(seconds: startMs / 1000.0, preferredTimescale: 1000)
         let end   = CMTime(seconds: endMs / 1000.0, preferredTimescale: 1000)
 
@@ -236,11 +334,15 @@ class StoryComposer: RCTEventEmitter {
         hide.duration = 0.001; hide.fillMode = .both; hide.isRemovedOnCompletion = false
 
         container.opacity = 0.0
+        container.addSublayer(bgLayer)
+        container.addSublayer(textLayer)
         container.add(show, forKey: "show")
         container.add(hide, forKey: "hide")
 
         parentLayer.addSublayer(container)
-        dlog("caption[\(i)]: '\(text)' xy=(\(x),\(y)) px=(\(container.frame.origin.x.rounded()),\(container.frame.origin.y.rounded())) window=\(startMs)..\(endMs) size=\(str(frame.size))")
+
+        dlog(String(format: "caption[%d]: '%@' FULL-WIDTH w=%.0f h=%.0f side=%.0f y=%.2f font(raw=%.0f,px=%.0f) padX=%.0f padY=%.0f textH=%.0f window=%.0f..%.0f",
+                    i, text, availableWidth, bannerHeight, sideMargin, y, rawFontSize, scaledFontSize, padX, padY, textHeight, startMs, endMs))
       }
 
       vcomp.animationTool = AVVideoCompositionCoreAnimationTool(
@@ -309,10 +411,11 @@ class StoryComposer: RCTEventEmitter {
 
   // MARK: helpers
 
+  // (Kept for completeness; not used for vertical measurement anymore.)
   private func measure(text: String, font: UIFont, maxWidth: CGFloat) -> CGSize {
     let rect = (text as NSString).boundingRect(
       with: CGSize(width: maxWidth, height: .greatestFiniteMagnitude),
-      options: [.usesLineFragmentOrigin, .usesFontLeading],
+      options: [.usesLineFragmentOrigin], // deliberately NOT using .usesFontLeading
       attributes: [.font: font],
       context: nil
     )
@@ -331,7 +434,7 @@ class StoryComposer: RCTEventEmitter {
           green: CGFloat((rgb & 0x00FF00) >> 8)/255.0,
           blue: CGFloat(rgb & 0x0000FF)/255.0,
           alpha: 1.0)
-      } else if hex.count == 8 {
+      } else if hex.count == 8 { // RRGGBBAA
         return UIColor(
           red: CGFloat((rgb & 0xFF000000) >> 24)/255.0,
           green: CGFloat((rgb & 0x00FF0000) >> 16)/255.0,

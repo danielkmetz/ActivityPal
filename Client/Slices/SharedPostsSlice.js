@@ -1,8 +1,8 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { getUserToken } from '../functions';
-import { pushSharedPostToProfileReviews, pushSharedPostToUserAndFriends } from './ReviewsSlice';
 import { updateSharedPostInReviews } from './ReviewsSlice';
 import { getAuthHeaders } from '../utils/Authorization/getAuthHeaders';
+import { addPostToFeeds } from './ReviewsSlice';
 import axios from 'axios';
 
 // 🔐 Base config
@@ -18,9 +18,8 @@ export const createSharedPost = createAsyncThunk(
       const res = await axios.post(API_BASE, { postType, originalPostId, caption }, config);
       const sharedPost = res.data;
 
-      dispatch(pushSharedPostToUserAndFriends(sharedPost));
-      dispatch(pushSharedPostToProfileReviews(sharedPost));
-
+      dispatch(addPostToFeeds(sharedPost));
+      
       return sharedPost;
     } catch (err) {
       console.error('❌ Error creating shared post:', err.response?.data || err.message);

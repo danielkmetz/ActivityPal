@@ -7,12 +7,7 @@ const deleteS3Objects = require('../utils/deleteS3Objects');
 const { generatePresignedUrl } = require('../helpers/generatePresignedUrl');
 const { v4: uuidv4 } = require('uuid');
 const cron = require('node-cron');
-const { mergeSegmentsWithOverlays } = require('../helpers/ffmpegMergeUpload');
-const submitMediaConvertJob = require('../helpers/createMediaConvertJob');
 const waitForObjectReady = require('../utils/waitForObjectReady');
-const { processCaptionsToInsertableImages } = require('../utils/processCaptions');
-const { resolveSharedPostData } = require('../utils/resolveSharedPostType');
-const { enrichSharedPost, resolveUserProfilePics } = require('../utils/userPosts');
 
 const BUCKET_NAME = process.env.AWS_BUCKET_NAME_LOGOS;
 
@@ -128,7 +123,7 @@ router.post('/', verifyToken, async (req, res) => {
         mediaUrl,
         profilePicUrl,
         user: {
-          _id: user._id,
+          id: user._id,
           firstName: user.firstName,
           lastName: user.lastName,
         },
