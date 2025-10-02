@@ -1,11 +1,10 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, Fragment } from "react";
 import {
     View,
     Text,
     Image,
     Animated,
     StyleSheet,
-    Dimensions,
     TouchableWithoutFeedback,
     TouchableOpacity,
 } from "react-native";
@@ -23,7 +22,12 @@ import PhotoFeed from "./Photos/PhotoFeed";
 
 const pinPic = "https://cdn-icons-png.flaticon.com/512/684/684908.png";
 
-const screenWidth = Dimensions.get("window").width;
+const MaybeTWF = ({ enabled, onPress, children }) =>
+    enabled ? (
+        <TouchableWithoutFeedback onPress={onPress}>{children}</TouchableWithoutFeedback>
+    ) : (
+        <Fragment>{children}</Fragment>
+    );
 
 export default function CheckInItem({
     item,
@@ -31,7 +35,6 @@ export default function CheckInItem({
     toggleTaggedUsers,
     handleLikeWithAnimation,
     handleOpenComments,
-    lastTapRef,
     handleDelete,
     handleEdit,
     following,
@@ -59,7 +62,7 @@ export default function CheckInItem({
     const profilePicUrl = item?.profilePicUrl;
     const postPhotos = item?.photos;
     const message = item?.message;
-    const placeId =  item?.placeId;
+    const placeId = item?.placeId;
     const { isSuggestedFollowPost } = item;
 
     const navigateToBusiness = () => {
@@ -165,108 +168,110 @@ export default function CheckInItem({
     };
 
     return (
-        <View style={[styles.reviewCard, sharedPost && styles.sharedHeader]}>
-            {!sharedPost && (
-                <PostOptionsMenu
-                    isSender={isSender}
-                    dropdownVisible={dropdownVisible}
-                    setDropdownVisible={setDropdownVisible}
-                    handleEdit={handleEdit}
-                    handleDelete={handleDelete}
-                    postData={item}
-                />
-            )}
-            <View style={styles.section}>
-                <View style={styles.header}>
-                    <View style={styles.userPicAndName}>
-                        <StoryAvatar userId={userId} profilePicUrl={profilePicUrl} />
-                        <View style={{ flexShrink: 1 }}>
-                            <Text style={styles.userEmailText}>
-                                <TouchableWithoutFeedback >
-                                    <Text
-                                        style={styles.name}
-                                        onPress={() => navigateToOtherUserProfile(userId)}
-                                    >
-                                        {postName}
-                                    </Text>
-                                </TouchableWithoutFeedback>
-                                {taggedUsers?.length > 0 ? (
-                                    <>
-                                        <Text style={styles.business}> is with </Text>
-                                        {taggedUsers.map((user, index) => (
-                                            <Text
-                                                onPress={() => navigateToOtherUserProfile(user.userId)}
-                                                suppressHighlighting={true}
-                                                style={styles.name}
-                                            >
-                                                {fullName}
-                                                {index < taggedUsers?.length - 1 ? ", " : ""}
-                                            </Text>
-                                        ))}
-                                        <Text style={styles.business}> at </Text>
-                                        <Text style={styles.business}>{businessName}</Text>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Text style={styles.business}> is at </Text>
-                                        <Text onPress={navigateToBusiness} suppressHighlighting={true} style={styles.business}>
-                                            {businessName}
-                                        </Text>
-                                    </>
-                                )}
-                                {postPhotos?.length > 0 && (
-                                    <Image
-                                        source={{ uri: pinPic }}
-                                        style={styles.smallPinIcon}
-                                    />
-                                )}
-                            </Text>
-                            {isSuggestedFollowPost && (
-                                <Text style={styles.subText}>Suggested user for you</Text>
-                            )}
-                        </View>
-                    </View>
-                    {renderFollowButton()}
-                </View>
-                <Text style={styles.message}>{message || null}</Text>
-                {item.photos?.length === 0 && (
-                    <Image
-                        source={{
-                            uri: pinPic,
-                        }}
-                        style={styles.pinIcon}
+        <MaybeTWF enabled={!!sharedPost} onPress={handleOpenComments}>
+            <View style={[styles.reviewCard, sharedPost && styles.sharedHeader]}>
+                {!sharedPost && (
+                    <PostOptionsMenu
+                        isSender={isSender}
+                        dropdownVisible={dropdownVisible}
+                        setDropdownVisible={setDropdownVisible}
+                        handleEdit={handleEdit}
+                        handleDelete={handleDelete}
+                        postData={item}
                     />
                 )}
-            </View>
-            {postPhotos?.length > 0 && (
-                <PhotoFeed 
-                    media={postPhotos}
-                    scrollX={scrollX}
-                    currentIndexRef={{ current: currentPhotoIndex, setCurrent: setCurrentPhotoIndex }}
-                    onPhotoTap={photoTapped}
-                />
-            )}
-            <Text style={styles.date}>
-                <Text>Posted: </Text>
-                <Text>
-                    {item.date
-                        ? new Date(item.date).toISOString().split("T")[0]
-                        : "Now"}
-                </Text>
-            </Text>
-            {!sharedPost && (
-                <View style={{ padding: 15 }}>
-                    <PostActions
-                        item={item}
-                        handleLikeWithAnimation={handleLikeWithAnimation}
-                        handleOpenComments={handleOpenComments}
-                        toggleTaggedUsers={toggleTaggedUsers}
-                        photo={currentPhoto}
-                        onShare={onShare}
-                    />
+                <View style={styles.section}>
+                    <View style={styles.header}>
+                        <View style={styles.userPicAndName}>
+                            <StoryAvatar userId={userId} profilePicUrl={profilePicUrl} />
+                            <View style={{ flexShrink: 1 }}>
+                                <Text style={styles.userEmailText}>
+                                    <TouchableWithoutFeedback >
+                                        <Text
+                                            style={styles.name}
+                                            onPress={() => navigateToOtherUserProfile(userId)}
+                                        >
+                                            {postName}
+                                        </Text>
+                                    </TouchableWithoutFeedback>
+                                    {taggedUsers?.length > 0 ? (
+                                        <>
+                                            <Text style={styles.business}> is with </Text>
+                                            {taggedUsers.map((user, index) => (
+                                                <Text
+                                                    onPress={() => navigateToOtherUserProfile(user.userId)}
+                                                    suppressHighlighting={true}
+                                                    style={styles.name}
+                                                >
+                                                    {fullName}
+                                                    {index < taggedUsers?.length - 1 ? ", " : ""}
+                                                </Text>
+                                            ))}
+                                            <Text style={styles.business}> at </Text>
+                                            <Text style={styles.business}>{businessName}</Text>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Text style={styles.business}> is at </Text>
+                                            <Text onPress={navigateToBusiness} suppressHighlighting={true} style={styles.business}>
+                                                {businessName}
+                                            </Text>
+                                        </>
+                                    )}
+                                    {postPhotos?.length > 0 && (
+                                        <Image
+                                            source={{ uri: pinPic }}
+                                            style={styles.smallPinIcon}
+                                        />
+                                    )}
+                                </Text>
+                                {isSuggestedFollowPost && (
+                                    <Text style={styles.subText}>Suggested user for you</Text>
+                                )}
+                            </View>
+                        </View>
+                        {renderFollowButton()}
+                    </View>
+                    <Text style={styles.message}>{message || null}</Text>
+                    {item.photos?.length === 0 && (
+                        <Image
+                            source={{
+                                uri: pinPic,
+                            }}
+                            style={styles.pinIcon}
+                        />
+                    )}
                 </View>
-            )}
-        </View>
+                {postPhotos?.length > 0 && (
+                    <PhotoFeed
+                        media={postPhotos}
+                        scrollX={scrollX}
+                        currentIndexRef={{ current: currentPhotoIndex, setCurrent: setCurrentPhotoIndex }}
+                        onPhotoTap={photoTapped}
+                    />
+                )}
+                <Text style={styles.date}>
+                    <Text>Posted: </Text>
+                    <Text>
+                        {item.date
+                            ? new Date(item.date).toISOString().split("T")[0]
+                            : "Now"}
+                    </Text>
+                </Text>
+                {!sharedPost && (
+                    <View style={{ padding: 15 }}>
+                        <PostActions
+                            item={item}
+                            handleLikeWithAnimation={handleLikeWithAnimation}
+                            handleOpenComments={handleOpenComments}
+                            toggleTaggedUsers={toggleTaggedUsers}
+                            photo={currentPhoto}
+                            onShare={onShare}
+                        />
+                    </View>
+                )}
+            </View>
+        </MaybeTWF>
     );
 }
 

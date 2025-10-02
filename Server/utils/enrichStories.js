@@ -1,9 +1,8 @@
-// utils/enrichStories.js
 const { getPresignedUrl } = require('./cachePresignedUrl'); // or wherever yours lives
 const User = require('../models/User');
 
 const DEBUG_STORIES = process.env.DEBUG_STORIES === '1';
-const DEBUG_HTTP = process.env.DEBUG_STORIES_HTTP_HEAD === '1'; // optional: do HTTP HEAD probes
+const DEBUG_HTTP = process.env.DEBUG_STORIES_HTTP_HEAD === '1'; // kept for compat; now uses GET Range
 
 function maskUrl(u) {
   try {
@@ -17,29 +16,30 @@ function log(...args) {
   if (DEBUG_STORIES) console.log('[enrichStory]', ...args);
 }
 
-async function headProbe(url) {
-  if (!DEBUG_HTTP || typeof fetch !== 'function') return null;
-  try {
-    const head = await fetch(url, { method: 'HEAD' });
-    const headers = Object.fromEntries([...head.headers.entries()]);
-    let rangeInfo = null;
+// ---- Probe helper: ONLY uses GET Range so presigned GET works ----
+async function rangeProbe(url) {
+  if (!DEBUG_HTTP || !url) return null;
+
+  let _fetch = typeof fetch === 'function' ? fetch : null;
+  if (!_fetch) {
     try {
-      const range = await fetch(url, { headers: { Range: 'bytes=0-0' } });
-      rangeInfo = {
-        status: range.status,
-        contentRange: range.headers.get('content-range'),
-        contentType: range.headers.get('content-type'),
-      };
-    } catch (e) {
-      rangeInfo = { error: String(e) };
+      // eslint-disable-next-line global-require
+      _fetch = require('node-fetch');
+    } catch {
+      log('⚠️ No fetch available (Node < 18 and node-fetch not installed). Skipping probe.');
+      return null;
     }
+  }
+
+  try {
+    // Ask for a single byte to verify the object & content-type without downloading the file
+    const r = await _fetch(url, { headers: { Range: 'bytes=0-0' } });
     return {
-      status: head.status,
-      ok: head.ok,
-      contentType: headers['content-type'],
-      contentLength: headers['content-length'],
-      acceptRanges: headers['accept-ranges'],
-      rangeProbe: rangeInfo,
+      status: r.status,                    // expect 206
+      ok: r.ok,
+      contentType: r.headers.get('content-type'),
+      contentRange: r.headers.get('content-range'), // e.g. "bytes 0-0/10337290"
+      acceptRanges: r.headers.get('accept-ranges'), // often "bytes"
     };
   } catch (e) {
     return { error: String(e) };
@@ -59,20 +59,22 @@ const enrichStory = async (story, uploaderUser, currentUserId = null, originalOw
     const t0 = Date.now();
     try {
       log(`presign mediaKey="${mediaKey}" storyId=${storyId}`);
+      // ⚠️ Do not append client-side query params to presigned URLs (breaks signature)
       mediaUrl = await getPresignedUrl(mediaKey);
       const took = Date.now() - t0;
       log(`presign OK in ${took}ms url=${maskUrl(mediaUrl)}`);
 
-      const probe = await headProbe(mediaUrl);
-      if (probe) log('HEAD probe', {
-        url: maskUrl(mediaUrl),
-        status: probe.status,
-        ok: probe.ok,
-        contentType: probe.contentType,
-        contentLength: probe.contentLength,
-        acceptRanges: probe.acceptRanges,
-        rangeProbe: probe.rangeProbe,
-      });
+      const probe = await rangeProbe(mediaUrl);
+      if (probe) {
+        log('PROBE', {
+          url: maskUrl(mediaUrl),
+          status: probe.status,
+          ok: probe.ok,
+          contentType: probe.contentType,
+          contentRange: probe.contentRange,
+          acceptRanges: probe.acceptRanges,
+        });
+      }
     } catch (e) {
       log(`presign FAILED mediaKey="${mediaKey}"`, e?.name || '', e?.message || String(e));
     }
@@ -80,7 +82,7 @@ const enrichStory = async (story, uploaderUser, currentUserId = null, originalOw
     log('no mediaKey on story', { storyId });
   }
 
-  // --- uploader (shape as OriginalOwner union)
+  // --- uploader (shape as union)
   const uploaderIsBusiness = !!(rawUploader?.businessName || rawUploader?.placeId);
   const uploaderId = rawUploader?._id?.toString?.() || rawUploader?.id || null;
 
@@ -118,7 +120,7 @@ const enrichStory = async (story, uploaderUser, currentUserId = null, originalOw
         profilePicUrl: uploaderProfilePicUrl,
       };
 
-  // --- viewedBy
+  // --- viewedBy enrichment
   let viewedBy = [];
   if (Array.isArray(storyObj.viewedBy) && storyObj.viewedBy.length > 0) {
     const viewerUsers = await User.find({ _id: { $in: storyObj.viewedBy } })
@@ -199,7 +201,7 @@ const enrichStory = async (story, uploaderUser, currentUserId = null, originalOw
 
   const enriched = {
     ...storyObj,
-    mediaUrl,
+    mediaUrl,     // use as-is; do not mutate the presigned query string
     viewedBy,
     isViewed,
     user: uploader,

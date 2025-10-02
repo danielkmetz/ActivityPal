@@ -1,4 +1,3 @@
-// resolvers/userAndFollowingStories.js
 const User = require('../../models/User');
 const Business = require('../../models/Business');
 const { enrichStory } = require('../../utils/enrichStories');
@@ -6,7 +5,7 @@ const { enrichSharedPost, resolveUserProfilePics } = require('../../utils/userPo
 const { resolveSharedPostData } = require('../../utils/resolveSharedPostType');
 
 const DEBUG_STORIES = process.env.DEBUG_STORIES === '1';
-const DEBUG_HTTP = process.env.DEBUG_STORIES_HTTP_HEAD === '1';
+const DEBUG_HTTP = process.env.DEBUG_STORIES_HTTP_HEAD === '1'; // kept for compatibility; now uses GET Range internally
 const PROBE_LIMIT = Number(process.env.DEBUG_STORIES_PROBE_LIMIT || 5);
 
 function log(...args) {
@@ -27,48 +26,37 @@ function maskUrl(u) {
 function guessKeyFromUrl(u) {
   try {
     const url = new URL(u);
-    // works for both virtual-hosted and path-style S3 URLs
+    // works for virtual-hosted & path-style S3 URLs
     return url.pathname.startsWith('/') ? url.pathname.slice(1) : url.pathname;
   } catch {
     return null;
   }
 }
-async function headProbe(url) {
+
+// ---- Probe helper: ONLY uses GET Range so presigned GET works ----
+async function rangeProbe(url) {
   if (!DEBUG_HTTP || !url) return null;
 
-  // obtain fetch (Node 18+ has global fetch; otherwise try node-fetch)
   let _fetch = global.fetch;
   if (!_fetch) {
     try {
       // eslint-disable-next-line global-require
       _fetch = require('node-fetch');
     } catch {
-      log('⚠️ No fetch available (Node < 18 and node-fetch not installed). Skipping HEAD probe.');
+      log('⚠️ No fetch available (Node < 18 and node-fetch not installed). Skipping probe.');
       return null;
     }
   }
 
   try {
-    const head = await _fetch(url, { method: 'HEAD' });
-    const headers = Object.fromEntries([...head.headers.entries()]);
-    let rangeResult = null;
-    try {
-      const r = await _fetch(url, { headers: { Range: 'bytes=0-0' } });
-      rangeResult = {
-        status: r.status,
-        contentRange: r.headers.get('content-range'),
-        contentType: r.headers.get('content-type'),
-      };
-    } catch (e) {
-      rangeResult = { error: String(e) };
-    }
+    // Ask for the first byte only; S3 should return 206 + Content-Range
+    const r = await _fetch(url, { headers: { Range: 'bytes=0-0' } });
     return {
-      status: head.status,
-      ok: head.ok,
-      contentType: headers['content-type'],
-      contentLength: headers['content-length'],
-      acceptRanges: headers['accept-ranges'],
-      rangeProbe: rangeResult,
+      status: r.status,
+      ok: r.ok,
+      contentType: r.headers.get('content-type'),
+      contentRange: r.headers.get('content-range'), // e.g. "bytes 0-0/12345"
+      acceptRanges: r.headers.get('accept-ranges'),
     };
   } catch (e) {
     return { error: String(e) };
@@ -99,7 +87,7 @@ const userAndFollowingStories = async (_, { userId }, context) => {
     const usersToCheck = [user, ...(user.following || [])];
     log(`👥 users to check: ${usersToCheck.length}`);
 
-    // Collect originalOwner IDs
+    // Collect IDs for resolving original owners and profile pics
     const userIdsToResolve = new Set();
     const userOwnerIds = new Set();
     const businessOwnerIds = new Set();
@@ -111,8 +99,11 @@ const userAndFollowingStories = async (_, { userId }, context) => {
         if (!valid) continue;
         if (story.originalOwner) {
           userIdsToResolve.add(story.originalOwner.toString());
-          if (story.originalOwnerModel === 'Business') businessOwnerIds.add(story.originalOwner.toString());
-          else userOwnerIds.add(story.originalOwner.toString());
+          if (story.originalOwnerModel === 'Business') {
+            businessOwnerIds.add(story.originalOwner.toString());
+          } else {
+            userOwnerIds.add(story.originalOwner.toString());
+          }
         }
       }
     }
@@ -214,8 +205,8 @@ const userAndFollowingStories = async (_, { userId }, context) => {
           const masked = maskUrl(enrichedStory.mediaUrl);
           const keyGuess = guessKeyFromUrl(enrichedStory.mediaUrl);
           const tProbe = Date.now();
-          const probe = await headProbe(enrichedStory.mediaUrl);
-          log('🧪 media HEAD', {
+          const probe = await rangeProbe(enrichedStory.mediaUrl);
+          log('🧪 media PROBE', {
             story: sid,
             url: masked,
             keyGuess,
@@ -237,6 +228,28 @@ const userAndFollowingStories = async (_, { userId }, context) => {
     }
 
     const result = Array.from(groupedStoriesMap.values());
+
+    // helper to coerce to epoch ms robustly
+    const toMs = (v) => {
+      if (!v) return 0;
+      if (typeof v === 'number') return v;
+      if (v instanceof Date) return v.getTime();
+      if (typeof v === 'string') return Date.parse(v) || 0;
+      // ObjectId fallback (if you ever pass one through)
+      return v?.getTimestamp?.().getTime?.() || 0;
+    };
+
+    // 1) sort each user's stories newest → oldest
+    for (const g of result) {
+      g.stories.sort((a, b) => toMs(b.createdAt) - toMs(a.createdAt));
+      // track each group's latest story time for step 2
+      g._latestMs = g.stories.length ? toMs(g.stories[0].createdAt) : 0;
+    }
+
+    // 2) sort users by their most recent story newest → oldest
+    result.sort((a, b) => (b._latestMs || 0) - (a._latestMs || 0));
+    for (const g of result) delete g._latestMs;
+
     log(`✅ done rid=${rid} groups=${result.length} totalMs=${Date.now() - t0}`);
     return result;
   } catch (err) {
