@@ -103,40 +103,46 @@ async function gatherUserReviews(userObjectId, profilePic, profilePicUrl) {
 }
 
 async function gatherUserCheckIns(user, profilePicUrl) {
+  const userIdStr = user?._id?.toString?.() || String(user?._id || '');
+
   try {
-    const checkIns = await CheckIn.find({ userId: user._id }).lean();
+    // Query supports both ObjectId and string userId
+    const checkIns = await CheckIn.find({
+      $or: [{ userId: user._id }, { userId: userIdStr }],
+    }).lean();
 
     const enriched = await Promise.all(
       checkIns.map(async (checkIn) => {
         try {
-          const [taggedUsers, rawPhotos, business] = await Promise.all([
+          const [taggedUsers, rawPhotos, business, comments] = await Promise.all([
             resolveTaggedUsers(checkIn.taggedUsers || []),
             resolveTaggedPhotoUsers(checkIn.photos || []),
-            Business.findOne({ placeId: checkIn.placeId?.trim() })
+            Business.findOne({ placeId: (checkIn.placeId || '').trim() })
               .select('businessName placeId')
               .lean(),
+            enrichComments(checkIn.comments || []),
           ]);
 
           const photos = (rawPhotos || []).filter(p => p && p._id && p.photoKey);
-          const comments = await enrichComments(checkIn.comments || []);
+          const dist = (typeof distance !== 'undefined') ? distance : null;
 
           return {
-            __typename: "CheckIn",
+            __typename: 'CheckIn',
             _id: checkIn._id,
             userId: user._id,
             fullName: `${user.firstName} ${user.lastName}`,
             message: checkIn.message,
-            date: new Date(checkIn.date).toISOString(),
+            date: checkIn.date ? new Date(checkIn.date).toISOString() : null,
             profilePic: user.profilePic || null,
             profilePicUrl,
             placeId: checkIn.placeId || null,
-            businessName: business?.businessName || "Unknown Business",
+            businessName: business?.businessName || 'Unknown Business',
             taggedUsers,
             photos,
             likes: checkIn.likes || [],
             comments,
-            distance,
-            type: "check-in",
+            distance: dist,
+            type: 'check-in',
           };
         } catch {
           return null;

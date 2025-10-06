@@ -12,7 +12,6 @@ import PostOptionsMenu from "./PostOptionsMenu";
 import ExpandableText from "./ExpandableText";
 import { selectUser } from '../../Slices/UserSlice';
 import { useSelector, useDispatch } from "react-redux";
-import StoryAvatar from "../Stories/StoryAvatar";
 import { useNavigation } from "@react-navigation/native";
 import { handleFollowUserHelper } from "../../utils/followHelper";
 import { createNotification } from "../../Slices/NotificationsSlice";
@@ -21,6 +20,8 @@ import { declineFollowRequest, cancelFollowRequest, approveFollowRequest } from 
 import { logEngagementIfNeeded } from "../../Slices/EngagementSlice";
 import PhotoFeed from "./Photos/PhotoFeed";
 import RatingsButton from './ReviewItem/RatingsButton';
+import FollowButton from './PostActions/FollowButton';
+import PostHeader from './PostHeader/PostHeader';
 
 const MaybeTWF = ({ enabled, onPress, children }) =>
     enabled ? (
@@ -152,45 +153,6 @@ export default function ReviewItem({
         return () => clearInterval(interval);
     }, [currentPhotoIndex]);
 
-    const renderFollowButton = () => {
-        if (isSuggestedFollowPost) {
-            if (isFollowing) {
-                return (
-                    <TouchableOpacity
-                        style={styles.followButton}
-                        onPress={() => navigateToOtherUserProfile(postOwnerId)}
-                    >
-                        <Text style={styles.friendsText}>Following</Text>
-                    </TouchableOpacity>
-                );
-            }
-            if (isRequestReceived) {
-                return (
-                    <View style={styles.requestButtonsContainer}>
-                        <TouchableOpacity style={styles.acceptRequestButton} onPress={handleAcceptRequest}>
-                            <Text style={styles.acceptRequestText}>Accept Request</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.followButton} onPress={handleDenyRequest}>
-                            <Text style={styles.followButtonText}>Deny Request</Text>
-                        </TouchableOpacity>
-                    </View>
-                );
-            }
-            if (isRequestSent) {
-                return (
-                    <TouchableOpacity style={styles.followButton} onPress={handleCancelRequest}>
-                        <Text style={styles.followButtonText}>Cancel Request</Text>
-                    </TouchableOpacity>
-                );
-            }
-            return (
-                <TouchableOpacity style={styles.followButton} onPress={handleFollowUser}>
-                    <Text style={styles.followButtonText}>Follow</Text>
-                </TouchableOpacity>
-            );
-        }
-    };
-
     const card = (
         <View style={styles.reviewCard}>
             {!sharedPost && (
@@ -204,40 +166,27 @@ export default function ReviewItem({
                 />
             )}
             <View style={styles.section}>
-                <View>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <View style={[styles.userPicAndName, { flex: 1, flexShrink: 1 }]}>
-                            <StoryAvatar userId={postOwnerId} profilePicUrl={item.profilePicUrl} />
-                            <View style={{ flexShrink: 1 }}>
-                                <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-                                    <TouchableWithoutFeedback onPress={() => navigateToOtherUserProfile(item.userId)}>
-                                        <Text style={styles.userEmailText}>{item.fullName}</Text>
-                                    </TouchableWithoutFeedback>
-                                    {item.taggedUsers?.length > 0 && (
-                                        <>
-                                            <Text style={styles.business}> is with </Text>
-                                            {item.taggedUsers.map((user, index) => (
-                                                <TouchableWithoutFeedback
-                                                    key={user.userId || index}
-                                                    onPress={() => navigateToOtherUserProfile(user.userId)}
-                                                >
-                                                    <Text style={styles.userEmailText}>
-                                                        {user.fullName}
-                                                        {index < item?.taggedUsers?.length - 1 ? ", " : ""}
-                                                    </Text>
-                                                </TouchableWithoutFeedback>
-                                            ))}
-                                        </>
-                                    )}
-                                </View>
-                                {isSuggestedFollowPost && (
-                                    <Text style={styles.subText}>Suggested user for you</Text>
-                                )}
-                            </View>
-                        </View>
-                        {renderFollowButton()}
-                    </View>
-                </View>
+                <PostHeader
+                    item={item}
+                    onPressUser={navigateToOtherUserProfile}
+                    // Reviews: business shown on its own line below, so keep both false
+                    includeAtWithBusiness={false}
+                    showAtWhenNoTags={false}
+                    isSuggestedFollowPost={isSuggestedFollowPost}
+                    rightComponent={
+                        <FollowButton
+                            isSuggestedFollowPost={isSuggestedFollowPost}
+                            isFollowing={isFollowing}
+                            isRequestReceived={isRequestReceived}
+                            isRequestSent={isRequestSent}
+                            onAcceptRequest={handleAcceptRequest}
+                            onDenyRequest={handleDenyRequest}
+                            onCancelRequest={handleCancelRequest}
+                            onFollow={handleFollowUser}
+                            onPressFollowing={() => navigateToOtherUserProfile(postOwnerId)}
+                        />
+                    }
+                />
                 <TouchableOpacity
                     onPress={navigateToBusiness}
                     style={styles.businessLink}
@@ -324,19 +273,6 @@ const styles = StyleSheet.create({
         padding: 10,
         flexShrink: 1,
     },
-    profilePic: {
-        marginRight: 10,
-    },
-    userPicAndName: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginBottom: 15,
-        padding: 6,
-    },
-    userEmailText: {
-        fontSize: 18,
-        fontWeight: "bold",
-    },
     business: {
         fontSize: 16,
         fontWeight: "bold",
@@ -346,71 +282,13 @@ const styles = StyleSheet.create({
         fontSize: 16,
         marginTop: 5,
     },
-    message: {
-        marginBottom: 15,
-        fontSize: 16,
-    },
-    smallPinIcon: {
-        width: 20,
-        height: 20,
-        marginLeft: 5,
-    },
     date: {
         fontSize: 12,
         color: "#555",
         marginLeft: 10,
         marginTop: 10,
     },
-    actionsContainer: {
-        flexDirection: "row",
-        padding: 15,
-    },
-    likeButton: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginRight: 10,
-    },
-    likeCount: {
-        fontSize: 14,
-        color: "#555",
-        marginLeft: 5,
-    },
-    commentButton: {
-        flexDirection: "row",
-    },
-    commentCount: {
-        marginLeft: 5,
-    },
-    seeMore: {
-        color: '#007AFF',
-        fontSize: 14,
-        marginTop: 5,
-    },
-    storyBorder: {
-        borderWidth: 3,
-        borderColor: '#1e90ff',
-        borderRadius: 999,
-    },
-    subText: {
-        color: "#555",
-    },
-    followButton: {
-        paddingHorizontal: 12,
-        paddingVertical: 10,
-        borderRadius: 10,
-        backgroundColor: '#b3b3b3',
-    },
-    followButtonText: {
-        fontSize: 15,
-        fontWeight: 'bold',
-        color: '#fff',
-    },
     businessLink: {
         alignSelf: 'flex-start', // <-- prevents full-width stretch
-    },
-    business: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#555',
     },
 });

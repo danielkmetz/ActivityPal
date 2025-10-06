@@ -13,6 +13,7 @@ const getUserActivity = async (_, { userId, limit = 15, after, userLat, userLng 
 
     const reviews = await getUserAndFollowingReviews(_, { userId }, { dataSources }) || [];
     const checkIns = await getUserAndFollowingCheckIns(_, { userId }, { dataSources }) || [];
+    console.log('Number of check-ins returned', checkIns.length);
     const inviteData = await getUserAndFollowingInvites(_, { userId }, { dataSources }) || {};
     const sharedPosts = await getUserAndFollowingSharedPosts(_, { userId, userLat, userLng }, { dataSources }) || [];
     const liveStreams = await getPostedLiveStreams(_, { userId }, { dataSources }) || [];
