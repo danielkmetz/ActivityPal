@@ -163,11 +163,20 @@ export const fetchPostById = createAsyncThunk(
   'reviews/fetchReviewById',
   async ({ postType, postId }, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${BASE_URL}/reviews/${postType}/${postId}`);
-      return response.data; // Returns { placeId, businessName, review }
-    } catch (error) {
-      console.error("Error fetching review:", error);
-      return rejectWithValue(error.response?.data || "Failed to fetch review");
+      const res = await axios.get(`${BASE_URL}/reviews/${postType}/${postId}`);
+      // success shape stays the same: { placeId, businessName, review }
+      return res.data;
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status === 404) {
+        // 🔇 suppress logs for 404
+        return rejectWithValue({ status: 404, message: 'Not Found' });
+      }
+      if (__DEV__) console.error('[fetchPostById]', err);
+      return rejectWithValue({
+        status: status ?? 0,
+        message: err?.response?.data?.message || err?.message || 'Failed to fetch review',
+      });
     }
   }
 );

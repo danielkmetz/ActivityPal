@@ -1,20 +1,27 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
-import { updateNearbySuggestionLikes } from "./GooglePlacesSlice";
 import { updateEvents } from '../utils/posts/UpdateEvents';
 import axios from "axios";
 
 const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
 
 export const fetchEventById = createAsyncThunk(
-  "events/fetchEventById",
+  'events/fetchEventById',
   async ({ eventId }, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${BASE_URL}/business/event/${eventId}`);
-      return response.data.event; // assuming the backend returns { event: {...} }
-    } catch (error) {
-      const errorMessage =
-        error.response?.data?.message || error.message || "Failed to fetch event";
-      return rejectWithValue(errorMessage);
+      const res = await axios.get(`${BASE_URL}/business/event/${eventId}`);
+      // success shape stays the same: event object
+      return res.data.event;
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status === 404) {
+        // 🔇 suppress logs for 404
+        return rejectWithValue({ status: 404, message: 'Not Found' });
+      }
+      if (__DEV__) console.error('[fetchEventById]', err);
+      return rejectWithValue({
+        status: status ?? 0,
+        message: err?.response?.data?.message || err?.message || 'Failed to fetch event',
+      });
     }
   }
 );
