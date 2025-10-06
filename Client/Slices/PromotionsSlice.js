@@ -5,15 +5,23 @@ import axios from "axios";
 const API_URL = `${process.env.EXPO_PUBLIC_SERVER_URL}/promotions`; // Update this to match your backend URL
 
 export const fetchPromotionById = createAsyncThunk(
-  "promotions/fetchPromotionById",
+  'promotions/fetchPromotionById',
   async ({ promotionId }, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${BASE_URL}/promotion/${promotionId}`);
-      return response.data.promotion; // assuming backend returns { promotion: {...} }
-    } catch (error) {
-      const errorMessage =
-        error.response?.data?.message || error.message || "Failed to fetch promotion";
-      return rejectWithValue(errorMessage);
+      const res = await axios.get(`${BASE_URL}/promotion/${promotionId}`);
+      // success shape stays the same: promotion object
+      return res.data.promotion;
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status === 404) {
+        // 🔇 suppress logs for 404
+        return rejectWithValue({ status: 404, message: 'Not Found' });
+      }
+      if (__DEV__) console.error('[fetchPromotionById]', err);
+      return rejectWithValue({
+        status: status ?? 0,
+        message: err?.response?.data?.message || err?.message || 'Failed to fetch promotion',
+      });
     }
   }
 );

@@ -213,9 +213,13 @@ export default function CheckInItem({
                                     ) : (
                                         <>
                                             <Text style={styles.business}> is at </Text>
-                                            <Text onPress={navigateToBusiness} suppressHighlighting={true} style={styles.business}>
-                                                {businessName}
-                                            </Text>
+                                            <TouchableOpacity
+                                                onPress={navigateToBusiness}
+                                                style={styles.businessLink}
+                                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                            >
+                                                <Text style={styles.business}>{item.businessName}</Text>
+                                            </TouchableOpacity>
                                         </>
                                     )}
                                     {postPhotos?.length > 0 && (
@@ -378,5 +382,13 @@ const styles = StyleSheet.create({
         fontSize: 15,
         fontWeight: 'bold',
         color: '#fff',
+    },
+    businessLink: {
+        alignSelf: 'flex-start', // <-- prevents full-width stretch
+    },
+    business: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: '#555',
     },
 });

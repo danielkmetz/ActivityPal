@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import VideoThumbnail from '../Reviews/VideoThumbnail';
@@ -17,9 +17,7 @@ const MessageItem = ({ item, onLongPress }) => {
   const userId = user?.id;
   const profilePicObject = useSelector(selectProfilePic);
   const currentUserProfilePic = profilePicObject?.url;
-  const lastTapRef = useRef({});
-  const [likedAnimations, setLikedAnimations] = useState({});
-
+  
   if (item.type === 'date') {
     return (
       <View style={styles.dateHeader}>
@@ -37,81 +35,115 @@ const MessageItem = ({ item, onLongPress }) => {
     if (isCurrentUser) onLongPress?.(item);
   };
 
+  // helpers (top-level)
+  const normalize = (t) => {
+    if (!t) return undefined;
+    const s = String(t).toLowerCase();
+    const map = {
+      review: 'reviews', reviews: 'reviews',
+      checkin: 'checkins', 'check-in': 'checkins', checkins: 'checkins',
+      invite: 'invites', invites: 'invites',
+      event: 'events', events: 'events',
+      promotion: 'promotions', promotions: 'promotions',
+      sharedpost: 'sharedPosts', sharedposts: 'sharedPosts',
+      live: 'liveStreams', livestream: 'liveStreams', livestreams: 'liveStreams',
+    };
+    return map[s] || s;
+  };
+
+  const toSingular = (t) => {
+    if (!t) return undefined;
+    const s = String(t).toLowerCase();
+    if (s === 'events') return 'event';
+    if (s === 'promotions') return 'promotion';
+    return s;
+  };
+
+  // drop-in replacement
   const handleNavigation = () => {
-    // Must have post + preview
-    const pp = item.postPreview || {};
-    const canonicalType = pp.canonicalType || pp.postType || pp.type;
+    try {
+      const pp = item.postPreview || {};
+      const topType = normalize(pp.canonicalType || pp.postType || pp.type);
+      const sharedId = pp.postId || item.post?.postId; // SharedPost _id
+      const originalTypePlural = pp.shared ? normalize(pp.shared.originalType) : undefined;
+      const originalType = toSingular(originalTypePlural);
+      const originalId = pp.shared?.originalId;
 
-    // 1) EVENTS / PROMOTIONS (existing behavior)
-    if (canonicalType === 'events' || canonicalType === 'promotions') {
-      if (canonicalType === 'events') {
-        dispatch(fetchEventById({ eventId: item.post.postId }));
-      } else {
-        dispatch(fetchPromotionById({ promoId: item.post.postId }));
+      // 1) Shared posts → ALWAYS CommentScreen (by sharedId)
+      if (topType === 'sharedPosts' && sharedId) {
+        navigation.navigate('CommentScreen', {
+          reviewId: sharedId,
+          isShared: true,
+          sharedPost: true,
+          original: originalId ? { type: originalType, id: originalId } : undefined,
+          sharedPreview: {
+            mediaType: pp.mediaType,
+            mediaUrl: pp.mediaUrl,
+            business: pp.business,
+            fullName: pp.fullName,
+          },
+          initialIndex: 0,
+        });
+        return;
       }
-      return navigation.navigate('EventDetails', { activity: item.post });
-    }
 
-    // 2) SHARED POSTS → route to the ORIGINAL post
-    if (canonicalType === 'sharedPosts' && pp.shared) {
-      const originalType = pp.shared.originalType; // canonical ('reviews','checkins','events','promotions','invites')
-      const originalId = pp.shared.originalId;
+      // 2) Live streams
+      if (topType === 'liveStreams') {
+        const status = pp?.live?.status;
+        const playbackUrl = pp?.live?.playbackUrl;
+        const vodUrl = pp?.live?.vodUrl;
 
-      // If original is event/promotion, reuse EventDetails flow
-      if (originalType === 'events' || originalType === 'promotions') {
-        if (originalType === 'events') {
-          dispatch(fetchEventById({ eventId: originalId }));
-        } else {
-          dispatch(fetchPromotionById({ promoId: originalId }));
+        if (status === 'live' && playbackUrl) {
+          navigation.navigate('LiveStreamPlayer', {
+            liveStreamId: pp.postId,
+            playbackUrl,
+            title: pp?.live?.title || '',
+          });
+          return;
         }
-        return navigation.navigate('EventDetails', {
-          activity: { postType: originalType === 'events' ? 'event' : 'promotion', postId: originalId },
-        });
+        if (vodUrl) {
+          navigation.navigate('LiveReplayPlayer', {
+            liveStreamId: pp.postId,
+            vodUrl,
+            title: pp?.live?.title || '',
+          });
+        }
+        return;
       }
 
-      // Else, comment screen for content posts (review/check-in/invite)
-      return navigation.navigate('CommentScreen', {
-        reviewId: originalId, // your screen expects `reviewId` as the generic id
-        initialIndex: 0,
-        lastTapRef,
-        likedAnimations,
-        setLikedAnimations,
-        taggedUsersByPhotoKey: pp.shared.originalPreview?.taggedUsersByPhotoKey || {},
-      });
+      // 3) Direct events/promotions → EventDetails
+      if (topType === 'events' || topType === 'promotions') {
+        const id = pp.postId || item.post?.postId;
+        if (!id) return;
+        const singular = toSingular(topType);
+        if (singular === 'event') {
+          dispatch(fetchEventById({ eventId: id }));
+        } else {
+          dispatch(fetchPromotionById({ promoId: id }));
+        }
+        navigation.navigate('EventDetails', {
+          activity: { postType: singular, postId: id },
+          origin: 'dm',
+        });
+        return;
+      }
+
+      // 4) Reviews / Check-ins / Invites → CommentScreen
+      if (topType === 'reviews' || topType === 'checkins' || topType === 'invites') {
+        const id = pp.postId;
+        if (!id) return;
+        navigation.navigate('CommentScreen', {
+          reviewId: id,
+          initialIndex: 0,
+          taggedUsersByPhotoKey: pp.taggedUsersByPhotoKey || {},
+        });
+        return;
+      }
+
+      // 5) Fallback: no-op
+    } catch (err) {
+      console.error('[MessageItem] NAV ERROR:', err);
     }
-
-    // 3) LIVE STREAMS → Live screen if live, otherwise Replay if VOD exists
-    if (canonicalType === 'liveStreams') {
-      const status = pp?.live?.status;
-      const playbackUrl = pp?.live?.playbackUrl;
-      const vodUrl = pp?.live?.vodUrl;
-
-      if (status === 'live' && playbackUrl) {
-        return navigation.navigate('LiveStreamPlayer', {
-          liveStreamId: pp.postId,
-          playbackUrl,
-          title: pp?.live?.title || '',
-        });
-      }
-      if (vodUrl) {
-        return navigation.navigate('LiveReplayPlayer', {
-          liveStreamId: pp.postId,
-          vodUrl,
-          title: pp?.live?.title || '',
-        });
-      }
-      return;
-    }
-
-    // 4) DEFAULT: comment screen for reviews/check-ins/invites
-    return navigation.navigate('CommentScreen', {
-      reviewId: pp.postId,
-      initialIndex: 0,
-      lastTapRef,
-      likedAnimations,
-      setLikedAnimations,
-      taggedUsersByPhotoKey: pp.taggedUsersByPhotoKey || {},
-    });
   };
 
   return (

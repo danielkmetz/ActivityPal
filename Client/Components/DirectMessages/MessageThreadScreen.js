@@ -33,7 +33,6 @@ const MessageThreadScreen = ({ route }) => {
   const flatListRef = useRef();
   const groupedMessages = groupMessagesByDate(messages);
 
-  // Ensure socket connected (idempotent)
   useEffect(() => {
     if (process.env.EXPO_PUBLIC_SERVER_URL && user?.token) {
       connectDmSocket(process.env.EXPO_PUBLIC_SERVER_URL);
@@ -143,7 +142,6 @@ const MessageThreadScreen = ({ route }) => {
           contentContainerStyle={styles.messageList}
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
         />
-
         <View style={styles.inputContainer}>
           <View style={styles.inputCard}>
             {selectedMedia && (
@@ -177,13 +175,11 @@ const MessageThreadScreen = ({ route }) => {
               />
             </View>
           </View>
-
           <TouchableOpacity onPress={handleSend} style={styles.sendButton}>
             <Ionicons name="send" size={20} color="white" />
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
-
       <CommentOptionsModal
         isVisible={isOptionsModalVisible}
         onClose={() => setOptionsModalVisible(false)}

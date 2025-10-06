@@ -1,3 +1,5 @@
+
+
 import React, { useRef, useMemo, useState, useEffect } from "react";
 import { View, Text, Image, Animated, StyleSheet, Dimensions } from "react-native";
 import dayjs from 'dayjs';
@@ -119,16 +121,19 @@ const CommentModalHeader = ({
                         </View>
                     </>
                 )}
-                <RatingsButton
-                    rating={review.rating}
-                    ratings={{
-                        rating: review.rating,
-                        priceRating: review.priceRating,
-                        serviceRating: review.serviceRating,
-                        atmosphereRating: review.atmosphereRating,
-                        wouldRecommend: review.wouldRecommend,
-                    }}
-                />
+                {review?.type === "review" && (
+                    <RatingsButton
+                        rating={review.rating}
+                        ratings={{
+                            rating: review.rating,
+                            priceRating: review.priceRating,
+                            serviceRating: review.serviceRating,
+                            atmosphereRating: review.atmosphereRating,
+                            wouldRecommend: review.wouldRecommend,
+                        }}
+                    />
+
+                )}
                 <Text style={styles.reviewText}>
                     {review?.type === "review" ? review?.reviewText : review?.message}
                 </Text>
