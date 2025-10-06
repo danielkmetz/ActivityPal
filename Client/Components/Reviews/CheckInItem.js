@@ -13,12 +13,13 @@ import { selectUser } from "../../Slices/UserSlice";
 import { useSelector, useDispatch } from "react-redux";
 import { useNavigation } from "@react-navigation/native";
 import PostOptionsMenu from "./PostOptionsMenu";
-import StoryAvatar from "../Stories/StoryAvatar";
 import { createNotification } from "../../Slices/NotificationsSlice";
 import { declineFollowRequest, cancelFollowRequest, approveFollowRequest } from "../../Slices/friendsSlice";
 import { handleFollowUserHelper } from "../../utils/followHelper";
 import { logEngagementIfNeeded } from "../../Slices/EngagementSlice";
 import PhotoFeed from "./Photos/PhotoFeed";
+import FollowButton from './PostActions/FollowButton';
+import PostHeader from './PostHeader/PostHeader';
 
 const pinPic = "https://cdn-icons-png.flaticon.com/512/684/684908.png";
 
@@ -55,11 +56,7 @@ export default function CheckInItem({
     const currentPhoto = item.photos?.[currentPhotoIndex];
     const postOwnerId = item?.userId;
     const fullName = `${user.firstName} ${user.lastName}`;
-    const businessName = item?.businessName;
-    const postName = item?.fullName;
-    const taggedUsers = item.taggedUsers;
     const userId = item?.userId;
-    const profilePicUrl = item?.profilePicUrl;
     const postPhotos = item?.photos;
     const message = item?.message;
     const placeId = item?.placeId;
@@ -128,45 +125,6 @@ export default function CheckInItem({
         setIsFollowing(followingIds.includes(postOwnerId));
     }, [user, following, followRequests]);
 
-    const renderFollowButton = () => {
-        if (isSuggestedFollowPost) {
-            if (isFollowing) {
-                return (
-                    <TouchableOpacity
-                        style={styles.followButton}
-                        onPress={() => navigateToOtherUserProfile(userId)}
-                    >
-                        <Text style={styles.friendsText}>Following</Text>
-                    </TouchableOpacity>
-                );
-            }
-            if (isRequestReceived) {
-                return (
-                    <View style={styles.requestButtonsContainer}>
-                        <TouchableOpacity style={styles.acceptRequestButton} onPress={handleAcceptRequest}>
-                            <Text style={styles.acceptRequestText}>Accept Request</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.followButton} onPress={handleDenyRequest}>
-                            <Text style={styles.followButtonText}>Deny Request</Text>
-                        </TouchableOpacity>
-                    </View>
-                );
-            }
-            if (isRequestSent) {
-                return (
-                    <TouchableOpacity style={styles.followButton} onPress={handleCancelRequest}>
-                        <Text style={styles.followButtonText}>Cancel Request</Text>
-                    </TouchableOpacity>
-                );
-            }
-            return (
-                <TouchableOpacity style={styles.followButton} onPress={handleFollowUser}>
-                    <Text style={styles.followButtonText}>Follow</Text>
-                </TouchableOpacity>
-            );
-        }
-    };
-
     return (
         <MaybeTWF enabled={!!sharedPost} onPress={handleOpenComments}>
             <View style={[styles.reviewCard, sharedPost && styles.sharedHeader]}>
@@ -181,61 +139,30 @@ export default function CheckInItem({
                     />
                 )}
                 <View style={styles.section}>
-                    <View style={styles.header}>
-                        <View style={styles.userPicAndName}>
-                            <StoryAvatar userId={userId} profilePicUrl={profilePicUrl} />
-                            <View style={{ flexShrink: 1 }}>
-                                <Text style={styles.userEmailText}>
-                                    <TouchableWithoutFeedback >
-                                        <Text
-                                            style={styles.name}
-                                            onPress={() => navigateToOtherUserProfile(userId)}
-                                        >
-                                            {postName}
-                                        </Text>
-                                    </TouchableWithoutFeedback>
-                                    {taggedUsers?.length > 0 ? (
-                                        <>
-                                            <Text style={styles.business}> is with </Text>
-                                            {taggedUsers.map((user, index) => (
-                                                <Text
-                                                    onPress={() => navigateToOtherUserProfile(user.userId)}
-                                                    suppressHighlighting={true}
-                                                    style={styles.name}
-                                                >
-                                                    {fullName}
-                                                    {index < taggedUsers?.length - 1 ? ", " : ""}
-                                                </Text>
-                                            ))}
-                                            <Text style={styles.business}> at </Text>
-                                            <Text style={styles.business}>{businessName}</Text>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Text style={styles.business}> is at </Text>
-                                            <TouchableOpacity
-                                                onPress={navigateToBusiness}
-                                                style={styles.businessLink}
-                                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                                            >
-                                                <Text style={styles.business}>{item.businessName}</Text>
-                                            </TouchableOpacity>
-                                        </>
-                                    )}
-                                    {postPhotos?.length > 0 && (
-                                        <Image
-                                            source={{ uri: pinPic }}
-                                            style={styles.smallPinIcon}
-                                        />
-                                    )}
-                                </Text>
-                                {isSuggestedFollowPost && (
-                                    <Text style={styles.subText}>Suggested user for you</Text>
-                                )}
-                            </View>
-                        </View>
-                        {renderFollowButton()}
-                    </View>
+                    <PostHeader
+                        item={item}
+                        onPressUser={navigateToOtherUserProfile}
+                        onPressBusiness={navigateToBusiness}
+                        includeAtWithBusiness
+                        showAtWhenNoTags
+                        isSuggestedFollowPost={isSuggestedFollowPost}
+                        inlineAccessory={
+                            postPhotos?.length > 0 ? <Image source={{ uri: pinPic }} style={styles.smallPinIcon} /> : null
+                        }
+                        rightComponent={
+                            <FollowButton
+                                isSuggestedFollowPost={isSuggestedFollowPost}
+                                isFollowing={isFollowing}
+                                isRequestReceived={isRequestReceived}
+                                isRequestSent={isRequestSent}
+                                onAcceptRequest={handleAcceptRequest}
+                                onDenyRequest={handleDenyRequest}
+                                onCancelRequest={handleCancelRequest}
+                                onFollow={handleFollowUser}
+                                onPressFollowing={() => navigateToOtherUserProfile(userId)}
+                            />
+                        }
+                    />
                     <Text style={styles.message}>{message || null}</Text>
                     {item.photos?.length === 0 && (
                         <Image
@@ -302,24 +229,6 @@ const styles = StyleSheet.create({
     section: {
         padding: 10,
     },
-    userPicAndName: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginBottom: 15,
-        padding: 6,
-        paddingRight: 30,
-        flexShrink: 1,
-    },
-    profilePic: {
-        marginRight: 10,
-    },
-    userEmailText: {
-        fontSize: 18,
-    },
-    name: {
-        fontSize: 18,
-        fontWeight: 'bold',
-    },
     business: {
         fontSize: 16,
         fontWeight: "bold",
@@ -347,48 +256,5 @@ const styles = StyleSheet.create({
         color: "#555",
         marginLeft: 10,
         marginTop: 10,
-    },
-    actionsContainer: {
-        flexDirection: "row",
-        padding: 15,
-    },
-    likeButton: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginRight: 10,
-    },
-    likeCount: {
-        fontSize: 14,
-        color: "#555",
-        marginLeft: 5,
-    },
-    commentButton: {
-        flexDirection: "row",
-    },
-    commentCount: {
-        marginLeft: 5,
-    },
-    subText: {
-        color: "#555",
-        marginTop: 4,
-    },
-    followButton: {
-        paddingHorizontal: 12,
-        paddingVertical: 10,
-        borderRadius: 10,
-        backgroundColor: '#b3b3b3',
-    },
-    followButtonText: {
-        fontSize: 15,
-        fontWeight: 'bold',
-        color: '#fff',
-    },
-    businessLink: {
-        alignSelf: 'flex-start', // <-- prevents full-width stretch
-    },
-    business: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#555',
     },
 });
