@@ -1,6 +1,6 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
-import { addCheckInUserAndFriendsReviews, addCheckInProfileReviews, updatePostInReviewState } from './ReviewsSlice';
+import { updatePostInReviewState, addPostToFeeds } from './ReviewsSlice';
 
 const API_URL = `${process.env.EXPO_PUBLIC_SERVER_URL}/checkIns`;
 
@@ -26,9 +26,8 @@ export const createCheckIn = createAsyncThunk(
     try {
       const response = await axios.post(`${API_URL}/post`, checkInData);
 
-      await dispatch(addCheckInUserAndFriendsReviews(response.data.data));
-      await dispatch(addCheckInProfileReviews(response.data.data));
-
+      await dispatch(addPostToFeeds(response.data.data));
+      
       return response.data.data;
     } catch (error) {
       return rejectWithValue(error.response.data);
