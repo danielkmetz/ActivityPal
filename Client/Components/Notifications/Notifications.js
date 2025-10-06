@@ -1,29 +1,25 @@
 import React, { useState, useRef } from 'react';
 import {
     View,
-    Text,
     FlatList,
     TouchableOpacity,
     StyleSheet,
-    Image,
     Alert,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { selectIsBusiness, selectUser } from '../../Slices/UserSlice';
 import { selectNotifications, markNotificationRead, setNotifications, createNotification, deleteNotification } from '../../Slices/NotificationsSlice';
 import { selectBusinessNotifications, markBusinessNotificationRead, deleteBusinessNotification } from '../../Slices/BusNotificationsSlice';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { approveFollowRequest, setFollowBack, declineFollowRequest, selectFollowers, selectFollowRequests, selectFollowing, followUserImmediately } from '../../Slices/friendsSlice';
-import moment from 'moment';
-import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
-import { selectUserAndFriendsReviews, fetchPostById, setUserAndFriendsReviews, setSelectedReview, } from '../../Slices/ReviewsSlice';
+import { selectUserAndFriendsReviews, fetchPostById, setUserAndFriendsReviews } from '../../Slices/ReviewsSlice';
 import { acceptInvite, rejectInvite, acceptInviteRequest, rejectInviteRequest } from '../../Slices/InvitesSlice';
 import { decrementLastSeenUnreadCount } from '../../utils/notificationsHasSeen';
 import { useNavigation } from '@react-navigation/native';
-import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from '../../utils/LikeHandlers';
 import SwipeableRow from './SwipeableRow';
 import { fetchEventById } from '../../Slices/EventsSlice';
 import { fetchPromotionById } from '../../Slices/PromotionsSlice';
+import NotificationTextContent from './NotificationTextContent';
+import getNotificationIcon from './getNotificationIcon';
 
 export default function Notifications() {
     const dispatch = useDispatch();
@@ -36,14 +32,54 @@ export default function Notifications() {
     const followRequests = useSelector(selectFollowRequests);
     const following = useSelector(selectFollowing);
     const followers = useSelector(selectFollowers);
-    const reviews = useSelector(selectUserAndFriendsReviews);
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const [photoTapped, setPhotoTapped] = useState(null);
     const lastTapRef = useRef({});
-    const [likedAnimations, setLikedAnimations] = useState({});
     const userId = user?.id;
     const placeId = user?.businessDetails?.placeId;
     const fullName = `${user?.firstName} ${user?.lastName}`;
+
+    // Helper: pick the right fetch thunk
+    const getFetchAction = ({ postType, targetId }) => {
+        if (postType === 'event') return fetchEventById({ eventId: targetId });
+        if (postType === 'promo') return fetchPromotionById({ promotionId: targetId });
+        return fetchPostById({ postType, postId: targetId });
+    };
+
+    // Helper: unify 404 detection across action or AxiosError
+    const isNotFound = (resOrErr) => {
+        if (!resOrErr) return false;
+
+        // RTK rejected action shape
+        const statusFromPayload = resOrErr?.payload?.status || resOrErr?.payload?.response?.status;
+        const statusFromError = resOrErr?.error?.status || resOrErr?.error?.code || resOrErr?.error?.response?.status;
+
+        // AxiosError shape
+        const axiosStatus = resOrErr?.response?.status;
+
+        const msg = (
+            resOrErr?.error?.message ||
+            resOrErr?.payload?.message ||
+            resOrErr?.message ||
+            ''
+        );
+
+        return (
+            statusFromPayload === 404 ||
+            statusFromError === 404 ||
+            axiosStatus === 404 ||
+            (typeof msg === 'string' && msg.includes('404'))
+        );
+    };
+
+    // Helper: show specific "missing" alert
+    const showMissingAlert = () => {
+        Alert.alert(
+            "Content Not Available",
+            "This post, comment, or reply no longer exists.",
+            [{ text: "OK" }]
+        );
+    };
 
     const handleNotificationPress = async (notification) => {
         if (!notification) return;
@@ -51,13 +87,12 @@ export default function Notifications() {
         const { type, postType, targetId, commentId, replyId, _id: notificationId } = notification;
         const target = replyId || commentId;
 
-        // Mark as read
+        // Mark as read first
         if (!isBusiness) {
             dispatch(markNotificationRead({ userId: user.id, notificationId }));
         } else {
             dispatch(markBusinessNotificationRead({ placeId, notificationId }));
         }
-
         await decrementLastSeenUnreadCount();
 
         const legacyTypes = [
@@ -70,48 +105,64 @@ export default function Notifications() {
             "photoTag",
             "activityInvite",
         ];
-
         if (!legacyTypes.includes(type)) {
             console.warn("Unhandled notification type:", type);
             return;
         }
 
-        let result;
-        try {
-            if (postType === "event") {
-                result = await dispatch(fetchEventById({ eventId: targetId }));
-            } else if (postType === "promo") {
-                result = await dispatch(fetchPromotionById({ promotionId: targetId }));
-            } else {
-                result = await dispatch(fetchPostById({ postType, postId: targetId }));
-            }
+        console.log(notification)
 
-            if (!result?.payload) {
-                Alert.alert(
-                    "Content Not Available",
-                    "This post, comment, or reply no longer exists.",
-                    [{ text: "OK" }]
-                );
+        try {
+            // Dispatch the correct fetch
+            const action = await dispatch(getFetchAction({ postType, targetId }));
+
+            // If the thunk rejected (network/backend error)
+            if (action?.meta?.requestStatus === 'rejected') {
+                if (isNotFound(action)) {
+                    // 404 → stay on Notifications and alert
+                    navigation.navigate('Notifications');
+                    showMissingAlert();
+                    return;
+                }
+                // Other errors
+                Alert.alert("Error", "Unable to load the content.");
                 return;
             }
 
+            // Fulfilled: inspect payload
+            const payload = action?.payload ?? null;
+
+            if (!payload || isNotFound(action)) {
+                // Missing or backend signaled 404-like condition
+                navigation.navigate('Notifications');
+                showMissingAlert();
+                return;
+            }
+
+            // ✅ Content exists → navigate
             if (postType === "event" || postType === "promo") {
-                navigation.navigate("EventDetails", { activity: result.payload });
+                navigation.navigate("EventDetails", { activity: payload, activityId: targetId });
             } else {
                 navigation.navigate("CommentScreen", {
                     reviewId: targetId,
+                    targetId: target,
                     toggleTaggedUsers,
                     lastTapRef,
                     photoTapped,
-                    targetId: target,
                 });
             }
-        } catch (error) {
-            console.error("Error fetching notification target:", error);
-            Alert.alert("Error", "Unable to load the content.");
+        } catch (err) {
+            // Catch thrown AxiosError or unexpected throws
+            if (isNotFound(err)) {
+                navigation.navigate('Notifications');
+                showMissingAlert();
+            } else {
+                console.error("Error fetching notification target:", err);
+                Alert.alert("Error", "Unable to load the content.");
+            }
         }
     };
-    
+
     const handleAcceptRequest = async (senderId) => {
         try {
             // Optimistic UI update first
@@ -157,21 +208,6 @@ export default function Notifications() {
         }
     };
 
-    const getIcon = (type) => {
-        switch (type) {
-            case 'like':
-                return <MaterialCommunityIcons name="thumb-up-outline" size={24} color="#1877F2" />;
-            case 'comment':
-                return <MaterialCommunityIcons name="comment-outline" size={24} color="#1877F2" />;
-            case 'followRequest':
-                return <MaterialCommunityIcons name="account-plus-outline" size={24} color="#42B72A" />;
-            case 'event':
-                return <MaterialCommunityIcons name="calendar-star" size={24} color="#F28B24" />;
-            default:
-                return <MaterialCommunityIcons name="bell-outline" size={24} color="#808080" />;
-        }
-    };
-
     const handleAcceptInvite = async (inviteId) => {
         try {
             await dispatch(acceptInvite({ recipientId: user.id, inviteId }));
@@ -206,21 +242,6 @@ export default function Notifications() {
 
     const toggleTaggedUsers = (photoKey) => {
         setPhotoTapped(photoTapped === photoKey ? null : photoKey);
-    };
-
-    const handleLikeWithAnimation = (review, force = false) => {
-        return sharedHandleLikeWithAnimation({
-            postType: review.type,
-            postId: review._id,
-            review,
-            user,
-            reviews,
-            dispatch,
-            lastTapRef,
-            likedAnimations,
-            setLikedAnimations,
-            force,
-        });
     };
 
     const handleAcceptJoinRequest = async (relatedId, targetId) => {
@@ -309,7 +330,6 @@ export default function Notifications() {
     const handleFollowBack = async (targetUserId, notificationId) => {
         try {
             const { payload } = await dispatch(followUserImmediately({ targetUserId, isFollowBack: true }));
-
             const enrichedUser = followers.find(u => u._id === targetUserId);
             const fullNameFollowBack = await enrichedUser
                 ? `${enrichedUser.firstName} ${enrichedUser.lastName}`
@@ -347,13 +367,6 @@ export default function Notifications() {
                 data={[...notifications || []].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))} // Sort by newest
                 keyExtractor={(item) => item._id}
                 renderItem={({ item }) => {
-                    const sender = (followRequests.received || []).find(user => user._id === item.relatedId);
-                    const shouldShowFollowBack =
-                        (item.type === 'followRequestAccepted' ||
-                            item.type === 'follow' ||
-                            item.type === "followRequest") &&
-                        !following.some(user => user._id === item.relatedId) &&
-                        followers.some(user => user._id === item.relatedId)
                     return (
                         <SwipeableRow onSwipe={handleDeleteNotification} notificationId={item._id}>
                             <TouchableOpacity
@@ -362,73 +375,27 @@ export default function Notifications() {
                             >
                                 {item?.type !== 'followRequest' && (
                                     <View style={styles.iconContainer}>
-                                        {getIcon(item.type)}
+                                        {getNotificationIcon(item.type)}
                                     </View>
                                 )}
-                                <View style={[styles.textContainer, item.type === 'followRequest' && { marginLeft: 10 }]}>
-                                    {item?.type === 'followRequest' && sender ? (
-                                        <View style={styles.friendRequestContainer}>
-                                            <Image
-                                                source={sender.presignedProfileUrl ? { uri: sender.presignedProfileUrl } : profilePicPlaceholder}
-                                                style={styles.profilePic}
-                                            />
-                                            <Text style={styles.message}>{item.message}</Text>
-                                        </View>
-                                    ) : (
-                                        <Text style={styles.message}>{item.message}</Text>
-                                    )}
-                                    {item?.commentText ? (
-                                        <Text style={styles.commentText}>{item?.commentText}</Text>
-                                    ) : (
-                                        null
-                                    )}
-                                    <View style={styles.momentContainer}>
-                                        {item.type === 'followRequest' && (
-                                            <View style={styles.iconContainer}>
-                                                {getIcon(item.type)}
-                                            </View>
-                                        )}
-                                        <Text style={styles.timestamp}>{moment(item.createdAt).fromNow()}</Text>
-                                    </View>
-                                    {item.type === 'followRequest' && sender && (
-                                        <View style={styles.buttonGroup}>
-                                            <TouchableOpacity style={styles.acceptButton} onPress={() => handleAcceptRequest(item.relatedId)}>
-                                                <Text style={styles.buttonText}>Accept</Text>
-                                            </TouchableOpacity>
-                                            <TouchableOpacity style={styles.declineButton} onPress={() => handleDeclineRequest(item.relatedId)}>
-                                                <Text style={styles.buttonText}>Decline</Text>
-                                            </TouchableOpacity>
-                                        </View>
-                                    )}
-                                    {item.type === 'activityInvite' && (
-                                        <View style={styles.buttonGroup}>
-                                            <TouchableOpacity style={styles.acceptButton} onPress={() => handleAcceptInvite(item.targetId)}>
-                                                <Text style={styles.buttonText}>Accept</Text>
-                                            </TouchableOpacity>
-                                            <TouchableOpacity style={styles.declineButton} onPress={() => handleRejectInvite(item.targetId)}>
-                                                <Text style={styles.buttonText}>Decline</Text>
-                                            </TouchableOpacity>
-                                        </View>
-                                    )}
-                                    {item.type === 'requestInvite' && (
-                                        <View style={styles.buttonGroup}>
-                                            <TouchableOpacity style={styles.acceptButton} onPress={() => handleAcceptJoinRequest(item.relatedId, item.targetId)}>
-                                                <Text style={styles.buttonText}>Accept</Text>
-                                            </TouchableOpacity>
-                                            <TouchableOpacity style={styles.declineButton} onPress={() => handleRejectJoinRequest(item.relatedId, item.targetId)}>
-                                                <Text style={styles.buttonText}>Reject</Text>
-                                            </TouchableOpacity>
-                                        </View>
-                                    )}
-                                    {shouldShowFollowBack && (
-                                        <TouchableOpacity
-                                            style={styles.followBackButton}
-                                            onPress={() => handleFollowBack(item.relatedId, item._id)}
-                                        >
-                                            <Text style={styles.buttonText}>Follow Back</Text>
-                                        </TouchableOpacity>
-                                    )}
-                                </View>
+                                <NotificationTextContent
+                                    item={item}
+                                    sender={(followRequests.received || []).find(user => user._id === item.relatedId)}
+                                    shouldShowFollowBack={
+                                        (item.type === 'followRequestAccepted' ||
+                                            item.type === 'follow' ||
+                                            item.type === 'followRequest') &&
+                                        !following.some(user => user._id === item.relatedId) &&
+                                        followers.some(user => user._id === item.relatedId)
+                                    }
+                                    onAcceptRequest={() => handleAcceptRequest(item.relatedId)}
+                                    onDeclineRequest={() => handleDeclineRequest(item.relatedId)}
+                                    onAcceptInvite={() => handleAcceptInvite(item.targetId)}
+                                    onRejectInvite={() => handleRejectInvite(item.targetId)}
+                                    onAcceptJoinRequest={() => handleAcceptJoinRequest(item.relatedId, item.targetId)}
+                                    onRejectJoinRequest={() => handleRejectJoinRequest(item.relatedId, item.targetId)}
+                                    onFollowBack={() => handleFollowBack(item.relatedId, item._id)}
+                                />
                                 {!item.read && <View style={styles.unreadDot} />}
                             </TouchableOpacity>
                         </SwipeableRow>
@@ -466,76 +433,11 @@ const styles = StyleSheet.create({
     iconContainer: {
         marginRight: 10,
     },
-    textContainer: {
-        flex: 1,
-    },
-    momentContainer: {
-        flexDirection: 'row'
-    },
-    friendRequestContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 5,
-    },
-    profilePic: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        marginRight: 10,
-    },
-    message: {
-        fontSize: 14,
-        fontWeight: 'bold',
-        color: '#333',
-    },
-    timestamp: {
-        fontSize: 12,
-        color: '#777',
-        marginTop: 2,
-    },
     unreadDot: {
         width: 10,
         height: 10,
         borderRadius: 5,
         backgroundColor: "#1877F2",
         marginLeft: 10,
-    },
-    buttonGroup: {
-        flexDirection: 'row',
-        marginTop: 8,
-    },
-    acceptButton: {
-        backgroundColor: "#33cccc",
-        paddingVertical: 5,
-        paddingHorizontal: 10,
-        borderRadius: 5,
-        marginRight: 10,
-    },
-    declineButton: {
-        backgroundColor: "#6c757d",
-        paddingVertical: 5,
-        paddingHorizontal: 10,
-        borderRadius: 5,
-    },
-    buttonText: {
-        color: "#fff",
-        fontSize: 14,
-        fontWeight: 'bold',
-    },
-    commentText: {
-        marginVertical: 10,
-    },
-    followBackButton: {
-        backgroundColor: "#007AFF",  // iOS-style blue
-        paddingVertical: 5,
-        paddingHorizontal: 12,
-        borderRadius: 5,
-        marginTop: 8,
-        alignSelf: 'flex-start',
-    },
-    followBackText: {
-        color: "#fff",
-        fontSize: 14,
-        fontWeight: "bold",
     },
 });
