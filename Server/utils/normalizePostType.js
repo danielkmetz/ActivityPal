@@ -35,6 +35,8 @@ const normalizePostType = (t) => {
 
     case 'sharedpost':
     case 'sharedposts':
+    case 'sharedPost' :
+    case 'sharedPosts' :
       return 'sharedPost';
 
     default:

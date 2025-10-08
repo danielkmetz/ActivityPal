@@ -22,6 +22,7 @@ export const CHECKIN_FRAGMENT = gql`
       taggedUsers {
         userId
         fullName
+        profilePicUrl
         x
         y
       }

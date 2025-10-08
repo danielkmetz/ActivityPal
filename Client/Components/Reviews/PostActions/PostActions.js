@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { View, StyleSheet, TouchableWithoutFeedback } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -9,6 +9,7 @@ import CommentButton from "./CommentButton";
 import SendButton from './SendButton';
 import ShareButton from './ShareButton';
 import { medium } from "../../../utils/Haptics/haptics";
+import TagUserModal from '../TagUserModal/TagUserModal';
 
 function deriveLikeState(item, currentUserId) {
   // Normalize possible shapes:
@@ -45,11 +46,18 @@ export default function PostActions({
   photo,
   isCommentScreen = false,
   orientation = "row",
+  onRequestShowTags,          // preferred deterministic show: (photoKey) => void
+  onFollowUser,               // (userId, userObj) => void
+  onNavigateToProfile,        // (userId, userObj) => void
+  getIsFollowing,             // (userId) => boolean
+  isFollowingMap,     
 }) {
   const navigation = useNavigation();
   const user = useSelector(selectUser);
+  const [tagModalVisible, setTagModalVisible] = useState(false);
   const currentUserId = user?.id;
   const { hasLiked, count } = deriveLikeState(item, currentUserId);
+  const taggedUsers = Array.isArray(photo?.taggedUsers) ? photo.taggedUsers : [];
   const shouldRenderTagButton =
     item?.type !== "invite" && photo?.taggedUsers?.length > 0;
 
@@ -67,6 +75,43 @@ export default function PostActions({
       postType: derivedType,
       placeId: item.placeId || item.business?.placeId || null,
     });
+  };
+
+  const openTagModal = () => {
+    if (!photo?.photoKey) return;
+    medium();
+    if (typeof onRequestShowTags === "function") {
+      onRequestShowTags(photo.photoKey);   // deterministic "show"
+    } else {
+      toggleTaggedUsers?.(photo.photoKey); // fallback "toggle"
+    }
+    setTagModalVisible(true);
+  };
+
+  const closeTagModal = () => {
+    setTagModalVisible(false);
+    // If you want to auto-hide tags on close, call a hide method here.
+    // e.g., onRequestHideTags?.(photo.photoKey)
+  };
+
+  const handleViewProfile = (u) => {
+    const uid = u?.userId;
+    if (!uid) return;
+    if (typeof onNavigateToProfile === "function") {
+      onNavigateToProfile(uid, u);
+    } else {
+      // sensible fallback
+      if (String(uid) === String(currentUserId)) {
+        navigation.navigate("Profile");
+      } else {
+        navigation.navigate("OtherUserProfile", { userId: uid });
+      }
+    }
+  };
+
+  const handleFollow = (u) => {
+    onFollowUser?.(u?.userId, u);
+    // keep modal open (IG-like). If you prefer closing, call setTagModalVisible(false)
   };
 
   return (
@@ -134,13 +179,27 @@ export default function PostActions({
       {/* Tagged Users Button (row mode only) */}
       {shouldRenderTagButton && orientation !== "column" && (
         <TouchableWithoutFeedback
-          onPress={() => toggleTaggedUsers(photo.photoKey)}
+          onPress={openTagModal}
         >
           <View style={styles.tagIcon}>
             <MaterialCommunityIcons name="tag" size={24} color="white" />
           </View>
         </TouchableWithoutFeedback>
       )}
+
+      {/* Tag list modal */}
+      <TagUserModal
+        visible={tagModalVisible}
+        item={item}
+        photoId={photo?._id}
+        onClose={closeTagModal}
+        taggedUsers={taggedUsers}
+        getIsFollowing={getIsFollowing}
+        isFollowingMap={isFollowingMap}
+        onFollowToggle={handleFollow}
+        onViewProfile={handleViewProfile}
+        title="Tagged in this photo"
+      />
     </View>
   );
 }

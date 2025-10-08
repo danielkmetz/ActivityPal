@@ -169,37 +169,72 @@ async function resolveTaggedUsers(taggedUserIds = []) {
 }
 
 async function resolveTaggedPhotoUsers(photos = []) {
-  if (!Array.isArray(photos)) return [];
+  if (!Array.isArray(photos) || photos.length === 0) return [];
 
-  const cleanPhotos = photos.map(p => p.toObject?.() || p).filter(p => p?.photoKey);
+  // Normalize to plain objects and keep only items with a photoKey
+  const cleanPhotos = photos
+    .map(p => p.toObject?.() || p)
+    .filter(p => p?.photoKey);
 
+  // Collect all unique tagged userIds across all photos
   const allTaggedIds = new Set();
   for (const photo of cleanPhotos) {
-    (photo.taggedUsers || []).forEach(tag => tag?.userId && allTaggedIds.add(tag.userId.toString()));
+    (photo.taggedUsers || []).forEach(tag => {
+      const raw = tag?.userId;
+      const id =
+        (raw && raw._id?.toString?.()) ||
+        (raw && raw.toString?.()) ||
+        (typeof raw === 'string' ? raw : null);
+      if (id) allTaggedIds.add(id);
+    });
   }
-
   const taggedUserArray = [...allTaggedIds];
-  const taggedUserMap = {};
-  if (taggedUserArray.length) {
-    const users = await User.find({ _id: { $in: taggedUserArray } }, { firstName: 1, lastName: 1 });
-    for (const u of users) {
-      taggedUserMap[u._id.toString()] = `${u.firstName} ${u.lastName}`;
-    }
+
+  // Fetch everything we need in parallel:
+  // 1) Names for fullName
+  // 2) Profile pics via resolveUserProfilePics (gives us profilePicUrl)
+  // 3) Presigned URLs for each photo
+  const [users, profilePicMap, urlMap] = await Promise.all([
+    taggedUserArray.length
+      ? User.find({ _id: { $in: taggedUserArray } }, { firstName: 1, lastName: 1 })
+      : [],
+    taggedUserArray.length ? resolveUserProfilePics(taggedUserArray) : {},
+    (async () => {
+      const map = {};
+      await Promise.all(
+        cleanPhotos.map(async (p) => {
+          map[p.photoKey] = await getPresignedUrl(p.photoKey);
+        })
+      );
+      return map;
+    })(),
+  ]);
+
+  // Build a quick id -> fullName map
+  const nameMap = {};
+  for (const u of users) {
+    nameMap[u._id.toString()] = `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Unknown User';
   }
 
-  // 🔁 Batch presigned URL generation
-  const urlMap = {};
-  await Promise.all(cleanPhotos.map(async (p) => {
-    urlMap[p.photoKey] = await getPresignedUrl(p.photoKey);
-  }));
-
+  // Return enriched photos with tagged users including profilePicUrl
   return cleanPhotos.map(photo => {
-    const enrichedTags = (photo.taggedUsers || []).map(tag => ({
-      userId: tag.userId,
-      fullName: taggedUserMap[tag.userId?.toString()] || "Unknown User",
-      x: tag.x || 0,
-      y: tag.y || 0,
-    }));
+    const enrichedTags = (photo.taggedUsers || []).map(tag => {
+      const raw = tag?.userId;
+      const id =
+        (raw && raw._id?.toString?.()) ||
+        (raw && raw.toString?.()) ||
+        (typeof raw === 'string' ? raw : null);
+
+      const profile = id ? profilePicMap[id] : null;
+
+      return {
+        userId: tag.userId,                         // keep original shape
+        fullName: (id && nameMap[id]) || 'Unknown User',
+        profilePicUrl: profile?.profilePicUrl || null,
+        x: tag.x || 0,
+        y: tag.y || 0,
+      };
+    });
 
     return {
       ...photo,

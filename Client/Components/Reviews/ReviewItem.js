@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, Fragment } from "react";
+import React, { useState, useRef, useEffect, Fragment, useMemo } from "react";
 import {
     View,
     Text,
@@ -22,6 +22,7 @@ import PhotoFeed from "./Photos/PhotoFeed";
 import RatingsButton from './ReviewItem/RatingsButton';
 import FollowButton from './PostActions/FollowButton';
 import PostHeader from './PostHeader/PostHeader';
+import { navigateToOtherUserProfile, handleFollowUser } from '../../utils/userActions';
 
 const MaybeTWF = ({ enabled, onPress, children }) =>
     enabled ? (
@@ -71,6 +72,11 @@ export default function ReviewItem({
         ])
     );
 
+    const followingIdSet = useMemo(
+        () => new Set((following || []).map(u => String(u?._id ?? u?.id ?? u))),
+        [following]
+    );
+
     const navigateToBusiness = () => {
         logEngagementIfNeeded(dispatch, {
             targetType: 'place',
@@ -91,24 +97,23 @@ export default function ReviewItem({
         });
     };
 
-    const navigateToOtherUserProfile = (userId) => {
-        if (userId !== user?.id) {
-            navigation.navigate('OtherUserProfile', { userId }); // Pass user data to the new screen
-        } else {
-            navigation.navigate('Profile');
-        }
-    };
-
-    const handleFollowUser = () => {
-        handleFollowUserHelper({
-            isPrivate,
-            userId: postOwnerId,
-            mainUser: user,
-            dispatch,
-            setIsFollowing,
-            setIsRequestSent,
+    const onViewProfile = (targetId) =>
+        navigateToOtherUserProfile({
+            navigation,
+            userId: targetId,
+            currentUserId: user?.id,
+            
         });
-    };
+
+    const onFollow = () =>
+        handleFollowUser({
+            isPrivate,                // boolean
+            userId: postOwnerId,      // target
+            mainUser: user,           // current user object from Redux
+            dispatch,
+            setIsFollowing,           // state setter from component
+            setIsRequestSent,         // state setter from component
+        });
 
     const handleAcceptRequest = async () => {
         await dispatch(approveFollowRequest(postOwnerId));
@@ -168,7 +173,7 @@ export default function ReviewItem({
             <View style={styles.section}>
                 <PostHeader
                     item={item}
-                    onPressUser={navigateToOtherUserProfile}
+                    onPressUser={onViewProfile}
                     // Reviews: business shown on its own line below, so keep both false
                     includeAtWithBusiness={false}
                     showAtWhenNoTags={false}
@@ -182,8 +187,8 @@ export default function ReviewItem({
                             onAcceptRequest={handleAcceptRequest}
                             onDenyRequest={handleDenyRequest}
                             onCancelRequest={handleCancelRequest}
-                            onFollow={handleFollowUser}
-                            onPressFollowing={() => navigateToOtherUserProfile(postOwnerId)}
+                            onFollow={onFollow}
+                            onPressFollowing={() => onViewProfile(postOwnerId)}
                         />
                     }
                 />
@@ -236,6 +241,17 @@ export default function ReviewItem({
                         toggleTaggedUsers={toggleTaggedUsers}
                         photo={currentPhoto}
                         onShare={onShare}
+                        onRequestShowTags={(photoKey) => toggleTaggedUsers?.(photoKey)}   // or a deterministic show fn
+                        onFollowUser={(targetUserId) => handleFollowUser({
+                            isPrivate,
+                            userId: targetUserId,
+                            mainUser: user,
+                            dispatch,
+                            setIsFollowing,
+                            setIsRequestSent,
+                        })}
+                        onNavigateToProfile={(targetUserId) => onViewProfile(targetUserId)}
+                        getIsFollowing={(uid) => followingIdSet.has(String(uid))}
                     />
                 </View>
             )}

@@ -42,10 +42,10 @@ router.post("/post", async (req, res) => {
       (photos || []).map(async (photo) => {
         const formattedTagged = Array.isArray(photo.taggedUsers)
           ? photo.taggedUsers.map(tag => ({
-              userId: tag.userId,
-              x: tag.x,
-              y: tag.y,
-            }))
+            userId: tag.userId,
+            x: tag.x,
+            y: tag.y,
+          }))
           : [];
 
         return {
@@ -189,27 +189,45 @@ router.put("/:userId/:checkInId", async (req, res) => {
     ));
 
     // ✅ Add new notifications
-    const notify = (userId, type, msg) => ({
-      type,
-      message: msg,
-      targetId: checkIn._id,
-      typeRef: "checkIn",
-      senderId: user._id,
-      date: new Date(),
+    const buildNotification = (isPhoto) => ({
+      type: isPhoto ? 'photoTag' : 'tag',
+      message: `${user.firstName} ${user.lastName} tagged you in a ${isPhoto ? 'photo' : 'check-in'}.`,
+      relatedId: user._id,        // actor
+      typeRef: 'User',            // refPath for relatedId
+      targetId: checkIn._id,      // thing being acted on
+      targetRef: 'CheckIn',       // its model
+      commentId: null,
+      replyId: null,
+      commentText: null,
       read: false,
+      postType: 'check-in',       // optional; for your client
+      createdAt: new Date(),      // could omit & let default fill
     });
 
-    await Promise.all(added.map(uid =>
-      User.findByIdAndUpdate(uid, {
-        $push: {
-          notifications: notify(
-            uid,
-            newPhotoTaggedUserIds.includes(uid) ? "photoTag" : "tag",
-            `${user.firstName} ${user.lastName} tagged you in a ${newPhotoTaggedUserIds.includes(uid) ? "photo" : "check-in"}.`
-          ),
-        },
+    await Promise.all(
+      added.map(async (uid) => {
+        const isPhotoTag = newPhotoTaggedUserIds.includes(uid) || addedPhotoTaggedUserIds.includes(uid);
+        const notif = buildNotification(isPhotoTag);
+
+        await User.updateOne(
+          {
+            _id: uid,
+            notifications: {
+              $not: {
+                $elemMatch: {
+                  type: notif.type,
+                  relatedId: user._id,
+                  targetId: checkIn._id,
+                  targetRef: 'CheckIn',
+                },
+              },
+            },
+          },
+          { $push: { notifications: notif } },
+          { runValidators: true, context: 'query' } // validate the pushed subdoc
+        );
       })
-    ));
+    );
 
     // 📦 Enrich for response
     const [populatedTaggedUsers, enrichedPhotos, profileMap] = await Promise.all([

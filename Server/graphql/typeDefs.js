@@ -235,6 +235,7 @@ const typeDefs = gql`
   type TaggedUser {
     userId: ID!
     fullName: String
+    profilePicUrl: String
     x: Float
     y: Float
   }

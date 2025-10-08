@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Image, Text, Animated, TouchableWithoutFeedback, Dimensions, StyleSheet } from 'react-native';
+import { View, Image, Text, Animated, TouchableWithoutFeedback, Dimensions, StyleSheet, TouchableOpacity } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { VideoView } from 'expo-video';
 import { useSmartVideoPlayer } from '../../../utils/useSmartVideoPlayer';
@@ -54,7 +54,7 @@ const PhotoItem = ({
 
         const now = Date.now();
         const last = lastTapRef.current[id] || 0;
-        
+
         // Double tap branch
         if (now - last < DOUBLE_TAP_MS) {
             if (timersRef.current[id]) {
