@@ -3,6 +3,7 @@ import {
     View,
     FlatList,
     TouchableOpacity,
+    TouchableWithoutFeedback,
     StyleSheet,
     Alert,
 } from 'react-native';
@@ -369,10 +370,10 @@ export default function Notifications() {
                 renderItem={({ item }) => {
                     return (
                         <SwipeableRow onSwipe={handleDeleteNotification} notificationId={item._id}>
-                            <TouchableOpacity
-                                style={[styles.notificationCard, !item.read && styles.unreadNotification]}
+                            <TouchableWithoutFeedback
                                 onPress={() => handleNotificationPress(item)}
                             >
+                                <View style={[styles.notificationCard, !item.read && styles.unreadNotification]}>
                                 {item?.type !== 'followRequest' && (
                                     <View style={styles.iconContainer}>
                                         {getNotificationIcon(item.type)}
@@ -397,7 +398,8 @@ export default function Notifications() {
                                     onFollowBack={() => handleFollowBack(item.relatedId, item._id)}
                                 />
                                 {!item.read && <View style={styles.unreadDot} />}
-                            </TouchableOpacity>
+                                </View>
+                            </TouchableWithoutFeedback>
                         </SwipeableRow>
                     );
                 }}

@@ -14,6 +14,24 @@ const safeStringify = (obj) => {
   );
 };
 
+const toStr = (v) => (v == null ? '' : String(v));
+
+function removeIdFromIdArray(arr, userId) {
+  if (!Array.isArray(arr)) return { next: arr, removed: 0 };
+  const uid = toStr(userId);
+  const before = arr.length;
+  const next = arr.filter((id) => toStr(id) !== uid);
+  return { next, removed: before - next.length };
+}
+
+function removeUserFromPhotoTags(photo, userId) {
+  if (!photo || !Array.isArray(photo.taggedUsers)) return 0;
+  const uid = toStr(userId);
+  const before = photo.taggedUsers.length;
+  photo.taggedUsers = photo.taggedUsers.filter((t) => toStr(t.userId) !== uid);
+  return before - photo.taggedUsers.length;
+}
+
 export const updatePostCollections = ({
   state,
   postId,
@@ -256,6 +274,64 @@ export const updatePostCollections = ({
       }
     } catch (err) {
       log.error('Failed __updateCommentLikes:', err, '\ncontext:', safeStringify(u.__updateCommentLikes));
+    }
+
+    try {
+      // A) Remove THIS USER from post-level tags (Review/CheckIn only; no-op for Event/Promotion)
+      // updates.__removeSelfFromPost = { userId }
+      if (u.__removeSelfFromPost) {
+        const { userId } = u.__removeSelfFromPost;
+        if (Array.isArray(post.taggedUsers)) {
+          const { next, removed } = removeIdFromIdArray(post.taggedUsers, userId);
+          post.taggedUsers = next;
+          log.info(`__removeSelfFromPost -> removed=${removed}`);
+        } else {
+          log.warn('__removeSelfFromPost skipped: post.taggedUsers is not an array');
+        }
+      }
+    } catch (err) {
+      log.error('Failed __removeSelfFromPost:', err, '\ncontext:', safeStringify(u.__removeSelfFromPost));
+    }
+
+    try {
+      // B) Remove THIS USER from ALL photos in the post
+      // updates.__removeSelfFromAllPhotos = { userId }
+      if (u.__removeSelfFromAllPhotos) {
+        const { userId } = u.__removeSelfFromAllPhotos;
+        let removedTotal = 0;
+        if (Array.isArray(post.photos)) {
+          post.photos.forEach((p) => {
+            removedTotal += removeUserFromPhotoTags(p, userId);
+          });
+          log.info(`__removeSelfFromAllPhotos -> totalRemoved=${removedTotal}`);
+        } else {
+          log.warn('__removeSelfFromAllPhotos skipped: post.photos is not an array');
+        }
+      }
+    } catch (err) {
+      log.error('Failed __removeSelfFromAllPhotos:', err, '\ncontext:', safeStringify(u.__removeSelfFromAllPhotos));
+    }
+
+    try {
+      // C) Remove THIS USER from ONE specific photo
+      // updates.__removeSelfFromPhoto = { userId, photoId }
+      if (u.__removeSelfFromPhoto) {
+        const { userId, photoId } = u.__removeSelfFromPhoto;
+        if (Array.isArray(post.photos)) {
+          const pid = toStr(photoId);
+          const photo = post.photos.find((p) => toStr(p._id) === pid || toStr(p.photoId) === pid);
+          if (!photo) {
+            log.warn(`__removeSelfFromPhoto -> photoId=${pid} not found`);
+          } else {
+            const removed = removeUserFromPhotoTags(photo, userId);
+            log.info(`__removeSelfFromPhoto -> removed=${removed} from photoId=${pid}`);
+          }
+        } else {
+          log.warn('__removeSelfFromPhoto skipped: post.photos is not an array');
+        }
+      }
+    } catch (err) {
+      log.error('Failed __removeSelfFromPhoto:', err, '\ncontext:', safeStringify(u.__removeSelfFromPhoto));
     }
 
     try {

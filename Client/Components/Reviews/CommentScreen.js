@@ -42,6 +42,12 @@ export default function CommentScreen() {
     const dispatch = useDispatch();
     const navigation = useNavigation();
     const review = useSelector((state) => selectPostById(state, reviewId));
+    const isSharedPost = !!(
+        sharedPost ||            // route flag
+        review?.original ||      // backend returned nested original
+        review?.type === 'sharedPost' ||  // canonical type
+        review?.postType === 'sharedPost' // (in case you stored it this way)
+    );
     const replyingTo = useSelector(selectReplyingTo);
     const nestedExpandedReplies = useSelector(selectNestedExpandedReplies);
     const isEditing = useSelector(selectIsEditing);
@@ -424,7 +430,7 @@ export default function CommentScreen() {
                         handleLikeWithAnimation={handleLikeWithAnimation}
                         lastTapRef={lastTapRef}
                         setIsPhotoListActive={setIsPhotoListActive}
-                        sharedPost={sharedPost}
+                        sharedPost={isSharedPost}
                         onShare={openShareOptions}
                     />
                 }

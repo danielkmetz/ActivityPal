@@ -34,6 +34,7 @@ export const REVIEW_FRAGMENT = gql`
       taggedUsers {
         userId
         fullName
+        profilePicUrl
         x
         y
       }
