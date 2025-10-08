@@ -1,5 +1,3 @@
-
-
 import React, { useRef, useMemo, useState, useEffect } from "react";
 import { View, Text, Image, Animated, StyleSheet, Dimensions } from "react-native";
 import dayjs from 'dayjs';

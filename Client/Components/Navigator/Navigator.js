@@ -1,7 +1,6 @@
 import React from 'react';
 import { createBottomTabNavigator, BottomTabBar } from '@react-navigation/bottom-tabs';
 import { View, Animated, Image } from 'react-native';
-import { createStackNavigator } from '@react-navigation/stack';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { enableScreens } from 'react-native-screens';
 import { FontAwesome, MaterialCommunityIcons } from '@expo/vector-icons';

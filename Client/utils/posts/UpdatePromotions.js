@@ -13,6 +13,26 @@ const safeStringify = (obj) => {
   );
 };
 
+/* ===== Tag helpers ===== */
+const toStr = (v) => (v == null ? '' : String(v));
+
+const photoMatches = (photo, photoId) => {
+  const pid = toStr(photoId);
+  return (
+    toStr(photo?._id) === pid ||
+    toStr(photo?.photoId) === pid ||   // in case you add this later
+    toStr(photo?.photoKey) === pid     // your schema uses photoKey
+  );
+};
+
+const removeUserFromPhotoTags = (photo, userId) => {
+  if (!photo || !Array.isArray(photo.taggedUsers)) return 0;
+  const uid = toStr(userId);
+  const before = photo.taggedUsers.length;
+  photo.taggedUsers = photo.taggedUsers.filter((t) => toStr(t?.userId) !== uid);
+  return Math.max(0, before - photo.taggedUsers.length);
+};
+
 export const updatePromotions = ({
   state,          // draft of root OR promotions slice draft
   postId,         // promotion _id
@@ -29,12 +49,34 @@ export const updatePromotions = ({
     if (!post) return;
     const u = updates || {};
 
+    // ==== TAG REMOVAL (Promotions have tags only in photos) ====
+
+    // Remove THIS USER from ALL photos in this promotion
+    // updates.__removeSelfFromAllPhotos = { userId }
+    if (u.__removeSelfFromAllPhotos && Array.isArray(post.photos)) {
+      const { userId } = u.__removeSelfFromAllPhotos;
+      post.photos.forEach((p) => removeUserFromPhotoTags(p, userId));
+    }
+
+    // Remove THIS USER from ONE specific photo
+    // updates.__removeSelfFromPhoto = { userId, photoId }
+    if (u.__removeSelfFromPhoto && Array.isArray(post.photos)) {
+      const { userId, photoId } = u.__removeSelfFromPhoto;
+      const photo = post.photos.find((p) => photoMatches(p, photoId));
+      if (photo) removeUserFromPhotoTags(photo, userId);
+    }
+
+    // (Optional) If you ever add post-level tags to Promotions later,
+    // you can support __removeSelfFromPost here. For now it's a no-op.
+
+    // ==== EXISTING BEHAVIOR BELOW ====
+
     // Update likes on the promotion itself
     if (u.__updatePostLikes) {
       const { likes, likesCount, liked } = u.__updatePostLikes;
-      if (Array.isArray(likes)) post.likes = likes;           // array
+      if (Array.isArray(likes)) post.likes = likes;                 // array
       if (typeof likesCount === 'number') post.likesCount = likesCount; // number
-      if (typeof liked === 'boolean') post.liked = liked;     // boolean
+      if (typeof liked === 'boolean') post.liked = liked;           // boolean
     }
 
     // Append a top-level comment

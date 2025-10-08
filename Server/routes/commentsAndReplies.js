@@ -478,9 +478,24 @@ router.post('/:postType/:postId/comments/:commentId/replies', verifyToken, loadD
 
 // Like/unlike comment or reply
 router.put('/:postType/:postId/comments/:commentId/like', verifyToken, loadDoc, async (req, res) => {
+  const TAG = '[likeComment]';
+  const now = () => new Date().toISOString();
+
   const { _doc: doc, params: { commentId }, _postType: postType } = req;
   const userId = req.user?.id;
-  if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+
+  console.log(`${TAG} ▶ start`, {
+    at: now(),
+    postType,
+    postId: doc?._id?.toString?.() || String(doc?._id || ''),
+    commentId: String(commentId),
+    userId: String(userId || ''),
+  });
+
+  if (!userId) {
+    console.warn(`${TAG} ⚠ unauthorized`, { at: now() });
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
 
   const fullName =
     req.user?.fullName ||
@@ -488,91 +503,197 @@ router.put('/:postType/:postId/comments/:commentId/like', verifyToken, loadDoc, 
     null;
 
   try {
+    if (!doc) {
+      console.error(`${TAG} ❌ no doc loaded by loadDoc`, { at: now() });
+      return res.status(500).json({ message: 'Internal Server Error' });
+    }
+
+    if (!Array.isArray(doc.comments)) {
+      console.error(`${TAG} ❌ doc.comments not an array`, {
+        at: now(),
+        type: typeof doc.comments,
+      });
+      return res.status(500).json({ message: 'Internal Server Error' });
+    }
+
     let target = null;
     let parentAuthorId = null;
     let topLevelId = null;
 
     // Top-level first
-    const top = doc.comments.id(commentId);
+    const top = doc.comments.id?.(commentId);
     if (top) {
       target = top;
       parentAuthorId = top.userId;
       topLevelId = top._id;
+      console.log(`${TAG} ✅ found top-level comment`, {
+        at: now(),
+        topLevelId: String(topLevelId),
+        authorId: String(parentAuthorId || ''),
+      });
     } else {
       // Deep search
-      for (const c of (doc.comments || [])) {
-        const found = findReplyDeep(c.replies || [], commentId, c._id); // carries top id
-        if (found?.node) {
-          target = found.node;
-          parentAuthorId = found.parentAuthorId;
-          topLevelId = found.topLevelId || c._id;
-          break;
+      if (typeof findReplyDeep !== 'function') {
+        console.error(`${TAG} ❌ findReplyDeep is not a function`, { at: now() });
+      } else {
+        for (const c of (doc.comments || [])) {
+          const found = findReplyDeep(c.replies || [], commentId, c._id); // carries top id
+          if (found?.node) {
+            target = found.node;
+            parentAuthorId = found.parentAuthorId;
+            topLevelId = found.topLevelId || c._id;
+            console.log(`${TAG} ✅ found nested reply`, {
+              at: now(),
+              topLevelId: String(topLevelId),
+              parentAuthorId: String(parentAuthorId || ''),
+            });
+            break;
+          }
         }
       }
     }
 
-    if (!target) return res.status(404).json({ message: 'Comment/reply not found' });
+    if (!target) {
+      console.warn(`${TAG} ⚠ comment/reply not found`, { at: now(), commentId: String(commentId) });
+      return res.status(404).json({ message: 'Comment/reply not found' });
+    }
 
-    target.likes = target.likes || [];
+    // Toggle like
+    target.likes = Array.isArray(target.likes) ? target.likes : [];
+    const beforeCount = target.likes.length;
     const idx = target.likes.findIndex(l => String(l.userId) === String(userId));
     const isUnliking = idx > -1;
 
-    if (isUnliking) target.likes.splice(idx, 1);
-    else target.likes.push({ userId, fullName, date: new Date() });
-
-    // Deep mutation safety
-    doc.markModified?.('comments');
-    await doc.save();
-
-    // Optional notifications...
-    if (parentAuthorId && String(parentAuthorId) !== String(userId)) {
-      const targetUser = await User.findById(parentAuthorId);
-      if (targetUser) {
-        const existsIdx =
-          targetUser.notifications?.findIndex(n =>
-            n.type === 'like' &&
-            String(n.relatedId) === String(userId) &&
-            n.typeRef === 'User' &&
-            String(n.targetId) === String(doc._id) &&
-            String(n.commentId) === String(topLevelId || commentId) &&
-            String(n.replyId || commentId) === String(commentId) &&
-            n.postType === postType
-          ) ?? -1;
-
-        if (!isUnliking && existsIdx === -1) {
-          targetUser.notifications = targetUser.notifications || [];
-          targetUser.notifications.push({
-            type: 'like',
-            message: `${fullName || 'Someone'} liked your comment`,
-            relatedId: userId,
-            typeRef: 'User',
-            targetId: doc._id,
-            targetRef: null,
-            commentId: topLevelId || commentId, // <- top-level thread id
-            replyId: commentId,                  // <- the exact node
-            read: false,
-            postType,
-            createdAt: new Date(),
-          });
-          await targetUser.save();
-        } else if (isUnliking && existsIdx !== -1) {
-          targetUser.notifications.splice(existsIdx, 1);
-          await targetUser.save();
-        }
-      }
+    if (isUnliking) {
+      target.likes.splice(idx, 1);
+    } else {
+      target.likes.push({ userId, fullName, date: new Date() });
     }
 
-    // 🔑 Return both ids so the client can update the right node quickly
+    console.log(`${TAG} 🫶 like toggled`, {
+      at: now(),
+      action: isUnliking ? 'unlike' : 'like',
+      beforeCount,
+      afterCount: target.likes.length,
+      nodeId: String(commentId),
+      topLevelId: String(topLevelId || commentId),
+    });
+
+    // Deep mutation safety for Mongoose
+    try {
+      doc.markModified?.('comments');
+      console.log(`${TAG} 💾 saving doc`, { at: now(), modified: doc.isModified?.('comments') });
+      await doc.save();
+      console.log(`${TAG} ✅ saved doc`, { at: now() });
+    } catch (saveErr) {
+      console.error(`${TAG} ❌ save failed`, {
+        at: now(),
+        name: saveErr?.name,
+        message: saveErr?.message,
+        stack: saveErr?.stack,
+        modifiedPaths: doc.modifiedPaths?.(),
+      });
+      throw saveErr; // bubble to outer catch → 500
+    }
+
+    // Notifications (best-effort; still bubble errors to preserve existing behavior)
+    if (parentAuthorId && String(parentAuthorId) !== String(userId)) {
+      try {
+        const targetUser = await User.findById(parentAuthorId);
+        if (!targetUser) {
+          console.warn(`${TAG} ⚠ parent author not found for notification`, {
+            at: now(),
+            parentAuthorId: String(parentAuthorId),
+          });
+        } else {
+          const existsIdx =
+            targetUser.notifications?.findIndex(n =>
+              n.type === 'like' &&
+              String(n.relatedId) === String(userId) &&
+              n.typeRef === 'User' &&
+              String(n.targetId) === String(doc._id) &&
+              String(n.commentId) === String(topLevelId || commentId) &&
+              String(n.replyId || commentId) === String(commentId) &&
+              n.postType === postType
+            ) ?? -1;
+
+          if (!isUnliking && existsIdx === -1) {
+            targetUser.notifications = targetUser.notifications || [];
+            targetUser.notifications.push({
+              type: 'like',
+              message: `${fullName || 'Someone'} liked your comment`,
+              relatedId: userId,
+              typeRef: 'User',
+              targetId: doc._id,
+              targetRef: null,
+              commentId: topLevelId || commentId, // thread root
+              replyId: commentId,                  // exact node
+              read: false,
+              postType,
+              createdAt: new Date(),
+            });
+            await targetUser.save();
+            console.log(`${TAG} 📣 notification created`, {
+              at: now(),
+              forUser: String(parentAuthorId),
+              postType,
+              topLevelId: String(topLevelId || commentId),
+              nodeId: String(commentId),
+            });
+          } else if (isUnliking && existsIdx !== -1) {
+            targetUser.notifications.splice(existsIdx, 1);
+            await targetUser.save();
+            console.log(`${TAG} 🧹 notification removed (unlike)`, {
+              at: now(),
+              forUser: String(parentAuthorId),
+              index: existsIdx,
+            });
+          } else {
+            console.log(`${TAG} 🔎 notification unchanged`, {
+              at: now(),
+              isUnliking,
+              existsIdx,
+            });
+          }
+        }
+      } catch (notifErr) {
+        console.error(`${TAG} ❌ notification phase failed`, {
+          at: now(),
+          name: notifErr?.name,
+          message: notifErr?.message,
+          stack: notifErr?.stack,
+        });
+        throw notifErr; // keep behavior consistent with your original try/catch
+      }
+    } else {
+      console.log(`${TAG} ↪ skipping notification (self-like or no parentAuthorId)`, {
+        at: now(),
+        parentAuthorId: String(parentAuthorId || ''),
+      });
+    }
+
+    console.log(`${TAG} ▶ done`, { at: now() });
+
     return res.json({
       ok: true,
       message: 'Like toggled',
       postType,
       postId: String(doc._id),
-      commentId: String(commentId),                    // the node that was liked/unliked
-      topLevelCommentId: String(topLevelId || commentId), // the thread root
+      commentId: String(commentId),
+      topLevelCommentId: String(topLevelId || commentId),
       likes: target.likes,
     });
-  } catch {
+  } catch (err) {
+    console.error(`${TAG} ❌ unhandled error`, {
+      at: now(),
+      name: err?.name,
+      message: err?.message,
+      stack: err?.stack,
+      postType,
+      postId: doc?._id?.toString?.() || String(doc?._id || ''),
+      commentId: String(commentId),
+      userId: String(userId || ''),
+    });
     return res.status(500).json({ message: 'Internal Server Error' });
   }
 });
