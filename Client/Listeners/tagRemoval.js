@@ -6,9 +6,6 @@ import { applyPromotionUpdates } from '../Slices/PromotionsSlice';
 import { normalizePostType } from '../utils/normalizePostType';
 import { selectUser } from '../Slices/UserSlice';
 
-const DEBUG_TAG_REMOVAL = true; // ← flip off in prod
-const dlog = (...a) => DEBUG_TAG_REMOVAL && console.log('[tagRemovalListener]', ...a);
-
 /* ===== helpers (unchanged) ===== */
 const idSetCache = new WeakMap();
 const getIdSet = (arr) => {
@@ -55,7 +52,6 @@ tagRemovalListener.startListening({
 
     const { postType, postId, photoId, data } = action.payload || {};
     if (!postType || !postId) {
-      dlog('skip: missing postType/postId', { postType, postId });
       return;
     }
 
@@ -63,10 +59,7 @@ tagRemovalListener.startListening({
     const userId = resolveUntagUserId(data, getState);
     const type = normalizePostType(postType);
 
-    dlog('fulfilled', action.type, { rawType: postType, type, postId, photoId, isPostWide, userId });
-
     if (!type) {
-      dlog('skip: normalizePostType returned null');
       return;
     }
 
@@ -83,22 +76,18 @@ tagRemovalListener.startListening({
       case 'review':
       case 'checkin': {
         const postKeys = computeReviewPostKeys(state, postId);
-        dlog('dispatch applyReviewUpdates', { postId, postKeys, updates: reviewUpdates });
         dispatch(applyReviewUpdates({ postId, postKeys, updates: reviewUpdates }));
         break;
       }
       case 'event': {
-        dlog('dispatch applyEventUpdates', { postId, updates: mediaOnlyUpdates });
         dispatch(applyEventUpdates({ postId, updates: mediaOnlyUpdates }));
         break;
       }
       case 'promotion': {
-        dlog('dispatch applyPromotionUpdates', { postId, updates: mediaOnlyUpdates });
         dispatch(applyPromotionUpdates({ postId, updates: mediaOnlyUpdates }));
         break;
       }
       default:
-        dlog('skip: unknown normalized type', { type });
         break;
     }
   },
