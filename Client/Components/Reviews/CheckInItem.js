@@ -33,6 +33,7 @@ const MaybeTWF = ({ enabled, onPress, children }) =>
 export default function CheckInItem({
     item,
     photoTapped,
+    setPhotoTapped,
     toggleTaggedUsers,
     handleLikeWithAnimation,
     handleOpenComments,
@@ -193,6 +194,7 @@ export default function CheckInItem({
                     <View style={{ padding: 15 }}>
                         <PostActions
                             item={item}
+                            setPhotoTapped={setPhotoTapped}
                             handleLikeWithAnimation={handleLikeWithAnimation}
                             handleOpenComments={handleOpenComments}
                             toggleTaggedUsers={toggleTaggedUsers}
