@@ -1,129 +1,105 @@
-// listeners/tagRemovalListener.js
 import { createListenerMiddleware, isAnyOf } from '@reduxjs/toolkit';
-
-// Thunks that hit /api/remove-tags
 import { removeSelfFromPost, removeSelfFromPhoto } from '../Slices/RemoveTagsSlice';
-
-// Per-domain updaters
 import { applyPostUpdates as applyReviewUpdates } from '../Slices/ReviewsSlice';
 import { applyEventUpdates } from '../Slices/EventsSlice';
 import { applyPromotionUpdates } from '../Slices/PromotionsSlice';
 import { normalizePostType } from '../utils/normalizePostType';
+import { selectUser } from '../Slices/UserSlice';
 
-// Optional: if you expose a check-ins updater, uncomment this:
-// import { applyCheckInUpdates } from '../Slices/CheckInsSlice';
+const DEBUG_TAG_REMOVAL = true; // ← flip off in prod
+const dlog = (...a) => DEBUG_TAG_REMOVAL && console.log('[tagRemovalListener]', ...a);
 
-/* =========================
-   Tiny helpers (reviews)
-========================= */
-
-// Fast membership cache for O(1) id checks
+/* ===== helpers (unchanged) ===== */
 const idSetCache = new WeakMap();
 const getIdSet = (arr) => {
-    if (!Array.isArray(arr)) return null;
-    let set = idSetCache.get(arr);
-    if (!set) {
-        set = new Set(arr.map((p) => String(p?._id)));
-        idSetCache.set(arr, set);
-    }
-    return set;
+  if (!Array.isArray(arr)) return null;
+  let set = idSetCache.get(arr);
+  if (!set) {
+    set = new Set(arr.map((p) => String(p?._id)));
+    idSetCache.set(arr, set);
+  }
+  return set;
 };
 const hasId = (arr, id) => {
-    const set = getIdSet(arr);
-    return set ? set.has(String(id)) : false;
+  const set = getIdSet(arr);
+  return set ? set.has(String(id)) : false;
 };
-
-// Keys where Reviews keep lists; adjust to your state shape if needed
 const REVIEW_KEYS = [
-    'businessReviews',
-    'localReviews',
-    'profileReviews',
-    'otherUserReviews',
-    'userAndFriendsReviews',
-    'suggestedPosts',
+  'businessReviews','localReviews','profileReviews','otherUserReviews','userAndFriendsReviews','suggestedPosts'
 ];
 const ALWAYS_REVIEW_KEYS = ['profileReviews', 'userAndFriendsReviews', 'suggestedPosts'];
-
 function computeReviewPostKeys(state, postId) {
-    const keys = new Set(ALWAYS_REVIEW_KEYS);
-    const rs = state?.reviews || {};
-    for (const k of REVIEW_KEYS) {
-        if (hasId(rs[k], postId)) keys.add(k);
-    }
-    return [...keys];
+  const keys = new Set(ALWAYS_REVIEW_KEYS);
+  const rs = state?.reviews || {};
+  for (const k of REVIEW_KEYS) if (hasId(rs[k], postId)) keys.add(k);
+  return [...keys];
 }
-
 function resolveUntagUserId(data, getState) {
-    // Prefer server echo; fallback to client auth/user slice
-    if (data && data.userId) return String(data.userId);
-    const s = getState();
-    return String(s?.user?.id || s?.auth?.user?.id || '');
+  // 1) Prefer what the server returns (most reliable)
+  if (data && data.userId) return String(data.userId);
+
+  // 2) Fallback to client state via selector
+  const user = selectUser(getState());
+  const id = user?.id || user?._id;       // cover both shapes
+  return id ? String(id) : null;
 }
 
-/* =========================
-   Listener
-========================= */
-
+/* ===== listener ===== */
 export const tagRemovalListener = createListenerMiddleware();
 
 tagRemovalListener.startListening({
-    matcher: isAnyOf(
-        removeSelfFromPost.fulfilled,
-        removeSelfFromPhoto.fulfilled
-    ),
-    effect: async (action, api) => {
-        const { dispatch, getState } = api;
-        const state = getState();
+  matcher: isAnyOf(removeSelfFromPost.fulfilled, removeSelfFromPhoto.fulfilled),
+  effect: async (action, api) => {
+    const { dispatch, getState } = api;
+    const state = getState();
 
-        const { postType, postId, photoId, data } = action.payload || {};
-        if (!postType || !postId) return;
+    const { postType, postId, photoId, data } = action.payload || {};
+    if (!postType || !postId) {
+      dlog('skip: missing postType/postId', { postType, postId });
+      return;
+    }
 
-        const userId = resolveUntagUserId(data, getState);
-        const isPostWide = action.type === removeSelfFromPost.fulfilled.type;
+    const isPostWide = action.type === removeSelfFromPost.fulfilled.type;
+    const userId = resolveUntagUserId(data, getState);
+    const type = normalizePostType(postType);
 
-        // Build control updates for updatePostCollections helper
-        const reviewUpdates = isPostWide
-            ? {
-                __removeSelfFromPost: { userId },
-                __removeSelfFromAllPhotos: { userId },
-            }
-            : {
-                __removeSelfFromPhoto: { userId, photoId },
-            };
+    dlog('fulfilled', action.type, { rawType: postType, type, postId, photoId, isPostWide, userId });
 
-        const mediaOnlyUpdates = isPostWide
-            ? { __removeSelfFromAllPhotos: { userId } }
-            : { __removeSelfFromPhoto: { userId, photoId } };
+    if (!type) {
+      dlog('skip: normalizePostType returned null');
+      return;
+    }
 
-        const type = normalizePostType(postType);
-        if (!type) return;
+    // Build control updates
+    const reviewUpdates = isPostWide
+      ? { __removeSelfFromPost: { userId }, __removeSelfFromAllPhotos: { userId } }
+      : { __removeSelfFromPhoto: { userId, photoId } };
 
-        switch (String(type)) {
-            case 'review':
-            case 'checkin':         // supports normalized "checkin"
-            case 'check-in': {      // extra safety if not normalized
-                const postKeys = computeReviewPostKeys(state, postId);
-                dispatch(
-                    applyReviewUpdates({
-                        postId,
-                        postKeys,
-                        updates: reviewUpdates,
-                    })
-                );
-                break;
-            }
+    const mediaOnlyUpdates = isPostWide
+      ? { __removeSelfFromAllPhotos: { userId } }
+      : { __removeSelfFromPhoto: { userId, photoId } };
 
-            case 'event': {
-                dispatch(applyEventUpdates({ postId, updates: mediaOnlyUpdates }));
-                break;
-            }
-            case 'promotion': {
-                dispatch(applyPromotionUpdates({ postId, updates: mediaOnlyUpdates }));
-                break;
-            }
-            default:
-                break;
-        }
-
-    },
+    switch (String(type)) {
+      case 'review':
+      case 'checkin': {
+        const postKeys = computeReviewPostKeys(state, postId);
+        dlog('dispatch applyReviewUpdates', { postId, postKeys, updates: reviewUpdates });
+        dispatch(applyReviewUpdates({ postId, postKeys, updates: reviewUpdates }));
+        break;
+      }
+      case 'event': {
+        dlog('dispatch applyEventUpdates', { postId, updates: mediaOnlyUpdates });
+        dispatch(applyEventUpdates({ postId, updates: mediaOnlyUpdates }));
+        break;
+      }
+      case 'promotion': {
+        dlog('dispatch applyPromotionUpdates', { postId, updates: mediaOnlyUpdates });
+        dispatch(applyPromotionUpdates({ postId, updates: mediaOnlyUpdates }));
+        break;
+      }
+      default:
+        dlog('skip: unknown normalized type', { type });
+        break;
+    }
+  },
 });

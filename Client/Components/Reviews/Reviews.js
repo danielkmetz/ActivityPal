@@ -260,6 +260,7 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
                 following={following}
                 followRequests={followRequests}
                 onShare={openShareOptions}
+                setPhotoTapped={setPhotoTapped}
               />
             );
           }
@@ -307,6 +308,7 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
               item={item}
               animation={getAnimation(item._id)}
               photoTapped={photoTapped}
+              setPhotoTapped={setPhotoTapped}
               toggleTaggedUsers={toggleTaggedUsers}
               handleLikeWithAnimation={handleLikeWithAnimation}
               handleOpenComments={handleOpenComments}

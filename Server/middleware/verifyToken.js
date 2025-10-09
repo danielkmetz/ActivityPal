@@ -1,26 +1,36 @@
-const jwt = require("jsonwebtoken");
+const jwt = require('jsonwebtoken');
 
 const verifyToken = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
+    const authHeader = req.get('authorization'); // case-insensitive
 
     if (!authHeader) {
-      return res.status(401).json({ message: "Authorization header is missing" });
+      return res.status(401).json({ message: 'Authorization header is missing' });
     }
 
-    const token = authHeader.split(" ")[1];
+    // Accept "Bearer abc" (any casing) or just "abc"
+    const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+    const token = bearerMatch ? bearerMatch[1].trim() : authHeader.trim();
 
     if (!token) {
-      return res.status(401).json({ message: "Token is required" });
+      return res.status(401).json({ message: 'Token is required' });
     }
 
-    // Verify the token using the secret from environment variables
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({ message: 'Server misconfigured (secret missing)' });
+    }
+
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Attach user information to the request object
+    const fullName =
+      decoded.fullName ||
+      [decoded.firstName, decoded.lastName].filter(Boolean).join(' ') ||
+      undefined;
+
     req.user = {
       id: decoded.id,
-      fullName: decoded.fullName || [decoded.firstName, decoded.lastName].filter(Boolean).join(' '),
+      _id: decoded.id, // compatibility with routes using req.user._id
+      fullName,
       firstName: decoded.firstName,
       lastName: decoded.lastName,
       isBusiness: decoded.isBusiness,
@@ -28,8 +38,7 @@ const verifyToken = async (req, res, next) => {
 
     next();
   } catch (error) {
-    console.error("Token validation error:", error);
-    res.status(401).json({ message: "Invalid or expired token" });
+    return res.status(401).json({ message: 'Invalid or expired token' });
   }
 };
 

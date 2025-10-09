@@ -34,6 +34,7 @@ const MaybeTWF = ({ enabled, onPress, children }) =>
 export default function ReviewItem({
     item,
     photoTapped,
+    setPhotoTapped,
     toggleTaggedUsers,
     handleLikeWithAnimation,
     handleOpenComments,
@@ -236,6 +237,7 @@ export default function ReviewItem({
                 <View style={{ padding: 15 }}>
                     <PostActions
                         item={item}
+                        setPhotoTapped={setPhotoTapped}
                         handleLikeWithAnimation={handleLikeWithAnimation}
                         handleOpenComments={handleOpenComments}
                         toggleTaggedUsers={toggleTaggedUsers}

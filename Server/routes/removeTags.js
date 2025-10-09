@@ -108,7 +108,7 @@ router.delete('/:postType/:postId', verifyToken, async (req, res) => {
     const Model = getModelOrNull(postType);
     if (!Model) return res.status(400).json({ message: 'Invalid postType' });
 
-    const userId = req.user._id;
+    const userId = req.user.id;
 
     let doc = await Model.findById(postId);
     if (!doc) return res.status(404).json({ message: 'Post not found' });
@@ -131,6 +131,7 @@ router.delete('/:postType/:postId', verifyToken, async (req, res) => {
         ok: true,
         postType: normalizeType(postType),
         postId,
+        userId,
         removed: {
             postLevel: removedPostLevel,
             photoTags: removedFromPhotos,
@@ -147,46 +148,52 @@ router.delete('/:postType/:postId', verifyToken, async (req, res) => {
  * - Leaves any tags on other photos intact
  */
 router.delete('/:postType/:postId/photo/:photoId', verifyToken, async (req, res) => {
+  const { postType, postId, photoId } = req.params || {};
+  const userId = req.user?.id;
+
+  try {
+    // Auth/ownership check; this should send its own response on failure
     if (!ensureSelfUntag(req, res)) return;
 
-    const { postType, postId, photoId } = req.params;
     const Model = getModelOrNull(postType);
     if (!Model) return res.status(400).json({ message: 'Invalid postType' });
     if (!photoId) return res.status(400).json({ message: 'photoId is required' });
 
-    const userId = req.user._id;
-
-    let doc = await Model.findById(postId);
+    const doc = await Model.findById(postId);
     if (!doc) return res.status(404).json({ message: 'Post not found' });
 
     const before = tagSummary(doc, userId);
 
     const removedCount = removeFromOnePhoto(doc, photoId, userId);
     if (removedCount === 0) {
-        // Still save to be consistent? We can skip save to avoid bumping updatedAt.
-        return res.json({
-            ok: true,
-            postType: normalizeType(postType),
-            postId,
-            photoId,
-            removed: 0,
-            remaining: before, // unchanged
-            message: 'No matching tag found on the specified photo',
-        });
+      // No save to avoid bumping updatedAt
+      return res.json({
+        ok: true,
+        postType: normalizeType(postType),
+        postId,
+        photoId,
+        removed: 0,
+        remaining: before, // unchanged
+        message: 'No matching tag found on the specified photo',
+      });
     }
 
     await doc.save();
     const after = tagSummary(doc, userId);
 
     return res.json({
-        ok: true,
-        postType: normalizeType(postType),
-        postId,
-        photoId,
-        removed: removedCount,
-        remaining: after,
-        before, // optional
+      ok: true,
+      postType: normalizeType(postType),
+      postId,
+      photoId,
+      removed: removedCount,
+      remaining: after,
+      userId,
+      before, // optional
     });
+  } catch (err) {
+    return res.status(500).json({ message: 'Internal server error' });
+  }
 });
 
 module.exports = router;

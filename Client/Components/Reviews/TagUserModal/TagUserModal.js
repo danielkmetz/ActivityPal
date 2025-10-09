@@ -68,11 +68,12 @@ const TagUserModal = ({
         ? !!getIsFollowing(item.userId)
         : !!isFollowingMap?.[item.userId];
 
-    const handlePressRow = () => {
+    const handlePressRow = async () => {
       if (isSelf) {
         openSelfActions();
       } else {
         onViewProfile?.(item);
+        await animateOut();
       }
     };
 

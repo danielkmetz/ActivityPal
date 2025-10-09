@@ -50,7 +50,8 @@ export default function PostActions({
   onFollowUser,               // (userId, userObj) => void
   onNavigateToProfile,        // (userId, userObj) => void
   getIsFollowing,             // (userId) => boolean
-  isFollowingMap,     
+  isFollowingMap,
+  setPhotoTapped,     
 }) {
   const navigation = useNavigation();
   const user = useSelector(selectUser);
@@ -90,6 +91,7 @@ export default function PostActions({
 
   const closeTagModal = () => {
     setTagModalVisible(false);
+    setPhotoTapped(null);
     // If you want to auto-hide tags on close, call a hide method here.
     // e.g., onRequestHideTags?.(photo.photoKey)
   };
@@ -186,8 +188,6 @@ export default function PostActions({
           </View>
         </TouchableWithoutFeedback>
       )}
-
-      {/* Tag list modal */}
       <TagUserModal
         visible={tagModalVisible}
         item={item}
