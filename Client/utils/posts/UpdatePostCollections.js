@@ -1,4 +1,3 @@
-// Safe stringify to avoid circular refs in logs
 const safeStringify = (obj) => {
   const seen = new WeakSet();
   return JSON.stringify(
@@ -276,62 +275,164 @@ export const updatePostCollections = ({
       log.error('Failed __updateCommentLikes:', err, '\ncontext:', safeStringify(u.__updateCommentLikes));
     }
 
+
+
+    // At the top of applyCustomUpdate(post)
     try {
-      // A) Remove THIS USER from post-level tags (Review/CheckIn only; no-op for Event/Promotion)
-      // updates.__removeSelfFromPost = { userId }
+      const postLevelBefore = Array.isArray(post.taggedUsers) ? post.taggedUsers.length : null;
+      const photosBefore = Array.isArray(post.photos) ? post.photos.length : 0;
+      const totalPhotoTagsBefore = (post.photos || []).reduce(
+        (sum, p) => sum + (Array.isArray(p?.taggedUsers) ? p.taggedUsers.length : 0),
+        0
+      );
+      log.info('pre-state', {
+        postId: String(post?._id || ''),
+        postLevelBefore,
+        photosBefore,
+        totalPhotoTagsBefore,
+        // optional small preview
+        photoPreview: (post.photos || []).slice(0, 5).map(p => ({
+          _id: String(p?._id || ''),
+          photoKey: String(p?.photoKey || ''),
+          tagCount: Array.isArray(p?.taggedUsers) ? p.taggedUsers.length : 0,
+        })),
+      });
+    } catch (e) {
+      log.warn('pre-state logging failed', e?.message);
+    }
+
+    /* ---------- A) remove from post-level ---------- */
+    try {
       if (u.__removeSelfFromPost) {
         const { userId } = u.__removeSelfFromPost;
+        const before = Array.isArray(post.taggedUsers) ? post.taggedUsers.length : null;
+
         if (Array.isArray(post.taggedUsers)) {
           const { next, removed } = removeIdFromIdArray(post.taggedUsers, userId);
           post.taggedUsers = next;
-          log.info(`__removeSelfFromPost -> removed=${removed}`);
+          const after = post.taggedUsers.length;
+          log.info(`__removeSelfFromPost`, {
+            userId: String(userId),
+            removed,
+            before,
+            after,
+          });
         } else {
-          log.warn('__removeSelfFromPost skipped: post.taggedUsers is not an array');
+          log.warn('__removeSelfFromPost skipped: post.taggedUsers is not an array', {
+            typeofTaggedUsers: typeof post.taggedUsers,
+          });
         }
       }
     } catch (err) {
       log.error('Failed __removeSelfFromPost:', err, '\ncontext:', safeStringify(u.__removeSelfFromPost));
     }
 
+    /* ---------- B) remove from ALL photos ---------- */
     try {
-      // B) Remove THIS USER from ALL photos in the post
-      // updates.__removeSelfFromAllPhotos = { userId }
       if (u.__removeSelfFromAllPhotos) {
         const { userId } = u.__removeSelfFromAllPhotos;
         let removedTotal = 0;
+        const perPhoto = [];
+
         if (Array.isArray(post.photos)) {
-          post.photos.forEach((p) => {
-            removedTotal += removeUserFromPhotoTags(p, userId);
+          post.photos.forEach((p, idx) => {
+            const before = Array.isArray(p?.taggedUsers) ? p.taggedUsers.length : 0;
+            const removed = removeUserFromPhotoTags(p, userId);
+            const after = Array.isArray(p?.taggedUsers) ? p.taggedUsers.length : 0;
+            if (removed > 0) {
+              perPhoto.push({
+                idx,
+                photoId: String(p?._id || ''),
+                photoKey: String(p?.photoKey || ''),
+                removed,
+                before,
+                after,
+              });
+            }
+            removedTotal += removed;
           });
-          log.info(`__removeSelfFromAllPhotos -> totalRemoved=${removedTotal}`);
+
+          log.info(`__removeSelfFromAllPhotos`, {
+            userId: String(userId),
+            removedTotal,
+            changedPhotos: perPhoto.length,
+            details: perPhoto.slice(0, 10), // cap to avoid noisy logs
+          });
         } else {
-          log.warn('__removeSelfFromAllPhotos skipped: post.photos is not an array');
+          log.warn('__removeSelfFromAllPhotos skipped: post.photos is not an array', {
+            typeofPhotos: typeof post.photos,
+          });
         }
       }
     } catch (err) {
       log.error('Failed __removeSelfFromAllPhotos:', err, '\ncontext:', safeStringify(u.__removeSelfFromAllPhotos));
     }
 
+    /* ---------- C) remove from ONE photo ---------- */
     try {
-      // C) Remove THIS USER from ONE specific photo
-      // updates.__removeSelfFromPhoto = { userId, photoId }
       if (u.__removeSelfFromPhoto) {
         const { userId, photoId } = u.__removeSelfFromPhoto;
+
         if (Array.isArray(post.photos)) {
           const pid = toStr(photoId);
-          const photo = post.photos.find((p) => toStr(p._id) === pid || toStr(p.photoId) === pid);
-          if (!photo) {
-            log.warn(`__removeSelfFromPhoto -> photoId=${pid} not found`);
+          const photoIdx = post.photos.findIndex(
+            (p) => toStr(p._id) === pid || toStr(p.photoId) === pid || toStr(p.photoKey) === pid
+          );
+
+          if (photoIdx === -1) {
+            log.warn(`__removeSelfFromPhoto -> photo not found`, {
+              photoIdTried: pid,
+              available: post.photos.slice(0, 10).map((p, i) => ({
+                i,
+                _id: toStr(p._id),
+                photoId: toStr(p.photoId),
+                photoKey: toStr(p.photoKey),
+                tagCount: Array.isArray(p?.taggedUsers) ? p.taggedUsers.length : 0,
+              })),
+            });
           } else {
-            const removed = removeUserFromPhotoTags(photo, userId);
-            log.info(`__removeSelfFromPhoto -> removed=${removed} from photoId=${pid}`);
+            const target = post.photos[photoIdx];
+            const before = Array.isArray(target?.taggedUsers) ? target.taggedUsers.length : 0;
+            const removed = removeUserFromPhotoTags(target, userId);
+            const after = Array.isArray(target?.taggedUsers) ? target.taggedUsers.length : 0;
+
+            log.info(`__removeSelfFromPhoto`, {
+              userId: String(userId),
+              photoIdx,
+              photoMatch: {
+                _id: toStr(target?._id),
+                photoId: toStr(target?.photoId),
+                photoKey: toStr(target?.photoKey),
+              },
+              removed,
+              before,
+              after,
+            });
           }
         } else {
-          log.warn('__removeSelfFromPhoto skipped: post.photos is not an array');
+          log.warn('__removeSelfFromPhoto skipped: post.photos is not an array', {
+            typeofPhotos: typeof post.photos,
+          });
         }
       }
     } catch (err) {
       log.error('Failed __removeSelfFromPhoto:', err, '\ncontext:', safeStringify(u.__removeSelfFromPhoto));
+    }
+
+    /* ---------- final snapshot ---------- */
+    try {
+      const postLevelAfter = Array.isArray(post.taggedUsers) ? post.taggedUsers.length : null;
+      const totalPhotoTagsAfter = (post.photos || []).reduce(
+        (sum, p) => sum + (Array.isArray(p?.taggedUsers) ? p.taggedUsers.length : 0),
+        0
+      );
+      log.info('post-state', {
+        postId: String(post?._id || ''),
+        postLevelAfter,
+        totalPhotoTagsAfter,
+      });
+    } catch (e) {
+      log.warn('post-state logging failed', e?.message);
     }
 
     try {
@@ -347,6 +448,7 @@ export const updatePostCollections = ({
 
     log.groupEnd();
   };
+  //////////////////
 
   try {
     // Apply to lists that contain the post

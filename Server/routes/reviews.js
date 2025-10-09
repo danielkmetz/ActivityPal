@@ -149,6 +149,162 @@ router.post("/:placeId", async (req, res) => {
   }
 });
 
+/////edit reviews
+router.put("/:placeId/:reviewId", async (req, res) => {
+  const { placeId, reviewId } = req.params;
+  const {
+    rating,
+    priceRating,
+    serviceRating,
+    atmosphereRating,
+    wouldRecommend,
+    reviewText,
+    photos,
+    taggedUsers,
+  } = req.body;
+
+  try {
+    // 1. Find and validate the review
+    const review = await Review.findById(reviewId);
+    if (!review || review.placeId !== placeId) {
+      return res.status(404).json({ message: "Review not found for this place" });
+    }
+
+    const previousTaggedUserIds = review.taggedUsers.map(id => id.toString());
+    const previousPhotos = review.photos || [];
+    const previousPhotosByKey = new Map(
+      previousPhotos.map(p => [p.photoKey, p])
+    );
+
+    // 2. Update core fields
+    if (rating !== undefined) review.rating = rating;
+    if (priceRating !== undefined) review.priceRating = priceRating;
+    if (serviceRating !== undefined) review.serviceRating = serviceRating;
+    if (atmosphereRating !== undefined) review.atmosphereRating = atmosphereRating;
+    if (wouldRecommend !== undefined) review.wouldRecommend = wouldRecommend;
+    if (reviewText !== undefined) review.reviewText = reviewText;
+
+    // 3. Handle tagged users
+    const taggedUserIds = (taggedUsers || []).map(t => t.userId || t._id || t);
+    review.taggedUsers = taggedUserIds;
+
+    // 4. Handle photos
+    const newPhotoTaggedUserIds = [];
+    const newPhotosByKey = new Map();
+
+    review.photos = await Promise.all(
+      (photos || []).map(async (photo) => {
+        const formattedTagged = (photo.taggedUsers || []).map(tag => {
+          newPhotoTaggedUserIds.push(tag.userId?.toString());
+          return {
+            userId: tag.userId,
+            x: tag.x,
+            y: tag.y,
+          };
+        });
+
+        newPhotosByKey.set(photo.photoKey, photo);
+
+        return {
+          photoKey: photo.photoKey,
+          uploadedBy: review.userId,
+          description: photo.description || null,
+          taggedUsers: formattedTagged,
+          uploadDate: new Date(),
+        };
+      })
+    );
+
+    // 5. Compute diffs
+    const deletedPhotoKeys = [...previousPhotosByKey.keys()].filter(k => !newPhotosByKey.has(k));
+    const addedPhotoKeys = [...newPhotosByKey.keys()].filter(k => !previousPhotosByKey.has(k));
+
+    const removedPhotoTaggedUserIds = deletedPhotoKeys.flatMap(key =>
+      previousPhotosByKey.get(key)?.taggedUsers?.map(tag => tag.userId.toString()) || []
+    );
+    const addedPhotoTaggedUserIds = addedPhotoKeys.flatMap(key =>
+      newPhotosByKey.get(key)?.taggedUsers?.map(tag => tag.userId.toString()) || []
+    );
+
+    const oldTaggedSet = new Set([...previousTaggedUserIds, ...removedPhotoTaggedUserIds]);
+    const newTaggedSet = new Set([...taggedUserIds.map(String), ...newPhotoTaggedUserIds, ...addedPhotoTaggedUserIds]);
+
+    const removedTags = [...oldTaggedSet].filter(x => !newTaggedSet.has(x));
+    const addedTags = [...newTaggedSet].filter(x => !oldTaggedSet.has(x));
+
+    // 6. Remove old notifications
+    await Promise.all(
+      removedTags.map(userId =>
+        User.findByIdAndUpdate(userId, {
+          $pull: { notifications: { targetId: review._id } },
+        })
+      )
+    );
+
+    // 7. Add new notifications
+    await Promise.all(
+      addedTags.map(userId =>
+        User.findByIdAndUpdate(userId, {
+          $push: {
+            notifications: {
+              type: "tag",
+              message: `${review.fullName} tagged you in a review.`,
+              targetId: review._id,
+              typeRef: "Review",
+              senderId: review.userId,
+              date: new Date(),
+              read: false,
+            },
+          },
+        })
+      )
+    );
+
+    await review.save();
+
+    // 8. Enrich response
+    const [populatedTaggedUsers, populatedPhotos, profileMap, business] = await Promise.all([
+      resolveTaggedUsers(taggedUserIds),
+      resolveTaggedPhotoUsers(review.photos),
+      resolveUserProfilePics([review.userId]),
+      Business.findOne({ placeId }).lean()
+    ]);
+
+    const profileData = profileMap[review.userId.toString()] || {
+      profilePic: null,
+      profilePicUrl: null,
+    };
+
+    res.status(200).json({
+      message: "Review updated successfully",
+      review: {
+        _id: review._id,
+        placeId,
+        businessName: business?.businessName || "Unknown Business",
+        userId: review.userId,
+        fullName: review.fullName,
+        profilePic: profileData.profilePic,
+        profilePicUrl: profileData.profilePicUrl,
+        rating: review.rating,
+        priceRating: review.priceRating,
+        serviceRating: review.serviceRating,
+        atmosphereRating: review.atmosphereRating,
+        wouldRecommend: review.wouldRecommend,
+        reviewText: review.reviewText,
+        taggedUsers: populatedTaggedUsers,
+        date: review.date,
+        photos: populatedPhotos,
+        type: "review",
+        likes: review.likes || [],
+      },
+    });
+
+  } catch (error) {
+    console.error("🚨 Error updating review:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 //// Delete a review by its ObjectId
 router.delete('/:placeId/:reviewId', async (req, res) => {
   const { placeId, reviewId } = req.params;
