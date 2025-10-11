@@ -91,9 +91,7 @@ export default function PostActions({
 
   const closeTagModal = () => {
     setTagModalVisible(false);
-    setPhotoTapped(null);
-    // If you want to auto-hide tags on close, call a hide method here.
-    // e.g., onRequestHideTags?.(photo.photoKey)
+    setPhotoTapped?.(null);
   };
 
   const handleViewProfile = (u) => {
@@ -102,7 +100,6 @@ export default function PostActions({
     if (typeof onNavigateToProfile === "function") {
       onNavigateToProfile(uid, u);
     } else {
-      // sensible fallback
       if (String(uid) === String(currentUserId)) {
         navigation.navigate("Profile");
       } else {
@@ -113,7 +110,6 @@ export default function PostActions({
 
   const handleFollow = (u) => {
     onFollowUser?.(u?.userId, u);
-    // keep modal open (IG-like). If you prefer closing, call setTagModalVisible(false)
   };
 
   return (

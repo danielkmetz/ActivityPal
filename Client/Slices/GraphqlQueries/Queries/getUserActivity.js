@@ -12,8 +12,8 @@ export const GET_USER_ACTIVITY_QUERY = gql`
   ${SHARED_POST_FRAGMENT}
   ${LIVE_STREAM_FRAGMENT}
 
-  query GetUserActivity($userId: ID!, $limit: Int, $after: ActivityCursor, $userLat: Float, $userLng: Float) {
-    getUserActivity(userId: $userId, limit: $limit, after: $after, userLat: $userLat, userLng: $userLng) {
+  query GetUserActivity($limit: Int, $after: ActivityCursor, $userLat: Float, $userLng: Float) {
+    getUserActivity(limit: $limit, after: $after, userLat: $userLat, userLng: $userLng) {
       ... on Review {
         ...ReviewFields
       }
