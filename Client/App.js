@@ -29,6 +29,8 @@ import { fetchProfilePic } from './Slices/PhotosSlice';
 import client from './apolloClient';
 import { LikeAnimationsProvider } from './utils/LikeHandlers/LikeAnimationContext';
 import { useLiveSocketBootstrap } from './useLiveSocketBootstrap';
+import { BusinessReviewsProvider } from './Providers/BusinessReviewsContext';
+import { UserFeedProvider } from './Providers/UserFeedContext';
 
 const fetchFonts = async () => {
   return await Font.loadAsync({
@@ -245,11 +247,15 @@ export default function App() {
           <GestureHandlerRootView style={{ flex: 1 }}>
             <SafeAreaProvider>
               <LikeAnimationsProvider>
-                <NavigationContainer ref={(ref) => {
-                  navigationRef.current = ref;
-                }}>
-                  <MainApp />
-                </NavigationContainer>
+                <BusinessReviewsProvider>
+                  <UserFeedProvider>
+                    <NavigationContainer ref={(ref) => {
+                      navigationRef.current = ref;
+                    }}>
+                      <MainApp />
+                    </NavigationContainer>
+                  </UserFeedProvider>
+                </BusinessReviewsProvider>
               </LikeAnimationsProvider>
             </SafeAreaProvider>
           </GestureHandlerRootView>

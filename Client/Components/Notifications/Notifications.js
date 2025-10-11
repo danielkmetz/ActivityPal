@@ -2,7 +2,6 @@ import React, { useState, useRef } from 'react';
 import {
     View,
     FlatList,
-    TouchableOpacity,
     TouchableWithoutFeedback,
     StyleSheet,
     Alert,

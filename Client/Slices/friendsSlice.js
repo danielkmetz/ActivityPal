@@ -1,6 +1,7 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
 import { getUserToken } from '../functions';
+import { removeUserPostsFromUserAndFriends, fetchReviewsByUserAndFriends, invalidateUserAndFriendsFeed } from './ReviewsSlice';
 import { GET_SUGGESTED_FOLLOWS_QUERY } from './GraphqlQueries/Queries/suggestedFollowQuery';
 import client from '../apolloClient';
 
@@ -23,7 +24,7 @@ export const sendFollowRequest = createAsyncThunk(
 
 export const followUserImmediately = createAsyncThunk(
   'follows/followUserImmediately',
-  async ({ targetUserId, isFollowBack = false }, { rejectWithValue }) => {
+  async ({ targetUserId, isFollowBack = false }, { rejectWithValue, dispatch }) => {
     try {
       const token = await getUserToken();
 
@@ -37,6 +38,8 @@ export const followUserImmediately = createAsyncThunk(
           },
         }
       );
+
+      dispatch(invalidateUserAndFriendsFeed());
 
       return { ...response.data, isFollowBack };
     } catch (error) {
@@ -92,12 +95,15 @@ export const declineFollowRequest = createAsyncThunk(
 
 export const unfollowUser = createAsyncThunk(
   'follows/unfollowUser',
-  async (targetUserId, { rejectWithValue }) => {
+  async (targetUserId, { rejectWithValue, dispatch }) => {
     try {
       const token = await getUserToken();
-      await axios.delete(`${BASE_URL}/unfollow/${targetUserId}`, {
+      const response = await axios.delete(`${BASE_URL}/unfollow/${targetUserId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+
+      await dispatch(removeUserPostsFromUserAndFriends(targetUserId))
+
       return { targetUserId };
     } catch (error) {
       return rejectWithValue(error.response?.data || 'Failed to unfollow user.');

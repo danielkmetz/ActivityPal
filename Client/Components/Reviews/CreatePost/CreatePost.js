@@ -96,37 +96,59 @@ export default function CreatePost() {
     const newFiles = await selectMediaFromGallery();
 
     if (newFiles.length > 0) {
-      const prepared = newFiles.map(file => ({
+      const getKey = (p) => p.photoKey || p.localKey || p.uri || p._id;
+
+      // 1) Ensure existing photos have a stable `order`
+      const existingWithOrder = (photoList || []).map((p, idx) =>
+        p?.order != null ? p : { ...p, order: idx }
+      );
+      const maxOrder =
+        existingWithOrder.length > 0
+          ? Math.max(...existingWithOrder.map((p) => p.order))
+          : -1;
+
+      // 2) Stamp `order` onto the new files
+      const prepared = newFiles.map((file, i) => ({
         ...file,
         taggedUsers: [],
         description: file.description || "",
         uri: file.uri,
+        order: maxOrder + 1 + i,
       }));
 
+      // 3) Merge, de-dupe by a stable key (keep first occurrence), then sort by `order`
       const seen = new Set();
-      const combined = [...photoList, ...prepared].filter(photo => {
-        const key = photo.photoKey || photo.uri || photo.localKey;
+      const merged = [...existingWithOrder, ...prepared];
+      const deduped = merged.filter((photo) => {
+        const key = getKey(photo);
         if (!key || seen.has(key)) return false;
         seen.add(key);
         return true;
       });
 
-      setSelectedPhotos(combined);
-      setPhotoList(combined);
+      const ordered = deduped.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+      setSelectedPhotos(ordered);
+      setPhotoList(ordered);
       setEditPhotosModalVisible(true);
       setPreviewPhoto(null);
     }
   };
 
+  const getPhotoKey = (p) => p.photoKey || p.localKey || p.uri || p._id;
+
+  const replaceInPlace = (list, updated) => {
+    const k = getPhotoKey(updated);
+    const idx = list.findIndex(p => getPhotoKey(p) === k);
+    if (idx === -1) return list; // not found, no change
+    const next = list.slice();
+    next[idx] = { ...list[idx], ...updated };
+    return next;
+  };
+
   const handlePhotoSave = (updatedPhoto) => {
-    setPhotoList((prev) => {
-      const keyToMatch = updatedPhoto.photoKey || updatedPhoto.uri || updatedPhoto._id;
-      const filtered = prev.filter(photo => {
-        const key = photo.photoKey || photo.uri || photo._id;
-        return key !== keyToMatch;
-      });
-      return [...filtered, updatedPhoto];
-    });
+    setPhotoList(prev => replaceInPlace(prev, updatedPhoto));
+    setSelectedPhotos(prev => replaceInPlace(prev, updatedPhoto));
   };
 
   const handlePhotoDelete = (photoToDelete) => {

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useDispatch } from 'react-redux';
 
 export default function usePaginatedFetch({
@@ -7,6 +7,7 @@ export default function usePaginatedFetch({
   resetAction,
   params = {},
   limit,
+  refreshSignal,
 }) {
   const dispatch = useDispatch();
 
@@ -92,12 +93,27 @@ export default function usePaginatedFetch({
     }
   }, [loadPage, hasMore]);
 
-  const refresh = useCallback(() => {
-    setHasMore(true);
-    lastCursorRef.current = null;
-    allKeysRef.current = new Set();
-    loadPage(true);
+  const refreshRef = useRef(() => { });
+  useEffect(() => {
+    refreshRef.current = () => {
+      setHasMore(true);
+      lastCursorRef.current = null;
+      allKeysRef.current = new Set();
+      loadPage(true);
+    };
   }, [loadPage]);
+
+  // 👉 Only depend on refreshSignal here (not on `refresh`)
+  useEffect(() => {
+    if (refreshSignal == null) return;
+    refreshRef.current();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshSignal]);
+
+  const refresh = useCallback(() => {
+    // expose a stable public refresh too
+    refreshRef.current();
+  }, []);
 
   return { loadMore, refresh, isLoading, hasMore };
 }

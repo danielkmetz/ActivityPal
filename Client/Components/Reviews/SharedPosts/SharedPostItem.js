@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import StoryAvatar from '../../Stories/StoryAvatar';
 import PostActions from '../PostActions/PostActions';
@@ -8,6 +8,7 @@ import PostOptionsMenu from '../PostOptionsMenu';
 import { useSelector } from 'react-redux';
 import { selectUser } from '../../../Slices/UserSlice';
 import SharedPostContent from './SharedPostContent';
+import NonOwnerOptions from '../PostOptionsMenu/NonOwnerPostOptions';
 
 export default function SharedPostItem({
     item,
@@ -31,6 +32,7 @@ export default function SharedPostItem({
     const isSender = postUserId === user?.id;
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
     const [dropdownVisible, setDropdownVisible] = useState(false);
+    const [viewerOptionsVisible, setViewerOptionsVisible] = useState(false);
     const currentPhoto = item.photos?.[currentPhotoIndex];
 
     const navigateToProfile = () => {
@@ -81,6 +83,15 @@ export default function SharedPostItem({
                     }
                 </View>
             </View>
+            {!isSender &&  (
+                <TouchableOpacity
+                    onPress={() => setViewerOptionsVisible(true)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={{ position: 'absolute', top: 6, right: 6, padding: 6, zIndex: 5 }}
+                >
+                    <Text style={{ fontSize: 22, lineHeight: 22 }}>⋯</Text>
+                </TouchableOpacity>
+            )}
             {/* Render Shared Content */}
             <View style={{ marginTop: 10 }}>
                 <SharedPostContent
@@ -108,6 +119,12 @@ export default function SharedPostItem({
                     onShare={onShare}
                 />
             </View>
+             <NonOwnerOptions
+                visible={viewerOptionsVisible}
+                item={item}
+                onClose={() => setViewerOptionsVisible(false)}
+                isFollowing={true}
+            />
         </View>
     );
 }

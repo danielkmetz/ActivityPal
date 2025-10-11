@@ -15,20 +15,22 @@ const safeStringify = (obj) => {
 
 const toStr = (v) => (v == null ? '' : String(v));
 
-function removeIdFromIdArray(arr, userId) {
+function removeUserFromTagArray(arr, userId) {
   if (!Array.isArray(arr)) return { next: arr, removed: 0 };
   const uid = toStr(userId);
   const before = arr.length;
-  const next = arr.filter((id) => toStr(id) !== uid);
+  const next = arr.filter((t) => {
+    const tid = toStr(t?.userId ?? t?._id ?? t?.id ?? t);
+    return tid !== uid;
+  });
   return { next, removed: before - next.length };
 }
 
 function removeUserFromPhotoTags(photo, userId) {
   if (!photo || !Array.isArray(photo.taggedUsers)) return 0;
-  const uid = toStr(userId);
-  const before = photo.taggedUsers.length;
-  photo.taggedUsers = photo.taggedUsers.filter((t) => toStr(t.userId) !== uid);
-  return before - photo.taggedUsers.length;
+  const { next, removed } = removeUserFromTagArray(photo.taggedUsers, userId);
+  if (removed > 0) photo.taggedUsers = next;
+  return removed;
 }
 
 export const updatePostCollections = ({
@@ -40,27 +42,28 @@ export const updatePostCollections = ({
   label = 'updatePostCollections' // kept for API compatibility; unused
 }) => {
   const applyCustomUpdate = (post) => {
-    if (!post) return;
+    if (!post) return false;
 
     const u = updates || {};
+    let mutated = false;
+    const mark = () => { mutated = true; };
 
     // 6) Update likes on the post itself
     if (u.__updatePostLikes) {
       const val = u.__updatePostLikes;
       if (Array.isArray(val)) {
-        // legacy shape: __updatePostLikes = [ ...likes ]
-        post.likes = val;
+        post.likes = val; mark();
       } else if (val && typeof val === 'object') {
-        // new shape: __updatePostLikes = { likes, likesCount?, liked? }
-        if (Array.isArray(val.likes)) post.likes = val.likes;
-        if (typeof val.likesCount === 'number') post.likesCount = val.likesCount;
-        if (typeof val.liked === 'boolean') post.liked = val.liked;
+        if (Array.isArray(val.likes)) { post.likes = val.likes; mark(); }
+        if (typeof val.likesCount === 'number') { post.likesCount = val.likesCount; mark(); }
+        if (typeof val.liked === 'boolean') { post.liked = val.liked; mark(); }
       }
     }
 
     // 0) Append a top-level comment
     if (u.__appendComment) {
       post.comments = [...(post.comments || []), u.__appendComment];
+      mark();
     }
 
     // 1) Append a reply to a specific comment
@@ -79,9 +82,7 @@ export const updatePostCollections = ({
         return false;
       };
 
-      if (Array.isArray(post.comments)) {
-        insertReply(post.comments);
-      }
+      if (Array.isArray(post.comments) && insertReply(post.comments)) mark();
     }
 
     // 2) Update a comment or reply
@@ -100,9 +101,7 @@ export const updatePostCollections = ({
         return false;
       };
 
-      if (Array.isArray(post.comments)) {
-        updateComment(post.comments);
-      }
+      if (Array.isArray(post.comments) && updateComment(post.comments)) mark();
     }
 
     // 3) Delete a comment or reply
@@ -120,7 +119,9 @@ export const updatePostCollections = ({
           .filter(Boolean);
 
       if (Array.isArray(post.comments)) {
+        const before = post.comments.length;
         post.comments = deleteComment(post.comments);
+        if (post.comments.length !== before) mark();
       }
     }
 
@@ -161,37 +162,48 @@ export const updatePostCollections = ({
                 newTop,
                 ...post.comments.slice(idx + 1),
               ];
+              mark();
             }
           } else {
             const { next: newComments, changed } = updateReplyLikesDeep(post.comments || []);
             if (changed) {
               post.comments = newComments;
+              mark();
             }
           }
         } else {
-          post.comments = (post.comments || []).map((c) =>
+          const mapped = (post.comments || []).map((c) =>
             String(c._id) === String(topId) ? { ...c, likes } : c
           );
+          if (mapped !== post.comments) {
+            post.comments = mapped;
+            mark();
+          }
         }
       }
     }
 
-    /* ---------- A) remove from post-level ---------- */
+    /* ---------- A) remove from post-level (handles ids OR objects) ---------- */
     if (u.__removeSelfFromPost) {
       const { userId } = u.__removeSelfFromPost;
-      if (Array.isArray(post.taggedUsers)) {
-        const { next } = removeIdFromIdArray(post.taggedUsers, userId);
-        post.taggedUsers = next;
-      }
+      // Try canonical + a few common alternates
+      const bumpIfRemoved = (field) => {
+        if (!Array.isArray(post[field])) return;
+        const { next, removed } = removeUserFromTagArray(post[field], userId);
+        if (removed > 0) { post[field] = next; mark(); }
+      };
+      bumpIfRemoved('taggedUsers');   // canonical
+      bumpIfRemoved('tags');          // alt naming
+      bumpIfRemoved('peopleTagged');  // alt naming
     }
 
     /* ---------- B) remove from ALL photos ---------- */
     if (u.__removeSelfFromAllPhotos) {
       const { userId } = u.__removeSelfFromAllPhotos;
       if (Array.isArray(post.photos)) {
-        post.photos.forEach((p) => {
-          removeUserFromPhotoTags(p, userId);
-        });
+        let removedAny = 0;
+        post.photos.forEach((p) => { removedAny += removeUserFromPhotoTags(p, userId); });
+        if (removedAny > 0) mark();
       }
     }
 
@@ -202,12 +214,12 @@ export const updatePostCollections = ({
       if (Array.isArray(post.photos)) {
         const pid = toStr(photoId);
         const photoIdx = post.photos.findIndex(
-          (p) => toStr(p._id) === pid || toStr(p.photoId) === pid || toStr(p.photoKey) === pid
+          (p) => toStr(p._id) === pid || toStr(p.id) === pid || toStr(p.photoId) === pid || toStr(p.photoKey) === pid
         );
 
         if (photoIdx !== -1) {
           const target = post.photos[photoIdx];
-          removeUserFromPhotoTags(target, userId);
+          if (removeUserFromPhotoTags(target, userId) > 0) mark();
         }
       }
     }
@@ -216,24 +228,39 @@ export const updatePostCollections = ({
     const plainEntries = Object.entries(u).filter(([k]) => !k.startsWith('__'));
     if (plainEntries.length) {
       Object.assign(post, Object.fromEntries(plainEntries));
+      mark();
     }
+
+    return mutated;
   };
+
+  const postIdStr = String(postId);
 
   // Apply to lists that contain the post
   for (const key of postKeys || []) {
     const list = state?.[key];
     if (!Array.isArray(list)) continue;
-    const idx = list.findIndex((p) => String(p?._id) === String(postId));
+    const idx = list.findIndex((p) => {
+      const pid = String(p?._id ?? p?.id);
+      return pid === postIdStr;
+    });
     if (idx === -1) continue;
-    applyCustomUpdate(list[idx]);
+
+    const changed = applyCustomUpdate(list[idx]);
+    if (changed) {
+      // bump object identity so memoized components re-render
+      state[key][idx] = { ...state[key][idx] };
+    }
   }
 
   // Apply to selectedReview / selectedPost if it matches
-  let sel = null;
-  if (state?.selectedPost?._id === postId) {
-    sel = state.selectedPost;
-  } else if (state?.selectedReview?._id === postId) {
-    sel = state.selectedReview;
+  if (state?.selectedPost && String(state.selectedPost?._id ?? state.selectedPost?.id) === postIdStr) {
+    if (applyCustomUpdate(state.selectedPost)) {
+      state.selectedPost = { ...state.selectedPost };
+    }
+  } else if (state?.selectedReview && String(state.selectedReview?._id ?? state.selectedReview?.id) === postIdStr) {
+    if (applyCustomUpdate(state.selectedReview)) {
+      state.selectedReview = { ...state.selectedReview };
+    }
   }
-  if (sel) applyCustomUpdate(sel);
 };

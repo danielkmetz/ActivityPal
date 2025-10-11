@@ -20,6 +20,7 @@ import { logEngagementIfNeeded } from "../../Slices/EngagementSlice";
 import PhotoFeed from "./Photos/PhotoFeed";
 import FollowButton from './PostActions/FollowButton';
 import PostHeader from './PostHeader/PostHeader';
+import NonOwnerOptions from "./PostOptionsMenu/NonOwnerPostOptions";
 
 const pinPic = "https://cdn-icons-png.flaticon.com/512/684/684908.png";
 
@@ -53,6 +54,7 @@ export default function CheckInItem({
     const [isFollowing, setIsFollowing] = useState(false);
     const [isRequestSent, setIsRequestSent] = useState(false);
     const [isRequestReceived, setIsRequestReceived] = useState(false);
+    const [viewerOptionsVisible, setViewerOptionsVisible] = useState(false);
     const scrollX = useRef(new Animated.Value(0)).current;
     const currentPhoto = item.photos?.[currentPhotoIndex];
     const postOwnerId = item?.userId;
@@ -139,6 +141,15 @@ export default function CheckInItem({
                         postData={item}
                     />
                 )}
+                {!isSender && !sharedPost && (
+                    <TouchableOpacity
+                        onPress={() => setViewerOptionsVisible(true)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={{ position: 'absolute', top: 0, right: 6, padding: 6, zIndex: 5 }}
+                    >
+                        <Text style={{ fontSize: 22, lineHeight: 22 }}>⋯</Text>
+                    </TouchableOpacity>
+                )}
                 <View style={styles.section}>
                     <PostHeader
                         item={item}
@@ -204,6 +215,12 @@ export default function CheckInItem({
                     </View>
                 )}
             </View>
+            <NonOwnerOptions
+                visible={viewerOptionsVisible}
+                item={item}
+                onClose={() => setViewerOptionsVisible(false)}
+                isFollowing={!!isFollowing}
+            />
         </MaybeTWF>
     );
 }

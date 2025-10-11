@@ -370,7 +370,7 @@ const typeDefs = gql`
     getBusinessReviews(placeId: String!, limit: Int, after: ActivityCursor): [UserPost!]
     getUserAndFollowingCheckIns(userId: String!): [CheckIn!]
     getUserAndFollowingInvites(userId: ID!): UserAndFriendsInvites
-    getUserActivity(userId: ID!, limit: Int, after: ActivityCursor, userLat: Float, userLng: Float): [UserActivity!]
+    getUserActivity(limit: Int, after: ActivityCursor, userLat: Float, userLng: Float): [UserActivity!]
     getSuggestedFollows(userId: ID!): [SuggestedUser!]!
     userAndFollowingStories(userId: ID!): [StoryGroup]
     storiesByUser(userId: ID!): [StoryGroup]

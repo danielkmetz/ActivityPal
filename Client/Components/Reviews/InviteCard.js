@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Alert } from 'react-native';
+import { View, Text, StyleSheet, Alert, TouchableOpacity } from 'react-native';
 import InviteeModal from '../ActivityInvites/InviteeModal';
 import { formatEventDate } from '../../functions';
 import { requestInvite, deleteInvite } from '../../Slices/InvitesSlice';
@@ -17,6 +17,7 @@ import CountdownPill from './Invites/CountdownPill';
 import AttendanceRow from './Invites/AttendanceRow';
 import { useInviteState } from './Invites/useInviteState';
 import { medium } from '../../utils/Haptics/haptics';
+import NonOwnerOptions from './PostOptionsMenu/NonOwnerPostOptions';
 
 const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onShare, sharedPost }) => {
     const dispatch = useDispatch();
@@ -26,6 +27,7 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onSha
     const [inviteToEdit, setInviteToEdit] = useState(null);
     const [isEditing, setIsEditing] = useState(false);
     const [dropdownVisible, setDropdownVisible] = useState(false);
+    const [viewerOptionsVisible, setViewerOptionsVisible] = useState(false);
     const user = useSelector(selectUser);
     const businessName = invite.businessName || invite.business?.businessName || 'Unnamed Location';
     const totalInvited = invite.recipients?.length || 0;
@@ -158,6 +160,15 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onSha
                         postData={invite}
                     />
                 )}
+                {!isSender && sharedPost && (
+                    <TouchableOpacity
+                        onPress={() => setViewerOptionsVisible(true)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        style={{ position: 'absolute', top: 6, right: 6, padding: 6, zIndex: 5 }}
+                    >
+                        <Text style={{ fontSize: 22, lineHeight: 22 }}>⋯</Text>
+                    </TouchableOpacity>
+                )}
                 <InviteHeader sender={invite.sender} totalInvited={totalInvited} onPressName={() => navigateToOtherUserProfile(invite.senderId)} />
                 <BusinessBadge name={businessName} logoUrl={businessLogoUrl} />
                 {invite.dateTime ? (
@@ -204,6 +215,12 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onSha
                 setInviteToEdit={setInviteToEdit}
                 isEditing={isEditing}
                 setIsEditing={setIsEditing}
+            />
+             <NonOwnerOptions
+                visible={viewerOptionsVisible}
+                item={item}
+                onClose={() => setViewerOptionsVisible(false)}
+                isFollowing={true}
             />
         </>
     );

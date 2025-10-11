@@ -4,6 +4,7 @@ import { GET_USER_POSTS_QUERY } from "./GraphqlQueries/Queries/getUserPosts";
 import { GET_BUSINESS_REVIEWS_QUERY } from "./GraphqlQueries/Queries/getBusinessReviews";
 import { updatePostCollections } from "../utils/posts/UpdatePostCollections";
 import { createSelector } from "@reduxjs/toolkit";
+import { getUserToken } from "../functions";
 import client from "../apolloClient";
 import axios from "axios";
 
@@ -128,12 +129,19 @@ export const fetchPostsByOtherUserId = createAsyncThunk(
 
 export const fetchReviewsByUserAndFriends = createAsyncThunk(
   "reviews/fetchUserActivity",
-  async ({ userId, limit = 15, after, userLat, userLng }, { rejectWithValue }) => {
+  async ({ limit = 15, after, userLat, userLng }, { rejectWithValue }) => {
     try {
+      const token = await getUserToken();
+
       const { data, errors } = await client.query({
         query: GET_USER_ACTIVITY_QUERY,
-        variables: { userId, limit, after, userLat, userLng },
+        variables: { limit, after, userLat, userLng },
         fetchPolicy: 'network-only', // optional: avoids caching issues
+        context: {
+          headers: {
+            Authorization: token ? `Bearer ${token}` : "",
+          },
+        },
       });
 
       if (errors?.length) {
@@ -233,6 +241,7 @@ const reviewsSlice = createSlice({
     profileReviews: [],
     otherUserReviews: [],
     userAndFriendsReviews: [],
+    userAndFriendsRefreshNonce: null,
     suggestedPosts: [],
     hasFetchedOnce: false,
     selectedReview: null,
@@ -255,6 +264,9 @@ const reviewsSlice = createSlice({
           "suggestedPosts"
         ],
       });
+    },
+    invalidateUserAndFriendsFeed(state) {
+      state.userAndFriendsRefreshNonce = (state.userAndFriendsRefreshNonce ?? 0) + 1;
     },
     resetProfileReviews: (state) => {
       state.profileReviews = [];
@@ -397,6 +409,39 @@ const reviewsSlice = createSlice({
       state.userAndFriendsReviews = updateArray(state.userAndFriendsReviews);
       state.profileReviews = updateArray(state.profileReviews);
     },
+    // Add this inside `reducers: { ... }` in your createSlice
+    removeUserPostsFromUserAndFriends: (state, action) => {
+      const uid = String(action.payload ?? '');
+      if (!uid) return;
+
+      const toStr = (v) => (v == null ? '' : String(v));
+
+      const isFromUser = (post) => {
+        if (!post) return false;
+
+        // Collect likely owner fields across your various post types
+        const ids = [
+          post.userId,
+          post.authorId,
+          post.ownerId,
+          post.createdBy,
+          // shared-by / sender shapes
+          post.sharedBy && (post.sharedBy.userId || post.sharedBy._id || post.sharedBy.id || post.sharedBy),
+          post.sender && (post.sender.userId || post.sender._id || post.sender.id),
+          // if it's a SharedPost, also check the original's owner fields
+          post.original && (post.original.userId || post.original.authorId || post.original.ownerId || post.original.createdBy),
+          post.original?.sender && (post.original.sender.userId || post.original.sender._id || post.original.sender.id),
+        ]
+          .filter(Boolean)
+          .map(toStr);
+
+        return ids.includes(uid);
+      };
+
+      const arr = Array.isArray(state.userAndFriendsReviews) ? state.userAndFriendsReviews : [];
+      state.userAndFriendsReviews = arr.filter((p) => !isFromUser(p));
+    },
+
   },
   extraReducers: (builder) => {
     builder
@@ -567,6 +612,8 @@ export const {
   addPostToFeeds,
   removePostFromFeeds,
   replacePostInFeeds,
+  removeUserPostsFromUserAndFriends,
+  invalidateUserAndFriendsFeed,
 } = reviewsSlice.actions;
 
 export const selectAllPosts = createSelector(
@@ -604,3 +651,5 @@ export const selectPostById = createSelector(
   (allPosts, reviewId) =>
     allPosts.find((p) => (p?._id || p?.id) === reviewId) || null
 );
+export const selectUserAndFriendsRefreshNonce = (s) =>
+  s.reviews.userAndFriendsRefreshNonce;

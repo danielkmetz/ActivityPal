@@ -1,42 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, TouchableOpacity, Text } from 'react-native';
-import { useSelector } from 'react-redux';
-import { selectUser } from '../../Slices/UserSlice';
-import usePaginatedFetch from '../../utils/usePaginatedFetch';
-import {
-  fetchReviewsByPlaceId,
-  selectBusinessReviews,
-  appendBusinessReviews,
-  setBusinessReviews
-} from '../../Slices/ReviewsSlice';
+import React from 'react';
+import { View, StyleSheet } from 'react-native';
+import { useBusinessReviews } from '../../Providers/BusinessReviewsContext';
 import Reviews from './Reviews';
 
 function BusinessReviews({ scrollY, onScroll, isAtEnd }) {
-  const user = useSelector(selectUser);
-  const [shouldFetch, setShouldFetch] = useState(true);
-  const reviews = useSelector(selectBusinessReviews)
-  const placeId = user?.businessDetails?.placeId;
-
-  const {
-    loadMore,
-    refresh,
-    isLoading,
-    hasMore,
-  } = usePaginatedFetch({
-    fetchThunk: fetchReviewsByPlaceId,
-    appendAction: appendBusinessReviews,
-    resetAction: setBusinessReviews,
-    params: { placeId },
-    limit: 5,
-  });
-
-
-  useEffect(() => {
-    if (placeId && shouldFetch) {
-      refresh();
-      setShouldFetch(false);
-    }
-  }, [placeId]);
+  const { reviews, loadMore, isLoading, hasMore } = useBusinessReviews();
 
   return (
     <View style={styles.container}>

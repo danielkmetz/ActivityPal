@@ -39,7 +39,6 @@ const TagUserModal = ({
   const postType = item?.type || item?.psotType;
   const postId = item?._id || item?.id;
   const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
-
   const [selfActionsVisible, setSelfActionsVisible] = useState(false);
 
   useEffect(() => {
@@ -155,7 +154,6 @@ const TagUserModal = ({
               <Animated.View style={[styles.modalContent, animatedStyle]}>
                 <Notch />
                 <Text style={styles.title}>{title}</Text>
-
                 <FlatList
                   data={taggedUsers}
                   keyExtractor={keyExtractor}
@@ -168,7 +166,6 @@ const TagUserModal = ({
               </Animated.View>
             </TouchableWithoutFeedback>
           </GestureDetector>
-
           {/* Self-actions sheet sits above everything else inside the Modal */}
           <SelfTagActionSheet
             visible={selfActionsVisible}

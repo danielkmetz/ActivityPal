@@ -4,9 +4,6 @@ import axios from 'axios';
 import { normalizePostType } from '../utils/normalizePostType';
 import { getUserToken } from '../functions';
 
-/* Ensure this matches how you mounted it:
-   app.use('/api/remove-tags', removeTags)
-*/
 const BASE = `${process.env.EXPO_PUBLIC_SERVER_URL}/remove-tags`;
 
 const keyOf = (postType, postId) => `${normalizePostType(postType)}:${String(postId)}`;
@@ -20,7 +17,6 @@ export const removeSelfFromPost = createAsyncThunk(
         try {
             const token = await getUserToken();
             const url = `${BASE}/${encodeURIComponent(postType)}/${encodeURIComponent(postId)}`;
-            console.log('thunk url', url);
             const { data } = await api.delete(url, {
                 headers: { Authorization: `Bearer ${token}` },
             });
@@ -39,7 +35,6 @@ export const removeSelfFromPhoto = createAsyncThunk(
         try {
             const token = await getUserToken();
             const url = `${BASE}/${encodeURIComponent(postType)}/${encodeURIComponent(postId)}/photo/${encodeURIComponent(photoId)}`;
-            console.log('thunk url', url);
             const { data } = await axios.delete(url, {
                 headers: { Authorization: `Bearer ${token}` },
             });
