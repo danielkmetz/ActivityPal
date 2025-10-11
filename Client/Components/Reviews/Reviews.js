@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect , useCallback } from "react";
 import {
   Alert,
   FlatList,
@@ -42,6 +42,53 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
   const lastTapRef = useRef({});
   const { registerAnimation, getAnimation } = useLikeAnimations();
   const userId = user?.id;
+
+  const listHeightRef = useRef(0);
+  const contentHeightRef = useRef(0);
+  const momentumGuardRef = useRef(false);
+  const lastLoadTsRef = useRef(0);
+
+  const MIN_COOLDOWN_MS = 1000;   // don't load again within 1s
+  const MIN_CONTENT_RATIO = 1.05; // content must be > viewport by 5%
+  const MIN_DISTANCE_PX = 80;     // require some distance from end
+
+  const canLoadMoreNow = useCallback((distanceFromEnd) => {
+    if (!hasMore || isLoadingMore) return false;
+    if (momentumGuardRef.current) return false;
+
+    const now = Date.now();
+    if (now - lastLoadTsRef.current < MIN_COOLDOWN_MS) return false;
+
+    const viewport = listHeightRef.current || 0;
+    const content = contentHeightRef.current || 0;
+    if (content < viewport * MIN_CONTENT_RATIO) return false;
+
+    if (typeof distanceFromEnd === 'number' && distanceFromEnd < MIN_DISTANCE_PX) {
+      return false;
+    }
+
+    return true;
+  }, [hasMore, isLoadingMore]);
+
+  const handleEndReached = useCallback(({ distanceFromEnd }) => {
+    if (!canLoadMoreNow(distanceFromEnd)) return;
+    lastLoadTsRef.current = Date.now();
+    momentumGuardRef.current = true; // one fire per momentum
+    onLoadMore?.();
+  }, [canLoadMoreNow, onLoadMore]);
+
+  const handleMomentumBegin = useCallback(() => {
+    momentumGuardRef.current = false; // reset at new momentum
+  }, []);
+
+  const handleLayout = useCallback((e) => {
+    listHeightRef.current = e.nativeEvent.layout.height;
+  }, []);
+
+  const handleContentSizeChange = useCallback((_w, h) => {
+    contentHeightRef.current = h;
+  }, []);
+  // ---------------------------------
 
   const handleOpenComments = (review) => {
     if (!review) return;
@@ -120,8 +167,8 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
                   return;
               }
 
-             await dispatch(removePostFromFeeds(post._id));
-             medium();
+              await dispatch(removePostFromFeeds(post._id));
+              medium();
             } catch (error) {
               console.error("Error deleting post:", error);
               Alert.alert("Error", "Something went wrong while deleting the post.");
@@ -206,12 +253,11 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
         onViewableItemsChanged={onViewableItemsChanged}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={ListHeaderComponent}
-        onEndReached={() => {
-          if (hasMore && !isLoadingMore) {
-            onLoadMore?.();
-          }
-        }}
-        onEndReachedThreshold={0.5} // Triggers when user scrolls within 50% of bottom
+        onEndReached={handleEndReached}
+        onEndReachedThreshold={0.2} // Triggers when user scrolls within 50% of bottom
+        onMomentumScrollBegin={handleMomentumBegin}
+        onContentSizeChange={handleContentSizeChange}
+        onLayout={handleLayout}
         ListFooterComponent={
           isLoadingMore ? (
             <ActivityIndicator size="small" style={{ marginVertical: 10 }} />

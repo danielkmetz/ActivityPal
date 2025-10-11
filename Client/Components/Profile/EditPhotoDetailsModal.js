@@ -22,6 +22,15 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
   const [taggedUsers, setTaggedUsers] = useState(photo?.taggedUsers || []); // Stores {username, x, y}
   const [selectedPosition, setSelectedPosition] = useState(null);
   const [showTagFriendsModal, setShowTagFriendsModal] = useState(false);
+  const getTagId = (t) => String(t?.userId || t?._id || t?.id || '');
+  const getTagName = (t) => t?.username || t?.fullName || 'Unknown';
+  const getTagPic = (t) => t?.profilePic || t?.profilePicUrl || t?.presignedProfileUrl || null;
+
+  console.log(taggedUsers);
+
+  const handleRemoveTagById = (id) => {
+    setTaggedUsers((prev) => prev.filter((t) => getTagId(t) !== String(id)));
+  };
 
   useEffect(() => {
     setDescription(photo?.description || "");
@@ -58,7 +67,6 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
         console.error('❌ Cannot delete: photo is missing');
         return;
       }
-
       onDelete(photo); // 🔥 Send the whole photo object (not just id)
       onClose();
     } else {
@@ -108,13 +116,6 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
     setSelectedPosition(null);
   };
 
-  // Function to remove a tagged user
-  const handleRemoveTag = (userToRemove) => {
-    setTaggedUsers((prevTaggedUsers) =>
-      prevTaggedUsers.filter(user => user._id !== userToRemove._id)
-    );
-  };
-
   return (
     <Modal visible={visible} animationType="slide" transparent={true}>
       <KeyboardAvoidingView
@@ -124,7 +125,6 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
         <View style={styles.contentWrapper}>
           <ScrollView contentContainerStyle={styles.content}>
             <Text style={styles.title}>Edit Photo</Text>
-
             {/* Photo Preview with Clickable Tags */}
             {(photo?.uri || photo?.url) && (
               <View style={styles.photoContainer}>
@@ -150,18 +150,28 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
                     {/* Render tagged friends */}
                     {taggedUsers.map((user, index) => (
                       <View
-                        key={index}
+                        key={getTagId(user) || index}
                         style={[styles.tagMarker, { left: user.x, top: user.y }]}
                       >
-                        <Image source={{ uri: user.profilePic }} style={styles.tagProfilePic} />
-                        <Text style={styles.tagText}>{user.username || 'Unknown'}</Text>
+                        <TouchableOpacity
+                          onPress={() => handleRemoveTagById(getTagId(user))}
+                          style={styles.tagRemoveBtn}
+                          hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                        >
+                          <Text style={styles.tagRemoveX}>×</Text>
+                        </TouchableOpacity>
+                        {getTagPic(user) ? (
+                          <Image source={{ uri: getTagPic(user) }} style={styles.tagProfilePic} />
+                        ) : (
+                          <View style={[styles.tagProfilePic, styles.tagProfilePicFallback]} />
+                        )}
+                        <Text style={styles.tagText}>{getTagName(user)}</Text>
                       </View>
                     ))}
                   </ImageBackground>
                 )}
               </View>
             )}
-
             {/* Description Section */}
             <Text style={styles.caption}>Description</Text>
             <TextInput
@@ -169,26 +179,6 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
               value={description}
               onChangeText={setDescription}
             />
-
-            {/* Tagged Users Section */}
-            {!isPromotion && !isVideo && (
-              <>
-                <Text style={styles.caption}>Tagged Friends</Text>
-                <View style={styles.tagsList}>
-                  {taggedUsers.map((user, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      style={styles.tagItem}
-                      onPress={() => handleRemoveTag(user)} // Remove tag when clicked
-                    >
-                      <Text style={styles.tagText}>{user.username || user.fullName || 'Unknown'}</Text>
-                      <Text style={styles.removeTag}> ❌ </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </>
-            )}
-
             {/* Save and Cancel Buttons */}
             <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
               <Text style={styles.saveButtonText}>Save</Text>
@@ -202,7 +192,6 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
-
       {/* Friend Tagging Modal */}
       <TagFriendsModal
         visible={showTagFriendsModal}
@@ -321,25 +310,22 @@ const styles = StyleSheet.create({
     marginBottom: 5,
     color: "#333",
   },
-  tagsList: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 5,
-    marginBottom: 10,
-    alignSelf: 'flex-start',
+  tagRemoveBtn: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#ff3b30', // iOS "destructive" red
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
   },
-  tagItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#ddd",
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 15,
-    marginRight: 5,
+  tagRemoveX: {
+    color: '#fff',
+    fontSize: 12,
+    lineHeight: 12,
+    fontWeight: 'bold',
   },
-  removeTag: {
-    color: "red",
-    fontSize: 10,
-    fontWeight: "bold",
+  tagProfilePicFallback: {
+    backgroundColor: '#666',
   },
 });

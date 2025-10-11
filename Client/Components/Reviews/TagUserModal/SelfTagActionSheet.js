@@ -11,10 +11,7 @@ import Animated from 'react-native-reanimated';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { useDispatch, useSelector } from 'react-redux';
 import useSlideDownDismiss from '../../../utils/useSlideDown';
-import {
-  removeSelfFromPhoto,
-  selectSelfTagStatus,
-} from '../../../Slices/RemoveTagsSlice';
+import { removeSelfFromPhoto, selectSelfTagStatus, removeSelfFromPost } from '../../../Slices/RemoveTagsSlice';
 
 export default function SelfTagActionSheet({
   visible,
@@ -27,8 +24,6 @@ export default function SelfTagActionSheet({
 }) {
   const dispatch = useDispatch();
   const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
-
-  // read request status to disable while pending
   const status = useSelector((s) => selectSelfTagStatus(s, postType, postId));
   const isBusy = status === 'pending';
 
@@ -51,11 +46,21 @@ export default function SelfTagActionSheet({
         removeSelfFromPhoto({ postType, postId, photoId })
       ).unwrap();
 
-      // Close just the action sheet; parent modal can stay open or close separately
       await animateOut();
     } catch (e) {
-      // optional: show a toast/snackbar here
-      // console.warn('Failed to remove tag from photo', e);
+      console.warn('Failed to remove tag from photo', e);
+    }
+  };
+
+  const handleRemoveFromPost = async () => {
+    try {
+      await dispatch(
+        removeSelfFromPost({ postType, postId })
+      ).unwrap();
+
+      await animateOut();
+    } catch (e) {
+      console.warn('Failed to remove tag from post', e);
     }
   };
 
@@ -84,7 +89,7 @@ export default function SelfTagActionSheet({
                 ) : null}
                 <TouchableOpacity
                   activeOpacity={0.7}
-                  onPress={onRemoveSelfTag}
+                  onPress={handleRemoveFromPost}
                   style={[styles.sheetItem, !photoId && styles.sheetItemFirst, isBusy && { opacity: 0.6 }]}
                   disabled={isBusy}
                 >

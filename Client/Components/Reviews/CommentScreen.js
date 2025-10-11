@@ -22,7 +22,7 @@ import { uploadReviewPhotos } from '../../Slices/PhotosSlice';
 import { useLikeAnimations } from '../../utils/LikeHandlers/LikeAnimationContext';
 import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from '../../utils/LikeHandlers';
 import { addComment as addCommentGeneric, toApiPostType } from '../../Slices/CommentsSlice';
-import { selectPostById } from '../../Slices/ReviewsSlice';
+import { selectPostById, selectSelectedReview } from '../../Slices/ReviewsSlice';
 import ShareOptionsModal from './SharedPosts/ShareOptionsModal';
 import SharePostModal from './SharedPosts/SharePostModal';
 import { medium } from '../../utils/Haptics/haptics';
@@ -41,6 +41,7 @@ export default function CommentScreen() {
     } = route.params || {};
     const dispatch = useDispatch();
     const navigation = useNavigation();
+    const selectedReview = useSelector(selectSelectedReview);
     const review = useSelector((state) => selectPostById(state, reviewId));
     const isSharedPost = !!(
         sharedPost ||            // route flag
@@ -75,6 +76,8 @@ export default function CommentScreen() {
     const commentRefs = useRef({});
     const lastTapRef = useRef({});
     const hasScrolledToTarget = useRef(false);
+
+    console.log(review)
 
     useEffect(() => {
         const showSub = Keyboard.addListener('keyboardWillShow', (e) => {

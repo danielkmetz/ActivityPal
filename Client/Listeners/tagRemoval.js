@@ -74,7 +74,8 @@ tagRemovalListener.startListening({
 
     switch (String(type)) {
       case 'review':
-      case 'checkin': {
+      case 'checkin':
+      case 'check-in': {
         const postKeys = computeReviewPostKeys(state, postId);
         dispatch(applyReviewUpdates({ postId, postKeys, updates: reviewUpdates }));
         break;

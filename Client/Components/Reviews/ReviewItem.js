@@ -22,6 +22,7 @@ import PhotoFeed from "./Photos/PhotoFeed";
 import RatingsButton from './ReviewItem/RatingsButton';
 import FollowButton from './PostActions/FollowButton';
 import PostHeader from './PostHeader/PostHeader';
+import NonOwnerOptions from './PostOptionsMenu/NonOwnerPostOptions';
 import { navigateToOtherUserProfile, handleFollowUser } from '../../utils/userActions';
 
 const MaybeTWF = ({ enabled, onPress, children }) =>
@@ -57,6 +58,7 @@ export default function ReviewItem({
     const [ratingsOpen, setRatingsOpen] = useState(false);
     const [isRequestSent, setIsRequestSent] = useState(false);
     const [isRequestReceived, setIsRequestReceived] = useState(false);
+    const [viewerOptionsVisible, setViewerOptionsVisible] = useState(false);
     const scrollX = useRef(new Animated.Value(0)).current;
     const currentPhoto = item.photos?.[currentPhotoIndex];
     const { isSuggestedFollowPost } = item;
@@ -86,7 +88,7 @@ export default function ReviewItem({
             engagementType: 'click',
         })
         navigation.navigate("BusinessProfile", { business: item });
-    }
+    };
 
     const handleOpenFullScreen = (photo, index) => {
         navigation.navigate('FullScreenPhoto', {
@@ -103,7 +105,7 @@ export default function ReviewItem({
             navigation,
             userId: targetId,
             currentUserId: user?.id,
-            
+
         });
 
     const onFollow = () =>
@@ -170,6 +172,15 @@ export default function ReviewItem({
                     handleDelete={handleDelete}
                     postData={item}
                 />
+            )}
+            {!isSender && !sharedPost && (
+                <TouchableOpacity
+                    onPress={() => setViewerOptionsVisible(true)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={{ position: 'absolute', top: 6, right: 6, padding: 6, zIndex: 5 }}
+                >
+                    <Text style={{ fontSize: 22, lineHeight: 22 }}>⋯</Text>
+                </TouchableOpacity>
             )}
             <View style={styles.section}>
                 <PostHeader
@@ -275,6 +286,12 @@ export default function ReviewItem({
                     atmosphereRating: item.atmosphereRating,
                     wouldRecommend: item.wouldRecommend,
                 }}
+            />
+            <NonOwnerOptions
+                visible={viewerOptionsVisible}
+                item={item}
+                onClose={() => setViewerOptionsVisible(false)}
+                isFollowing={!!isFollowing}
             />
         </View>
     );
