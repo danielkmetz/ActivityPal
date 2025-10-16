@@ -41,6 +41,7 @@ const commentsAndReplies = require('./routes/commentsAndReplies');
 const liveChat = require('./routes/LiveChat');
 const likes = require('./routes/likes');
 const removeTags = require('./routes/removeTags');
+const hiddenTags = require('./routes/hiddenTags');
 
 // Initialize app
 const app = express();
@@ -132,6 +133,7 @@ app.use('/api/comments-replies', commentsAndReplies);
 app.use('/api/live-chat', liveChat);
 app.use('/api/likes', likes);
 app.use('/api/remove-tags', removeTags);
+app.use('/api/hidden-tags', hiddenTags);
 
 (async () => {
   const { io, liveBus } = await attachSocketServer(server); // await + correct key

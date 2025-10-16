@@ -8,6 +8,7 @@ const {
   resolveUserProfilePics,
   enrichSharedPost
 } = require('../../utils/userPosts');
+const { getHiddenIdsForUser } = require('../../utils/hiddenTags');
 
 const getUserPosts = async (_, { userId, limit = 15, after }) => {
   try {
@@ -24,8 +25,20 @@ const getUserPosts = async (_, { userId, limit = 15, after }) => {
     const photoKey = user.profilePic?.photoKey || null;
     const profilePicUrl = photoKey ? await getPresignedUrl(photoKey) : null;
 
-    const reviews = await gatherUserReviews(userObjectId, user.profilePic, profilePicUrl);
-    const checkIns = await gatherUserCheckIns(user, profilePicUrl);
+    const { hiddenReviewIds, hiddenCheckInIds } = await getHiddenIdsForUser(user._id);
+
+    const reviews = await gatherUserReviews(
+      userObjectId,
+      user.profilePic,
+      profilePicUrl,
+      { includeTags: true, hiddenReviewIds }   // ⬅ only applies to tagged branch
+    );
+
+    const checkIns = await gatherUserCheckIns(
+      user,
+      profilePicUrl,
+      { includeTags: true, hiddenCheckInIds }  // ⬅ only applies to tagged branch
+    );
 
     const sharedPostsRaw = await SharedPost.find({ user: userObjectId })
       .sort({ createdAt: -1 })

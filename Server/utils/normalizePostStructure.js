@@ -130,7 +130,7 @@ function makeNormalizers(loaders) {
             const [u, b, pics, tags, comments] = await Promise.all([
                 loaders.getUser(c.userId),
                 loaders.getBusinessByPlaceId(c.placeId),
-                resolveTaggedPhotoUsers(r.photos || []),
+                resolveTaggedPhotoUsers(c.photos || []),
                 getTaggedUsers(c.taggedUsers || []),
                 enrichComments(c.comments || []),
             ]);
