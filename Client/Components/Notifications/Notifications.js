@@ -110,8 +110,6 @@ export default function Notifications() {
             return;
         }
 
-        console.log(notification)
-
         try {
             // Dispatch the correct fetch
             const action = await dispatch(getFetchAction({ postType, targetId }));

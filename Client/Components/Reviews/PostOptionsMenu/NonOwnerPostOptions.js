@@ -16,6 +16,7 @@ import { removeSelfFromPost, selectSelfTagStatus } from '../../../Slices/RemoveT
 import { unfollowUser } from '../../../Slices/friendsSlice';
 import { useDispatch, useSelector } from 'react-redux';
 import { selectUser } from '../../../Slices/UserSlice';
+import { hideTaggedPost } from '../../../Slices/ReviewsSlice';
 
 const toStr = (v) => (v == null ? '' : String(v));
 const getTagId = (t) => toStr(t?.userId ?? t?._id ?? t?.id ?? t);
@@ -116,6 +117,20 @@ const NonOwnerOptions = ({
         );
     };
 
+    const handleHideFromProfile = async () => {
+        closeAfter(async () => {
+            try {
+                await dispatch(hideTaggedPost({ postType, postId })).unwrap();
+                Alert.alert(
+                    'Hidden from profile',
+                    'This post will no longer appear on your profile.'
+                );
+            } catch (e) {
+                console.warn('Failed to hide post from profile', e);
+            }
+        });
+    };
+
     return (
         <Modal transparent visible={visible} onRequestClose={onClose}>
             <TouchableWithoutFeedback onPress={handleOverlayPress}>
@@ -147,6 +162,15 @@ const NonOwnerOptions = ({
                                             disabled={isBusy}
                                         >
                                             <Text style={[styles.actionText, styles.dangerText]}>Remove tag from this post</Text>
+                                        </TouchableOpacity>
+                                        <View style={styles.sep} />
+                                        <TouchableOpacity
+                                            activeOpacity={0.85}
+                                            style={[styles.row, isBusy && { opacity: 0.6 }]}
+                                            onPress={handleHideFromProfile}
+                                            disabled={isBusy}
+                                        >
+                                            <Text style={[styles.actionText, styles.actionText]}>Hide post from profile</Text>
                                         </TouchableOpacity>
                                         <View style={styles.sep} />
                                     </>

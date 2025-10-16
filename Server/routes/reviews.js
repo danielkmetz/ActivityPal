@@ -251,6 +251,7 @@ router.put("/:placeId/:reviewId", async (req, res) => {
               message: `${review.fullName} tagged you in a review.`,
               targetId: review._id,
               typeRef: "Review",
+              postType: 'review',
               senderId: review.userId,
               date: new Date(),
               read: false,

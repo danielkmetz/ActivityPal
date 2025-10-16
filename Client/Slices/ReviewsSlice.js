@@ -232,6 +232,45 @@ export const editReview = createAsyncThunk(
   }
 );
 
+// Hide a tagged post from the user's profile
+export const hideTaggedPost = createAsyncThunk(
+  'reviews/hideTaggedPost',
+  async ({ postType, postId }, { rejectWithValue }) => {
+    try {
+      const token = await getUserToken();
+      await axios.post(
+        `${BASE_URL}/hidden-tags/${postType}/${postId}`,
+        null,
+        { headers: { Authorization: token ? `Bearer ${token}` : '' } }
+      );
+      return { postType, postId };
+    } catch (err) {
+      const message =
+        err?.response?.data?.message || err?.message || 'Failed to hide tagged post';
+      return rejectWithValue({ postType, postId, message });
+    }
+  }
+);
+
+// Unhide a tagged post so it can appear on the user's profile again
+export const unhideTaggedPost = createAsyncThunk(
+  'reviews/unhideTaggedPost',
+  async ({ postType, postId }, { rejectWithValue }) => {
+    try {
+      const token = await getUserToken();
+      await axios.delete(
+        `${BASE_URL}/hidden-tags/${postType}/${postId}`,
+        { headers: { Authorization: token ? `Bearer ${token}` : '' } }
+      );
+      return { postType, postId };
+    } catch (err) {
+      const message =
+        err?.response?.data?.message || err?.message || 'Failed to unhide tagged post';
+      return rejectWithValue({ postType, postId, message });
+    }
+  }
+);
+
 // Reviews slice
 const reviewsSlice = createSlice({
   name: "reviews",
@@ -580,6 +619,83 @@ const reviewsSlice = createSlice({
         state.loading = "failed";
         state.error = action.payload || "Error editing review";
       })
+      // --- Hide tagged post ---
+      .addCase(hideTaggedPost.pending, (state) => {
+        state.error = null;
+      })
+      .addCase(hideTaggedPost.fulfilled, (state, action) => {
+        const { postId } = action.payload || {};
+        if (!postId) return;
+
+        // Remove from the profile feed if present.
+        // Since the server only allows hiding when user is TAGGED,
+        // it is safe to remove it from profileReviews unconditionally here.
+        const getId = (p) => (p?._id || p?.id);
+        state.profileReviews = (state.profileReviews || []).filter((p) => getId(p) !== postId);
+      })
+      .addCase(hideTaggedPost.rejected, (state, action) => {
+        state.error = action.payload?.message || action.error?.message || 'Failed to hide tagged post';
+      })
+
+      // --- Unhide tagged post ---
+      .addCase(unhideTaggedPost.pending, (state) => {
+        state.error = null;
+      })
+      .addCase(unhideTaggedPost.fulfilled, (state, action) => {
+        // No optimistic insert here; list will re-sync on next fetch
+      })
+      .addCase(unhideTaggedPost.rejected, (state, action) => {
+        state.error = action.payload?.message || action.error?.message || 'Failed to unhide tagged post';
+      })
+
+      /**
+       * Generic guard: if any fulfilled action brings back an updated post object
+       * showing the subject is NO LONGER TAGGED (e.g., after self-untag), remove it
+       * from `profileReviews`. This catches flows outside of the hide endpoint.
+       *
+       * We look for a post-like payload with either:
+       *   - isTagged === false, or
+       *   - relationToSubject is null/undefined (and not 'author')
+       */
+      .addMatcher(
+        (action) => {
+          // Only care about "fulfilled" actions to avoid noisy matches
+          if (typeof action.type !== 'string' || !action.type.endsWith('/fulfilled')) return false;
+
+          const p = action?.payload;
+          if (!p || typeof p !== 'object') return false;
+
+          const post =
+            p.post || p.review || p.checkIn || p.updatedPost || p.data || null;
+
+          if (!post || typeof post !== 'object') return false;
+
+          const rel = post.relationToSubject;
+          const isTagged = post.isTagged;
+
+          // If we can tell it's authored, do nothing
+          if (rel === 'author') return false;
+
+          // True when post is no longer tagged for the subject
+          const noLongerTagged =
+            (isTagged === false) || (typeof rel === 'undefined' || rel === null);
+
+          return !!(post._id || post.id) && noLongerTagged;
+        },
+        (state, action) => {
+          const post =
+            action.payload.post ||
+            action.payload.review ||
+            action.payload.checkIn ||
+            action.payload.updatedPost ||
+            action.payload.data;
+
+          const removeId = post._id || post.id;
+          const getId = (p) => (p?._id || p?.id);
+
+          state.profileReviews = (state.profileReviews || []).filter((p) => getId(p) !== removeId);
+        }
+      )
   },
 });
 

@@ -11,13 +11,12 @@ import Animated from 'react-native-reanimated';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { useDispatch, useSelector } from 'react-redux';
 import useSlideDownDismiss from '../../../utils/useSlideDown';
+import { hideTaggedPost } from '../../../Slices/ReviewsSlice';
 import { removeSelfFromPhoto, selectSelfTagStatus, removeSelfFromPost } from '../../../Slices/RemoveTagsSlice';
 
 export default function SelfTagActionSheet({
   visible,
   onClose,              // called after the sheet fully closes
-  onRemoveSelfTag,      // parent handles closing main modal
-  onHideFromProfile,    // parent handles closing main modal
   postType,
   postId,
   photoId,
@@ -64,6 +63,16 @@ export default function SelfTagActionSheet({
     }
   };
 
+  const handleHideFromProfile = async () => {
+    try {
+      await dispatch(hideTaggedPost({ postType, postId})).unwrap();
+
+      await animateOut();
+    } catch (e) {
+      console.warn('Failed to hide from profile', e);
+    }
+  }
+
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       <TouchableWithoutFeedback onPress={animateOut}>
@@ -100,7 +109,7 @@ export default function SelfTagActionSheet({
                 <View style={styles.sheetDivider} />
                 <TouchableOpacity
                   activeOpacity={0.7}
-                  onPress={onHideFromProfile}
+                  onPress={handleHideFromProfile}
                   style={[styles.sheetItem, isBusy && { opacity: 0.6 }]}
                   disabled={isBusy}
                 >

@@ -42,7 +42,8 @@ export default function CommentScreen() {
     const dispatch = useDispatch();
     const navigation = useNavigation();
     const selectedReview = useSelector(selectSelectedReview);
-    const review = useSelector((state) => selectPostById(state, reviewId));
+    const reviewFromFeed = useSelector((state) => selectPostById(state, reviewId));
+    const review = reviewFromFeed || selectedReview;
     const isSharedPost = !!(
         sharedPost ||            // route flag
         review?.original ||      // backend returned nested original
@@ -77,7 +78,7 @@ export default function CommentScreen() {
     const lastTapRef = useRef({});
     const hasScrolledToTarget = useRef(false);
 
-    console.log(review)
+    console.log(selectedReview)
 
     useEffect(() => {
         const showSub = Keyboard.addListener('keyboardWillShow', (e) => {
