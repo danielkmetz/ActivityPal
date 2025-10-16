@@ -5,6 +5,7 @@ const Review = require('../models/Reviews');
 const CheckIn = require('../models/CheckIns');
 const Event = require('../models/Events');
 const Promotion = require('../models/Promotions');
+const { removeTagNotifications } = require('../utils/notifications/removeTagNotifications');
 const verifyToken = require('../middleware/verifyToken'); // <-- update path or replace with your own
 
 // Map postType → Model
@@ -102,43 +103,89 @@ function ensureSelfUntag(req, res) {
  * - Removes all photo-level tags across photos (all post types)
  */
 router.delete('/:postType/:postId', verifyToken, async (req, res) => {
+  const TAG = '[DELETE /:postType/:postId remove-self-tag]';
+  const now = () => new Date().toISOString();
+
+  try {
+    // Auth / ownership check (sends its own response on failure)
     if (!ensureSelfUntag(req, res)) return;
 
-    const { postType, postId } = req.params;
+    const { postType, postId } = req.params || {};
+    const userId = req.user?.id;
+
     const Model = getModelOrNull(postType);
     if (!Model) return res.status(400).json({ message: 'Invalid postType' });
 
-    const userId = req.user.id;
-
-    let doc = await Model.findById(postId);
+    const doc = await Model.findById(postId);
     if (!doc) return res.status(404).json({ message: 'Post not found' });
 
     const before = tagSummary(doc, userId);
 
-    // Remove post-level association if the schema has one
+    // Remove post-level tag if present
     let removedPostLevel = false;
     if (Array.isArray(doc.taggedUsers)) {
-        removedPostLevel = removePostLevelTagIfPresent(doc, userId);
+      removedPostLevel = removePostLevelTagIfPresent(doc, userId);
     }
 
     // Remove from all photos
     const removedFromPhotos = removeFromAllPhotos(doc, userId);
 
     await doc.save();
+
+    // 🧹 Remove all tag-related notifications for this user on this post
+    const targetRef = Model.modelName; // e.g. 'Review' | 'CheckIn' | 'SharedPost' | 'LiveStream'
+    const notificationsRemoved = await removeTagNotifications({
+      userId,
+      targetRef,
+      targetId: postId,
+      types: ['tag', 'photoTag'], // both, for the post-level route
+    });
+
     const after = tagSummary(doc, userId);
 
-    return res.json({
-        ok: true,
-        postType: normalizeType(postType),
-        postId,
+    // Optional debug log
+    if (removedPostLevel || removedFromPhotos || notificationsRemoved) {
+      console.log(`${TAG} ✅`, {
+        at: now(),
         userId,
-        removed: {
-            postLevel: removedPostLevel,
-            photoTags: removedFromPhotos,
-        },
-        remaining: after,
-        before, // optional, useful for debugging/analytics
+        postType,
+        postId,
+        removedPostLevel,
+        removedFromPhotos,
+        notificationsRemoved,
+      });
+    } else {
+      console.log(`${TAG} ℹ️ nothing-to-remove`, {
+        at: now(),
+        userId,
+        postType,
+        postId,
+      });
+    }
+
+    return res.json({
+      ok: true,
+      postType: normalizeType(postType),
+      postId,
+      userId,
+      removed: {
+        postLevel: removedPostLevel,
+        photoTags: removedFromPhotos,
+      },
+      notificationsRemoved,
+      remaining: after,
+      before, // helpful for analytics/debugging
     });
+  } catch (err) {
+    console.error(`${TAG} ❌ 500`, {
+      at: new Date().toISOString(),
+      params: req.params,
+      userId: req?.user?.id,
+      error: err?.message,
+      stack: err?.stack,
+    });
+    return res.status(500).json({ message: 'Server error', error: err?.message });
+  }
 });
 
 /**
@@ -148,11 +195,12 @@ router.delete('/:postType/:postId', verifyToken, async (req, res) => {
  * - Leaves any tags on other photos intact
  */
 router.delete('/:postType/:postId/photo/:photoId', verifyToken, async (req, res) => {
+  const TAG = '[DELETE /:postType/:postId/photo/:photoId remove-self-photo-tag]';
+
   const { postType, postId, photoId } = req.params || {};
   const userId = req.user?.id;
 
   try {
-    // Auth/ownership check; this should send its own response on failure
     if (!ensureSelfUntag(req, res)) return;
 
     const Model = getModelOrNull(postType);
@@ -179,6 +227,17 @@ router.delete('/:postType/:postId/photo/:photoId', verifyToken, async (req, res)
     }
 
     await doc.save();
+
+    // 🔁 Remove ONLY photoTag notifications associated with THIS POST for this user
+    // (Schema lacks photoId; this removes all photoTag notifs tied to the post.)
+    const targetRef = Model.modelName; // 'Review' | 'CheckIn' | 'SharedPost' | 'LiveStream' ...
+    const notificationsRemoved = await removeTagNotifications({
+      userId,
+      targetRef,
+      targetId: postId,
+      types: ['photoTag'],
+    });
+
     const after = tagSummary(doc, userId);
 
     return res.json({
@@ -187,11 +246,13 @@ router.delete('/:postType/:postId/photo/:photoId', verifyToken, async (req, res)
       postId,
       photoId,
       removed: removedCount,
+      notificationsRemoved,
       remaining: after,
       userId,
       before, // optional
     });
   } catch (err) {
+    console.error(`${TAG} ❌ 500`, { err: err?.message, stack: err?.stack, postType, postId, photoId, userId });
     return res.status(500).json({ message: 'Internal server error' });
   }
 });
