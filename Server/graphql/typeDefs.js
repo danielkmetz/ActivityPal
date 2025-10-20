@@ -377,6 +377,7 @@ const typeDefs = gql`
     getBusinessRatingSummaries(placeIds: [String!]!): [BusinessRatingSummary!]!
     getUserAndFollowingSharedPosts(userId: ID!, userLat: Float, userLng: Float): [SharedPost]
     getPostedLiveStreams(userId: ID!): [LiveStream]
+    getUserTaggedPosts(userId: ID!, limit: Int, after: ActivityCursor): [UserPost!]
   }
 `;
 

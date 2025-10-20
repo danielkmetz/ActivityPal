@@ -78,8 +78,6 @@ export default function CommentScreen() {
     const lastTapRef = useRef({});
     const hasScrolledToTarget = useRef(false);
 
-    console.log(selectedReview)
-
     useEffect(() => {
         const showSub = Keyboard.addListener('keyboardWillShow', (e) => {
             const height = e.endCoordinates.height;

@@ -16,7 +16,9 @@ import { removeSelfFromPost, selectSelfTagStatus } from '../../../Slices/RemoveT
 import { unfollowUser } from '../../../Slices/friendsSlice';
 import { useDispatch, useSelector } from 'react-redux';
 import { selectUser } from '../../../Slices/UserSlice';
-import { hideTaggedPost } from '../../../Slices/ReviewsSlice';
+import { useHiddenTagged } from '../../../Providers/HiddenTaggedContext'; // adjust path if needed
+import { removeFromHiddenTagged } from '../../../Slices/TaggedPostsSlice';
+import { addPostToProfileSortedByDate } from '../../../Slices/ReviewsSlice';
 
 const toStr = (v) => (v == null ? '' : String(v));
 const getTagId = (t) => toStr(t?.userId ?? t?._id ?? t?.id ?? t);
@@ -25,7 +27,7 @@ const NonOwnerOptions = ({
     item,
     visible,
     onClose,
-    isFollowing = true,        // controls enabling of Unfollow row
+    isFollowing = true,
     title = 'Post options',
 }) => {
     const dispatch = useDispatch();
@@ -38,6 +40,10 @@ const NonOwnerOptions = ({
     const ownerId = item?.userId;
     const status = useSelector((s) => selectSelfTagStatus(s, postType, postId));
     const isBusy = status === 'pending';
+
+    // ⬇️ hidden-tag helpers
+    const { isHidden, hide, unhide } = useHiddenTagged();
+    const hiddenOnProfile = isHidden(postType, postId);
 
     useEffect(() => {
         if (visible) {
@@ -64,15 +70,12 @@ const NonOwnerOptions = ({
 
     const canRemoveTag = useMemo(() => {
         if (!currentUserId) return false;
-
         const postLevelTags = Array.isArray(item?.taggedUsers) ? item.taggedUsers : [];
         const isTaggedAtPostLevel = postLevelTags.some((t) => getTagId(t) === currentUserId);
-
         const photos = Array.isArray(item?.photos) ? item.photos : [];
         const isTaggedInAnyPhoto = photos.some(
             (p) => Array.isArray(p?.taggedUsers) && p.taggedUsers.some((t) => getTagId(t) === currentUserId)
         );
-
         return isTaggedAtPostLevel || isTaggedInAnyPhoto;
     }, [item, currentUserId]);
 
@@ -118,15 +121,40 @@ const NonOwnerOptions = ({
     };
 
     const handleHideFromProfile = async () => {
+        if (isBusy) return;
+        Alert.alert(
+            'Hide post from profile?',
+            'This will remove the tagged post from your profile. You can unhide it later.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Hide',
+                    style: 'destructive',
+                    onPress: () =>
+                        closeAfter(async () => {
+                            try {
+                                await hide(postType, postId);
+                                Alert.alert('Hidden from profile', 'This post will no longer appear on your profile.');
+                            } catch (e) {
+                                console.warn('Failed to hide post from profile', e);
+                            }
+                        }),
+                },
+            ],
+            { cancelable: true }
+        );
+    };
+
+    const handleUnhideFromProfile = async () => {
+        if (isBusy) return;
         closeAfter(async () => {
             try {
-                await dispatch(hideTaggedPost({ postType, postId })).unwrap();
-                Alert.alert(
-                    'Hidden from profile',
-                    'This post will no longer appear on your profile.'
-                );
+                await unhide(postType, postId);
+                await dispatch(removeFromHiddenTagged({postType, postId}));
+                await dispatch(addPostToProfileSortedByDate(item));
+                Alert.alert('Post unhidden', 'This post will appear on your profile again.');
             } catch (e) {
-                console.warn('Failed to hide post from profile', e);
+                console.warn('Failed to unhide post from profile', e);
             }
         });
     };
@@ -140,6 +168,7 @@ const NonOwnerOptions = ({
                             <Animated.View style={[styles.modalContent, animatedStyle]}>
                                 <Notch />
                                 <Text style={styles.title}>{title}</Text>
+
                                 {/* Unfollow */}
                                 <TouchableOpacity
                                     activeOpacity={0.85}
@@ -151,8 +180,10 @@ const NonOwnerOptions = ({
                                         {isFollowing ? `Unfollow${ownerName ? ` ${ownerName}` : ''}` : 'Unfollow (not following)'}
                                     </Text>
                                 </TouchableOpacity>
+
                                 <View style={styles.sep} />
-                                {/* Remove tag (post-wide) */}
+
+                                {/* Remove tag + Hide/Unhide from profile (only if user is tagged) */}
                                 {canRemoveTag && (
                                     <>
                                         <TouchableOpacity
@@ -163,27 +194,25 @@ const NonOwnerOptions = ({
                                         >
                                             <Text style={[styles.actionText, styles.dangerText]}>Remove tag from this post</Text>
                                         </TouchableOpacity>
+
                                         <View style={styles.sep} />
+
                                         <TouchableOpacity
                                             activeOpacity={0.85}
                                             style={[styles.row, isBusy && { opacity: 0.6 }]}
-                                            onPress={handleHideFromProfile}
+                                            onPress={hiddenOnProfile ? handleUnhideFromProfile : handleHideFromProfile}
                                             disabled={isBusy}
                                         >
-                                            <Text style={[styles.actionText, styles.actionText]}>Hide post from profile</Text>
+                                            <Text style={styles.actionText}>
+                                                {hiddenOnProfile ? 'Unhide post on profile' : 'Hide post from profile'}
+                                            </Text>
                                         </TouchableOpacity>
+
                                         <View style={styles.sep} />
                                     </>
                                 )}
-                                {/* Hide post (placeholder) */}
-                                <TouchableOpacity
-                                    activeOpacity={0.85}
-                                    style={styles.row}
-                                    onPress={() => { }}
-                                    disabled={isBusy}
-                                >
-                                    <Text style={styles.actionText}>Hide this post</Text>
-                                </TouchableOpacity>
+
+                                {/* (Removed the old "Hide this post" placeholder) */}
                             </Animated.View>
                         </TouchableWithoutFeedback>
                     </GestureDetector>
@@ -207,31 +236,12 @@ const styles = StyleSheet.create({
         minHeight: 220,
         paddingBottom: 28,
     },
-    title: {
-        fontSize: 18,
-        fontWeight: '700',
-        marginBottom: 10,
-        alignSelf: 'center',
-    },
-    row: {
-        height: 56,
-        alignItems: 'center',
-        flexDirection: 'row',
-    },
-    rowDisabled: {
-        opacity: 0.4,
-    },
-    actionText: {
-        fontSize: 16,
-        fontWeight: '600',
-    },
-    dangerText: {
-        color: '#d32f2f',
-    },
-    sep: {
-        height: StyleSheet.hairlineWidth,
-        backgroundColor: '#e6e6e6',
-    },
+    title: { fontSize: 18, fontWeight: '700', marginBottom: 10, alignSelf: 'center' },
+    row: { height: 56, alignItems: 'center', flexDirection: 'row' },
+    rowDisabled: { opacity: 0.4 },
+    actionText: { fontSize: 16, fontWeight: '600' },
+    dangerText: { color: '#d32f2f' },
+    sep: { height: StyleSheet.hairlineWidth, backgroundColor: '#e6e6e6' },
 });
 
 export default NonOwnerOptions;
