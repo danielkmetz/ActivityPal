@@ -8,6 +8,7 @@ import { applyPostUpdates } from '../Slices/ReviewsSlice';         // reviews
 import { applyNearbyUpdates } from '../Slices/GooglePlacesSlice';  // nearby suggestions
 import { applyEventUpdates } from '../Slices/EventsSlice';         // events
 import { applyPromotionUpdates } from '../Slices/PromotionsSlice'; // promotions
+import { applyHiddenPostUpdates } from '../Slices/TaggedPostsSlice'; // hidden posts
 
 /* =========================
    Small perf helpers
@@ -85,6 +86,15 @@ const inPromos = (state, postId) => {
   return !!(sel && String(sel._id) === String(postId));
 };
 
+const inHiddenTagged = (state, postId) => {
+  const list = state?.taggedPosts?.hidden?.items || [];
+  const pid = String(postId);
+  return list.some((w) => {
+    const p = w?.post || w?.review || w?.checkIn || w?.sharedPost || w?.live;
+    return p && String(p._id || p.id) === pid;
+  });
+};
+
 function computeReviewPostKeys(state, postId) {
   const keys = new Set(ALWAYS_REVIEW_KEYS);
   const rs = state?.reviews || {};
@@ -145,6 +155,11 @@ likesListener.startListening({
       // ---- Promotions ----
       if (postType === 'promotions' || inPromos(state, postId)) {
         dispatch(applyPromotionUpdates({ postId, updates: likeUpdates }));
+      }
+
+      // ---- Hidden Posts ----
+      if (inHiddenTagged(state, postId)) {
+        dispatch(applyHiddenPostUpdates({ postId, updates: likeUpdates }));
       }
 
       /**

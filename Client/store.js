@@ -32,6 +32,7 @@ import { crashLoggerMiddleware } from './crashLoggerMiddleware';
 import LiveChatReducer from './Slices/LiveChatSlice';
 import likesReducer from './Slices/LikesSlice';
 import removeTagsReducer from './Slices/RemoveTagsSlice';
+import taggedPostsReducer from './Slices/TaggedPostsSlice';
 
 const store = configureStore({
     reducer: combineReducers({
@@ -64,6 +65,7 @@ const store = configureStore({
         liveChat: LiveChatReducer,
         likes: likesReducer,
         removeTags: removeTagsReducer,
+        taggedPosts: taggedPostsReducer
     }),
     middleware: (getDefault) =>
         getDefault({ serializableCheck: false })

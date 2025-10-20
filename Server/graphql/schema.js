@@ -10,6 +10,7 @@ const { getSuggestedFollows } = require('./resolvers/getSuggestedFollows.js');
 const { userAndFollowingStories } = require('./resolvers/userAndFollowingStories.js');
 const { storiesByUser } = require('./resolvers/storiesByUser.js');
 const { getBusinessRatingSummaries } = require('./resolvers/getBusinessRatingSummaries.js');
+const { getUserTaggedPosts } = require('./resolvers/getUserTaggedPosts.js');
 
 // ✅ Custom Scalar Type for Date
 const DateScalar = new GraphQLScalarType({
@@ -38,6 +39,7 @@ const resolvers = {
     userAndFollowingStories,
     storiesByUser,
     getBusinessRatingSummaries,
+    getUserTaggedPosts,
   },
   UserActivity: {
     __resolveType(obj) {
@@ -86,6 +88,7 @@ const resolvers = {
   },
   UserPost: {
     __resolveType(obj) {
+      if (obj.__typename) return obj.__typename;
       if (obj.type === 'review' || obj.reviewText !== undefined) return 'Review';
       if (obj.type === 'check-in' || obj.message !== undefined) return 'CheckIn';
       if (obj.type === 'checkIn' || obj.message !== undefined) return 'CheckIn';

@@ -12,6 +12,8 @@ const postKey = (postType, postId) => `${postType}:${postId}`;
 export const toApiPostType = (t) => {
     switch (t) {
         case 'sharedPost': return 'sharedPosts';
+        case 'sharedPosts': return 'sharedPosts';
+        case 'sharedposts': return 'sharedPosts';
         case 'review': return 'reviews';
         case 'reviews': return 'reviews';
         case 'liveStream': return 'liveStreams';
@@ -19,12 +21,16 @@ export const toApiPostType = (t) => {
         case 'promotion': return 'promotions';
         case 'promotions': return 'promotions';
         case 'promos': return 'promotions';
+        case 'promo': return 'promotions';
         case 'event': return 'events';
         case 'events': return 'events';
         case 'checkin': return 'checkins';
         case 'check-in': return 'checkins';
+        case 'check-ins': return 'checkins';
         case 'checkIn': return 'checkins';
+        case 'checkins': return 'checkins';
         case 'invite': return 'invites';
+        case 'invites': return 'invites';
         default: return `${t || 'reviews'}s`;
     }
 };

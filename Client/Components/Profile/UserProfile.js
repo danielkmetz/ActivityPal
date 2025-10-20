@@ -1,11 +1,12 @@
-import React, { useState, useEffect, } from "react";
-import { Ionicons } from "@expo/vector-icons";
-import { View, Text, Image, StyleSheet, TouchableOpacity, FlatList, InteractionManager } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, StyleSheet, FlatList, InteractionManager } from "react-native";
 import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
 import EditProfileModal from "./EditProfileModal";
 import Reviews from "../Reviews/Reviews";
 import Photos from "./Photos";
+import ProfileTabs from "./ProfileTabs";
+import SelfProfileHeader from './SelfProfileHeader';
 import profilePlaceholder from '../../assets/pics/profile-pic-placeholder.jpg'
 import { selectProfilePic, selectBanner, fetchUserBanner } from "../../Slices/PhotosSlice";
 import { selectProfileReviews, fetchReviewsByUserId, appendProfileReviews, setProfileReviews } from "../../Slices/ReviewsSlice";
@@ -16,6 +17,7 @@ import usePaginatedFetch from "../../utils/usePaginatedFetch";
 import ConnectionsModal from "./ConnectionsModal";
 import { useNavigation } from "@react-navigation/native";
 import { clearTodayEngagementLog } from "../../Slices/EngagementSlice";
+import useTaggedFeed from "../../hooks/useTaggedFeed";
 
 export default function UserProfile() {
   const dispatch = useDispatch();
@@ -32,36 +34,28 @@ export default function UserProfile() {
   const [connectionsModalVisible, setConnectionsModalVisible] = useState(false);
   const [activeConnectionsTab, setActiveConnectionsTab] = useState("followers");
   const favorites = useSelector(selectFavorites);
-
+  const fullName = `${user?.firstName} ${user?.lastName}`;
   const bannerPlaceholder = null;
   const userId = user?.id;
-
-  const {
-    loadMore,
-    refresh,
-    isLoading,
-    hasMore,
-  } = usePaginatedFetch({
+  const { loadMore, refresh, isLoading, hasMore } = usePaginatedFetch({
     fetchThunk: fetchReviewsByUserId,
     appendAction: appendProfileReviews,
     resetAction: setProfileReviews,
     params: { userId },
     limit: 5,
   });
-
-  const navigateToSettings = () => {
-    navigation.navigate("Settings");
-  };
+  const { posts: taggedPosts, status: taggedStatus, hasMore: taggedHasMore, loadMore: loadMoreTagged } =
+    useTaggedFeed(userId, activeSection, 15);
 
   useEffect(() => {
     if (userId && shouldFetch) {
       dispatch(fetchUserBanner(userId));
       dispatch(fetchFavorites(userId));
-      
+
       const task = InteractionManager.runAfterInteractions(() => {
         refresh();
       });
-      
+
       setShouldFetch(false);
       return () => task.cancel();
     }
@@ -71,100 +65,70 @@ export default function UserProfile() {
     new Set(profileReviews.flatMap((review) => review.photos?.map((photo) => photo.url) || []))
   ).map((url) => ({ url }));
 
-  const data = activeSection === "reviews" ? profileReviews : photos;
+  const data =
+    activeSection === "photos" ? photos
+      : activeSection === "favorites" ? favorites
+        : []; // reviews & tagged render via header component, not FlatList data
+
+  const openFollowers = () => {
+    setActiveConnectionsTab("followers");
+    setConnectionsModalVisible(true);
+  };
+  const openFollowing = () => {
+    setActiveConnectionsTab("following");
+    setConnectionsModalVisible(true);
+  };
+
+  const renderHeader = () => (
+    <>
+      <SelfProfileHeader
+        bannerUrl={banner?.url}
+        profilePicUrl={profilePic?.url}
+        fullName={fullName}
+        followersCount={followers.length}
+        followingCount={following.length}
+        onOpenFollowers={openFollowers}
+        onOpenFollowing={openFollowing}
+        onEditProfile={() => setEditModalVisible(true)}
+        onSettings={() => navigation.navigate("Settings")}
+        onClearLog={clearTodayEngagementLog}
+      />
+      <View style={styles.divider} />
+      <ProfileTabs active={activeSection} onChange={setActiveSection} />
+      {activeSection === "reviews" && (
+        <Reviews
+          reviews={profileReviews}
+          onLoadMore={loadMore}
+          isLoadingMore={isLoading}
+          hasMore={hasMore}
+        />
+      )}
+      {activeSection === "tagged" && (
+        <Reviews
+          reviews={taggedPosts}                 // mixed: Review + CheckIn (branch in renderer if needed)
+          onLoadMore={loadMoreTagged}
+          isLoadingMore={taggedStatus === 'pending'}
+          hasMore={taggedHasMore}
+        />
+      )}
+      {activeSection === "photos" && <Photos photos={photos} />}
+      {activeSection === "favorites" && <Favorites favorites={favorites} />}
+      <View style={{ marginBottom: 100 }} />
+      <ConnectionsModal
+        visible={connectionsModalVisible}
+        onClose={() => setConnectionsModalVisible(false)}
+        followers={followers}
+        following={following}
+        initialTab={activeConnectionsTab}
+      />
+    </>
+  );
 
   return (
     <>
       <FlatList
         showsVerticalScrollIndicator={false}
-        ListHeaderComponent={
-          <>
-            {banner ? (
-              <Image source={{ uri: banner?.url }} style={styles.coverPhoto} />
-            ) : (
-              <View style={styles.bannerPlaceholder} />
-            )}
-            <View style={styles.profileHeader}>
-              <Image
-                source={profilePic?.url ? { uri: profilePic?.url } : profilePlaceholder}
-                style={styles.profilePicture}
-              />
-              <View style={styles.nameAndFollow}>
-                <Text style={styles.userName}>{`${user.firstName} ${user.lastName}`}</Text>
-                <View style={styles.connections}>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setActiveConnectionsTab("followers");
-                      setConnectionsModalVisible(true);
-                    }}
-                  >
-                    <View style={[styles.followers, { marginRight: 15 }]}>
-                      <Text style={styles.followGroup}>Followers</Text>
-                      <Text style={[styles.followText, { fontSize: 18 }]}>{followers.length}</Text>
-                    </View>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    onPress={() => {
-                      setActiveConnectionsTab("following");
-                      setConnectionsModalVisible(true);
-                    }}
-                  >
-                    <View style={styles.followers}>
-                      <Text style={styles.followGroup}>Following</Text>
-                      <Text style={[styles.followText, { fontSize: 18 }]}>{following.length}</Text>
-                    </View>
-                  </TouchableOpacity>
-                </View>
-
-              </View>
-            </View>
-            <View style={styles.editContainer}>
-              <View style={styles.editButtons}>
-                <TouchableOpacity
-                  style={styles.editProfileButton}
-                  onPress={() => setEditModalVisible(true)}
-                >
-                  <Ionicons name="pencil" size={20} color="white" />
-                  <Text style={styles.editProfileButtonText}>Edit Profile</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.editProfileButton, { marginLeft: 10, }]}
-                  onPress={navigateToSettings}
-                >
-                  <Ionicons name="settings-sharp" size={24} color="white" />
-                  <Text style={styles.editProfileButtonText}>Settings</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.editProfileButton, { marginLeft: 10 }]}
-                  onPress={clearTodayEngagementLog}
-                >
-                  <Ionicons name="trash-bin" size={20} color="white" />
-                  <Text style={styles.editProfileButtonText}>Clear Log</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-            <View style={styles.divider} />
-            <View style={styles.navButtonsContainer}>
-              {["reviews", "photos", "favorites"].map((section) => (
-                <TouchableOpacity
-                  key={section}
-                  style={styles.navTab}
-                  onPress={() => setActiveSection(section)}
-                >
-                  <Text style={[styles.navTabText, activeSection === section && styles.activeTabText]}>
-                    {section === "reviews" ? "Posts" : section.charAt(0).toUpperCase() + section.slice(1)}
-                  </Text>
-                  {activeSection === section && <View style={styles.navUnderline} />}
-                </TouchableOpacity>
-              ))}
-            </View>
-            {activeSection === "reviews" && <Reviews reviews={profileReviews} onLoadMore={loadMore} isLoadingMore={isLoading} hasMore={hasMore} />}
-            {activeSection === "photos" && <Photos photos={photos} />}
-            {activeSection === "favorites" && <Favorites favorites={favorites} />}
-            <View style={styles.bottom} />
-          </>
-        }
+        ListHeaderComponent={renderHeader()}
         data={data}
         keyExtractor={(item, index) => index.toString()}
       />
@@ -176,134 +140,11 @@ export default function UserProfile() {
         profilePicPlaceholder={profilePlaceholder}
         aboutInfo={{}}
       />
-      <ConnectionsModal
-        visible={connectionsModalVisible}
-        onClose={() => setConnectionsModalVisible(false)}
-        followers={followers}
-        following={following}
-        initialTab={activeConnectionsTab}
-      />
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-  },
-  coverPhoto: {
-    width: "100%",
-    height: 200,
-  },
-  profileHeader: {
-    alignItems: "left",
-    marginTop: -50,
-    marginBottom: 10,
-    marginLeft: 20,
-    flexDirection: 'row',
-  },
-  nameAndFollow: {
-    flexDirection: 'column',
-    marginLeft: 15,
-    marginTop: 50,
-  },
-  connections: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  followers: {
-    flexDirection: 'column',
-  },
-  followGroup: {
-    fontSize: 13,
-  },
-  followText: {
-    alignSelf: 'flex-start',
-    fontWeight: 'bold',
-  },
-  profilePicture: {
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    borderWidth: 3,
-    borderColor: "#fff",
-  },
-  userName: {
-    fontSize: 24,
-    fontWeight: "bold",
-    marginTop: 10,
-  },
-  userEmail: {
-    fontSize: 16,
-    color: "#555",
-    marginTop: 5,
-  },
-  editContainer: {
-    flexDirection: "row",
-    marginLeft: 20,
-    justifyContent: "space-between",
-  },
-  settingsIcon: {
-    padding: 5,
-    marginLeft: 10,
-  },
-  editProfileButton: {
-    backgroundColor: "gray",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 5,
-  },
-  editProfileButtonText: {
-    color: "white",
-    marginLeft: 5,
-    fontWeight: "bold",
-  },
-  editButtons: {
-    flexDirection: "row",
-    marginRight: 20,
-    marginTop: 15,
-  },
-  divider: {
-    width: "100%",
-    height: 1,
-    backgroundColor: "lightgray",
-    marginVertical: 10,
-  },
-  navButtonsContainer: {
-    flexDirection: "row",
-    marginBottom: 5,
-    marginLeft: 15,
-    gap: 25,
-  },
-  navTab: {
-    alignItems: "center",
-  },
-  navTabText: {
-    fontSize: 16,
-    color: "#555",
-    fontWeight: "600",
-  },
-  activeTabText: {
-    color: "#009999",
-    fontWeight: "bold",
-  },
-  navUnderline: {
-    height: 2,
-    backgroundColor: "#009999",
-    width: "100%",
-    marginTop: 4,
-    borderRadius: 2,
-  },
-  bannerPlaceholder: {
-    width: "100%",
-    height: 200,
-    backgroundColor: "teal",
-  },
-  bottom: {
-    marginBottom: 100,
-  }
+  container: { flex: 1, backgroundColor: "#f5f5f5" },
+  divider: { width: "100%", height: 1, backgroundColor: "lightgray", marginVertical: 10 },
 });

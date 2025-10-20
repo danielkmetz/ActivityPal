@@ -11,7 +11,7 @@ import Animated from 'react-native-reanimated';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { useDispatch, useSelector } from 'react-redux';
 import useSlideDownDismiss from '../../../utils/useSlideDown';
-import { hideTaggedPost } from '../../../Slices/ReviewsSlice';
+import { hideTaggedPost } from '../../../Slices/TaggedPostsSlice';
 import { removeSelfFromPhoto, selectSelfTagStatus, removeSelfFromPost } from '../../../Slices/RemoveTagsSlice';
 
 export default function SelfTagActionSheet({

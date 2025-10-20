@@ -74,6 +74,14 @@ function collectMediaKeysDeep(node) {
     return keys;
 }
 
+function locateNestedNodeById(comments = [], targetId) {
+    for (const c of comments) {
+        const found = findReplyDeep(c.replies || [], targetId, c._id); // uses your existing helper
+        if (found?.node) return found; // { node, parentArr, index, topLevelId, parentAuthorId }
+    }
+    return null;
+}
+
 // Helpers: deep operations on nested replies
 function findReplyDeep(replies = [], targetId, topLevelId = null) {
     for (let i = 0; i < replies.length; i++) {
@@ -478,342 +486,393 @@ router.post('/:postType/:postId/comments/:commentId/replies', verifyToken, loadD
 
 // Like/unlike comment or reply
 router.put('/:postType/:postId/comments/:commentId/like', verifyToken, loadDoc, async (req, res) => {
-  const TAG = '[likeComment]';
-  const now = () => new Date().toISOString();
+    const TAG = '[likeComment]';
+    const now = () => new Date().toISOString();
 
-  const { _doc: doc, params: { commentId }, _postType: postType } = req;
-  const userId = req.user?.id;
+    const { _doc: doc, params: { commentId }, _postType: postType } = req;
+    const userId = req.user?.id;
 
-  console.log(`${TAG} ▶ start`, {
-    at: now(),
-    postType,
-    postId: doc?._id?.toString?.() || String(doc?._id || ''),
-    commentId: String(commentId),
-    userId: String(userId || ''),
-  });
+    console.log(`${TAG} ▶ start`, {
+        at: now(),
+        postType,
+        postId: doc?._id?.toString?.() || String(doc?._id || ''),
+        commentId: String(commentId),
+        userId: String(userId || ''),
+    });
 
-  if (!userId) {
-    console.warn(`${TAG} ⚠ unauthorized`, { at: now() });
-    return res.status(401).json({ message: 'Unauthorized' });
-  }
-
-  const fullName =
-    req.user?.fullName ||
-    [req.user?.firstName, req.user?.lastName].filter(Boolean).join(' ') ||
-    null;
-
-  try {
-    if (!doc) {
-      console.error(`${TAG} ❌ no doc loaded by loadDoc`, { at: now() });
-      return res.status(500).json({ message: 'Internal Server Error' });
+    if (!userId) {
+        console.warn(`${TAG} ⚠ unauthorized`, { at: now() });
+        return res.status(401).json({ message: 'Unauthorized' });
     }
 
-    if (!Array.isArray(doc.comments)) {
-      console.error(`${TAG} ❌ doc.comments not an array`, {
-        at: now(),
-        type: typeof doc.comments,
-      });
-      return res.status(500).json({ message: 'Internal Server Error' });
+    const fullName =
+        req.user?.fullName ||
+        [req.user?.firstName, req.user?.lastName].filter(Boolean).join(' ') ||
+        null;
+
+    try {
+        if (!doc) {
+            console.error(`${TAG} ❌ no doc loaded by loadDoc`, { at: now() });
+            return res.status(500).json({ message: 'Internal Server Error' });
+        }
+
+        if (!Array.isArray(doc.comments)) {
+            console.error(`${TAG} ❌ doc.comments not an array`, {
+                at: now(),
+                type: typeof doc.comments,
+            });
+            return res.status(500).json({ message: 'Internal Server Error' });
+        }
+
+        let target = null;
+        let parentAuthorId = null;
+        let topLevelId = null;
+
+        // Top-level first
+        const top = doc.comments.id?.(commentId);
+        if (top) {
+            target = top;
+            parentAuthorId = top.userId;
+            topLevelId = top._id;
+            console.log(`${TAG} ✅ found top-level comment`, {
+                at: now(),
+                topLevelId: String(topLevelId),
+                authorId: String(parentAuthorId || ''),
+            });
+        } else {
+            // Deep search
+            if (typeof findReplyDeep !== 'function') {
+                console.error(`${TAG} ❌ findReplyDeep is not a function`, { at: now() });
+            } else {
+                for (const c of (doc.comments || [])) {
+                    const found = findReplyDeep(c.replies || [], commentId, c._id); // carries top id
+                    if (found?.node) {
+                        target = found.node;
+                        parentAuthorId = found.parentAuthorId;
+                        topLevelId = found.topLevelId || c._id;
+                        console.log(`${TAG} ✅ found nested reply`, {
+                            at: now(),
+                            topLevelId: String(topLevelId),
+                            parentAuthorId: String(parentAuthorId || ''),
+                        });
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!target) {
+            console.warn(`${TAG} ⚠ comment/reply not found`, { at: now(), commentId: String(commentId) });
+            return res.status(404).json({ message: 'Comment/reply not found' });
+        }
+
+        // Toggle like
+        target.likes = Array.isArray(target.likes) ? target.likes : [];
+        const beforeCount = target.likes.length;
+        const idx = target.likes.findIndex(l => String(l.userId) === String(userId));
+        const isUnliking = idx > -1;
+
+        if (isUnliking) {
+            target.likes.splice(idx, 1);
+        } else {
+            target.likes.push({ userId, fullName, date: new Date() });
+        }
+
+        console.log(`${TAG} 🫶 like toggled`, {
+            at: now(),
+            action: isUnliking ? 'unlike' : 'like',
+            beforeCount,
+            afterCount: target.likes.length,
+            nodeId: String(commentId),
+            topLevelId: String(topLevelId || commentId),
+        });
+
+        // Deep mutation safety for Mongoose
+        try {
+            doc.markModified?.('comments');
+            console.log(`${TAG} 💾 saving doc`, { at: now(), modified: doc.isModified?.('comments') });
+            await doc.save();
+            console.log(`${TAG} ✅ saved doc`, { at: now() });
+        } catch (saveErr) {
+            console.error(`${TAG} ❌ save failed`, {
+                at: now(),
+                name: saveErr?.name,
+                message: saveErr?.message,
+                stack: saveErr?.stack,
+                modifiedPaths: doc.modifiedPaths?.(),
+            });
+            throw saveErr; // bubble to outer catch → 500
+        }
+
+        // Notifications (best-effort; still bubble errors to preserve existing behavior)
+        if (parentAuthorId && String(parentAuthorId) !== String(userId)) {
+            try {
+                const targetUser = await User.findById(parentAuthorId);
+                if (!targetUser) {
+                    console.warn(`${TAG} ⚠ parent author not found for notification`, {
+                        at: now(),
+                        parentAuthorId: String(parentAuthorId),
+                    });
+                } else {
+                    const existsIdx =
+                        targetUser.notifications?.findIndex(n =>
+                            n.type === 'like' &&
+                            String(n.relatedId) === String(userId) &&
+                            n.typeRef === 'User' &&
+                            String(n.targetId) === String(doc._id) &&
+                            String(n.commentId) === String(topLevelId || commentId) &&
+                            String(n.replyId || commentId) === String(commentId) &&
+                            n.postType === postType
+                        ) ?? -1;
+
+                    if (!isUnliking && existsIdx === -1) {
+                        targetUser.notifications = targetUser.notifications || [];
+                        targetUser.notifications.push({
+                            type: 'like',
+                            message: `${fullName || 'Someone'} liked your comment`,
+                            relatedId: userId,
+                            typeRef: 'User',
+                            targetId: doc._id,
+                            targetRef: null,
+                            commentId: topLevelId || commentId, // thread root
+                            replyId: commentId,                  // exact node
+                            read: false,
+                            postType,
+                            createdAt: new Date(),
+                        });
+                        await targetUser.save();
+                        console.log(`${TAG} 📣 notification created`, {
+                            at: now(),
+                            forUser: String(parentAuthorId),
+                            postType,
+                            topLevelId: String(topLevelId || commentId),
+                            nodeId: String(commentId),
+                        });
+                    } else if (isUnliking && existsIdx !== -1) {
+                        targetUser.notifications.splice(existsIdx, 1);
+                        await targetUser.save();
+                        console.log(`${TAG} 🧹 notification removed (unlike)`, {
+                            at: now(),
+                            forUser: String(parentAuthorId),
+                            index: existsIdx,
+                        });
+                    } else {
+                        console.log(`${TAG} 🔎 notification unchanged`, {
+                            at: now(),
+                            isUnliking,
+                            existsIdx,
+                        });
+                    }
+                }
+            } catch (notifErr) {
+                console.error(`${TAG} ❌ notification phase failed`, {
+                    at: now(),
+                    name: notifErr?.name,
+                    message: notifErr?.message,
+                    stack: notifErr?.stack,
+                });
+                throw notifErr; // keep behavior consistent with your original try/catch
+            }
+        } else {
+            console.log(`${TAG} ↪ skipping notification (self-like or no parentAuthorId)`, {
+                at: now(),
+                parentAuthorId: String(parentAuthorId || ''),
+            });
+        }
+
+        console.log(`${TAG} ▶ done`, { at: now() });
+
+        return res.json({
+            ok: true,
+            message: 'Like toggled',
+            postType,
+            postId: String(doc._id),
+            commentId: String(commentId),
+            topLevelCommentId: String(topLevelId || commentId),
+            likes: target.likes,
+        });
+    } catch (err) {
+        console.error(`${TAG} ❌ unhandled error`, {
+            at: now(),
+            name: err?.name,
+            message: err?.message,
+            stack: err?.stack,
+            postType,
+            postId: doc?._id?.toString?.() || String(doc?._id || ''),
+            commentId: String(commentId),
+            userId: String(userId || ''),
+        });
+        return res.status(500).json({ message: 'Internal Server Error' });
+    }
+});
+
+// Edit comment or reply (author-only)
+router.patch('/:postType/:postId/comments/:commentId', verifyToken, loadDoc, async (req, res) => {
+  const TAG = '[PATCH /:postType/:postId/comments/:commentId]';
+  const now = () => new Date().toISOString();
+
+  const { _doc: doc, _postType: postType, _ownerResolver, params: { postId, commentId } } = req;
+  const userId = req.user?.id;
+  if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+
+  const mediaPayload = parseMedia(req.body?.media);
+  const newText = req.body?.newText;
+
+  try {
+    // Resolve post owner (moderator edit)
+    const { ownerId } = await _ownerResolver(doc);
+    const isOwner = ownerId && String(ownerId) === String(userId);
+
+    if (!Array.isArray(doc?.comments)) {
+      return res.status(404).json({ message: 'No comments on this post' });
     }
 
     let target = null;
-    let parentAuthorId = null;
-    let topLevelId = null;
+    let isAuthor = false;
+    let isTopLevel = false;
 
-    // Top-level first
+    // 1) Try top-level first
     const top = doc.comments.id?.(commentId);
     if (top) {
       target = top;
-      parentAuthorId = top.userId;
-      topLevelId = top._id;
-      console.log(`${TAG} ✅ found top-level comment`, {
-        at: now(),
-        topLevelId: String(topLevelId),
-        authorId: String(parentAuthorId || ''),
-      });
+      isTopLevel = true;
+      isAuthor = String(top.userId) === String(userId);
     } else {
-      // Deep search
-      if (typeof findReplyDeep !== 'function') {
-        console.error(`${TAG} ❌ findReplyDeep is not a function`, { at: now() });
-      } else {
-        for (const c of (doc.comments || [])) {
-          const found = findReplyDeep(c.replies || [], commentId, c._id); // carries top id
-          if (found?.node) {
-            target = found.node;
-            parentAuthorId = found.parentAuthorId;
-            topLevelId = found.topLevelId || c._id;
-            console.log(`${TAG} ✅ found nested reply`, {
-              at: now(),
-              topLevelId: String(topLevelId),
-              parentAuthorId: String(parentAuthorId || ''),
-            });
-            break;
-          }
-        }
+      // 2) Locate nested reply
+      const located = locateNestedNodeById(doc.comments || [], commentId);
+      if (located?.node) {
+        target = located.node;
+        isTopLevel = false;
+        isAuthor = String(located.node.userId) === String(userId);
       }
     }
 
     if (!target) {
-      console.warn(`${TAG} ⚠ comment/reply not found`, { at: now(), commentId: String(commentId) });
       return res.status(404).json({ message: 'Comment/reply not found' });
     }
 
-    // Toggle like
-    target.likes = Array.isArray(target.likes) ? target.likes : [];
-    const beforeCount = target.likes.length;
-    const idx = target.likes.findIndex(l => String(l.userId) === String(userId));
-    const isUnliking = idx > -1;
-
-    if (isUnliking) {
-      target.likes.splice(idx, 1);
-    } else {
-      target.likes.push({ userId, fullName, date: new Date() });
+    // Auth: allow post owner or node author
+    if (!isOwner && !isAuthor) {
+      return res.status(403).json({ message: 'Forbidden (owner or author required to edit)' });
     }
 
-    console.log(`${TAG} 🫶 like toggled`, {
-      at: now(),
-      action: isUnliking ? 'unlike' : 'like',
-      beforeCount,
-      afterCount: target.likes.length,
-      nodeId: String(commentId),
-      topLevelId: String(topLevelId || commentId),
-    });
+    // Prepare media swap + text update
+    const oldKey = target?.media?.photoKey || null;
+    const newKey = mediaPayload.photoKey || null;
+    const deleteOldAfterSave = oldKey && oldKey !== newKey ? [oldKey] : [];
 
-    // Deep mutation safety for Mongoose
-    try {
-      doc.markModified?.('comments');
-      console.log(`${TAG} 💾 saving doc`, { at: now(), modified: doc.isModified?.('comments') });
-      await doc.save();
-      console.log(`${TAG} ✅ saved doc`, { at: now() });
-    } catch (saveErr) {
-      console.error(`${TAG} ❌ save failed`, {
-        at: now(),
-        name: saveErr?.name,
-        message: saveErr?.message,
-        stack: saveErr?.stack,
-        modifiedPaths: doc.modifiedPaths?.(),
-      });
-      throw saveErr; // bubble to outer catch → 500
+    if (typeof newText === 'string') target.commentText = newText;
+    target.media = mediaPayload;
+    target.updatedAt = new Date();
+
+    // Ensure Mongoose registers deep changes
+    doc.markModified?.('comments');
+
+    await doc.save();
+
+    if (deleteOldAfterSave.length) {
+      try { await deleteS3Objects(deleteOldAfterSave); } catch (e) { /* best-effort */ }
     }
 
-    // Notifications (best-effort; still bubble errors to preserve existing behavior)
-    if (parentAuthorId && String(parentAuthorId) !== String(userId)) {
-      try {
-        const targetUser = await User.findById(parentAuthorId);
-        if (!targetUser) {
-          console.warn(`${TAG} ⚠ parent author not found for notification`, {
-            at: now(),
-            parentAuthorId: String(parentAuthorId),
-          });
-        } else {
-          const existsIdx =
-            targetUser.notifications?.findIndex(n =>
-              n.type === 'like' &&
-              String(n.relatedId) === String(userId) &&
-              n.typeRef === 'User' &&
-              String(n.targetId) === String(doc._id) &&
-              String(n.commentId) === String(topLevelId || commentId) &&
-              String(n.replyId || commentId) === String(commentId) &&
-              n.postType === postType
-            ) ?? -1;
+    const presignedUrl = mediaPayload.photoKey
+      ? await getPresignedUrl(mediaPayload.photoKey)
+      : null;
 
-          if (!isUnliking && existsIdx === -1) {
-            targetUser.notifications = targetUser.notifications || [];
-            targetUser.notifications.push({
-              type: 'like',
-              message: `${fullName || 'Someone'} liked your comment`,
-              relatedId: userId,
-              typeRef: 'User',
-              targetId: doc._id,
-              targetRef: null,
-              commentId: topLevelId || commentId, // thread root
-              replyId: commentId,                  // exact node
-              read: false,
-              postType,
-              createdAt: new Date(),
-            });
-            await targetUser.save();
-            console.log(`${TAG} 📣 notification created`, {
-              at: now(),
-              forUser: String(parentAuthorId),
-              postType,
-              topLevelId: String(topLevelId || commentId),
-              nodeId: String(commentId),
-            });
-          } else if (isUnliking && existsIdx !== -1) {
-            targetUser.notifications.splice(existsIdx, 1);
-            await targetUser.save();
-            console.log(`${TAG} 🧹 notification removed (unlike)`, {
-              at: now(),
-              forUser: String(parentAuthorId),
-              index: existsIdx,
-            });
-          } else {
-            console.log(`${TAG} 🔎 notification unchanged`, {
-              at: now(),
-              isUnliking,
-              existsIdx,
-            });
-          }
-        }
-      } catch (notifErr) {
-        console.error(`${TAG} ❌ notification phase failed`, {
-          at: now(),
-          name: notifErr?.name,
-          message: notifErr?.message,
-          stack: notifErr?.stack,
-        });
-        throw notifErr; // keep behavior consistent with your original try/catch
-      }
-    } else {
-      console.log(`${TAG} ↪ skipping notification (self-like or no parentAuthorId)`, {
-        at: now(),
-        parentAuthorId: String(parentAuthorId || ''),
-      });
-    }
-
-    console.log(`${TAG} ▶ done`, { at: now() });
+    // Build response shape
+    const updatedComment = {
+      _id: target._id,
+      userId: target.userId,
+      fullName: target.fullName,
+      commentText: target.commentText,
+      date: target.date,                // keep your original field
+      updatedAt: target.updatedAt,
+      likes: Array.isArray(target.likes) ? target.likes : [],
+      replies: Array.isArray(target.replies) ? target.replies : [],
+      media: mediaPayload.photoKey
+        ? { ...mediaPayload, mediaUrl: presignedUrl }
+        : mediaPayload,
+    };
 
     return res.json({
-      ok: true,
-      message: 'Like toggled',
+      message: 'Comment updated',
+      updatedComment,
       postType,
       postId: String(doc._id),
       commentId: String(commentId),
-      topLevelCommentId: String(topLevelId || commentId),
-      likes: target.likes,
+      isTopLevel,
     });
-  } catch (err) {
-    console.error(`${TAG} ❌ unhandled error`, {
+  } catch (e) {
+    console.error(`${TAG} ❌ 500`, {
       at: now(),
-      name: err?.name,
-      message: err?.message,
-      stack: err?.stack,
       postType,
-      postId: doc?._id?.toString?.() || String(doc?._id || ''),
-      commentId: String(commentId),
-      userId: String(userId || ''),
+      postId,
+      commentId,
+      userId,
+      message: e?.message,
+      stack: e?.stack,
     });
     return res.status(500).json({ message: 'Internal Server Error' });
   }
 });
 
-// Edit comment or reply (author-only)
-router.patch('/:postType/:postId/comments/:commentId', verifyToken, loadDoc, async (req, res) => {
-    const { _doc: doc, params: { commentId } } = req;
-    const userId = req.user?.id;
-    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
-
-    const mediaPayload = parseMedia(req.body?.media);
-    const newText = req.body?.newText;
-
-    try {
-        let updatedComment = null;
-        let oldPhotoKeyToDelete = null;
-
-        const updater = (c) => {
-            if (String(c.userId) !== String(userId)) return {}; // author-only
-            const oldKey = c.media?.photoKey || null;
-            const newKey = mediaPayload.photoKey || null;
-            if (oldKey && oldKey !== newKey) oldPhotoKeyToDelete = oldKey;
-
-            if (typeof newText === 'string') c.commentText = newText;
-            c.media = mediaPayload;
-            c.updatedAt = new Date();
-
-            updatedComment = {
-                _id: c._id,
-                userId: c.userId,
-                fullName: c.fullName,
-                commentText: c.commentText,
-                createdAt: c.createdAt,
-                updatedAt: c.updatedAt,
-                likes: c.likes || [],
-                replies: c.replies || [],
-                media: c.media,
-            };
-            return { oldPhotoKey: oldKey && oldKey !== newKey ? oldKey : null };
-        };
-
-        const top = doc.comments.id(commentId);
-        let edited = false;
-        if (top) {
-            const { oldPhotoKey } = updater(top) || {};
-            if (oldPhotoKey) oldPhotoKeyToDelete = oldPhotoKey;
-            edited = true;
-        } else {
-            const resDeep = editCommentDeep(doc.comments || [], commentId, updater);
-            edited = resDeep.updated;
-            oldPhotoKeyToDelete = resDeep.oldPhotoKey || oldPhotoKeyToDelete;
-        }
-
-        if (!edited) return res.status(404).json({ message: 'Comment/reply not found (or not owner)' });
-
-        await doc.save();
-        if (oldPhotoKeyToDelete) await deleteS3Objects([oldPhotoKeyToDelete]);
-
-        const presignedUrl = mediaPayload.photoKey ? await getPresignedUrl(mediaPayload.photoKey) : null;
-
-        return res.json({
-            message: 'Comment updated',
-            updatedComment: mediaPayload.photoKey
-                ? { ...updatedComment, media: { ...mediaPayload, mediaUrl: presignedUrl } }
-                : updatedComment,
-        });
-    } catch {
-        return res.status(500).json({ message: 'Internal Server Error' });
-    }
-});
-
 // Delete comment or reply (author OR post owner)
 router.delete('/:postType/:postId/comments/:commentId', verifyToken, loadDoc, async (req, res) => {
-    const { _doc: doc, _postType: postType, _ownerResolver, params: { commentId } } = req;
-    const userId = req.user?.id;
-    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+  const { _doc: doc, _ownerResolver, params: { commentId } } = req;
+  const userId = req.user?.id;
+  if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
-    try {
-        // Resolve post owner (for moderator delete)
-        const { ownerId } = await _ownerResolver(doc);
-        const isOwner = ownerId && String(ownerId) === String(userId);
+  try {
+    const { ownerId } = await _ownerResolver(doc);
+    const isOwner = ownerId && String(ownerId) === String(userId);
 
-        const direct = doc.comments.id(commentId);
-        if (direct) {
-            if (!isOwner && String(direct.userId) !== String(userId)) {
-                return res.status(403).json({ message: 'Forbidden' });
-            }
-            const toDelete = [];
-            if (direct.media?.photoKey) toDelete.push(direct.media.photoKey);
-            const stack = [...(direct.replies || [])];
-            while (stack.length) {
-                const n = stack.pop();
-                if (n.media?.photoKey) toDelete.push(n.media.photoKey);
-                if (n.replies?.length) stack.push(...n.replies);
-            }
-            direct.deleteOne();
-            await doc.save();
-            if (toDelete.length) await deleteS3Objects(toDelete);
-            return res.json({ message: 'Comment deleted' });
-        }
-
-        // Deep delete (ownership best-effort; if you want strict auth here, locate the node first)
-        const resDeep = deleteCommentDeep(doc.comments || [], commentId);
-        if (!resDeep.deleted) return res.status(404).json({ message: 'Comment/reply not found' });
-
-        // If not post owner, we should ensure the requester authored the node.
-        // (Optional strict mode: walk the tree to confirm authorship before allowing.)
-        if (!isOwner) {
-            // Soft safeguard: deny if not owner; to support strict auth, implement a locateById() first
-            return res.status(403).json({ message: 'Forbidden (owner or author required for deep delete)' });
-        }
-
-        doc.comments = resDeep.list;
-        await doc.save();
-        if (resDeep.mediaKeys.length) await deleteS3Objects(resDeep.mediaKeys);
-
-        return res.json({ message: 'Comment deleted' });
-    } catch {
-        return res.status(500).json({ message: 'Internal Server Error' });
+    if (!Array.isArray(doc?.comments)) {
+      return res.status(404).json({ message: 'No comments on this post' });
     }
+
+    // Try direct (top-level) comment
+    const direct = doc.comments.id?.(commentId);
+    if (direct) {
+      if (!isOwner && String(direct.userId) !== String(userId)) {
+        return res.status(403).json({ message: 'Forbidden' });
+      }
+
+      const keys = collectMediaKeysDeep(direct) || [];
+      direct.deleteOne();
+      doc.markModified?.('comments');
+      await doc.save();
+
+      if (keys.length) { try { await deleteS3Objects(keys); } catch {} }
+      return res.json({ message: 'Comment deleted' });
+    }
+
+    // Deep delete
+    const located = locateNestedNodeById(doc.comments || [], commentId);
+    if (!located?.node) {
+      return res.status(404).json({ message: 'Comment/reply not found' });
+    }
+
+    const isAuthor = String(located.node.userId) === String(userId);
+    if (!isOwner && !isAuthor) {
+      return res.status(403).json({ message: 'Forbidden (owner or author required for deep delete)' });
+    }
+
+    const mediaKeysToDelete = collectMediaKeysDeep(located.node) || [];
+    const resDeep = deleteCommentDeep(doc.comments || [], commentId);
+    if (!resDeep?.deleted) {
+      return res.status(404).json({ message: 'Comment/reply not found' });
+    }
+
+    doc.comments = resDeep.list;
+    doc.markModified?.('comments');
+    await doc.save();
+
+    const keys = mediaKeysToDelete.length ? mediaKeysToDelete : (resDeep.mediaKeys || []);
+    if (keys.length) { try { await deleteS3Objects(keys); } catch {} }
+
+    return res.json({ message: 'Comment deleted' });
+  } catch {
+    return res.status(500).json({ message: 'Internal Server Error' });
+  }
 });
 
 module.exports = router;

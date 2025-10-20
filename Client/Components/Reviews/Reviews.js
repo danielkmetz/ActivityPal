@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect , useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Alert,
   FlatList,
@@ -51,6 +51,34 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
   const MIN_COOLDOWN_MS = 1000;   // don't load again within 1s
   const MIN_CONTENT_RATIO = 1.05; // content must be > viewport by 5%
   const MIN_DISTANCE_PX = 80;     // require some distance from end
+  const shouldUseViewability = typeof onViewableItemsChanged === "function";
+  const pagingEnabled = typeof onLoadMore === "function";
+  const hasMoreEffective = pagingEnabled && hasMore === true;
+  const isLoadingMoreEffective = pagingEnabled && isLoadingMore === true;
+
+  const safeViewabilityConfig = useMemo(() => {
+    if (!shouldUseViewability) return undefined;
+
+    const cfg = viewabilityConfig ?? {};
+    const hasItem = cfg.itemVisiblePercentThreshold != null;
+    const hasArea = cfg.viewAreaCoveragePercentThreshold != null;
+
+    if (hasItem && hasArea) {
+      // keep itemVisible, clear area
+      const { viewAreaCoveragePercentThreshold, ...rest } = cfg;
+      return { ...rest, viewAreaCoveragePercentThreshold: undefined };
+    }
+    if (hasItem && !hasArea) {
+      // clear area explicitly to override RN default
+      return { ...cfg, viewAreaCoveragePercentThreshold: undefined };
+    }
+    if (!hasItem && hasArea) {
+      // clear item explicitly to override RN default
+      return { ...cfg, itemVisiblePercentThreshold: undefined };
+    }
+    // neither provided: pick one explicit default
+    return { itemVisiblePercentThreshold: 60, viewAreaCoveragePercentThreshold: undefined };
+  }, [viewabilityConfig, shouldUseViewability]);
 
   const canLoadMoreNow = useCallback((distanceFromEnd) => {
     if (!hasMore || isLoadingMore) return false;
@@ -249,8 +277,8 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
           const id = item._id || item.id || index;
           return item.type === 'suggestion' ? `suggestion-${index}` : `${item.type}-${id}`;
         }}
-        viewabilityConfig={viewabilityConfig}
-        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={shouldUseViewability ? safeViewabilityConfig : undefined}
+        onViewableItemsChanged={shouldUseViewability ? onViewableItemsChanged : undefined}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={ListHeaderComponent}
         onEndReached={handleEndReached}
@@ -259,13 +287,15 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
         onContentSizeChange={handleContentSizeChange}
         onLayout={handleLayout}
         ListFooterComponent={
-          isLoadingMore ? (
-            <ActivityIndicator size="small" style={{ marginVertical: 10 }} />
-          ) : !hasMore ? (
-            <Text style={{ textAlign: "center", color: "gray", marginVertical: 20 }}>
-              🎉 You’re all caught up!
-            </Text>
-          ) : null
+          pagingEnabled
+            ? (isLoadingMoreEffective
+              ? <ActivityIndicator size="small" style={{ marginVertical: 10 }} />
+              : (!hasMoreEffective
+                ? <Text style={{ textAlign: "center", color: "gray", marginVertical: 20 }}>
+                  🎉 You’re all caught up!
+                </Text>
+                : null))
+            : null
         }
         onScroll={
           scrollY

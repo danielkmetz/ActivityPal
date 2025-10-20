@@ -31,6 +31,7 @@ import { LikeAnimationsProvider } from './utils/LikeHandlers/LikeAnimationContex
 import { useLiveSocketBootstrap } from './useLiveSocketBootstrap';
 import { BusinessReviewsProvider } from './Providers/BusinessReviewsContext';
 import { UserFeedProvider } from './Providers/UserFeedContext';
+import { HiddenTaggedProvider } from './Providers/HiddenTaggedContext';
 
 const fetchFonts = async () => {
   return await Font.loadAsync({
@@ -248,13 +249,15 @@ export default function App() {
             <SafeAreaProvider>
               <LikeAnimationsProvider>
                 <BusinessReviewsProvider>
-                  <UserFeedProvider>
-                    <NavigationContainer ref={(ref) => {
-                      navigationRef.current = ref;
-                    }}>
-                      <MainApp />
-                    </NavigationContainer>
-                  </UserFeedProvider>
+                  <HiddenTaggedProvider>
+                    <UserFeedProvider>
+                      <NavigationContainer ref={(ref) => {
+                        navigationRef.current = ref;
+                      }}>
+                        <MainApp />
+                      </NavigationContainer>
+                    </UserFeedProvider>
+                  </HiddenTaggedProvider>
                 </BusinessReviewsProvider>
               </LikeAnimationsProvider>
             </SafeAreaProvider>

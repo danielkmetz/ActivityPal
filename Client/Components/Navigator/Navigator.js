@@ -36,6 +36,7 @@ import SettingsScreen from '../Profile/Settings/SettingsScreen';
 import LiveSummary from '../LiveStream/Screens/LiveSummary';
 import LivePlayerScreen from '../LiveStream/LivePlayer/LivePlayerScreen';
 import GoLive from '../LiveStream/Screens/GoLive';
+import HiddenPostsScreen from '../Profile/Settings/HiddenPostsScreen'
 
 enableScreens(true);
 const Tab = createBottomTabNavigator();
@@ -267,6 +268,7 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
             <Stack.Screen name="FilterSort" component={FilterSortScreen} />
             <Stack.Screen name="EventDetails" component={EventDetailsScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
+            <Stack.Screen name="HiddenPosts" component={HiddenPostsScreen} scrollY={scrollY} onScroll={onScroll} isAtEnd={isAtEnd} />
             <Stack.Screen name="LiveSummary" component={LiveSummary} options={{ title: 'Live summary' }} />
             <Stack.Screen
                 name="LivePlayer"

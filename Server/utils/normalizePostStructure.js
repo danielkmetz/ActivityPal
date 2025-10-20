@@ -216,6 +216,7 @@ function makeNormalizers(loaders) {
 
 // Flatten canonical to your existing non-shared response shape
 const toFlatResponseFromCanonical = (p) => ({
+    __typeName: p.__typeName,
     _id: p._id,
     userId: p.userId,
     fullName: p.fullName,
@@ -331,7 +332,15 @@ async function getPostPayloadById(rawType, postId) {
     return toFlatResponseFromCanonical(canonical);
 }
 
+function createNormalizerContext() {
+  const memo = makeRequestMemo();
+  const loaders = makeLoaders(memo);
+  const normalizers = makeNormalizers(loaders);
+  return { loaders, normalizers };
+}
+
 module.exports = {
     getPostPayloadById,
     toFlatResponseFromCanonical, // exported in case you want it elsewhere
+    createNormalizerContext,
 };
