@@ -2,7 +2,6 @@ const User = require("../models/User");
 const Business = require("../models/Business");
 const CheckIn = require('../models/CheckIns.js');
 const Review = require('../models/Reviews.js');
-const mongoose = require('mongoose');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 const haversineDistance = require('../utils/haversineDistance.js');
 const { getModelByType } = require('../utils/getModelByType.js');
@@ -62,105 +61,34 @@ async function enrichComments(comments = []) {
   );
 }
 
-async function gatherUserReviews(
-  userObjectId,
-  profilePic,
-  profilePicUrl,
-  options = {}
-) {
-  const { includeTags = false, includeAuthorMeta = true, hiddenReviewIds = [] } = options;
-
+async function gatherUserReviews(userObjectId, profilePic, profilePicUrl) {
   try {
-    const subjectId = new mongoose.Types.ObjectId(String(userObjectId));
-    const subjectIdStr = String(subjectId);
-
-    const tagBranch = {
-      $or: [
-        { taggedUsers: subjectId },
-        { 'photos.taggedUsers.userId': subjectIdStr },
-      ],
-      ...(hiddenReviewIds.length ? { _id: { $nin: hiddenReviewIds } } : {}),
-    };
-
-    const query = includeTags
-      ? { $or: [{ userId: subjectId }, tagBranch] }
-      : { userId: subjectId };
-
-    const reviews = await Review.find(query).sort({ date: -1, _id: -1 }).lean();
-    if (!reviews.length) return [];
-
-    let authorMap = {};
-    if (includeAuthorMeta) {
-      const authorIds = [...new Set(reviews.map(r => String(r.userId)).filter(Boolean))];
-      const authors = await User.find({ _id: { $in: authorIds } })
-        .select('_id firstName lastName profilePic')
-        .lean();
-      const picMap = await resolveUserProfilePics(authorIds);
-      authorMap = authors.reduce((acc, a) => {
-        const id = String(a._id);
-        acc[id] = {
-          id: a._id,
-          firstName: a.firstName,
-          lastName: a.lastName,
-          profilePic: a.profilePic || null,
-          profilePicUrl: (picMap[id] && picMap[id].profilePicUrl) || null,
-        };
-        return acc;
-      }, {});
-    }
-
-    const relationFor = (rev) => {
-      if (String(rev.userId) === subjectIdStr) return 'author';
-      const postTagged = Array.isArray(rev.taggedUsers)
-        && rev.taggedUsers.some(id => String(id) === subjectIdStr);
-      if (postTagged) return 'taggedPost';
-      const photoTagged = Array.isArray(rev.photos)
-        && rev.photos.some(p => Array.isArray(p?.taggedUsers)
-          && p.taggedUsers.some(t => String(t?.userId) === subjectIdStr));
-      if (photoTagged) return 'photoTag';
-      return null;
-    };
+    const reviews = await Review.find({ userId: userObjectId }).lean();
 
     const enriched = await Promise.all(
       reviews.map(async (review) => {
         try {
-          const [taggedUsers, rawPhotos, business, comments] = await Promise.all([
+          const [taggedUsers, rawPhotos, business] = await Promise.all([
             resolveTaggedUsers(review.taggedUsers || []),
             resolveTaggedPhotoUsers(review.photos || []),
             Business.findOne({ placeId: review.placeId }).select('businessName').lean(),
-            enrichComments(review.comments || []),
           ]);
 
           const photos = (rawPhotos || []).filter(p => p && p._id && p.photoKey);
-
-          const authorIdStr = String(review.userId);
-          const author = includeAuthorMeta ? (authorMap[authorIdStr] || null) : null;
-
-          const relationToSubject = relationFor(review);
-
-          // ✅ Owner’s avatar URL takes precedence
-          const ownerProfilePicUrl = (author && author.profilePicUrl) || null;
-          const displayProfilePicUrl = ownerProfilePicUrl || profilePicUrl || null;
+          const comments = await enrichComments(review.comments || []);
 
           return {
-            __typename: 'Review',
+            __typename: "Review",
             ...review,
             businessName: business?.businessName || null,
             placeId: review.placeId,
             date: new Date(review.date).toISOString(),
-
-            // Keep subject doc for back-compat, but URL is now owner's
             profilePic,
-            profilePicUrl: displayProfilePicUrl,
-
-            author,                 // actual owner meta
+            profilePicUrl,
             taggedUsers,
             photos,
             comments,
-
-            relationToSubject,      // 'author' | 'taggedPost' | 'photoTag' | null
-            isTagged: relationToSubject === 'taggedPost' || relationToSubject === 'photoTag',
-            type: 'review',
+            type: "review",
           };
         } catch {
           return null;
@@ -168,102 +96,20 @@ async function gatherUserReviews(
       })
     );
 
-    return enriched.filter(Boolean);
+    return enriched.filter(r => r !== null);
   } catch {
     return [];
   }
 }
 
-async function gatherUserCheckIns(user, subjectProfilePicUrl, options = {}) {
-  const {
-    includeTags = false,
-    includeAuthorMeta = true,
-    hiddenCheckInIds = [],
-  } = options;
-
+async function gatherUserCheckIns(user, profilePicUrl) {
   const userIdStr = user?._id?.toString?.() || String(user?._id || '');
-  const hasValidObjId = mongoose.Types.ObjectId.isValid(userIdStr);
-  const userObjId = hasValidObjId ? new mongoose.Types.ObjectId(userIdStr) : null;
-
-  // Normalize hidden IDs → ObjectIds (ignore any invalids)
-  const hiddenIds = Array.isArray(hiddenCheckInIds)
-    ? hiddenCheckInIds
-        .map((id) => {
-          try { return new mongoose.Types.ObjectId(String(id)); } catch { return null; }
-        })
-        .filter(Boolean)
-    : [];
 
   try {
-    // Base authored branch (support both ObjectId and string stored in DB)
-    const authoredOrs = [{ userId: user._id }, { userId: userIdStr }];
-
-    // Tagged branch (post-level ObjectId or string; photo-level string at photos.taggedUsers.userId)
-    const taggedOrs = [];
-    if (userObjId) taggedOrs.push({ taggedUsers: userObjId }); // post-level ObjectId[]
-    taggedOrs.push({ taggedUsers: userIdStr });                 // post-level string fallback
-    taggedOrs.push({ 'photos.taggedUsers.userId': userIdStr }); // photo-level string
-
-    // Only apply hidden filter to the tagged branch
-    const tagBranch = includeTags
-      ? (hiddenIds.length
-          ? { $or: taggedOrs, _id: { $nin: hiddenIds } }
-          : { $or: taggedOrs })
-      : null;
-
-    const query = includeTags ? { $or: [ ...authoredOrs, tagBranch ] } : { $or: authoredOrs };
-
-    const checkIns = await CheckIn.find(query)
-      .sort({ date: -1, _id: -1 })
-      .lean();
-
-    if (!checkIns.length) return [];
-
-    // Preload actual authors (for owner avatar/name on tagged items)
-    let authorMap = {};
-    if (includeAuthorMeta) {
-      const authorIds = [...new Set(checkIns.map((ci) => String(ci.userId)).filter(Boolean))];
-      const authors = await User.find({ _id: { $in: authorIds } })
-        .select('_id firstName lastName profilePic')
-        .lean();
-
-      const picMap = await resolveUserProfilePics(authorIds); // { [id]: { profilePicUrl, profilePic } }
-      authorMap = authors.reduce((acc, a) => {
-        const id = String(a._id);
-        acc[id] = {
-          id: a._id,
-          firstName: a.firstName,
-          lastName: a.lastName,
-          profilePic: a.profilePic || null,
-          profilePicUrl: (picMap[id] && picMap[id].profilePicUrl) || null,
-        };
-        return acc;
-      }, {});
-    }
-
-    // Determine relation of the subject to the check-in
-    const relationFor = (ci) => {
-      const isAuthor =
-        String(ci.userId) === userIdStr ||
-        (userObjId && String(ci.userId) === String(userObjId));
-      if (isAuthor) return 'author';
-
-      const postTagged =
-        Array.isArray(ci.taggedUsers) &&
-        ci.taggedUsers.some((tid) => String(tid) === userIdStr);
-      if (postTagged) return 'taggedPost';
-
-      const photoTagged =
-        Array.isArray(ci.photos) &&
-        ci.photos.some(
-          (p) =>
-            Array.isArray(p?.taggedUsers) &&
-            p.taggedUsers.some((t) => String(t?.userId) === userIdStr)
-        );
-      if (photoTagged) return 'photoTag';
-
-      return null;
-    };
+    // Query supports both ObjectId and string userId
+    const checkIns = await CheckIn.find({
+      $or: [{ userId: user._id }, { userId: userIdStr }],
+    }).lean();
 
     const enriched = await Promise.all(
       checkIns.map(async (checkIn) => {
@@ -277,45 +123,18 @@ async function gatherUserCheckIns(user, subjectProfilePicUrl, options = {}) {
             enrichComments(checkIn.comments || []),
           ]);
 
-          const photos = (rawPhotos || []).filter((p) => p && p._id && p.photoKey);
-
-          const authorIdStr = String(checkIn.userId || '');
-          const author = includeAuthorMeta ? authorMap[authorIdStr] || null : null;
-
-          const relationToSubject = relationFor(checkIn);
-
-          // --- Profile pic URL selection rules ---
-          // If the subject is only tagged (not author), return the OWNER's avatar URL.
-          // If authored, owner === subject; prefer author's URL, fallback to subjectProfilePicUrl.
-          const ownerProfilePicUrl = (author && author.profilePicUrl) || null;
-          const displayProfilePicUrl =
-            relationToSubject === 'author'
-              ? (ownerProfilePicUrl || subjectProfilePicUrl || null)
-              : (ownerProfilePicUrl || null); // do NOT fall back to subject on tagged items
-
-          // Name: prefer actual author's name; fallback to subject's
-          const fullName = author
-            ? `${author.firstName || ''} ${author.lastName || ''}`.trim()
-            : `${user.firstName || ''} ${user.lastName || ''}`.trim();
-
-          const dist = typeof distance !== 'undefined' ? distance : null;
+          const photos = (rawPhotos || []).filter(p => p && p._id && p.photoKey);
+          const dist = (typeof distance !== 'undefined') ? distance : null;
 
           return {
             __typename: 'CheckIn',
-            ...checkIn,
-
-            // Normalize/ensure
-            userId: checkIn.userId, // actual owner id
-            fullName,
+            _id: checkIn._id,
+            userId: user._id,
+            fullName: `${user.firstName} ${user.lastName}`,
+            message: checkIn.message,
             date: checkIn.date ? new Date(checkIn.date).toISOString() : null,
-
-            // Keep subject's profile doc for back-compat; URL is chosen per rules above
             profilePic: user.profilePic || null,
-            profilePicUrl: displayProfilePicUrl,
-
-            // Actual author metadata (additive)
-            author, // { id, firstName, lastName, profilePic, profilePicUrl } | null
-
+            profilePicUrl,
             placeId: checkIn.placeId || null,
             businessName: business?.businessName || 'Unknown Business',
             taggedUsers,
@@ -323,11 +142,6 @@ async function gatherUserCheckIns(user, subjectProfilePicUrl, options = {}) {
             likes: checkIn.likes || [],
             comments,
             distance: dist,
-
-            // Convenience flags
-            relationToSubject, // 'author' | 'taggedPost' | 'photoTag' | null
-            isTagged: relationToSubject === 'taggedPost' || relationToSubject === 'photoTag',
-
             type: 'check-in',
           };
         } catch {

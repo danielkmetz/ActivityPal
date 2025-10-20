@@ -20,6 +20,8 @@ export const normalizePostType = (input) => {
     rvw: 'review',
     rv: 'review',
 
+    'check-in': 'check-in',
+    'check-ins': 'check-in',
     checkin: 'check-in',
     checkins: 'check-in',
     ci: 'check-in',
@@ -33,6 +35,12 @@ export const normalizePostType = (input) => {
     promo: 'promotion',
     promos: 'promotion',
     pr: 'promotion',
+
+    sharedpost: 'sharedPost',
+    shared: 'sharedPost',
+
+    livestream: 'liveStream',
+    live: 'liveStream',
   };
 
   return ALIAS[raw] || ALIAS[collapsed] || null;

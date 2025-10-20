@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Switch } from 'react-native';
+import React from 'react';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 export default function Dropdowns({
@@ -43,7 +43,6 @@ export default function Dropdowns({
                     color="#555"
                 />
             </TouchableOpacity>
-
             {isExpanded && (
                 <View style={styles.dropdownContent}>
                     {options.map((option) => (
@@ -78,6 +77,7 @@ export default function Dropdowns({
 const styles = StyleSheet.create({
     dropdownContainer: {
         marginVertical: 15,
+        marginLeft: 15,
     },
     dropdownHeader: {
         flexDirection: "row",
@@ -89,7 +89,7 @@ const styles = StyleSheet.create({
     },
     dropdownLabel: {
         fontSize: 16,
-        fontWeight: "600",
+        fontWeight: "400",
     },
     dropdownContent: {
         marginTop: 10,

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { View, StyleSheet } from "react-native";
 import {
   setHasFetchedOnce,
@@ -43,7 +43,10 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
   const seenToday = useRef(new Set());
   const userId = user?.id;
 
-  const viewabilityConfig = { itemVisiblePercentThreshold: 60 };
+  const viewabilityConfig = useMemo(() => ({
+  itemVisiblePercentThreshold: 60,
+  viewAreaCoveragePercentThreshold: undefined, // <- force the other one off
+}), []);
 
   const handleViewableItemsChanged = useRef(({ viewableItems }) => {
     viewableItems.forEach((item) => {
