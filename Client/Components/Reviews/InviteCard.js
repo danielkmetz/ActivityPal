@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Alert, TouchableOpacity } from 'react-native';
-import InviteeModal from '../ActivityInvites/InviteeModal';
+import InviteeModal from '../ActivityInvites/InviteeModal/InviteeModal';
 import { formatEventDate } from '../../functions';
 import { requestInvite, deleteInvite } from '../../Slices/InvitesSlice';
 import { createNotification } from '../../Slices/NotificationsSlice';
@@ -18,10 +18,12 @@ import AttendanceRow from './Invites/AttendanceRow';
 import { useInviteState } from './Invites/useInviteState';
 import { medium } from '../../utils/Haptics/haptics';
 import NonOwnerOptions from './PostOptionsMenu/NonOwnerPostOptions';
+import ViewerOptionsTrigger from './PostOptionsMenu/ViewerOptionsTrigger';
 
-const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onShare, sharedPost }) => {
+const InviteCard = ({ invite, handleOpenComments, onShare }) => {
     const dispatch = useDispatch();
     const navigation = useNavigation();
+    const postContent = invite?.original ? invite?.original : invite 
     const [modalVisible, setModalVisible] = useState(false);
     const [editInviteModal, setEditInviteModal] = useState(false);
     const [inviteToEdit, setInviteToEdit] = useState(null);
@@ -29,16 +31,15 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onSha
     const [dropdownVisible, setDropdownVisible] = useState(false);
     const [viewerOptionsVisible, setViewerOptionsVisible] = useState(false);
     const user = useSelector(selectUser);
-    const businessName = invite.businessName || invite.business?.businessName || 'Unnamed Location';
-    const totalInvited = invite.recipients?.length || 0;
-    const totalGoing = invite.recipients?.filter(r => r.status === 'accepted').length || 0;
+    const businessName = postContent.businessName || postContent.business?.businessName || 'Unnamed Location';
+    const totalInvited = postContent.recipients?.length || 0;
     const userId = user?.id;
-    const senderId = invite?.sender?.id;
-    const recipientId = invite?.sender?.id || invite?.sender?.userId;
+    const senderId = postContent?.sender?.id;
+    const recipientId = postContent?.sender?.id || postContent?.sender?.userId;
     const [requested, setRequested] = useState(false);
-    const hasRequested = requested || invite.requests?.some(r => r.userId === user.id);
-    const businessLogoUrl = invite?.businessLogoUrl;
-    const { timeLeft, isSender, isRecipient } = useInviteState(invite, user?.id);
+    const hasRequested = requested || postContent.requests?.some(r => r.userId === user.id);
+    const businessLogoUrl = postContent?.businessLogoUrl;
+    const { timeLeft, isSender } = useInviteState(invite, user?.id);
 
     const handleEdit = () => {
         if (invite) {
@@ -97,8 +98,8 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onSha
     const handleRequest = async () => {
         try {
             const { payload: result } = await dispatch(requestInvite({
-                userId: user.id,
-                inviteId: invite._id,
+                userId,
+                inviteId: postContent._id,
             }));
 
             if (!result.success || !result.invite) {
@@ -111,12 +112,12 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onSha
             const notificationPayload = {
                 recipientId,
                 userId: senderId,
-                relatedId: user.id,
+                relatedId: userId,
                 type: 'requestInvite',
                 message: `${user.firstName} wants to join your Vybe at ${businessName}`,
                 postType: 'activityInvite',
                 typeRef: 'User',
-                targetId: invite._id,
+                targetId: postContent._id,
                 targetRef: 'ActivityInvite',
             };
 
@@ -142,7 +143,7 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onSha
     };
 
     useEffect(() => {
-        if (invite.requests?.some(r => r.userId === userId)) {
+        if (postContent.requests?.some(r => r.userId === userId)) {
             setRequested(true);
         }
     }, [invite, userId]);
@@ -150,60 +151,46 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onSha
     return (
         <>
             <View style={styles.card}>
-                {!sharedPost && (
-                    <PostOptionsMenu
-                        isSender={isSender}
-                        dropdownVisible={dropdownVisible}
-                        setDropdownVisible={setDropdownVisible}
-                        handleEdit={handleEdit}
-                        handleDelete={handleDelete}
-                        postData={invite}
-                    />
-                )}
-                {!isSender && sharedPost && (
-                    <TouchableOpacity
-                        onPress={() => setViewerOptionsVisible(true)}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        style={{ position: 'absolute', top: 6, right: 6, padding: 6, zIndex: 5 }}
-                    >
-                        <Text style={{ fontSize: 22, lineHeight: 22 }}>⋯</Text>
-                    </TouchableOpacity>
-                )}
-                <InviteHeader sender={invite.sender} totalInvited={totalInvited} onPressName={() => navigateToOtherUserProfile(invite.senderId)} />
+                <PostOptionsMenu
+                    dropdownVisible={dropdownVisible}
+                    setDropdownVisible={setDropdownVisible}
+                    handleEdit={handleEdit}
+                    handleDelete={handleDelete}
+                    postData={invite}
+                />
+                <ViewerOptionsTrigger
+                    post={invite}
+                    onPress={() => setViewerOptionsVisible(true)}
+                />
+                <InviteHeader sender={postContent.sender} totalInvited={totalInvited} onPressName={() => navigateToOtherUserProfile(invite.senderId)} />
                 <BusinessBadge name={businessName} logoUrl={businessLogoUrl} />
-                {invite.dateTime ? (
-                    <Text style={styles.datetime}>On {formatEventDate(invite.dateTime)}</Text>
+                {postContent.dateTime ? (
+                    <Text style={styles.datetime}>On {formatEventDate(postContent.dateTime)}</Text>
                 ) : null}
-                {invite.note ? (
-                    <Text style={styles.note}>{invite.note}</Text>
+                {postContent.note ? (
+                    <Text style={styles.note}>{postContent.note}</Text>
                 ) : null}
                 <CountdownPill value={timeLeft} />
                 <AttendanceRow
-                    isSender={isSender}
-                    isRecipient={isRecipient}
                     hasRequested={hasRequested}
                     onRequestJoin={handleRequest}
-                    totalGoing={totalGoing}
                     onOpenInvitees={() => setModalVisible(true)}
                 />
                 <View style={styles.actionsContainer}>
-                    {!sharedPost && (
-                        <View style={{ marginTop: 10 }}>
-                            <PostActions
-                                item={invite}
-                                handleLikeWithAnimation={handleLikeWithAnimation}
-                                handleOpenComments={handleOpenComments}
-                                onShare={onShare}
-                            />
-                        </View>
-                    )}
+                    <View style={{ marginTop: 10 }}>
+                        <PostActions
+                            item={invite}
+                            handleOpenComments={handleOpenComments}
+                            onShare={onShare}
+                        />
+                    </View>
                 </View>
             </View>
             <InviteeModal
                 visible={modalVisible}
                 onClose={() => setModalVisible(false)}
-                recipients={invite.recipients}
-                requests={invite.requests}
+                recipients={postContent.recipients}
+                requests={postContent.requests}
                 isSender={isSender}
                 invite={invite}
             />
@@ -216,9 +203,9 @@ const InviteCard = ({ invite, handleLikeWithAnimation, handleOpenComments, onSha
                 isEditing={isEditing}
                 setIsEditing={setIsEditing}
             />
-             <NonOwnerOptions
+            <NonOwnerOptions
                 visible={viewerOptionsVisible}
-                item={item}
+                item={invite}
                 onClose={() => setViewerOptionsVisible(false)}
                 isFollowing={true}
             />

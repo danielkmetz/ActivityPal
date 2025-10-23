@@ -2,16 +2,24 @@ import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet, Pressable } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Ionicons } from "@expo/vector-icons";
+import { useSelector } from "react-redux";
+import { selectUser } from "../../Slices/UserSlice";
 
 export default function PostOptionsMenu({
-    isSender,
     dropdownVisible,
     setDropdownVisible,
     handleEdit,
     handleDelete,
     postData, // typically the invite object
 }) {
-    if (!isSender) return null;
+    const user = useSelector(selectUser);
+    const currentUserId = user?.id;
+    const type = String(postData?.type || '').toLowerCase();
+    const isSharedPost = (type === 'sharedpost' || type === 'shared' || type === 'sharedpost'); // normalize if needed
+
+    const isSharer = String(postData?.userId) === String(currentUserId); // wrapper author
+
+    if (!(isSharedPost && isSharer)) return null;
 
     return (
         <View style={styles.menuWrapper}>
@@ -46,7 +54,7 @@ export default function PostOptionsMenu({
                     </TouchableOpacity>
                     <View style={styles.divider} />
                     <TouchableOpacity
-                    style={styles.menuItem}
+                        style={styles.menuItem}
                         onPress={() => {
                             setDropdownVisible(false);
                             handleDelete(postData);
@@ -112,6 +120,6 @@ const styles = StyleSheet.create({
         ...StyleSheet.absoluteFillObject,
         backgroundColor: 'transparent',
         zIndex: 1,
-      },
-      
+    },
+
 });

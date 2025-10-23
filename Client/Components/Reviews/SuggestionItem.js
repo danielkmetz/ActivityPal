@@ -1,109 +1,24 @@
 import React, { useState, useRef, useEffect } from "react";
-import {
-    View,
-    Text,
-    StyleSheet,
-    Animated,
-    Dimensions,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-} from "react-native";
-import { Avatar } from "react-native-paper";
-import PhotoItem from "./Photos/PhotoItem";
+import { View, StyleSheet, Animated } from "react-native";
 import InviteModal from "../ActivityInvites/InviteModal";
-import { selectInvites } from "../../Slices/InvitesSlice";
-import { useDispatch, useSelector } from "react-redux";
+import { useDispatch } from "react-redux";
 import { useNavigation } from "@react-navigation/native";
-import SuggestionDetailsModal from "../SuggestionDetails/SuggestionDetailsModal";
 import PostActions from "./PostActions/PostActions";
-import { selectUser } from "../../Slices/UserSlice";
 import { logEngagementIfNeeded, getEngagementTarget } from "../../Slices/EngagementSlice";
-import profilePicPlaceholder from "../../assets/pics/profile-pic-placeholder.jpg";
-import PhotoFeed from "./Photos/PhotoFeed";
-import { medium, selection } from "../../utils/Haptics/haptics";
+import { medium } from "../../utils/Haptics/haptics";
+import SuggestionMedia from './SuggestedItems/SuggestionMedia';
+import SuggestionStatusBanner from './SuggestedItems/SuggestionStatusBanner';
 
-const screenWidth = Dimensions.get("window").width;
-
-export default function SuggestionItem({ suggestion, onShare, sharedPost, handleLikeWithAnimation, animation }) {
+export default function SuggestionItem({ suggestion, onShare }) {
     const navigation = useNavigation();
     const dispatch = useDispatch();
-    const user = useSelector(selectUser);
     const currentIndexRef = useRef(0);
-    const [detailsModalVisible, setDetailsModalVisible] = useState(false);
+    const suggestionContent = suggestion?.original ? suggestion?.original : suggestion;
     const [inviteModalVisible, setInviteModalVisible] = useState(false);
-    const lastTapRef = useRef({});
-    const invites = useSelector(selectInvites);
     const tapTimeoutRef = useRef(null);
     const scrollX = useRef(new Animated.Value(0)).current;
-    const placeId = suggestion?.placeId;
-    const { businessName, logoUrl, businessLogoUrl, distance, title, media, photos } = suggestion || {};
-    const resolvedLogoUrl = logoUrl || businessLogoUrl;
-    const resolvedMedia = photos || media || [];
-    const overlayTextSize = sharedPost ? 14 : 16;
+    const { photos, placeId } = suggestionContent || {};
     const dotsExist = photos?.length > 1;
-
-    const isSameLocalDay = (a, b) => {
-        const da = new Date(a);
-        const db = new Date(b);
-        return (
-            da.getFullYear() === db.getFullYear() &&
-            da.getMonth() === db.getMonth() &&
-            da.getDate() === db.getDate()
-        );
-    };
-
-    const getInviteSentAt = (invite) =>
-        invite?.createdAt ||
-        invite?.sentAt ||
-        invite?.createdOn ||
-        invite?.timestamp ||
-        invite?.updatedAt ||
-        invite?.dateTime; // last-resort fallback if others aren’t present
-
-    const rawInvite = invites.find(invite => {
-        if (!invite.placeId || !invite.dateTime) return false;
-
-        const inviteTime = new Date(invite.dateTime).getTime();
-        const startTime = new Date(suggestion.startTime).getTime();
-        const endTime = suggestion.endTime ? new Date(suggestion.endTime).getTime() : null;
-
-        const isSamePlace = invite.placeId === suggestion.placeId;
-
-        const isActive =
-            (suggestion.kind === "activePromo" || suggestion.kind === "activeEvent") &&
-            inviteTime >= startTime &&
-            endTime && inviteTime <= endTime;
-
-        const isUpcoming =
-            (suggestion.kind === "upcomingPromo" || suggestion.kind === "upcomingEvent") &&
-            Math.abs(inviteTime - startTime) <= 60 * 60 * 1000;
-
-        return isSamePlace && (isActive || isUpcoming);
-    });
-
-    const sentAt = rawInvite ? getInviteSentAt(rawInvite) : null;
-    const wasSentToday = sentAt ? isSameLocalDay(sentAt, new Date()) : false;
-    const existingInvite = rawInvite && wasSentToday ? { ...rawInvite, type: "invite" } : false;
-
-    const suggestedPlace = {
-        placeId: suggestion.placeId,
-        name: suggestion.businessName,
-        startTime: suggestion.startTime,
-        note: `Lets go to ${businessName} for ${title}`
-    };
-
-    const inviteCreationEditing = () => {
-        selection();
-        if (existingInvite) {
-            navigation.navigate('CreatePost', {
-                postType: 'invite',
-                isEditing: true,
-                initialPost: existingInvite,
-            });
-        } else {
-            setInviteModalVisible(true);
-        }
-    };
 
     const handleOpenComments = () => {
         const { targetType, targetId } = getEngagementTarget(suggestion);
@@ -116,30 +31,8 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost, handle
             engagementType: 'click',
         });
 
-        navigation.navigate('EventDetails', { activity: suggestion });
+        navigation.navigate('EventDetails', { activity: suggestionContent });
     };
-
-    const handleSingleTapOpenDetails = () => {
-        selection();
-        setDetailsModalVisible(true);
-        const { targetType, targetId } = getEngagementTarget(suggestion);
-        logEngagementIfNeeded(dispatch, {
-            targetType,
-            targetId,
-            placeId: suggestion.placeId,
-            engagementType: 'click',
-        });
-    };
-
-    const navigateToBusiness = () => {
-        logEngagementIfNeeded(dispatch, {
-            targetType: 'place',
-            targetId: placeId,
-            placeId,
-            engagementType: 'click',
-        })
-        navigation.navigate("BusinessProfile", { business: suggestion });
-    }
 
     useEffect(() => {
         return () => {
@@ -149,114 +42,23 @@ export default function SuggestionItem({ suggestion, onShare, sharedPost, handle
 
     return (
         <View style={styles.card}>
-            {suggestion.kind && (
-                <View style={[
-                    styles.statusBanner,
-                    suggestion.kind.includes("active") ? styles.activeBanner : styles.upcomingBanner
-                ]}>
-                    <Text style={styles.statusText}>
-                        {suggestion.kind === "activePromo" ? "ACTIVE PROMOTION NEARBY"
-                            : suggestion.kind === "upcomingPromo" ? "UPCOMING PROMOTION NEARBY"
-                                : suggestion.kind === "activeEvent" ? "ACTIVE EVENT NEARBY"
-                                    : suggestion.kind === "upcomingEvent" ? "UPCOMING EVENT NEARBY"
-                                        : ""}
-                    </Text>
-                </View>
-            )}
-            {resolvedMedia?.length > 0 ? (
-                <View style={styles.photoWrapper}>
-                    <PhotoFeed
-                        media={resolvedMedia}
-                        animation={animation}
-                        scrollX={scrollX}
-                        currentIndexRef={currentIndexRef}
-                        onOpenFullScreen={handleSingleTapOpenDetails}
-                        handleLikeWithAnimation={handleLikeWithAnimation}
-                        lastTapRef={lastTapRef}
-                        reviewItem={suggestion}
-                    />
-                    <View style={styles.overlayTopText}>
-                        <TouchableWithoutFeedback onPress={navigateToBusiness}>
-                            <View style={styles.overlayBusiness}>
-                                <Avatar.Image
-                                    size={45}
-                                    rounded
-                                    source={resolvedLogoUrl ? { uri: resolvedLogoUrl } : profilePicPlaceholder}
-                                    containerStyle={styles.overlayAvatar}
-                                />
-                                <View style={styles.overlayTextContainer}>
-                                    <Text style={[styles.overlayText, { fontSize: overlayTextSize }]}>{businessName}</Text>
-                                    <Text style={styles.overlaySubText}>
-                                        {distance ? `${(distance / 1609).toFixed(1)} mi away` : null}
-                                    </Text>
-                                </View>
-                            </View>
-                        </TouchableWithoutFeedback>
-                        <TouchableOpacity
-                            style={styles.inviteButton}
-                            onPress={inviteCreationEditing}
-                        >
-                            <Text style={styles.inviteText}>
-                                {existingInvite ? "Edit Invite" : "Invite"}
-                            </Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            ) : (
-                <View>
-                    <PhotoItem
-                        photo={suggestion}                // uses url/uri/bannerUrl
-                        reviewItem={suggestion}           // ✅ needed for animation key
-                        index={0}
-                        isInteractive={true}
-                        lastTapRef={lastTapRef}           // ✅ double-tap memory
-                        handleLikeWithAnimation={handleLikeWithAnimation} // ✅ triggers overlay anim
-                        onOpenFullScreen={handleSingleTapOpenDetails}
-                    />
-                    <View style={styles.overlayTopText}>
-                        <TouchableWithoutFeedback onPress={navigateToBusiness}>
-                            <View style={styles.overlayBusiness}>
-                                <Avatar.Image
-                                    size={45}
-                                    rounded
-                                    source={resolvedLogoUrl ? { uri: resolvedLogoUrl } : profilePicPlaceholder}
-                                    containerStyle={styles.overlayAvatar}
-                                />
-                                <View style={styles.overlayTextContainer}>
-                                    <Text style={[styles.overlayText, { fontSize: sharedPost ? 14 : 16 }]}>{businessName}</Text>
-                                    <Text style={styles.overlaySubText}>
-                                        {distance ? `${(distance / 1609).toFixed(1)} mi away` : null}
-                                    </Text>
-                                </View>
-                            </View>
-                        </TouchableWithoutFeedback>
-                        <TouchableOpacity style={styles.inviteButton} onPress={inviteCreationEditing}>
-                            <Text style={styles.inviteText}>{existingInvite ? "Edit Invite" : "Invite"}</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            )}
-            {!sharedPost && (
-                <View style={[{ padding: 15 }, dotsExist ? { marginTop: 5 } : { marginTop: -10 }]}>
-                    <PostActions
-                        item={suggestion}
-                        handleOpenComments={handleOpenComments}
-                        handleLikeWithAnimation={handleLikeWithAnimation}
-                        inviteCreationEditing={inviteCreationEditing}
-                        existingInvite={existingInvite}
-                        onShare={onShare}
-                    />
-                </View>
-            )}
+            <SuggestionStatusBanner suggestion={suggestion} />
+            <SuggestionMedia
+                suggestion={suggestion}
+                scrollX={scrollX}
+                currentIndexRef={currentIndexRef}
+            />
+            <View style={[{ padding: 15 }, dotsExist ? { marginTop: 5 } : { marginTop: -10 }]}>
+                <PostActions
+                    post={suggestion}
+                    handleOpenComments={handleOpenComments}
+                    onShare={onShare}
+                />
+            </View>
             <InviteModal
                 visible={inviteModalVisible}
                 onClose={() => setInviteModalVisible(false)}
                 isEditing={false}
-                suggestedPlace={suggestedPlace}
-            />
-            <SuggestionDetailsModal
-                visible={detailsModalVisible}
-                onClose={() => setDetailsModalVisible(false)}
                 suggestion={suggestion}
             />
         </View>
@@ -269,82 +71,5 @@ const styles = StyleSheet.create({
         borderRadius: 6,
         marginBottom: 10,
         elevation: 2,
-    },
-    statusBanner: {
-        paddingVertical: 6,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderTopLeftRadius: 6,
-        borderTopRightRadius: 6,
-    },
-    activeBanner: {
-        backgroundColor: '#E53935', // Red
-    },
-    upcomingBanner: {
-        backgroundColor: '#1E88E5', // Blue
-    },
-    statusText: {
-        color: 'white',
-        fontSize: 16,
-        fontWeight: 'bold',
-        textTransform: 'uppercase',
-    },
-    timeLabel: {
-        fontSize: 14,
-        color: '#d32f2f',
-        fontWeight: '600',
-        textAlign: 'left',
-        paddingLeft: 12,
-        marginBottom: 6,
-    },
-    inviteButton: {
-        position: 'absolute',
-        right: 10,
-        backgroundColor: '#1E88E5',
-        paddingVertical: 8,
-        paddingHorizontal: 16,
-        borderRadius: 15,
-        elevation: 2,
-    },
-    inviteText: {
-        color: '#fff',
-        fontWeight: 'bold',
-        fontSize: 14,
-    },
-    photoWrapper: {
-        position: 'relative',
-        alignSelf: 'center',
-    },
-    overlayBusiness: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    overlayTopText: {
-        position: 'absolute',
-        bottom: 15,
-        left: 0,
-        right: 0,
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: 'rgba(0,0,0,0.6)',
-        padding: 8,
-        width: screenWidth,
-        zIndex: 2,
-    },
-    overlayAvatar: {
-        backgroundColor: "#ccc",
-        marginRight: 10,
-    },
-    overlayTextContainer: {
-        flexShrink: 1,
-        marginLeft: 5,
-    },
-    overlayText: {
-        color: 'white',
-        fontWeight: 'bold',
-    },
-    overlaySubText: {
-        color: 'white',
-        fontSize: 13,
-    },
+    }
 });

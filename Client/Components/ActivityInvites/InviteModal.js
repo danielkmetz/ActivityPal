@@ -40,11 +40,12 @@ const InviteModal = ({
     initialInvite,
     setIsEditing,
     setInviteToEdit,
-    suggestedPlace,
+    suggestion,
 }) => {
     const dispatch = useDispatch();
     const user = useSelector(selectUser);
     const friends = useSelector(selectFriends);
+    const suggestionContent = suggestion?.original ? suggestion?.original : suggestion;
     const [showFriendsModal, setShowFriendsModal] = useState(false);
     const [selectedPlace, setSelectedPlace] = useState(null);
     const [dateTime, setDateTime] = useState(null);
@@ -53,6 +54,13 @@ const InviteModal = ({
     const [note, setNote] = useState('');
     const googleRef = useRef(null);
     const { gesture, animateIn, animateOut, animatedStyle, } = useSlideDownDismiss(onClose);
+
+    const suggestedPlace = {
+        placeId: suggestionContent?.placeId,
+        name: suggestionContent?.businessName,
+        startTime: suggestionContent?.startTime,
+        note: `Lets go to ${suggestionContent?.businessName} for ${suggestionContent?.title}`
+    };
 
     useEffect(() => {
         if (isEditing && initialInvite && visible) {
@@ -87,7 +95,7 @@ const InviteModal = ({
             googleRef.current?.setAddressText(suggestedPlace.name);
 
             const suggestionTime = new Date(suggestedPlace.startTime);
-            
+
             setDateTime(suggestionTime);
             setNote(suggestedPlace.note);
         }

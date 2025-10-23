@@ -4,17 +4,16 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import RatingsBreakdownModal from "../metricRatings/RatingsBreakdownModal";
 import { selection } from "../../../utils/Haptics/haptics";
 
-export default function RatingsButton({
-  rating = 0,
-  ratings = {
-    rating: 0,
-    priceRating: 0,
-    serviceRating: 0,
-    atmosphereRating: 0,
-    wouldRecommend: false,
-  },
-  style,
-}) {
+export default function RatingsButton({ post }) {
+  const postContent = post?.original ?? post ?? {};
+  const rating = postContent?.rating;
+  const ratings = {
+    rating,
+    pricRating: postContent?.priceRating,
+    serviceRating: postContent?.serviceRating,
+    atmosphereRating: postContent?.atmosphereRating,
+    wouldRecommend: postContent?.wouldRecommend,
+  }
   const [open, setOpen] = useState(false);
 
   const onPress = () => {
@@ -26,7 +25,7 @@ export default function RatingsButton({
 
   return (
     <>
-      <TouchableOpacity onPress={onPress} activeOpacity={0.7} style={style}>
+      <TouchableOpacity onPress={onPress} activeOpacity={0.7} >
         <View style={styles.ratingButton}>
           <View style={styles.ratingStars}>
             {Array.from({ length: safeRating }).map((_, i) => (
@@ -35,7 +34,6 @@ export default function RatingsButton({
           </View>
         </View>
       </TouchableOpacity>
-
       <RatingsBreakdownModal
         visible={open}
         onClose={() => setOpen(false)}
