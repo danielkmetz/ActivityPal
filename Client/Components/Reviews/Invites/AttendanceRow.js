@@ -1,14 +1,21 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { useInviteState } from './useInviteState';
+import { useSelector } from 'react-redux';
+import { selectUser } from '../../../Slices/UserSlice';
 
 export default function AttendanceRow({
-  isSender,
-  isRecipient,
   hasRequested,
   onRequestJoin,
-  totalGoing,
   onOpenInvitees,
+  post,
 }) {
+  const user = useSelector(selectUser);
+  const userId = user?.id;
+  const postContent = post?.original ? post?.original : post;
+  const totalGoing = postContent?.recipients?.filter(r => r.status === 'accepted').length || 0;
+  const { isSender, isRecipient } = useInviteState(postContent, userId);
+
   return (
     <View style={styles.row}>
       {!isRecipient && !isSender && (
@@ -30,7 +37,7 @@ export default function AttendanceRow({
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', justifyContent: 'flex-start' },
+  row: { flexDirection: 'row', justifyContent: 'space-between' },
   pill: { marginTop: 10, alignItems: 'center', backgroundColor: '#f0f0f0', padding: 8, borderRadius: 6, marginRight: 5 },
   requested: { backgroundColor: '#ddd' },
   requestedText: { fontSize: 14, color: '#888' },

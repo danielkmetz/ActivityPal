@@ -33,6 +33,8 @@ import LiveChatReducer from './Slices/LiveChatSlice';
 import likesReducer from './Slices/LikesSlice';
 import removeTagsReducer from './Slices/RemoveTagsSlice';
 import taggedPostsReducer from './Slices/TaggedPostsSlice';
+import hiddenPostsReducer from './Slices/HiddenPostsSlice';
+import BlocksReducer from './Slices/BlocksSlice';
 
 const store = configureStore({
     reducer: combineReducers({
@@ -65,7 +67,9 @@ const store = configureStore({
         liveChat: LiveChatReducer,
         likes: likesReducer,
         removeTags: removeTagsReducer,
-        taggedPosts: taggedPostsReducer
+        taggedPosts: taggedPostsReducer,
+        hiddenPosts: hiddenPostsReducer,
+        blocks: BlocksReducer,
     }),
     middleware: (getDefault) =>
         getDefault({ serializableCheck: false })

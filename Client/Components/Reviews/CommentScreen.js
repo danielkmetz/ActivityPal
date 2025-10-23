@@ -16,11 +16,9 @@ import {
     selectNestedReplyInput,
     selectNestedExpandedReplies,
 } from '../../Slices/CommentThreadSlice';
-import { selectUser } from '../../Slices/UserSlice';
 import { formatEventDate, getTimeLeft } from '../../functions';
 import { uploadReviewPhotos } from '../../Slices/PhotosSlice';
 import { useLikeAnimations } from '../../utils/LikeHandlers/LikeAnimationContext';
-import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from '../../utils/LikeHandlers';
 import { addComment as addCommentGeneric, toApiPostType } from '../../Slices/CommentsSlice';
 import { selectPostById, selectSelectedReview } from '../../Slices/ReviewsSlice';
 import ShareOptionsModal from './SharedPosts/ShareOptionsModal';
@@ -54,7 +52,6 @@ export default function CommentScreen() {
     const nestedExpandedReplies = useSelector(selectNestedExpandedReplies);
     const isEditing = useSelector(selectIsEditing);
     const nestedReplyInput = useSelector(selectNestedReplyInput);
-    const user = useSelector(selectUser);
     const dateTime = review?.dateTime || review?.date;
     const isInvite = review?.type === 'invite';
 
@@ -139,20 +136,6 @@ export default function CommentScreen() {
         setSelectedPostForShare(null);
     };
 
-    const handleLikeWithAnimation = (_ignored, force) => {
-        const animation = getAnimation(review._id);
-        return sharedHandleLikeWithAnimation({
-            postType: review.type,
-            postId: review._id,
-            review,
-            user,
-            animation,
-            dispatch,
-            lastTapRef,
-            force,
-        });
-    };
-
     const handleShareToStory = () => {
         setShareOptions(false);
 
@@ -172,26 +155,6 @@ export default function CommentScreen() {
             const hasMedia = (selectedMedia?.length || 0) > 0;
 
             const apiPostType = toApiPostType(review?.type);
-            console.log(`${TAG} INPUT`, {
-                reviewId: review?._id,
-                reviewType: review?.type,
-                apiPostType,
-                hasText,
-                hasMedia,
-                textLen: (commentText || '').length,
-                selectedMediaCount: selectedMedia?.length || 0,
-                // a very light peek at the first media (avoid dumping large blobs)
-                firstMedia: selectedMedia?.[0]
-                    ? {
-                        name: selectedMedia[0]?.fileName || selectedMedia[0]?.name || null,
-                        type: selectedMedia[0]?.type || null,
-                        size: selectedMedia[0]?.fileSize || selectedMedia[0]?.size || null,
-                        hasUri: !!selectedMedia[0]?.uri,
-                        hasPhotoKey: !!selectedMedia[0]?.photoKey,
-                    }
-                    : null,
-            });
-
             // --------- GUARDS ---------
             if (!review) {
                 console.warn(`${TAG} ABORT: review missing`);
@@ -212,11 +175,6 @@ export default function CommentScreen() {
                 const mediaFile = selectedMedia[0];
                 const mStart = Date.now();
 
-                console.log(`${TAG} media: dispatch(uploadReviewPhotos) start`, {
-                    placeId: review.placeId || null,
-                    kind: mediaFile?.type,
-                });
-
                 let uploadAction;
                 try {
                     uploadAction = await dispatch(
@@ -228,12 +186,6 @@ export default function CommentScreen() {
 
                     if (uploadReviewPhotos.fulfilled.match(uploadAction)) {
                         const result = uploadAction.payload;
-                        console.log(`${TAG} media: upload fulfilled`, {
-                            ms: Date.now() - mStart,
-                            resultLen: Array.isArray(result) ? result.length : null,
-                            firstKey: Array.isArray(result) ? result[0] : null,
-                        });
-
                         if (Array.isArray(result) && result.length > 0) {
                             media = {
                                 photoKey: result[0],
@@ -264,32 +216,11 @@ export default function CommentScreen() {
                 ...(media && { media }),
             };
 
-            console.log(`${TAG} dispatch(addCommentGeneric)`, {
-                payloadSummary: {
-                    postType: payload.postType,
-                    postId: payload.postId,
-                    commentTextLen: payload.commentText.length,
-                    hasMedia: !!payload.media,
-                    mediaType: payload.media?.mediaType || null,
-                    hasPhotoKey: !!payload.media?.photoKey,
-                },
-            });
-
             // --------- DISPATCH THUNK (NO unwrap) ---------
             const action = await dispatch(addCommentGeneric(payload));
 
             // Inspect result explicitly
             if (addCommentGeneric.fulfilled.match(action)) {
-                console.log(`${TAG} fulfilled`, {
-                    ms: Date.now() - t0,
-                    returned: {
-                        postType: action.payload?.postType,
-                        postId: action.payload?.postId,
-                        hasComment: !!action.payload?.comment,
-                        commentId: action.payload?.comment?._id || null,
-                    },
-                });
-
                 // UI resets
                 dispatch(setReplyingTo(null));
                 setCommentText('');
@@ -429,8 +360,6 @@ export default function CommentScreen() {
                         formatEventDate={formatEventDate}
                         photoTapped={photoTapped}
                         toggleTaggedUsers={toggleTaggedUsers}
-                        handleLikeWithAnimation={handleLikeWithAnimation}
-                        lastTapRef={lastTapRef}
                         setIsPhotoListActive={setIsPhotoListActive}
                         sharedPost={isSharedPost}
                         onShare={openShareOptions}

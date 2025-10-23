@@ -1,9 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const Business = require('../models/Business');
-const User = require('../models/User.js');
 const Event = require('../models/Events.js');
-const mongoose = require('mongoose');
+const HiddenPost = require('../models/HiddenPosts.js');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 const deleteS3Objects = require('../utils/deleteS3Objects.js');
 const { enrichComments } = require('../utils/userPosts.js');
@@ -97,8 +96,33 @@ router.get("/events/:placeId", async (req, res) => {
       ? await safePresign(business.logoKey)
       : null;
 
+    // ---- Exclude hidden events for the current viewer (if authenticated) ----
+    const viewerId = req.user?.id; // assumes upstream auth middleware sets req.user when available
+    let hiddenEventIds = [];
+    if (viewerId && mongoose.Types.ObjectId.isValid(viewerId)) {
+      try {
+        const rows = await HiddenPost.find(
+          { userId: new mongoose.Types.ObjectId(viewerId), targetRef: 'Event' },
+          { targetId: 1, _id: 0 }
+        ).lean();
+
+        hiddenEventIds = (rows || [])
+          .map(r => r?.targetId)
+          .filter(Boolean)
+          .map(id => new mongoose.Types.ObjectId(String(id)));
+      } catch (e) {
+        console.warn("[GET /events/:placeId] hidden fetch failed:", e?.message);
+      }
+    }
+
+    // Build the query with DB-level exclusion for best perf
+    const eventQuery = { placeId };
+    if (hiddenEventIds.length) {
+      eventQuery._id = { $nin: hiddenEventIds };
+    }
+
     // Lean event fetch for lightweight objects
-    const events = await Event.find({ placeId }).lean();
+    const events = await Event.find(eventQuery).lean();
 
     const enhancedEvents = await Promise.all(
       events.map(async (event) => {
@@ -110,14 +134,14 @@ router.get("/events/:placeId", async (req, res) => {
               url: await safePresign(photo.photoKey),
             }))
           ),
-          enrichComments(event.comments || []), // <- uses your helper chain
+          enrichComments(event.comments || []),
         ]);
 
         return {
           ...event,
           _id: event._id?.toString?.() || event._id,
           photos,
-          comments, // <- now included on each event
+          comments,
           businessName: business.businessName,
           ownerId: business._id.toString(),
           placeId: business.placeId,

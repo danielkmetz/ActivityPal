@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const User = require('../../models/User');
 const SharedPost = require('../../models/SharedPost');
+const HiddenPost = require('../../models/HiddenPosts');
 const { getPresignedUrl } = require('../../utils/cachePresignedUrl');
 const {
   gatherUserReviews,
@@ -9,35 +10,74 @@ const {
   enrichSharedPost
 } = require('../../utils/userPosts');
 
-const getUserPosts = async (_, { userId, limit = 15, after }) => {
+const getAuthUserId = (ctx) =>
+  ctx?.user?._id?.toString?.() || ctx?.user?.id || ctx?.user?.userId || null;
+
+const getUserPosts = async (_, { userId, limit = 15, after }, context) => {
   try {
     const userObjectId = new mongoose.Types.ObjectId(userId);
+
+    // 👇 Determine viewer (who may have hidden posts)
+    const viewerId = getAuthUserId(context);
+    const viewerObjectId = viewerId && mongoose.Types.ObjectId.isValid(viewerId)
+      ? new mongoose.Types.ObjectId(viewerId)
+      : null;
+
+    // 👇 Build hidden ID sets per model for the viewer
+    let hiddenByRef = { Review: new Set(), CheckIn: new Set(), SharedPost: new Set() };
+    if (viewerObjectId) {
+      try {
+        const rows = await HiddenPost.find(
+          { userId: viewerObjectId },
+          { targetRef: 1, targetId: 1, _id: 0 }
+        ).lean();
+
+        hiddenByRef = rows.reduce((acc, r) => {
+          const ref = r?.targetRef;
+          if (!ref) return acc;
+          if (!acc[ref]) acc[ref] = new Set();
+          acc[ref].add(String(r.targetId));
+          return acc;
+        }, { Review: new Set(), CheckIn: new Set(), SharedPost: new Set() });
+      } catch (e) {
+        console.warn('[getUserPosts] hidden fetch failed:', e?.message);
+      }
+    }
 
     const user = await User.findById(userObjectId).select(
       '_id profilePic firstName lastName'
     );
-
-    if (!user) {
-      throw new Error('User not found');
-    }
+    if (!user) throw new Error('User not found');
 
     const photoKey = user.profilePic?.photoKey || null;
     const profilePicUrl = photoKey ? await getPresignedUrl(photoKey) : null;
 
-    const reviews = await gatherUserReviews(userObjectId, user.profilePic, profilePicUrl);
-    const checkIns = await gatherUserCheckIns(user, profilePicUrl);
+    // Fetch all content
+    const reviewsRaw = await gatherUserReviews(userObjectId, user.profilePic, profilePicUrl);
+    const checkInsRaw = await gatherUserCheckIns(user, profilePicUrl);
 
     const sharedPostsRaw = await SharedPost.find({ user: userObjectId })
       .sort({ createdAt: -1 })
       .lean();
 
+    // 🔒 Filter each list by the viewer's hidden sets (DB-model refs)
+    const reviews = (reviewsRaw || []).filter(r =>
+      !hiddenByRef.Review?.has(String(r._id || r.id))
+    );
+    const checkIns = (checkInsRaw || []).filter(c =>
+      !hiddenByRef.CheckIn?.has(String(c._id || c.id))
+    );
+    const sharedPostsSource = (sharedPostsRaw || []).filter(sp =>
+      !hiddenByRef.SharedPost?.has(String(sp._id || sp.id))
+    );
+
     const profilePicMap = await resolveUserProfilePics([
       user._id.toString(),
-      ...sharedPostsRaw.map(sp => sp.originalOwner?.toString()).filter(Boolean),
+      ...sharedPostsSource.map(sp => sp.originalOwner?.toString()).filter(Boolean),
     ]);
 
     const enrichedSharedPosts = await Promise.all(
-      sharedPostsRaw.map(async (shared) => {
+      sharedPostsSource.map(async (shared) => {
         const enrichedOriginal = await enrichSharedPost(shared, profilePicMap);
         if (!enrichedOriginal) return null;
 
@@ -68,9 +108,10 @@ const getUserPosts = async (_, { userId, limit = 15, after }) => {
 
     const sharedPosts = enrichedSharedPosts.filter(Boolean);
 
+    // Ensure type is set on reviews/check-ins so downstream code is consistent
     const allPosts = [
-      ...reviews.map(post => ({ ...post, sortDate: post.date })),
-      ...checkIns.map(post => ({ ...post, sortDate: post.date })),
+      ...reviews.map(post => ({ ...post, type: 'review',    sortDate: post.date })),
+      ...checkIns.map(post => ({ ...post, type: 'check-in', sortDate: post.date })),
       ...sharedPosts,
     ];
 
@@ -89,7 +130,6 @@ const getUserPosts = async (_, { userId, limit = 15, after }) => {
       sorted = sorted.filter(post => {
         const postTime = new Date(post.sortDate).getTime();
         const postId = new mongoose.Types.ObjectId(post._id).toString();
-
         return (
           postTime < afterTime ||
           (postTime === afterTime && postId < afterObjectId)

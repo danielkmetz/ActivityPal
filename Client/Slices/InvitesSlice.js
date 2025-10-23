@@ -1,4 +1,5 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import { replacePostInFeeds } from './ReviewsSlice';
 import axios from 'axios';
 
 const API_BASE = `${process.env.EXPO_PUBLIC_SERVER_URL}/activity-invite`;
@@ -22,16 +23,18 @@ export const sendInvite = createAsyncThunk(
 
 export const acceptInvite = createAsyncThunk(
     'invites/acceptInvite',
-    async ({ recipientId, inviteId }, { rejectWithValue }) => {
+    async ({ recipientId, inviteId }, { rejectWithValue, dispatch }) => {
       try {
-        const response = await axios.post(`${API_BASE}/accept`, { recipientId, inviteId });
-  
-        // Optional: return any data the backend might respond with (like updated invite)
+        const { data } = await axios.post(`${API_BASE}/accept`, { recipientId, inviteId });
+        const updated = data.invite;
+        
+        await dispatch(replacePostInFeeds(updated));
+
         return {
             inviteId,
             status: 'accepted',
-            message: response.data.message,
-            invite: response.data.invite,
+            message: data.message,
+            invite: data.invite,
         };
       } catch (err) {
         return rejectWithValue(err.response?.data || { message: 'Unknown error' });
@@ -40,18 +43,26 @@ export const acceptInvite = createAsyncThunk(
 );  
 
 export const rejectInvite = createAsyncThunk(
-    'invites/rejectInvite',
-    async ({ recipientId, inviteId }) => {
-      const response = await axios.post(`${API_BASE}/reject`, { recipientId, inviteId });
+  'invites/rejectInvite',
+  async ({ recipientId, inviteId }, { rejectWithValue, dispatch }) => {
+    try {
+      const { data } = await axios.post(`${API_BASE}/reject`, { recipientId, inviteId });
+      const updated = data.invite;
+
+      await dispatch(replacePostInFeeds(updated));
+
       return {
         inviteId,
         status: 'declined',
-        message: response.data.message,
-        invite: response.data.invite,
-      }; // Return the enriched invite from the backend
+        message: data.message,
+        invite: updated,
+      };
+    } catch (err) {
+      return rejectWithValue(err.response?.data || { message: 'Unknown error' });
     }
+  }
 );
-  
+
 export const deleteInvite = createAsyncThunk(
   'invites/deleteInvite',
   async ({ senderId, inviteId, recipientIds }) => {
@@ -154,6 +165,7 @@ const invitesSlice = createSlice({
       })
       .addCase(acceptInvite.fulfilled, (state, action) => {
         const updated = action.payload.invite;
+        console.log('updated invite from slice', updated);
         const index = state.invites.findIndex(inv => inv._id === updated._id);
         if (index !== -1) {
           state.invites[index] = updated;
