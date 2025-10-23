@@ -1,5 +1,10 @@
+const mongoose = require('mongoose');
 const User = require('../../models/User');
+const HiddenPost = require('../../models/HiddenPosts');
 const { resolveUserProfilePics, gatherUserReviews, gatherUserCheckIns } = require('../../utils/userPosts');
+
+const getAuthUserId = (ctxUser) =>
+  ctxUser?._id?.toString?.() || ctxUser?.id || ctxUser?.userId || null;
 
 const getSuggestedFollows = async (_, { userId }, { user }) => {
   const safeId = String(userId);
@@ -13,6 +18,32 @@ const getSuggestedFollows = async (_, { userId }, { user }) => {
 
   if (!currentUser) {
     throw new Error('User not found');
+  }
+
+  // ---- load viewer's hidden ids (Review / CheckIn) ----
+  const viewerId = getAuthUserId(user) || safeId; // fall back to the passed userId if needed
+  const viewerObjId = mongoose.Types.ObjectId.isValid(viewerId)
+    ? new mongoose.Types.ObjectId(viewerId)
+    : null;
+
+  let hiddenReviewIds = new Set();
+  let hiddenCheckInIds = new Set();
+
+  if (viewerObjId) {
+    try {
+      const rows = await HiddenPost.find(
+        { userId: viewerObjId },
+        { targetRef: 1, targetId: 1, _id: 0 }
+      ).lean();
+
+      for (const r of rows || []) {
+        const id = String(r.targetId);
+        if (r.targetRef === 'Review') hiddenReviewIds.add(id);
+        if (r.targetRef === 'CheckIn') hiddenCheckInIds.add(id);
+      }
+    } catch (e) {
+      console.warn('[getSuggestedFollows] hidden fetch failed:', e?.message);
+    }
   }
 
   const followingRaw = Array.isArray(currentUser.following) ? currentUser.following : [];
@@ -89,10 +120,14 @@ const getSuggestedFollows = async (_, { userId }, { user }) => {
       let checkIns = [];
 
       try {
-        [reviews, checkIns] = await Promise.all([
+        const [rawReviews, rawCheckIns] = await Promise.all([
           gatherUserReviews(u._id, userProfilePic, userProfilePicUrl),
           gatherUserCheckIns(u, userProfilePicUrl),
         ]);
+
+        // 🔒 filter out items the viewer has hidden
+        reviews = (rawReviews || []).filter(r => !hiddenReviewIds.has(String(r._id || r.id)));
+        checkIns = (rawCheckIns || []).filter(c => !hiddenCheckInIds.has(String(c._id || c.id)));
       } catch {
         // Swallow gather errors to avoid breaking suggestions
       }

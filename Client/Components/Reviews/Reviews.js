@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useRef, useCallback, useMemo } from "react";
 import {
   Alert,
   FlatList,
@@ -14,10 +14,7 @@ import InviteCard from "./InviteCard";
 import ReviewItem from "./ReviewItem";
 import CheckInItem from "./CheckInItem";
 import SuggestionItem from "./SuggestionItem";
-import { useLikeAnimations } from "../../utils/LikeHandlers/LikeAnimationContext";
-import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from "../../utils/LikeHandlers";
 import { useNavigation } from "@react-navigation/native";
-import { selectFollowing, selectFollowRequests } from "../../Slices/friendsSlice";
 import SharePostModal from "./SharedPosts/SharePostModal";
 import SharedPostItem from "./SharedPosts/SharedPostItem";
 import { deleteSharedPost } from "../../Slices/SharedPostsSlice";
@@ -32,17 +29,13 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
   const dispatch = useDispatch();
   const navigation = useNavigation();
   const user = useSelector(selectUser);
-  const following = useSelector(selectFollowing);
-  const followRequests = useSelector(selectFollowRequests);
   const [photoTapped, setPhotoTapped] = useState(null);
   const [shareOptionsVisible, setShareOptionsVisible] = useState(false);
   const [shareToFeedVisible, setShareToFeedVisible] = useState(false);
   const [selectedPostForShare, setSelectedPostForShare] = useState(null);
   const [editingSharedPost, setEditingSharedPost] = useState(false);
   const lastTapRef = useRef({});
-  const { registerAnimation, getAnimation } = useLikeAnimations();
   const userId = user?.id;
-
   const listHeightRef = useRef(0);
   const contentHeightRef = useRef(0);
   const momentumGuardRef = useRef(false);
@@ -131,25 +124,6 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
       photoTapped,
       isSuggestedFollowPost: review.isSuggestedFollowPost ? true : false,
       sharedPost,
-    });
-  };
-
-  const handleLikeWithAnimation = (entity, opts = {}) => {
-    const { force = false, animateTarget = null } = opts;
-    const animKey = (animateTarget?._id) || entity?._id || entity?.id;
-    const animation = getAnimation(animKey);
-
-    return sharedHandleLikeWithAnimation({
-      postType: entity?.type,
-      kind: entity?.kind,
-      postId: entity?._id || entity?.id,
-      review: entity,         // the thing whose likes/owner we reason about
-      user,
-      animation,              // Animated.Value looked up by the animation target
-      dispatch,
-      lastTapRef,
-      force,
-      animateTarget,          // NEW: tells the helper where to overlay
     });
   };
 
@@ -258,16 +232,6 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
     setSelectedPostForShare(null);
   };
 
-  useEffect(() => {
-    reviews?.forEach(post => {
-      if (post?._id) registerAnimation(post._id);
-      // If it's a shared post, also register the inner/original
-      if (post?.type === 'sharedPost' && post?.original?._id) {
-        registerAnimation(post.original._id);
-      }
-    });
-  }, [reviews]);
-
   return (
     <>
       <AnimatedFlatList
@@ -314,7 +278,6 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
             return (
               <InviteCard
                 invite={item}
-                handleLikeWithAnimation={handleLikeWithAnimation}
                 handleOpenComments={handleOpenComments}
                 onShare={openShareOptions}
               />
@@ -324,17 +287,11 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
             return (
               <CheckInItem
                 item={item}
-                animation={getAnimation(item._id)}
                 photoTapped={photoTapped}
                 toggleTaggedUsers={toggleTaggedUsers}
-                handleLikeWithAnimation={handleLikeWithAnimation}
-                handleLike={handleLikeWithAnimation}
                 handleOpenComments={handleOpenComments}
-                lastTapRef={lastTapRef}
                 handleDelete={handleDeletePost}
                 handleEdit={handleEditPost}
-                following={following}
-                followRequests={followRequests}
                 onShare={openShareOptions}
                 setPhotoTapped={setPhotoTapped}
               />
@@ -344,7 +301,6 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
             return (
               <SuggestionItem
                 suggestion={item}
-                handleLikeWithAnimation={handleLikeWithAnimation}
                 onShare={openShareOptions}
               />
             );
@@ -353,16 +309,11 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
             return (
               <SharedPostItem
                 item={item}
-                animation={getAnimation(item._id)}
                 photoTapped={photoTapped}
                 toggleTaggedUsers={toggleTaggedUsers}
-                handleLikeWithAnimation={handleLikeWithAnimation}
                 handleOpenComments={handleOpenComments}
-                lastTapRef={lastTapRef}
                 handleDelete={handleDeletePost}
                 handleEdit={handleEditPost}
-                following={following}
-                followRequests={followRequests}
                 onShare={openShareOptions}
               />
             );
@@ -374,7 +325,6 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
                 onProfile={(userId) => navigation.navigate('OtherUserProfile', { userId })}
                 handleEdit={handleEditPost}
                 handleDelete={handleDeletePost}
-                handleLikeWithAnimation={handleLikeWithAnimation}
                 handleOpenComments={handleOpenComments}
               />
             )
@@ -382,17 +332,12 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
           return (
             <ReviewItem
               item={item}
-              animation={getAnimation(item._id)}
               photoTapped={photoTapped}
               setPhotoTapped={setPhotoTapped}
               toggleTaggedUsers={toggleTaggedUsers}
-              handleLikeWithAnimation={handleLikeWithAnimation}
               handleOpenComments={handleOpenComments}
-              lastTapRef={lastTapRef}
               handleDelete={handleDeletePost}
               handleEdit={handleEditPost}
-              following={following}
-              followRequests={followRequests}
               onShare={openShareOptions}
             />
           );

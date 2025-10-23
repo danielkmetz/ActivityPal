@@ -1,10 +1,13 @@
 const mongoose = require('mongoose');
 const SharedPost = require('../../models/SharedPost');
 const User = require('../../models/User');
-const { enrichSharedPost, enrichComments } = require('../../utils/userPosts');
-const { resolveUserProfilePics } = require('../../utils/userPosts');
+const { enrichSharedPost, enrichComments, resolveUserProfilePics } = require('../../utils/userPosts');
 
-const getUserAndFollowingSharedPosts = async (_, { userId, userLat = null, userLng = null }) => {
+const getUserAndFollowingSharedPosts = async (
+  _,
+  { userId, userLat = null, userLng = null, excludeAuthorIds = [] },
+  ctx
+) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       console.error('❌ Invalid userId format:', userId);
@@ -12,26 +15,49 @@ const getUserAndFollowingSharedPosts = async (_, { userId, userLat = null, userL
     }
 
     const userObjectId = new mongoose.Types.ObjectId(userId);
+
+    // 👥 Fetch following list
     const user = await User.findById(userObjectId).select('following').lean();
     if (!user) {
       console.error('❌ User not found:', userId);
       throw new Error('User not found');
     }
 
-    const followingIds = user.following || [];
-    const allUserIds = [userObjectId, ...followingIds];
+    // Build candidate sharers (me + following) as strings
+    const followingIds = (user.following || []).map(String);
+    const candidateSharerIdsStr = [String(userObjectId), ...followingIds];
 
-    const sharedPostsRaw = await SharedPost.find({ user: { $in: allUserIds } })
+    // 🚫 Push-down block filter
+    const excludeSet = new Set((excludeAuthorIds || []).map(String));
+    const allowedSharerIdsStr = Array.from(
+      new Set(candidateSharerIdsStr.filter(id => !excludeSet.has(id)))
+    );
+
+    // Nothing left? Done.
+    if (allowedSharerIdsStr.length === 0) return [];
+
+    // Convert back to ObjectIds for the query
+    const allowedSharerIds = allowedSharerIdsStr.map(id => new mongoose.Types.ObjectId(id));
+
+    // Prepare exclude list as ObjectIds for originalOwner $nin
+    const excludeOids = (excludeAuthorIds || [])
+      .map(id => (mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(String(id)) : null))
+      .filter(Boolean);
+
+    // 🔎 Query: only posts shared by allowed users AND not from blocked original owners
+    const sharedPostsRaw = await SharedPost.find({
+      user: { $in: allowedSharerIds },
+      ...(excludeOids.length ? { originalOwner: { $nin: excludeOids } } : {}),
+    })
       .sort({ createdAt: -1 })
-      // keep _id explicit so it’s never excluded by accident
       .populate('user', '_id firstName lastName profilePic')
       .populate('originalOwner', '_id firstName lastName profilePic')
       .lean();
 
-    // collect IDs we can actually resolve pics for (only if present)
+    // Collect IDs for pic resolution (only what we actually need)
     const uniqueUserIds = [
       ...new Set([
-        ...allUserIds.map(id => id.toString()),
+        ...allowedSharerIdsStr,
         ...sharedPostsRaw.map(sp => sp.user?._id?.toString()).filter(Boolean),
         ...sharedPostsRaw.map(sp => sp.originalOwner?._id?.toString()).filter(Boolean),
       ]),
@@ -39,7 +65,6 @@ const getUserAndFollowingSharedPosts = async (_, { userId, userLat = null, userL
 
     const profilePicMap = await resolveUserProfilePics(uniqueUserIds);
 
-    // simple helper to create a "tombstone" placeholder
     const tombstone = (label = 'Deleted User') => ({
       id: 'DELETED_USER',
       firstName: label,
@@ -50,26 +75,24 @@ const getUserAndFollowingSharedPosts = async (_, { userId, userLat = null, userL
 
     const enriched = await Promise.all(
       sharedPostsRaw.map(async (shared, idx) => {
-        // Run enrichment (still may return null for bad originals; we’ll skip then)
         const enrichedOriginal = await enrichSharedPost(shared, profilePicMap, userLat, userLng);
         if (!enrichedOriginal) {
           console.warn(`⚠️ Skipped shared post at index ${idx} (enrichment failed): ${shared._id}`);
           return null;
         }
 
-        // Enrich comments on the shared post itself
         const enrichedComments = await enrichComments(shared.comments || []);
 
-        // Build safe user block
+        // Sharer block
         let userBlock;
         if (!shared.user) {
           console.warn(`⚠️ Shared post ${shared._id} missing "user" — using tombstone`);
           userBlock = tombstone('Deleted User');
         } else {
-          const userIdStr = shared.user._id?.toString?.() || shared.user.id || 'UNKNOWN_ID';
-          const pic = profilePicMap[userIdStr] || {};
+          const uid = shared.user._id?.toString?.() || shared.user.id || 'UNKNOWN_ID';
+          const pic = profilePicMap[uid] || {};
           userBlock = {
-            id: userIdStr,
+            id: uid,
             firstName: shared.user.firstName || null,
             lastName: shared.user.lastName || null,
             profilePicUrl: pic.profilePicUrl ?? null,
@@ -77,16 +100,16 @@ const getUserAndFollowingSharedPosts = async (_, { userId, userLat = null, userL
           };
         }
 
-        // Build safe originalOwner block
+        // Original owner block
         let ownerBlock;
         if (!shared.originalOwner) {
           console.warn(`⚠️ Shared post ${shared._id} missing "originalOwner" — using tombstone`);
           ownerBlock = tombstone('Deleted User');
         } else {
-          const ownerIdStr = shared.originalOwner._id?.toString?.() || shared.originalOwner.id || 'UNKNOWN_ID';
-          const pic = profilePicMap[ownerIdStr] || {};
+          const oid = shared.originalOwner._id?.toString?.() || shared.originalOwner.id || 'UNKNOWN_ID';
+          const pic = profilePicMap[oid] || {};
           ownerBlock = {
-            id: ownerIdStr,
+            id: oid,
             firstName: shared.originalOwner.firstName || null,
             lastName: shared.originalOwner.lastName || null,
             profilePicUrl: pic.profilePicUrl ?? null,
@@ -112,18 +135,25 @@ const getUserAndFollowingSharedPosts = async (_, { userId, userLat = null, userL
           type: 'sharedPost',
           likes: shared.likes || [],
           comments: enrichedComments,
-          original: enrichedOriginal.original, // Review / CheckIn / Event / Promotion / ActivityInvite
+          original: enrichedOriginal.original,
         };
       })
     );
 
-    return enriched.filter(Boolean);
+    // (Safety) Final guard in case any slipped through
+    const result = enriched
+      .filter(Boolean)
+      .filter(sp => {
+        const sharerId = sp?.user?.id;
+        const ownerId = sp?.originalOwner?.id;
+        return !(excludeSet.has(String(sharerId)) || excludeSet.has(String(ownerId)));
+      });
+
+    return result;
   } catch (err) {
     console.error('❌ Error in getUserAndFollowingSharedPosts resolver:', err);
     throw new Error('Failed to fetch user and following shared posts');
   }
 };
 
-module.exports = {
-  getUserAndFollowingSharedPosts,
-};
+module.exports = { getUserAndFollowingSharedPosts };

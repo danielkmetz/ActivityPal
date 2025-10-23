@@ -6,7 +6,6 @@ import PostActions from './PostActions/PostActions';
 import PostUserInfo from "./CommentScreen/PostUserInfo";
 import SharedPostContent from "./SharedPosts/SharedPostContent";
 import VideoThumbnail from "./VideoThumbnail";
-import { useDispatch } from "react-redux";
 import PhotoFeed from "./Photos/PhotoFeed";
 import RatingsButton from "./ReviewItem/RatingsButton";
 
@@ -18,31 +17,29 @@ const CommentModalHeader = ({
     formatEventDate,
     photoTapped,
     toggleTaggedUsers,
-    handleLikeWithAnimation,
-    lastTapRef,
     setIsPhotoListActive,
     sharedPost,
     onShare
 }) => {
-    const dispatch = useDispatch();
     const navigation = useNavigation();
+    const renderItem = review?.original ?? review ?? {};
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
     const scrollX = useRef(new Animated.Value(0)).current;
     const currentIndexRef = useRef(0);
-    const currentPhoto = review.photos?.[currentPhotoIndex];
-    const isInvite = review?.type === "invite";
+    const currentPhoto = renderItem?.photos?.[currentPhotoIndex];
+    const isInvite = renderItem?.type === "invite";
     const likeAnim = useRef({});
-    const isShared = !!sharedPost || review?.type === 'sharedPost';
-    const photos = review?.photos || review?.media;
-    const hasTaggedUsers = Array.isArray(review?.taggedUsers) && review.taggedUsers.length > 0;
+    const isShared = !!sharedPost || renderItem?.type === 'sharedPost';
+    const photos = renderItem?.photos || renderItem?.media;
+    const hasTaggedUsers = Array.isArray(renderItem?.taggedUsers) && renderItem.taggedUsers.length > 0;
     const postOwnerPic = isShared
-        ? (review?.user?.profilePicUrl || review?.profilePicUrl)                // sharer
+        ? (renderItem?.user?.profilePicUrl || renderItem?.profilePicUrl)                // sharer
         : isInvite
-            ? (review?.sender?.profilePicUrl || review?.profilePicUrl)            // invite creator
-            : (review?.profilePicUrl || review?.original?.profilePicUrl);
-    const postOwnerName = isInvite && review?.sender?.firstName ? `${review?.sender?.firstName} ${review?.sender?.lastName}` : review?.fullName || `${review?.user?.firstName} ${review?.user?.lastName}`;
-    const totalInvited = review?.recipients?.length || 0;
-    const dateTime = review?.dateTime || review?.date;
+            ? (renderItem?.sender?.profilePicUrl || renderItem?.profilePicUrl)            // invite creator
+            : (renderItem?.profilePicUrl || renderItem?.original?.profilePicUrl);
+    const postOwnerName = isInvite && renderItem?.sender?.firstName ? `${renderItem?.sender?.firstName} ${renderItem?.sender?.lastName}` : renderItem?.fullName || `${renderItem?.user?.firstName} ${renderItem?.user?.lastName}`;
+    const totalInvited = renderItem?.recipients?.length || 0;
+    const dateTime = renderItem?.dateTime || renderItem?.date;
     const commentActionsMargin = sharedPost ? -50 : 10;
 
     const getTimeSincePosted = (date) => {
@@ -55,12 +52,12 @@ const CommentModalHeader = ({
 
     const onOpenFullScreen = (photo, index) => {
         navigation.navigate("FullScreenPhoto", {
-            reviewId: review?._id,
-            initialIndex: review.photos.findIndex(p => p._id === photo._id),
+            reviewId: renderItem?._id,
+            initialIndex: renderItem?.photos.findIndex(p => p._id === photo._id),
         })
     };
 
-    const { isLive, playbackUrl, vodUrl } = review;
+    const { isLive, playbackUrl, vodUrl } = renderItem;
 
     const fileForThumb = useMemo(() => {
         const src = isLive ? playbackUrl : (vodUrl || playbackUrl);
@@ -86,92 +83,66 @@ const CommentModalHeader = ({
                     postOwnerPic={postOwnerPic}
                     postOwnerName={postOwnerName}
                     totalInvited={totalInvited}
-                    review={review}
+                    review={renderItem}
                     sharedPost={sharedPost}
                     getTimeSincePosted={getTimeSincePosted}
                 />
                 {sharedPost && review?.original && (
                     <SharedPostContent
-                        sharedItem={review.original}
+                        sharedItem={renderItem}
                         photoTapped={photoTapped}
                         toggleTaggedUsers={toggleTaggedUsers}
-                        handleLikeWithAnimation={handleLikeWithAnimation}
-                        lastTapRef={lastTapRef}
                         setIsPhotoListActive={setIsPhotoListActive}
                         onOpenFullScreen={(photo, index) => {
                             navigation.navigate("FullScreenPhoto", {
-                                reviewId: review.original?._id,
+                                reviewId: renderItem?._id,
                                 initialIndex: index,
                             });
                         }}
                     />
                 )}
                 <Text style={styles.businessName}>
-                    {review?.type === "review" || isInvite ? review?.businessName : ""}
+                    {renderItem?.type === "review" || isInvite ? renderItem?.businessName : ""}
                 </Text>
-                {(review?.dateTime || review?.date) && isInvite && (
+                {(renderItem?.dateTime || renderItem?.date) && isInvite && (
                     <>
                         <Text style={styles.datetime}>On {formatEventDate(dateTime)}</Text>
-                        <Text style={styles.note}>{review.note}</Text>
+                        <Text style={styles.note}>{renderItem.note}</Text>
                         <View style={styles.countdownContainer}>
                             <Text style={styles.countdownLabel}>Starts in:</Text>
                             <Text style={styles.countdownText}>{timeLeft}</Text>
                         </View>
                     </>
                 )}
-                {review?.type === "review" && (
-                    <RatingsButton
-                        rating={review.rating}
-                        ratings={{
-                            rating: review.rating,
-                            priceRating: review.priceRating,
-                            serviceRating: review.serviceRating,
-                            atmosphereRating: review.atmosphereRating,
-                            wouldRecommend: review.wouldRecommend,
-                        }}
-                    />
+                {renderItem?.type === "review" && (
+                    <RatingsButton post={review} />
 
                 )}
                 <Text style={styles.reviewText}>
-                    {review?.type === "review" ? review?.reviewText : review?.message}
+                    {renderItem?.type === "review" ? renderItem?.reviewText : renderItem?.message}
                 </Text>
             </View>
-            {!!photos?.length && (
-                <PhotoFeed
-                    media={photos}
-                    scrollX={scrollX}
-                    currentIndexRef={currentIndexRef}
-                    setCurrentPhotoIndex={setCurrentPhotoIndex}
-                    reviewItem={review}
-                    photoTapped={photoTapped}
-                    handleLikeWithAnimation={handleLikeWithAnimation}
-                    lastTapRef={lastTapRef}
-                    onOpenFullScreen={onOpenFullScreen}
-                    onActiveChange={(active) => setIsPhotoListActive?.(active)} // keep your old behavior
-                />
-            )}
-            {review?.type === 'liveStream' && (
+            <PhotoFeed
+                post={review}
+                scrollX={scrollX}
+                currentIndexRef={currentIndexRef}
+                setCurrentPhotoIndex={setCurrentPhotoIndex}
+                photoTapped={photoTapped}
+                onOpenFullScreen={onOpenFullScreen}
+                onActiveChange={(active) => setIsPhotoListActive?.(active)} // keep your old behavior
+            />
+            {renderItem?.type === 'liveStream' && (
                 <View style={{ marginTop: -50 }}>
                     <VideoThumbnail
                         file={fileForThumb}
                         width={width + 10}
                         height={height * .5}
                         likeAnim={likeAnim}
-                        reviewItem={review}
-                        onDoubleTap={() => handleLikeWithAnimation({
-                            postType: 'liveStream',
-                            postId: review?._id,
-                            review,
-                            user,
-                            animation: likeAnim,     // 👈 drives the overlay
-                            lastTapRef,
-                            dispatch,
-                            force: true,             // optional if you want immediate burst on any tap here
-                        })}
+                        postItem={review}
                     />
                 </View>
             )}
-            {review?.type === "check-in" && review?.photos?.length === 0 && (
+            {renderItem?.type === "check-in" && renderItem?.photos?.length === 0 && (
                 <Image
                     source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }}
                     style={styles.pinIcon}
@@ -179,9 +150,8 @@ const CommentModalHeader = ({
             )}
             <View style={{ marginTop: commentActionsMargin, justifyContent: 'center' }}>
                 <PostActions
-                    item={review}
+                    post={review}
                     photo={currentPhoto}
-                    handleLikeWithAnimation={handleLikeWithAnimation}
                     isCommentScreen={true}
                     onShare={onShare}
                 />

@@ -20,7 +20,7 @@ export default function SharedPostContent({
   onShare,
 }) {
   if (!sharedItem) return null;
-  const sharedType = sharedItem?.type;
+  const sharedType = sharedItem?.original?.type;
 
   const renderSharedItem = () => {
     switch (sharedType) {

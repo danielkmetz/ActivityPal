@@ -15,7 +15,7 @@ import { sendInvite, editInvite } from '../../Slices/InvitesSlice';
 import { selectFriends } from '../../Slices/friendsSlice';
 import { FontAwesome } from '@expo/vector-icons';
 import { selectUser } from '../../Slices/UserSlice';
-import { addPostToFeeds } from '../../Slices/ReviewsSlice';
+import { addPostToFeeds, replacePostInFeeds } from '../../Slices/ReviewsSlice';
 import { googlePlacesDefaultProps } from '../../utils/googleplacesDefaults';
 import TagFriendsModal from '../Reviews/TagFriendsModal';
 import { useNavigation } from '@react-navigation/native';
@@ -111,7 +111,7 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
           businessName: selectedPlace.name,
         }));
 
-        await dispatch(addPostToFeeds(updatedInvite));
+        await dispatch(replacePostInFeeds(updatedInvite));
         medium();
 
         alert('Invite updated!');

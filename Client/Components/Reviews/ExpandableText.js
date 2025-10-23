@@ -3,10 +3,12 @@ import { Text, View, Dimensions, StyleSheet } from "react-native";
 
 const screenWidth = Dimensions.get("window").width;
 
-export default function ExpandableText({ text, maxLines = 2, textStyle = {}, seeMoreStyle = {} }) {
+export default function ExpandableText({ post, maxLines = 2, textStyle = {}, seeMoreStyle = {} }) {
   const [expanded, setExpanded] = useState(false);
   const [fullHeight, setFullHeight] = useState(0);
   const [truncatedHeight, setTruncatedHeight] = useState(0);
+  const postContent = post?.original ? post?.original : post;
+  const text = postContent?.reviewText || postContent?.message || postContent?.caption || postContent?.note;
 
   return (
     <View>

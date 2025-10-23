@@ -1,15 +1,19 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { View, StyleSheet, TouchableWithoutFeedback } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { selectUser } from "../../../Slices/UserSlice";
-import { useSelector } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import LikeButton from "./LikeButton";
 import CommentButton from "./CommentButton";
 import SendButton from './SendButton';
 import ShareButton from './ShareButton';
 import { medium } from "../../../utils/Haptics/haptics";
 import TagUserModal from '../TagUserModal/TagUserModal';
+import { useLikeAnimations } from "../../../utils/LikeHandlers/LikeAnimationContext";
+import { pickPostId, typeFromKind as promoEventKind } from "../../../utils/posts/postIdentity";
+import { handleEventOrPromoLike } from "../../../utils/LikeHandlers/promoEventLikes";
+import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from "../../../utils/LikeHandlers";
 
 function deriveLikeState(item, currentUserId) {
   // Normalize possible shapes:
@@ -19,62 +23,62 @@ function deriveLikeState(item, currentUserId) {
   // - (sometimes likes may be missing or an object)
   const likesArray =
     Array.isArray(item?.likes) ? item.likes
-    : Array.isArray(item?.likes?.items) ? item.likes.items
-    : [];
+      : Array.isArray(item?.likes?.items) ? item.likes.items
+        : [];
 
   const count =
     typeof item?.likesCount === 'number' ? item.likesCount
-    : Array.isArray(likesArray) ? likesArray.length
-    : 0;
+      : Array.isArray(likesArray) ? likesArray.length
+        : 0;
 
   const hasLiked =
     typeof item?.liked === 'boolean' ? item.liked
-    : typeof item?.likedByMe === 'boolean' ? item.likedByMe
-    : Array.isArray(likesArray)
-      ? likesArray.some(like => String(like?.userId) === String(currentUserId))
-      : false;
+      : typeof item?.likedByMe === 'boolean' ? item.likedByMe
+        : Array.isArray(likesArray)
+          ? likesArray.some(like => String(like?.userId) === String(currentUserId))
+          : false;
 
   return { hasLiked, count };
 }
 
 export default function PostActions({
-  item,
+  post,
   onShare,
-  handleLikeWithAnimation,
   handleOpenComments,
   toggleTaggedUsers,
   photo,
   isCommentScreen = false,
   orientation = "row",
   onRequestShowTags,          // preferred deterministic show: (photoKey) => void
-  onFollowUser,               // (userId, userObj) => void
-  onNavigateToProfile,        // (userId, userObj) => void
-  getIsFollowing,             // (userId) => boolean
-  isFollowingMap,
-  setPhotoTapped,     
+  setPhotoTapped,
 }) {
+  const dispatch = useDispatch();
   const navigation = useNavigation();
   const user = useSelector(selectUser);
+  const isSharedPost = post?.type === 'sharedPost' || post?.original;
+  const postContent = post?.original ?? post ?? {};
+  const lastTapRef = useRef({});
   const [tagModalVisible, setTagModalVisible] = useState(false);
   const currentUserId = user?.id;
-  const { hasLiked, count } = deriveLikeState(item, currentUserId);
+  const { hasLiked, count } = deriveLikeState(post, currentUserId);
+  const { getAnimation, registerAnimation } = useLikeAnimations(); // ✅ use context
   const taggedUsers = Array.isArray(photo?.taggedUsers) ? photo.taggedUsers : [];
   const shouldRenderTagButton =
-    item?.type !== "invite" && photo?.taggedUsers?.length > 0;
+    postContent?.type !== "invite" && photo?.taggedUsers?.length > 0;
 
   const handleSend = () => {
     medium();
-    const kind = item?.kind?.toLowerCase();
+    const kind = postContent?.kind?.toLowerCase();
     const derivedType = kind?.includes("event")
       ? "event"
       : kind?.includes("promo")
         ? "promotion"
-        : item?.type;
+        : postContent?.type;
 
     navigation.navigate("SearchFollowing", {
-      postId: item._id,
+      postId: postContent._id,
       postType: derivedType,
-      placeId: item.placeId || item.business?.placeId || null,
+      placeId: postContent.placeId || postContent.business?.placeId || null,
     });
   };
 
@@ -94,23 +98,43 @@ export default function PostActions({
     setPhotoTapped?.(null);
   };
 
-  const handleViewProfile = (u) => {
-    const uid = u?.userId;
-    if (!uid) return;
-    if (typeof onNavigateToProfile === "function") {
-      onNavigateToProfile(uid, u);
+  const handleLikeWithAnimation = (force = false) => {
+    const animation = getAnimation(postContent._id);
+    const resolvedPostId = pickPostId(post);
+    const promoEventType =
+      (postContent?.type && String(post.type).toLowerCase()) ||
+      promoEventKind(postContent?.kind) ||
+      (postContent?.__typename && String(postContent.__typename).toLowerCase());
+
+    if (promoEventType === 'promotion' || promoEventType === 'event') {
+      return handleEventOrPromoLike({
+        postType: promoEventType || 'suggestion', // or pass 'event'/'promotion' explicitly if you know it
+        kind: post.kind,
+        postId: resolvedPostId,
+        review: post,
+        user,
+        animation,
+        dispatch,
+        lastTapRef,
+        force,
+      })
     } else {
-      if (String(uid) === String(currentUserId)) {
-        navigation.navigate("Profile");
-      } else {
-        navigation.navigate("OtherUserProfile", { userId: uid });
-      }
+      return sharedHandleLikeWithAnimation({
+        postType: post.type,
+        postId: resolvedPostId,
+        review: post,
+        user,
+        animation,
+        dispatch,
+        lastTapRef,
+        force,
+      });
     }
   };
 
-  const handleFollow = (u) => {
-    onFollowUser?.(u?.userId, u);
-  };
+  if (isSharedPost) {
+    return;
+  }
 
   return (
     <View
@@ -131,7 +155,7 @@ export default function PostActions({
         <LikeButton
           hasLiked={hasLiked}
           count={count}
-          onPress={() => handleLikeWithAnimation(item, { force: true })}
+          onPress={() => handleLikeWithAnimation(post, { force: true })}
           orientation={orientation}
         />
         {/* Comment */}
@@ -143,8 +167,8 @@ export default function PostActions({
             ]}
           >
             <CommentButton
-              count={item?.comments?.length || 0}
-              onPress={() => handleOpenComments(item)}
+              count={post?.comments?.length || 0}
+              onPress={() => handleOpenComments(post)}
               orientation={orientation}
             />
           </View>
@@ -157,7 +181,7 @@ export default function PostActions({
           ]}
         >
           <ShareButton
-            onPress={() => onShare(item)}
+            onPress={() => onShare(postContent)}
             orientation={orientation}
           />
         </View>
@@ -186,14 +210,10 @@ export default function PostActions({
       )}
       <TagUserModal
         visible={tagModalVisible}
-        item={item}
+        post={post}
         photoId={photo?._id}
         onClose={closeTagModal}
         taggedUsers={taggedUsers}
-        getIsFollowing={getIsFollowing}
-        isFollowingMap={isFollowingMap}
-        onFollowToggle={handleFollow}
-        onViewProfile={handleViewProfile}
         title="Tagged in this photo"
       />
     </View>

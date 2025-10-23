@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Modal,
   View,
@@ -17,6 +17,10 @@ import profilePicPlaceholder from '../../../assets/pics/profile-pic-placeholder.
 import { useSelector } from 'react-redux';
 import { selectUser } from '../../../Slices/UserSlice';
 import SelfTagActionSheet from './SelfTagActionSheet';
+import { navigateToOtherUserProfile } from '../../../utils/userActions';
+import { useNavigation } from '@react-navigation/native';
+import { selectFollowing } from '../../../Slices/friendsSlice';
+import FollowButton from '../PostActions/FollowButton';
 
 const ROW_HEIGHT = 72;
 
@@ -24,23 +28,21 @@ const TagUserModal = ({
   visible,
   onClose,
   taggedUsers = [],             // [{ userId, fullName, profilePicUrl }]
-  isFollowingMap,               // optional: { [userId]: true/false }
-  getIsFollowing,               // optional: (userId) => boolean
-  onFollowToggle,               // (user) => void
-  onViewProfile,                // (user) => void
   onRemoveSelfTag,              // () => Promise|void  (POST-WIDE remove)
   onHideFromProfile,            // () => Promise|void
-  item,
+  post,
   photoId,                      // only set when this list is for a specific photo
   title = 'Tagged in this photo',
 }) => {
+  const navigation = useNavigation();
+  const postContent = post?.original ? post?.original : post;
   const currentUser = useSelector(selectUser);
   const currentUserId = currentUser?.id;
-  const postType = item?.type || item?.psotType;
-  const postId = item?._id || item?.id;
+  const postType = postContent?.type || postContent?.postType;
+  const postId = postContent?._id || postContent?.id;
   const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
   const [selfActionsVisible, setSelfActionsVisible] = useState(false);
-
+  
   useEffect(() => {
     if (visible) {
       animateIn();
@@ -56,58 +58,12 @@ const TagUserModal = ({
 
   const keyExtractor = (item, i) => String(item?.userId || i);
 
-  const renderItem = ({ item }) => {
-    const isSelf =
-      item?.userId != null &&
-      currentUserId != null &&
-      String(item.userId) === String(currentUserId);
-
-    const isFollowing =
-      typeof getIsFollowing === 'function'
-        ? !!getIsFollowing(item.userId)
-        : !!isFollowingMap?.[item.userId];
-
-    const handlePressRow = async () => {
-      if (isSelf) {
-        openSelfActions();
-      } else {
-        onViewProfile?.(item);
-        await animateOut();
-      }
-    };
-
-    return (
-      <TouchableOpacity
-        activeOpacity={0.85}
-        onPress={handlePressRow}
-        style={styles.row}
-      >
-        <Avatar.Image
-          size={44}
-          source={item.profilePicUrl ? { uri: item.profilePicUrl } : profilePicPlaceholder}
-          style={{ backgroundColor: '#ccc', marginRight: 12 }}
-        />
-        <View style={styles.rowCenter}>
-          <Text style={styles.name} numberOfLines={1}>
-            {item.fullName || 'User'}
-          </Text>
-        </View>
-        <View style={styles.actionsInline}>
-          {!isSelf && (
-            <TouchableOpacity
-              onPress={() => onFollowToggle?.(item)}
-              style={[styles.primaryBtnSm, isFollowing && styles.secondaryBtnSm]}
-              activeOpacity={0.85}
-            >
-              <Text style={[styles.primaryBtnSmText, isFollowing && styles.secondaryBtnSmText]}>
-                {isFollowing ? 'Following' : 'Follow'}
-              </Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </TouchableOpacity>
-    );
-  };
+  const onViewProfile = (targetId) =>
+    navigateToOtherUserProfile({
+      navigation,
+      userId: targetId,
+      currentUserId,
+    });
 
   const getItemLayout = (_, index) => ({
     length: ROW_HEIGHT,
@@ -143,6 +99,47 @@ const TagUserModal = ({
       await animateOut();
       onClose?.();
     }
+  };
+
+  const renderItem = ({ item }) => {
+    const isSelf =
+      item?.userId != null &&
+      currentUserId != null &&
+      String(item.userId) === String(currentUserId);
+
+    const handlePressRow = async () => {
+      if (isSelf) {
+        openSelfActions();
+      } else {
+        onViewProfile?.(item.userId);
+        await animateOut();
+      }
+    };
+
+    return (
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={handlePressRow}
+        style={styles.row}
+      >
+        <Avatar.Image
+          size={44}
+          source={item.profilePicUrl ? { uri: item.profilePicUrl } : profilePicPlaceholder}
+          style={{ backgroundColor: '#ccc', marginRight: 12 }}
+        />
+        <View style={styles.rowCenter}>
+          <Text style={styles.name} numberOfLines={1}>
+            {item.fullName || 'User'}
+          </Text>
+        </View>
+        <View style={styles.actionsInline}>
+          <FollowButton 
+            post={post}
+            onPressFollowing={() => onViewProfile(postOwnerId)}
+          />
+        </View>
+      </TouchableOpacity>
+    );
   };
 
   return (

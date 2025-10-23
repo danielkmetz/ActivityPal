@@ -50,7 +50,7 @@ const ownerResolvers = {
     reviews: async (doc) => ({ ownerId: String(doc?.userId || ''), ownerRef: 'User' }),
     checkins: async (doc) => ({ ownerId: String(doc?.userId || ''), ownerRef: 'User' }),
     invites: async (doc) => ({ ownerId: String(doc?.senderId || ''), ownerRef: 'User' }),
-    sharedPosts: async (doc) => ({ ownerId: String(doc?.user || ''), ownerRef: 'User' }),
+    sharedPosts: async (doc) => ({ ownerId: String(doc?.user?.id || ''), ownerRef: 'User' }),
 };
 
 // Helper: build safe media payload
@@ -183,6 +183,84 @@ async function notifyOwner({ ownerRef, ownerId, type, message, relatedUserId, co
             await user.save();
         }
     } catch { }
+}
+
+function collectNodeIdsDeep(node) {
+  const ids = [];
+  const stack = [node];
+  while (stack.length) {
+    const n = stack.pop();
+    if (n?._id) ids.push(String(n._id));
+    if (Array.isArray(n?.replies) && n.replies.length) stack.push(...n.replies);
+  }
+  return ids;
+}
+
+async function removeNotificationsForDeletedNodes({ postType, postId, topLevelCommentId = null, nodeIds = [] }) {
+  try {
+    const postObjectId = new mongoose.Types.ObjectId(String(postId));
+    const idObjs = nodeIds
+      .map(id => {
+        try { return new mongoose.Types.ObjectId(String(id)); } catch { return null; }
+      })
+      .filter(Boolean);
+
+    if (idObjs.length) {
+      // Remove "like" and "reply" notifications tied to any deleted node (comment or reply)
+      await User.updateMany(
+        {},
+        {
+          $pull: {
+            notifications: {
+              postType,
+              targetId: postObjectId,
+              $or: [
+                { type: 'like',  replyId: { $in: idObjs } },
+                { type: 'reply', replyId: { $in: idObjs } },
+              ],
+            },
+          },
+        }
+      );
+    }
+
+    // If a TOP-LEVEL comment was deleted, also remove the original "comment" notification
+    if (topLevelCommentId) {
+      const topId = new mongoose.Types.ObjectId(String(topLevelCommentId));
+
+      // From Users (owner might be a user)
+      await User.updateMany(
+        {},
+        {
+          $pull: {
+            notifications: {
+              type: 'comment',
+              postType,
+              targetId: postObjectId,
+              commentId: topId,
+            },
+          },
+        }
+      );
+
+      // From Businesses (owner might be a business)
+      await Business.updateMany(
+        {},
+        {
+          $pull: {
+            notifications: {
+              type: 'comment',
+              postType,
+              targetId: postObjectId,
+              commentId: topId,
+            },
+          },
+        }
+      );
+    }
+  } catch (e) {
+    console.warn('[removeNotificationsForDeletedNodes] failed:', e?.message);
+  }
 }
 
 /* ----------------------------- Middleware ----------------------------- */
@@ -817,7 +895,7 @@ router.patch('/:postType/:postId/comments/:commentId', verifyToken, loadDoc, asy
 
 // Delete comment or reply (author OR post owner)
 router.delete('/:postType/:postId/comments/:commentId', verifyToken, loadDoc, async (req, res) => {
-  const { _doc: doc, _ownerResolver, params: { commentId } } = req;
+  const { _doc: doc, _postType: postType, _ownerResolver, params: { commentId } } = req;
   const userId = req.user?.id;
   if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
@@ -836,16 +914,28 @@ router.delete('/:postType/:postId/comments/:commentId', verifyToken, loadDoc, as
         return res.status(403).json({ message: 'Forbidden' });
       }
 
+      // Collect node IDs and media BEFORE deleting
+      const deletedNodeIds = collectNodeIdsDeep(direct);
       const keys = collectMediaKeysDeep(direct) || [];
+
       direct.deleteOne();
       doc.markModified?.('comments');
       await doc.save();
 
       if (keys.length) { try { await deleteS3Objects(keys); } catch {} }
+
+      // Pull notifications related to this deleted TOP-LEVEL thread (likes/replies AND the original comment notice)
+      await removeNotificationsForDeletedNodes({
+        postType,
+        postId: doc._id,
+        topLevelCommentId: direct._id,       // top-level comment
+        nodeIds: deletedNodeIds,
+      });
+
       return res.json({ message: 'Comment deleted' });
     }
 
-    // Deep delete
+    // Deep delete (nested reply or nested subtree)
     const located = locateNestedNodeById(doc.comments || [], commentId);
     if (!located?.node) {
       return res.status(404).json({ message: 'Comment/reply not found' });
@@ -856,7 +946,10 @@ router.delete('/:postType/:postId/comments/:commentId', verifyToken, loadDoc, as
       return res.status(403).json({ message: 'Forbidden (owner or author required for deep delete)' });
     }
 
+    // Collect IDs + media BEFORE removing
+    const deletedNodeIds = collectNodeIdsDeep(located.node);
     const mediaKeysToDelete = collectMediaKeysDeep(located.node) || [];
+
     const resDeep = deleteCommentDeep(doc.comments || [], commentId);
     if (!resDeep?.deleted) {
       return res.status(404).json({ message: 'Comment/reply not found' });
@@ -868,6 +961,16 @@ router.delete('/:postType/:postId/comments/:commentId', verifyToken, loadDoc, as
 
     const keys = mediaKeysToDelete.length ? mediaKeysToDelete : (resDeep.mediaKeys || []);
     if (keys.length) { try { await deleteS3Objects(keys); } catch {} }
+
+    // Pull notifications related to the deleted REPLY subtree.
+    // Note: do NOT pass topLevelCommentId here — we didn't delete the top-level comment,
+    // so the original "comment" notification should remain.
+    await removeNotificationsForDeletedNodes({
+      postType,
+      postId: doc._id,
+      topLevelCommentId: null,
+      nodeIds: deletedNodeIds,
+    });
 
     return res.json({ message: 'Comment deleted' });
   } catch {

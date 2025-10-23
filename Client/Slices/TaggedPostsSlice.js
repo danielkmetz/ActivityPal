@@ -73,7 +73,7 @@ const compKeyForHidden = (wrapper) => {
 };
 
 const hidKey = (postType, postId) =>
-  `${normalizePostTypeForCompare(postType)}:${toStr(postId)}`;
+    `${normalizePostTypeForCompare(postType)}:${toStr(postId)}`;
 
 // One user's feed state
 const makeFeedState = () => ({
@@ -277,6 +277,7 @@ const initialState = {
         error: null,
         lastFetchedAt: null,
     },
+    globalHiddenMap: {},
 };
 
 const taggedPostsSlice = createSlice({
@@ -395,6 +396,121 @@ const taggedPostsSlice = createSlice({
                 h.items = [...list];
             }
         },
+        restoreUnhiddenTaggedToFeed(state, action) {
+            const { item, postType, postId, forUserId } = action.payload || {};
+            const uid = toStr(forUserId || state.activeUserId);
+            if (!uid) return;
+
+            const feed = ensureFeed(state, uid);
+
+            // 1) Resolve the item to insert.
+            //    - If `item` is given, use it.
+            //    - Else, look it up from the `hidden.items` (wrappers) using postType/postId.
+            let toInsert = item || null;
+            if (!toInsert && (postType || postId)) {
+                const pid = toStr(postId);
+                const ptype = normalizePostTypeForCompare(postType);
+                const candidates = (state.hidden && Array.isArray(state.hidden.items)) ? state.hidden.items : [];
+                const wrapper = candidates.find((w) => {
+                    const p = getInnerPost(w) || w;
+                    const sameId = toStr(p?._id || p?.id) === pid;
+                    const t = normalizePostTypeForCompare(typeOf(p)); // typeOf already lowercases
+                    const sameType = t === ptype || (ptype === 'check-in' && t === 'checkin');
+                    return sameId && sameType;
+                });
+                if (wrapper) toInsert = getInnerPost(wrapper) || wrapper;
+            }
+            if (!toInsert) return;
+
+            // 2) Dedupe via composite key.
+            const key = getCompositeKey(toInsert);
+            if (!key) return;
+            if (!feed.keys) feed.keys = {};
+            if (feed.keys[key]) return;
+
+            // 3) Insert sorted by date (newest first). Fallback: put at top if no date.
+            const sd = getSortDate(toInsert);
+            if (!Array.isArray(feed.items)) feed.items = [];
+            if (!sd) {
+                feed.items.unshift(toInsert);
+            } else {
+                const targetTime = Date.parse(sd);
+                let idx = 0;
+                while (idx < feed.items.length) {
+                    const d = getSortDate(feed.items[idx]);
+                    if (!d) break;
+                    const t = Date.parse(d);
+                    // Descending (newest first): insert before the first item that is older or equal
+                    if (targetTime >= t) break;
+                    idx++;
+                }
+                feed.items.splice(idx, 0, toInsert);
+            }
+            feed.keys[key] = true;
+
+            // 4) Recompute cursor (based on last item).
+            const last = feed.items[feed.items.length - 1];
+            const lastId = toStr(last?._id || last?.id);
+            const lastSortDate = getSortDate(last);
+            feed.cursor = lastId && lastSortDate ? { id: lastId, sortDate: lastSortDate } : null;
+
+            // 5) Also remove it from the `hidden` list if it exists there.
+            const h = state.hidden || (state.hidden = makeFeedState());
+            const pidForHidden = toStr(toInsert?._id || toInsert?.id);
+            const ptypeForHidden = normalizePostTypeForCompare(typeOf(toInsert));
+            if (Array.isArray(h.items) && h.items.length) {
+                const next = [];
+                for (const it of h.items) {
+                    const p = getInnerPost(it) || it;
+                    const sameId = toStr(p?._id || p?.id) === pidForHidden;
+                    const t = normalizePostTypeForCompare(typeOf(p));
+                    const sameType = t === ptypeForHidden || (ptypeForHidden === 'check-in' && t === 'checkin');
+                    if (sameId && sameType) {
+                        const k = compKeyForHidden(it);
+                        if (h.keys && k) delete h.keys[k];
+                        continue; // drop from hidden
+                    }
+                    next.push(it);
+                }
+                h.items = next;
+            }
+
+            // 6) Since it's unhidden, ensure the ID map does not mark it hidden.
+            delete state.hiddenIds.map[hidKey(toInsert.__typename || toInsert.type, toInsert._id || toInsert.id)];
+        },
+        filterTaggedPost(state, action) {
+            const { postType, postId, forUserId } = action.payload || {};
+            const uid = toStr(forUserId || state.activeUserId);
+            if (!uid) return;
+
+            const feed = ensureFeed(state, uid);
+
+            const pid = toStr(postId);
+            const ptype = normalizePostTypeForCompare(postType);
+            if (!pid || !ptype) return;
+
+            const next = [];
+            for (const it of feed.items || []) {
+                const sameId = idOf(it) === pid;
+                const t = normalizePostTypeForCompare(typeOf(it)); // typeOf already lowercases
+                const sameType = t === ptype || (ptype === 'check-in' && t === 'checkin');
+
+                if (sameId && sameType) {
+                    const key = getCompositeKey(it);
+                    if (feed.keys && key) delete feed.keys[key]; // drop from dedupe map
+                    continue; // skip (i.e., filter it out)
+                }
+                next.push(it);
+            }
+
+            feed.items = next;
+
+            // Recompute cursor based on the new last item
+            const last = feed.items[feed.items.length - 1] || null;
+            const lastId = toStr(last?._id || last?.id);
+            const lastSortDate = getSortDate(last);
+            feed.cursor = (lastId && lastSortDate) ? { id: lastId, sortDate: lastSortDate } : null;
+        }
     },
     extraReducers: (builder) => {
         // ----- refresh flow -----
@@ -466,8 +582,13 @@ const taggedPostsSlice = createSlice({
         // ----- hide/unhide (applies to the active user's feed by default) -----
         builder
             .addCase(hideTaggedPost.fulfilled, (state, { payload, meta }) => {
+                // ✅ ALWAYS mark hidden in ID map (independent of which profile is visible)
+                state.hiddenIds.map[hidKey(payload?.postType, payload?.postId)] = true;
+
+                // Optionally update the currently viewed tagged feed if we know which user it is
                 const uid = toStr(meta?.arg?.forUserId || state.activeUserId);
-                if (!uid) return;
+                if (!uid) return;                     // <— only gate feed editing, not the ID map
+
                 const feed = ensureFeed(state, uid);
 
                 const pid = toStr(payload?.postId);
@@ -486,9 +607,6 @@ const taggedPostsSlice = createSlice({
                     }
                     return true;
                 });
-
-                // ✅ mark hidden in ID map
-                state.hiddenIds.map[hidKey(payload?.postType, payload?.postId)] = true;
             })
             .addCase(hideTaggedPost.rejected, (state, { payload }) => {
                 const uid = state.activeUserId;
@@ -623,6 +741,8 @@ export const {
     prependToTagged,
     removeFromHiddenTagged,
     applyHiddenPostUpdates,
+    restoreUnhiddenTaggedToFeed,
+    filterTaggedPost,
 } = taggedPostsSlice.actions;
 
 // ---------- Selectors ----------
@@ -705,18 +825,14 @@ export const selectHiddenPostsStatus = (s) => (s?.taggedPosts?.hidden?.status ||
 export const selectHiddenPostsError = (s) => s?.taggedPosts?.hidden?.error || null;
 // Hidden tagged IDs selectors
 export const selectHiddenTaggedIdsMap = (s) =>
-  s?.taggedPosts?.hiddenIds?.map || {};
+    s?.taggedPosts?.hiddenIds?.map || {};
 
 export const selectIsTaggedHidden = (s, postType, postId) =>
-  Boolean(selectHiddenTaggedIdsMap(s)[hidKey(postType, postId)]);
+    Boolean(selectHiddenTaggedIdsMap(s)[hidKey(postType, postId)]);
 
 export const selectHiddenTaggedIdsStatus = (s) =>
-  s?.taggedPosts?.hiddenIds?.status || 'idle';
+    s?.taggedPosts?.hiddenIds?.status || 'idle';
 
 export const selectHiddenTaggedIdsError = (s) =>
-  s?.taggedPosts?.hiddenIds?.error || null;
-
-// export const selectHiddenTaggedHasMore = (s) => !!(s?.taggedPosts?.hidden?.hasMore);
-// export const selectHiddenTaggedCursor = (s) => s?.taggedPosts?.hidden?.cursor || null;
-// export const selectHiddenTaggedRefreshing = (s) => !!(s?.taggedPosts?.hidden?.refreshing);
+    s?.taggedPosts?.hiddenIds?.error || null;
 

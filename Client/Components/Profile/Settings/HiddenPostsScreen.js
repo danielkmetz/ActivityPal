@@ -1,149 +1,220 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
-    View,
-    Text,
-    StyleSheet,
-    TouchableOpacity,
-    FlatList,
-    ActivityIndicator,
-    Alert,
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+  SectionList,
 } from "react-native";
 import { useDispatch, useSelector } from "react-redux";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
 import { selectUser } from "../../../Slices/UserSlice";
 import {
-    selectHiddenPosts,
-    selectHiddenPostsStatus,
-    fetchHiddenTaggedPosts,
-    unhideTaggedPost,
-    removeFromHiddenTagged,
+  selectHiddenPosts as selectTaggedHiddenPosts,
+  selectHiddenPostsStatus as selectTaggedHiddenStatus,
+  fetchHiddenTaggedPosts,
 } from "../../../Slices/TaggedPostsSlice";
-import { addPostToProfileSortedByDate } from "../../../Slices/ReviewsSlice";
-import Reviews from "../../Reviews/Reviews";
+import {
+  fetchHiddenPostsAll,
+  selectHiddenListItems as selectGlobalHiddenItems,
+  selectHiddenListStatus as selectGlobalHiddenStatus,
+} from "../../../Slices/HiddenPostsSlice";
 import { normalizePostType } from "../../../utils/normalizePostType";
+import ReviewItem from "../../Reviews/ReviewItem";
+import CheckInItem from "../../Reviews/CheckInItem";
+import SharedPostItem from "../../Reviews/SharedPosts/SharedPostItem";
+import InviteCard from "../../Reviews/InviteCard";
 
-export default function HiddenPostsScreen({ scrollY, onScroll, isAtEnd }) {
-    const navigation = useNavigation();
-    const dispatch = useDispatch();
-    const user = useSelector(selectUser);
-    const userId = user?.id;
+export default function HiddenPostsScreen() {
+  const dispatch = useDispatch();
+  const user = useSelector(selectUser);
+  const userId = user?.id;
+  const [showTagged, setShowTagged] = useState(true);
+  const [showGlobal, setShowGlobal] = useState(true);
+  const taggedHidden = useSelector(selectTaggedHiddenPosts);
+  const taggedStatus = useSelector(selectTaggedHiddenStatus);
+  const globalHiddenItems = useSelector(selectGlobalHiddenItems);
+  const globalStatus = useSelector(selectGlobalHiddenStatus);
 
-    const hiddenPosts = useSelector(selectHiddenPosts);
-    const hiddenStatus = useSelector(selectHiddenPostsStatus);
+  useEffect(() => {
+    if (!userId) return;
+    dispatch(fetchHiddenTaggedPosts());
+    dispatch(fetchHiddenPostsAll({ include: "docs" }));
+  }, [userId, dispatch]);
 
-    useEffect(() => {
-        dispatch(fetchHiddenTaggedPosts());
-    }, [userId, dispatch]);
+  const mappedTagged = useMemo(
+    () =>
+      (taggedHidden || []).map((h) => {
+        const p = h.post || {};
+        return {
+          ...p,
+          type: normalizePostType(p.type),
+          __hidden: true,
+          __hiddenMeta: {
+            scope: "profile",
+            hiddenId: h.hiddenId,
+            targetId: h.targetId,
+            targetRef: h.targetRef,
+            hiddenCreatedAt: h.createdAt,
+          },
+        };
+      }),
+    [taggedHidden]
+  );
 
-    const mappedHidden = useMemo(() => {
-        return (hiddenPosts || []).map(h => {
-            const p = h.post || {};
-            return {
-                ...p,
-                type: normalizePostType(p.type),
-                // keep hidden metadata if you want to unhide later
-                __hidden: true,
-                __hiddenMeta: {
-                    hiddenId: h.hiddenId,
-                    targetId: h.targetId,
-                    targetRef: h.targetRef,
-                    hiddenCreatedAt: h.createdAt,
-                },
-            };
-        });
-    }, [hiddenPosts]);
+  const mappedGlobal = useMemo(
+    () =>
+      (globalHiddenItems || []).map((h) => {
+        const p = h.post || {};
+        return {
+          ...p,
+          type: normalizePostType(p.type),
+          __hidden: true,
+          __hiddenMeta: {
+            scope: "global",
+            hiddenId: h.hiddenId,
+            targetId: h.targetId,
+            targetRef: h.targetRef,
+            hiddenCreatedAt: h.createdAt,
+          },
+        };
+      }),
+    [globalHiddenItems]
+  );
 
-    const feedHidden = useMemo(() => {
-        return [...mappedHidden].sort((a, b) =>
-            new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0)
-        );
-    }, [mappedHidden]);
+  const feedTagged = useMemo(
+    () =>
+      [...mappedTagged].sort(
+        (a, b) =>
+          new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0)
+      ),
+    [mappedTagged]
+  );
 
-    const onUnhide = async (item) => {
-        try {
-            await dispatch(
-                unhideTaggedPost({ postType: item.postType, postId: item._id })
-            ).unwrap();
+  const feedGlobal = useMemo(
+    () =>
+      [...mappedGlobal].sort(
+        (a, b) =>
+          new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0)
+      ),
+    [mappedGlobal]
+  );
 
-            Alert.alert("Post unhidden", "This post is visible on your profile again.");
+  const renderPostRow = useCallback((item) => {
+    const t = normalizePostType(item?.type);
+    // Render a single card component (no lists)
+    if (t === "review") return <ReviewItem key={String(item._id || item.id)} item={item} />;
+    if (t === "check-in") return <CheckInItem key={String(item._id || item.id)} item={item} />;
+    if (t === "sharedpost") return <SharedPostItem key={String(item._id || item.id)} item={item} />;
+    if (t === "invite") return <InviteCard key={String(item._id || item.id)} invite={item} />;
+    return (
+      <View key={String(item._id || item.id)} style={{ padding: 12 }}>
+        <Text style={{ fontWeight: "600" }}>Unsupported post type</Text>
+        <Text style={{ color: "#666" }}>{t || "(unknown)"}</Text>
+      </View>
+    );
+  }, []);
 
-            // keep local list in sync and put it back on profile (sorted)
-            dispatch(removeFromHiddenTagged({ postType: item.postType, postId: item._id }));
-            dispatch(addPostToProfileSortedByDate(item));
-        } catch (e) {
-            Alert.alert("Failed to unhide", e?.message || "Please try again.");
-        }
-    };
+  const sections = useMemo(() => {
+    const profData =
+      showTagged
+        ? (feedTagged.length ? feedTagged : [{ __empty: "profile" }])
+        : [{ __collapsed: "profile" }];
+
+    const globData =
+      showGlobal
+        ? (feedGlobal.length ? feedGlobal : [{ __empty: "global" }])
+        : [{ __collapsed: "global" }];
+
+    return [
+      { key: "profile", title: "Posts hidden from profile", data: profData },
+      { key: "global", title: "Hidden posts", data: globData },
+    ];
+  }, [showTagged, showGlobal, feedTagged, feedGlobal]);
+
+  const renderSectionHeader = ({ section }) => {
+    const isProfile = section.key === "profile";
+    const open = isProfile ? showTagged : showGlobal;
+    const toggle = () => (isProfile ? setShowTagged((v) => !v) : setShowGlobal((v) => !v));
 
     return (
-        <View style={styles.container}>
-            {/* Header */}
-            <View style={styles.headerRow}>
-                <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 10, left: 10, right: 10, bottom: 10 }}>
-                    <MaterialCommunityIcons name="chevron-left" size={28} color="#000" />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Hidden Posts</Text>
-                <View style={{ width: 28 }} />
-            </View>
-
-            {/* Content */}
-            {hiddenStatus === "loading" ? (
-                <View style={styles.centerRow}>
-                    <ActivityIndicator />
-                    <Text style={{ marginLeft: 10 }}>Loading hidden posts…</Text>
-                </View>
-            ) : !hiddenPosts || hiddenPosts.length === 0 ? (
-                <View style={styles.emptyState}>
-                    <MaterialCommunityIcons name="eye-off" size={32} color="#666" />
-                    <Text style={styles.emptyTitle}>No Hidden Posts</Text>
-                    <Text style={styles.emptySubtitle}>
-                        Posts you hide will appear here so you can unhide them later.
-                    </Text>
-                </View>
-            ) : (
-                <Reviews
-                    scrollY={scrollY}
-                    onScroll={onScroll}
-                    reviews={feedHidden}
-                    ListHeaderComponent={() => { }}
-                />
-            )}
-        </View>
+      <TouchableOpacity onPress={toggle} style={styles.sectionHeader} activeOpacity={0.8}>
+        <Text style={styles.sectionTitle}>{section.title}</Text>
+        <MaterialCommunityIcons
+          name={open ? "chevron-up" : "chevron-down"}
+          size={22}
+          color="#000"
+        />
+      </TouchableOpacity>
     );
+  };
+
+  const renderItem = ({ item, section }) => {
+    if (item?.__collapsed) return null;
+
+    if (item?.__empty) {
+      const isProfile = item.__empty === "profile";
+      const loading =
+        isProfile ? taggedStatus === "loading" : globalStatus === "loading";
+      return loading ? (
+        <View style={styles.centerRow}>
+          <ActivityIndicator />
+          <Text style={{ marginLeft: 10 }}>Loading…</Text>
+        </View>
+      ) : (
+        <View style={styles.emptyState}>
+          <MaterialCommunityIcons name="eye-off" size={28} color="#666" />
+          <Text style={styles.emptyTitle}>
+            {section.key === "profile" ? "No posts hidden from profile" : "No hidden posts"}
+          </Text>
+          <Text style={styles.emptySubtitle}>
+            {section.key === "profile"
+              ? "Tagged posts you hide from your profile will appear here."
+              : "Posts you hide will appear here so you can unhide them later."}
+          </Text>
+        </View>
+      );
+    }
+
+    return <View style={styles.rowWrap}>{renderPostRow(item)}</View>;
+  };
+
+  return (
+    <SectionList
+      sections={sections}
+      keyExtractor={(item, index) =>
+        String(item?._id || item?.id || item?.hiddenId || item?.__empty || item?.__collapsed || index)
+      }
+      contentContainerStyle={styles.listContent}
+      stickySectionHeadersEnabled={false}
+      ItemSeparatorComponent={() => <View style={styles.itemSep} />}
+      SectionSeparatorComponent={() => <View style={styles.divider} />}
+      renderSectionHeader={renderSectionHeader}
+      renderItem={renderItem}
+      // Tunables
+      initialNumToRender={8}
+      windowSize={7}
+      removeClippedSubviews
+    />
+  );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: "#f5f5f5", paddingTop: 85 },
-    headerRow: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginBottom: 16,
-        justifyContent: "space-between",
-    },
-    headerTitle: { fontSize: 18, fontWeight: "800" },
-    hiddenCard: {
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: "#fafafa",
-        borderWidth: 1,
-        borderColor: "#eee",
-        borderRadius: 10,
-        padding: 12,
-    },
-    hiddenTitle: { fontWeight: "700", marginBottom: 2 },
-    hiddenSubtitle: { color: "#666", fontSize: 12, marginBottom: 6 },
-    hiddenExcerpt: { color: "#333", fontSize: 13 },
-    unhideBtn: {
-        marginLeft: 10,
-        backgroundColor: "#000",
-        borderRadius: 8,
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-    },
-    unhideText: { color: "#fff", fontWeight: "700" },
-    centerRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12 },
-    emptyState: { alignItems: "center", paddingVertical: 20 },
-    emptyTitle: { marginTop: 8, fontWeight: "700" },
-    emptySubtitle: { color: "#666", marginTop: 4, textAlign: "center" },
+  listContent: { paddingTop: 85, paddingBottom: 24, backgroundColor: "#f5f5f5", marginTop: 55 },
+  headerTitle: { fontSize: 18, fontWeight: "800" },
+  sectionHeader: {
+    paddingHorizontal: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  sectionTitle: { fontSize: 16, fontWeight: "700" },
+  centerRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 12 },
+  emptyState: { alignItems: "center", paddingVertical: 16, paddingHorizontal: 12 },
+  emptyTitle: { marginTop: 6, fontWeight: "700" },
+  emptySubtitle: { color: "#666", marginTop: 4, textAlign: "center" },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: "#e6e6e6", marginVertical: 8 },
+  itemSep: { height: 8 },
+  rowWrap: { paddingHorizontal: 0 },
 });

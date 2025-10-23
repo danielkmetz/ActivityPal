@@ -1,10 +1,15 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Image, Text, Animated, TouchableWithoutFeedback, Dimensions, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Image, Text, Animated, TouchableWithoutFeedback, Dimensions, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { VideoView } from 'expo-video';
 import { useSmartVideoPlayer } from '../../../utils/useSmartVideoPlayer';
 import { isVideo } from '../../../utils/isVideo';
 import { useLikeAnimations } from '../../../utils/LikeHandlers/LikeAnimationContext';
+import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from '../../../utils/LikeHandlers';
+import { handleEventOrPromoLike } from '../../../utils/LikeHandlers/promoEventLikes';
+import { typeFromKind as promoEventKind, pickPostId } from '../../../utils/posts/postIdentity';
+import { useSelector, useDispatch } from 'react-redux';
+import { selectUser } from '../../../Slices/UserSlice';
 
 const screenWidth = Dimensions.get("window").width;
 const DOUBLE_TAP_MS = 300;
@@ -15,15 +20,16 @@ const PhotoItem = ({
     reviewItem,
     photoTapped,
     index,
-    handleLikeWithAnimation,
-    lastTapRef,
     isInteractive = true,
     onOpenFullScreen,
 }) => {
+    const dispatch = useDispatch();
     const { getAnimation, registerAnimation } = useLikeAnimations(); // ✅ use context
     const [animation, setAnimation] = useState(null);
     const player = useSmartVideoPlayer(photo);
+    const lastTapRef = useRef({});
     const timersRef = useRef({});
+    const user = useSelector(selectUser);
 
     useEffect(() => {
         if (!reviewItem?._id) return;
@@ -34,6 +40,40 @@ const PhotoItem = ({
             setAnimation(anim);
         }
     }, [reviewItem?._id]);
+
+    const handleLikeWithAnimation = (force = false) => {
+        const animation = getAnimation(reviewItem._id);
+        const resolvedPostId = pickPostId(reviewItem);
+        const promoEventType =
+            (reviewItem?.type && String(reviewItem.type).toLowerCase()) ||
+            promoEventKind(reviewItem?.kind) ||
+            (reviewItem?.__typename && String(reviewItem.__typename).toLowerCase());
+
+        if (promoEventType === 'promotion' || promoEventType === 'event') {
+            return handleEventOrPromoLike({
+                postType: promoEventType || 'suggestion', // or pass 'event'/'promotion' explicitly if you know it
+                kind: reviewItem.kind,
+                postId: resolvedPostId,
+                review: reviewItem,            
+                user,
+                animation,
+                dispatch,
+                lastTapRef,
+                force,
+            })
+        } else {
+            return sharedHandleLikeWithAnimation({
+                postType: reviewItem.type,
+                postId: resolvedPostId,
+                review: reviewItem,
+                user,
+                animation,
+                dispatch,
+                lastTapRef,
+                force,
+            });
+        }
+    };
 
     const handleTap = () => {
         if (!isInteractive) {
@@ -63,7 +103,7 @@ const PhotoItem = ({
             }
 
             lastTapRef.current[id] = 0;
-            handleLikeWithAnimation(reviewItem, { force: true }); // shows overlay
+            handleLikeWithAnimation(true); // shows overlay
             return;
         }
 

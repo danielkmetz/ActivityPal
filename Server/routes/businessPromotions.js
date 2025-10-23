@@ -1,7 +1,8 @@
 const express = require("express");
 const router = express.Router();
 const Business = require("../models/Business");
-const Promotion = require('../models/Promotions.js')
+const Promotion = require('../models/Promotions.js');
+const HiddenPost = require('../models/HiddenPosts.js');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 const { extractTimeOnly } = require('../utils/extractTimeOnly.js');
 const { enrichComments } = require('../utils/userPosts.js');
@@ -80,13 +81,29 @@ router.get('/:placeId', async (req, res) => {
       }
     };
 
-    // Fetch business + promotions in parallel
-    const [business, promotions] = await Promise.all([
+    // Fetch business + (filtered) promotions in parallel
+    const [business, hiddenPromotionObjIds] = await Promise.all([
       Business.findOne(
         { placeId },
         { _id: 1, businessName: 1, placeId: 1, logoKey: 1 }
       ).lean(),
-      Promotion.find({ placeId }).lean(),
+      (async () => {
+        const viewerId = req.user?.id;
+        if (!viewerId || !mongoose.Types.ObjectId.isValid(viewerId)) return [];
+        try {
+          const rows = await HiddenPost.find(
+            { userId: new mongoose.Types.ObjectId(viewerId), targetRef: 'Promotion' },
+            { targetId: 1, _id: 0 }
+          ).lean();
+          return (rows || [])
+            .map(r => r?.targetId)
+            .filter(Boolean)
+            .map(id => new mongoose.Types.ObjectId(String(id)));
+        } catch (e) {
+          console.warn('[GET /promotions/:placeId] hidden fetch failed:', e?.message);
+          return [];
+        }
+      })(),
     ]);
 
     if (!business) {
@@ -96,6 +113,14 @@ router.get('/:placeId', async (req, res) => {
 
     // Compute logo URL once
     const businessLogoUrl = business.logoKey ? await safePresign(business.logoKey) : null;
+
+    // Build Promotions query with DB-level exclusion
+    const promoQuery = { placeId };
+    if (hiddenPromotionObjIds.length) {
+      promoQuery._id = { $nin: hiddenPromotionObjIds };
+    }
+
+    const promotions = await Promotion.find(promoQuery).lean();
 
     const enhanced = await Promise.all(
       promotions.map(async (promo) => {
@@ -118,11 +143,11 @@ router.get('/:placeId', async (req, res) => {
           ...promo,
           _id: promo._id?.toString?.() || promo._id,
           photos,
-          comments,                 // ✅ enriched comments (with nested replies/media)
+          comments,                 // enriched comments (with nested replies/media)
           kind: 'promo',
           ownerId: business._id?.toString?.() || null,
           businessName: business.businessName || 'Unknown',
-          businessLogoUrl,          // ✅ convenient per-item
+          businessLogoUrl,          // convenient per-item
         };
       })
     );

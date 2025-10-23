@@ -2,9 +2,13 @@ const mongoose = require('mongoose');
 const Business = require('../../models/Business');
 const Review = require('../../models/Reviews');
 const CheckIn = require('../../models/CheckIns');
+const HiddenPost = require('../../models/HiddenPosts');
 const { resolveUserProfilePics, resolveTaggedPhotoUsers, resolveTaggedUsers, enrichComments } = require('../../utils/userPosts');
 
-const getBusinessReviews = async (_, { placeId, limit = 15, after }) => {
+const getAuthUserId = (ctx) =>
+  ctx?.user?._id?.toString?.() || ctx?.user?.id || ctx?.user?.userId || null;
+
+const getBusinessReviews = async (_, { placeId, limit = 15, after }, context) => {
   try {
     if (!placeId) throw new Error("Invalid placeId");
 
@@ -14,9 +18,49 @@ const getBusinessReviews = async (_, { placeId, limit = 15, after }) => {
     const businessName = business.businessName;
     const baseFilter = { placeId };
 
+    // ——— Load viewer's hidden IDs (Review / CheckIn) ———
+    const viewerId = getAuthUserId(context);
+    const viewerObjId = viewerId && mongoose.Types.ObjectId.isValid(viewerId)
+      ? new mongoose.Types.ObjectId(viewerId)
+      : null;
+
+    let hiddenReviewIds = [];
+    let hiddenCheckInIds = [];
+
+    if (viewerObjId) {
+      try {
+        const rows = await HiddenPost.find(
+          { userId: viewerObjId },
+          { targetRef: 1, targetId: 1, _id: 0 }
+        ).lean();
+
+        const reviewIds = [];
+        const checkInIds = [];
+        for (const r of rows || []) {
+          if (r?.targetRef === 'Review') reviewIds.push(String(r.targetId));
+          if (r?.targetRef === 'CheckIn') checkInIds.push(String(r.targetId));
+        }
+
+        const toObjIds = (arr) => arr.map((id) => new mongoose.Types.ObjectId(String(id)));
+        hiddenReviewIds = reviewIds.length ? toObjIds(reviewIds) : [];
+        hiddenCheckInIds = checkInIds.length ? toObjIds(checkInIds) : [];
+      } catch (e) {
+        console.warn('[getBusinessReviews] hidden fetch failed:', e?.message);
+      }
+    }
+
+    // ——— DB-level exclusion using $nin ———
+    const reviewFilter = hiddenReviewIds.length
+      ? { ...baseFilter, _id: { $nin: hiddenReviewIds } }
+      : baseFilter;
+
+    const checkInFilter = hiddenCheckInIds.length
+      ? { ...baseFilter, _id: { $nin: hiddenCheckInIds } }
+      : baseFilter;
+
     // Fetch and enrich REVIEWS
-    const reviewsRaw = await Review.find(baseFilter).lean();
-    const reviewUserIds = reviewsRaw.map(r => r.userId?.toString());
+    const reviewsRaw = await Review.find(reviewFilter).lean();
+    const reviewUserIds = reviewsRaw.map(r => r.userId?.toString()).filter(Boolean);
     const reviewPicMap = await resolveUserProfilePics(reviewUserIds);
 
     const enrichedReviews = await Promise.all(
@@ -43,8 +87,8 @@ const getBusinessReviews = async (_, { placeId, limit = 15, after }) => {
     );
 
     // Fetch and enrich CHECK-INS
-    const checkInsRaw = await CheckIn.find(baseFilter).lean();
-    const checkInUserIds = checkInsRaw.map(ci => ci.userId?.toString());
+    const checkInsRaw = await CheckIn.find(checkInFilter).lean();
+    const checkInUserIds = checkInsRaw.map(ci => ci.userId?.toString()).filter(Boolean);
     const checkInPicMap = await resolveUserProfilePics(checkInUserIds);
 
     const enrichedCheckIns = await Promise.all(

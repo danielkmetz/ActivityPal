@@ -387,12 +387,6 @@ const reviewsSlice = createSlice({
       upsert(state.profileReviews);
       upsert(state.userAndFriendsReviews);
     },
-    addPostToProfileSortedByDate: (state, action) => {
-      const post = action.payload;
-      if (!post) return;
-      if (!Array.isArray(state.profileReviews)) state.profileReviews = [];
-      _upsertInDateOrderProfile(state.profileReviews, post);
-    },
     updatePostInReviewState: (state, action) => {
       const updatedPost = action.payload;
 
@@ -488,7 +482,34 @@ const reviewsSlice = createSlice({
       const arr = Array.isArray(state.userAndFriendsReviews) ? state.userAndFriendsReviews : [];
       state.userAndFriendsReviews = arr.filter((p) => !isFromUser(p));
     },
+    addPostBackToProfileByCreatedAt(state, action) {
+      // Accept either the post itself or { item: post }
+      let post = action.payload?.item ?? action.payload;
+      if (!post) return;
 
+      // Unwrap common wrapper shapes
+      post = post.post || post.review || post.checkIn || post.sharedPost || post;
+
+      const id = post?._id || post?.id;
+      if (!id) return;
+
+      if (!Array.isArray(state.profileReviews)) state.profileReviews = [];
+      _upsertInDateOrderProfile(state.profileReviews, post);
+    },
+    addPostBackToUserAndFriendsByCreatedAt(state, action) {
+      // Accept either the post itself or { item: post }
+      let post = action.payload?.item ?? action.payload;
+      if (!post) return;
+
+      // Unwrap common wrapper shapes
+      post = post.post || post.review || post.checkIn || post.sharedPost || post;
+
+      const id = post?._id || post?.id;
+      if (!id) return;
+
+      if (!Array.isArray(state.userAndFriendsReviews)) state.userAndFriendsReviews = [];
+      _upsertInDateOrderProfile(state.userAndFriendsReviews, post);
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -661,7 +682,8 @@ export const {
   replacePostInFeeds,
   removeUserPostsFromUserAndFriends,
   invalidateUserAndFriendsFeed,
-  addPostToProfileSortedByDate,
+  addPostBackToUserAndFriendsByCreatedAt,
+  addPostBackToProfileByCreatedAt,
 } = reviewsSlice.actions;
 
 export const selectAllPosts = createSelector(
