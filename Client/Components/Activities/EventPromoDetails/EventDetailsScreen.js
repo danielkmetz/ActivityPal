@@ -1,21 +1,17 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, Keyboard, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, ActivityIndicator, Text } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import { KeyboardAwareFlatList } from 'react-native-keyboard-aware-scroll-view';
 import DetailsHeader from './DetailsHeader';
 import EventPromoCommentThread from './EventPromoCommentThread';
 import CommentInputFooter from '../../Reviews/CommentINputFooter'; // <-- fix casing
-import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from '../../../utils/LikeHandlers';
 import { useDispatch, useSelector } from 'react-redux';
 import dayjs from 'dayjs';
-import { selectUser } from '../../../Slices/UserSlice';
 import { selectNearbySuggestionById } from '../../../Slices/GooglePlacesSlice';
 import { selectIsEditing, selectNestedReplyInput, selectReplyingTo, setReplyingTo } from '../../../Slices/CommentThreadSlice';
-import { useLikeAnimations } from '../../../utils/LikeHandlers/LikeAnimationContext';
 import { uploadReviewPhotos } from '../../../Slices/PhotosSlice';
 import { selectSelectedPromotion, selectPromotionById, fetchPromotionById } from '../../../Slices/PromotionsSlice';
 import { selectEventById, selectSelectedEvent, fetchEventById } from '../../../Slices/EventsSlice';
-import { typeFromKind, pickPostId } from '../../../utils/posts/postIdentity';
 import { addComment, toApiPostType } from '../../../Slices/CommentsSlice';
 
 // ensure this returns 'event' | 'promotion'
@@ -42,22 +38,13 @@ export default function EventDetailsScreen() {
   const selectedEvent = useSelector(selectSelectedEvent);
   const selectedPromo = useSelector(selectSelectedPromotion);
   const suggestion    = useSelector(s => selectNearbySuggestionById(s, activityId));
-
   const resolvedById  = isPromo ? promoById : eventById;
   const post = resolvedById || selectedEvent || selectedPromo || suggestion;
-
-  const user         = useSelector(selectUser);
   const replyingTo   = useSelector(selectReplyingTo);
   const isEditing    = useSelector(selectIsEditing);
   const nestedReply  = useSelector(selectNestedReplyInput);
-
   const [commentText, setCommentText] = useState('');
   const [selectedMedia, setSelectedMedia] = useState([]);
-  const lastTapRef = useRef({});
-
-  const { getAnimation, registerAnimation } = useLikeAnimations();
-  const animation = post?._id ? getAnimation(post._id) : undefined;
-
   const apiPostType = toApiPostType(selectedType); // ensure this returns 'event' or 'promotion'
 
   // Fetch on mount if missing
@@ -74,14 +61,6 @@ export default function EventDetailsScreen() {
       }
     }
   }, [dispatch, activityId, selectedType, post]);
-
-  // Register like animation when post arrives
-  useEffect(() => {
-    if (post?._id) {
-      dlog('registerAnimation', { id: post._id });
-      registerAnimation(post._id);
-    }
-  }, [post?._id, registerAnimation]);
 
   const handleAddComment = async () => {
     const hasText  = !!commentText?.trim();
@@ -127,23 +106,6 @@ export default function EventDetailsScreen() {
     }
   };
 
-  const handleLikeWithAnimation = (item, force = true) => {
-    const postId = pickPostId(item);
-    const anim = postId ? getAnimation(postId) : undefined;
-
-    return sharedHandleLikeWithAnimation({
-      postType: selectedType, // singular
-      kind: item.kind,
-      postId,
-      review: item, // util expects 'review'
-      user,
-      animation: anim,
-      dispatch,
-      lastTapRef,
-      force,
-    });
-  };
-
   // Loading / Not found fallbacks
   if (!post) {
     return (
@@ -171,9 +133,6 @@ export default function EventDetailsScreen() {
                 activity={post}
                 selectedType={selectedType} // 'event' | 'promotion'
                 getTimeSincePosted={(date) => dayjs(date).fromNow(true)}
-                handleLikeWithAnimation={handleLikeWithAnimation}
-                animation={animation}
-                lastTapRef={lastTapRef}
               />
             }
             ListEmptyComponent={
@@ -196,7 +155,6 @@ export default function EventDetailsScreen() {
             )}
             contentContainerStyle={{ paddingBottom: 12 }}
           />
-
           {replyingTo === null && !nestedReply && !isEditing && (
             <CommentInputFooter
               commentText={commentText}

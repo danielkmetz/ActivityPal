@@ -30,13 +30,7 @@ dayjs.extend(relativeTime);
 
 export default function CommentScreen() {
     const route = useRoute();
-    const {
-        reviewId,
-        toggleTaggedUsers,
-        targetId,
-        photoTapped,
-        sharedPost, // can still pass to header/UI if it changes look/feel
-    } = route.params || {};
+    const { reviewId, targetId, sharedPost } = route.params || {};
     const dispatch = useDispatch();
     const navigation = useNavigation();
     const selectedReview = useSelector(selectSelectedReview);
@@ -60,6 +54,7 @@ export default function CommentScreen() {
     const [isInputCovered, setIsInputCovered] = useState(false);
     const [timeLeft, setTimeLeft] = useState(getTimeLeft(dateTime));
     const [isPhotoListActive, setIsPhotoListActive] = useState(false);
+    const [photoTapped, setPhotoTapped] = useState(null);
     const [inputHeight, setInputHeight] = useState(40);
     const [contentHeight, setContentHeight] = useState(40);
     const [selectedMedia, setSelectedMedia] = useState([]);
@@ -67,12 +62,10 @@ export default function CommentScreen() {
     const [shareToFeedVisible, setShareToFeedVisible] = useState(false);
     const [selectedPostForShare, setSelectedPostForShare] = useState(null);
     const [editingSharedPost, setEditingSharedPost] = useState(false);
-
-    const { registerAnimation, getAnimation } = useLikeAnimations();
+    const { registerAnimation } = useLikeAnimations();
     const shiftAnim = useRef(new Animated.Value(0)).current;
     const flatListRef = useRef(null);
     const commentRefs = useRef({});
-    const lastTapRef = useRef({});
     const hasScrolledToTarget = useRef(false);
 
     useEffect(() => {
@@ -120,10 +113,6 @@ export default function CommentScreen() {
         setSelectedPostForShare(post);
         setShareOptions(true);
         medium();
-    };
-
-    const closeShareOptions = () => {
-        setShareOptions(false);
     };
 
     const openShareToFeedModal = () => {
@@ -359,7 +348,6 @@ export default function CommentScreen() {
                         timeLeft={timeLeft}
                         formatEventDate={formatEventDate}
                         photoTapped={photoTapped}
-                        toggleTaggedUsers={toggleTaggedUsers}
                         setIsPhotoListActive={setIsPhotoListActive}
                         sharedPost={isSharedPost}
                         onShare={openShareOptions}
@@ -400,7 +388,7 @@ export default function CommentScreen() {
             />
             <ShareOptionsModal
                 visible={shareOptions}
-                onClose={closeShareOptions}
+                onClose={() => setShareOptions(false)}
                 onShareToFeed={openShareToFeedModal}
                 onShareToStory={handleShareToStory}
             />

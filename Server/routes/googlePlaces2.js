@@ -94,8 +94,6 @@ const activityTypeKeywords = {
 async function fetchNearbyPlaces({ lat, lng, radius = 8046.72, type }) {
   const allResults = new Map();
 
-  console.log("📍 fetchNearbyPlaces called with:", { lat, lng, radius, type });
-
   try {
     const response = await axios.post(
       "https://places.googleapis.com/v1/places:searchNearby",
@@ -127,8 +125,7 @@ async function fetchNearbyPlaces({ lat, lng, radius = 8046.72, type }) {
     );
 
     const results = response.data.places || [];
-    console.log(`✅ Received ${results.length} places from Google Places API`);
-
+    
     results.forEach(place => {
       if (!allResults.has(place.id)) {
         allResults.set(place.id, place);

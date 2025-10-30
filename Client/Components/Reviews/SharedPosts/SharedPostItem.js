@@ -9,7 +9,6 @@ import { useSelector } from 'react-redux';
 import { selectUser } from '../../../Slices/UserSlice';
 import SharedPostContent from './SharedPostContent';
 import NonOwnerOptions from '../PostOptionsMenu/NonOwnerPostOptions';
-import { selectFollowRequests, selectFollowing } from '../../../Slices/friendsSlice';
 
 export default function SharedPostItem({
     item,
@@ -17,16 +16,14 @@ export default function SharedPostItem({
     photoTapped,
     toggleTaggedUsers,
     handleOpenComments,
-    //handLikeAnimation
     handleEdit,
     handleDelete,
     onShare,
+    embeddedInShared = false,
     ...rest
 }) {
     const navigation = useNavigation();
     const user = useSelector(selectUser);
-    const following = useSelector(selectFollowing);
-    const followRequests = useSelector(selectFollowRequests);
     const postOwner = `${item?.user?.firstName} ${item?.user?.lastName}`
     const postUserId = item?.user?.id || item?.user?._id;
     const isSender = postUserId === user?.id;
@@ -41,23 +38,9 @@ export default function SharedPostItem({
         }
     };
 
-    // const normalizeOpts = (optsOrForce) =>
-    //     typeof optsOrForce === 'boolean' ? { force: optsOrForce } : (optsOrForce || {});
-
-    // const likeShareAnimateInner = (innerEntity, optsOrForce) => {
-    //     const opts = normalizeOpts(optsOrForce);
-    //     return handleLikeWithAnimation(item, { ...opts, animateTarget: innerEntity });
-    // };
-
-    // const likeShareAnimateOriginal = (_ignored, optsOrForce) => {
-    //     const opts = normalizeOpts(optsOrForce);
-    //     return handleLikeWithAnimation(item, { ...opts, animateTarget: item.original });
-    // };
-
     return (
         <View style={styles.sharedCard}>
             <PostOptionsMenu
-                isSender={isSender}
                 dropdownVisible={dropdownVisible}
                 setDropdownVisible={setDropdownVisible}
                 handleEdit={handleEdit}
@@ -96,23 +79,15 @@ export default function SharedPostItem({
             <View style={{ marginTop: 10 }}>
                 <SharedPostContent
                     sharedItem={item}
-                    animation={animation}
                     photoTapped={photoTapped}
-                    toggleTaggedUsers={toggleTaggedUsers}
-                    //handleLikeWithAnimation={likeShareAnimateInner}
-                    handleOpenComments={handleOpenComments}
-                    //lastTapRef={lastTapRef}
                     handleEdit={handleEdit}
                     handleDelete={handleDelete}
-                    following={following}
-                    followRequests={followRequests}
                     onShare={onShare}
                 />
             </View>
             <View style={{ padding: 15 }}>
                 <PostActions
-                    item={item}
-                    //handleLikeWithAnimation={likeShareAnimateOriginal}
+                    post={item}
                     handleOpenComments={handleOpenComments}
                     toggleTaggedUsers={toggleTaggedUsers}
                     photo={currentPhoto}

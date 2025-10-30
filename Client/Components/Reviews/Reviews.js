@@ -335,7 +335,6 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
               photoTapped={photoTapped}
               setPhotoTapped={setPhotoTapped}
               toggleTaggedUsers={toggleTaggedUsers}
-              handleOpenComments={handleOpenComments}
               handleDelete={handleDeletePost}
               handleEdit={handleEditPost}
               onShare={openShareOptions}

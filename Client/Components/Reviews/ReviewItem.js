@@ -23,11 +23,10 @@ export default function ReviewItem({
     photoTapped,
     setPhotoTapped,
     toggleTaggedUsers,
-    handleOpenComments,
     handleEdit,
     handleDelete,
     onShare,
-    sharedPost,
+    embeddedInShared = false,
 }) {
     const [dropdownVisible, setDropdownVisible] = useState(false);
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
@@ -67,12 +66,8 @@ export default function ReviewItem({
                     includeAtWithBusiness={false}
                     showAtWhenNoTags={false}
                 />
-                <BusinessLink
-                    post={item}
-                />
-                <RatingsButton
-                    post={item}
-                />
+                <BusinessLink post={item} />
+                <RatingsButton post={item} />
                 <ExpandableText
                     post={item}
                     maxLines={4}
@@ -91,7 +86,6 @@ export default function ReviewItem({
                 <PostActions
                     post={item}
                     setPhotoTapped={setPhotoTapped}
-                    handleOpenComments={handleOpenComments}
                     toggleTaggedUsers={toggleTaggedUsers}
                     photo={currentPhoto}
                     onShare={onShare}
@@ -103,7 +97,7 @@ export default function ReviewItem({
 
     return (
         <View>
-            <MaybeTWF enabled={!!sharedPost} onPress={() => handleOpenComments(item)}>
+            <MaybeTWF enabled={!!embeddedInShared}>
                 {card}
             </MaybeTWF>
             <NonOwnerOptions

@@ -222,9 +222,8 @@ const FullScreenPhoto = () => {
         )}
         <View style={styles.actionsContainer}>
           <PostActions
-            item={review}
+            post={review}
             onShare={openShareOptions}
-            handleLikeWithAnimation={handleLikeWithAnimation}
             handleOpenComments={() => setCommentsVisible(true)}
             toggleTaggedUsers={() => setShowTags((prev) => !prev)}
             photo={currentPhoto}

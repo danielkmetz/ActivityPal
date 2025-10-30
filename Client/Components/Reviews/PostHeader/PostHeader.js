@@ -22,7 +22,8 @@ export default function PostHeader({
   const dispatch = useDispatch();
   const postContent = post?.original ?? post ?? {};
   const currentUserId = useSelector(selectUser)?.id;
-  const { 
+  const postType = postContent?.type || postContent?.postType;
+  const {
     isSuggestedFollowPost = false,
     fullName: authorName,
     businessName,
@@ -54,14 +55,6 @@ export default function PostHeader({
       currentUserId,
     });
 
-  // ✅ call this as a function; also fix array length check
-  const inlineAccessory = () => {
-    if (post?.type === 'check-in' && media.length > 0) {
-      return <Image source={{ uri: pinPic }} style={styles.smallPinIcon} />;
-    }
-    return null;
-  };
-
   return (
     <View style={[styles.header, containerStyle]}>
       <View style={[styles.userPicAndName, leftContainerStyle]}>
@@ -77,8 +70,13 @@ export default function PostHeader({
               onPressBusiness={onPressBusiness}
               includeAtWithBusiness={includeAtWithBusiness}
               showAtWhenNoTags={showAtWhenNoTags}
+              postType={postType}
+              renderBusinessAccessory={
+                post?.type === 'check-in' && media.length > 0
+                  ? () => <Image source={{ uri: pinPic }} style={styles.inlinePin} />
+                  : null
+              }
             />
-            {inlineAccessory()}{/* ✅ actually invoke it */}
           </View>
           {isSuggestedFollowPost && <Text style={styles.subText}>Suggested user for you</Text>}
         </View>
@@ -109,11 +107,10 @@ const styles = StyleSheet.create({
     color: '#555',
     marginTop: 4,
   },
-  smallPinIcon: {
-    width: 16,
-    height: 16,
-    marginLeft: 5,
-    marginBottom: -5,
-    marginTop: 5,
+  inlinePin: {
+    width: 14,
+    height: 14,
+    marginLeft: 4,
+    marginBottom: -2,
   },
 });
