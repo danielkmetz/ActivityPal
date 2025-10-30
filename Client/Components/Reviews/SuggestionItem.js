@@ -9,7 +9,7 @@ import { medium } from "../../utils/Haptics/haptics";
 import SuggestionMedia from './SuggestedItems/SuggestionMedia';
 import SuggestionStatusBanner from './SuggestedItems/SuggestionStatusBanner';
 
-export default function SuggestionItem({ suggestion, onShare }) {
+export default function SuggestionItem({ suggestion, onShare, embeddedInShared = false }) {
     const navigation = useNavigation();
     const dispatch = useDispatch();
     const currentIndexRef = useRef(0);
@@ -47,12 +47,14 @@ export default function SuggestionItem({ suggestion, onShare }) {
                 suggestion={suggestion}
                 scrollX={scrollX}
                 currentIndexRef={currentIndexRef}
+                setInviteModalVisible={setInviteModalVisible}
             />
             <View style={[{ padding: 15 }, dotsExist ? { marginTop: 5 } : { marginTop: -10 }]}>
                 <PostActions
                     post={suggestion}
                     handleOpenComments={handleOpenComments}
                     onShare={onShare}
+                    embeddedInShared={embeddedInShared}
                 />
             </View>
             <InviteModal

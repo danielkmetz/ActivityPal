@@ -28,12 +28,10 @@ export default function CheckInItem({
     item,
     photoTapped,
     setPhotoTapped,
-    toggleTaggedUsers,
-    handleOpenComments,
     handleDelete,
     handleEdit,
     onShare,
-    sharedPost = false,
+    embeddedInShared = false,
 }) {
     const [dropdownVisible, setDropdownVisible] = useState(false);
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
@@ -44,8 +42,8 @@ export default function CheckInItem({
     const message = postContent?.message || postContent?.message;
     
     return (
-        <MaybeTWF enabled={!!sharedPost} onPress={handleOpenComments}>
-            <View style={[styles.reviewCard, sharedPost && styles.sharedHeader]}>
+        <MaybeTWF enabled={!!embeddedInShared} onPress={() => {}}>
+            <View style={[styles.reviewCard, embeddedInShared && styles.sharedHeader]}>
                 <PostOptionsMenu
                     dropdownVisible={dropdownVisible}
                     setDropdownVisible={setDropdownVisible}
@@ -84,8 +82,6 @@ export default function CheckInItem({
                     <PostActions
                         post={item}
                         setPhotoTapped={setPhotoTapped}
-                        handleOpenComments={handleOpenComments}
-                        toggleTaggedUsers={toggleTaggedUsers}
                         photo={currentPhoto}
                         onShare={onShare}
                     />

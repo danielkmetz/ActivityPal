@@ -1,7 +1,10 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { View, FlatList, Animated, Dimensions } from 'react-native';
 import PhotoItem from './PhotoItem';
 import PhotoPaginationDots from './PhotoPaginationDots';
+import SuggestionDetailsModal from '../../SuggestionDetails/SuggestionDetailsModal';
+import { createPhotoFeedHandlers } from './photoFeedHandlers';
+import { useDispatch } from 'react-redux';
 import { useNavigation } from '@react-navigation/native';
 
 const screenWidth = Dimensions.get('window').width;
@@ -11,31 +14,30 @@ export default function PhotoFeed({
   post,
   photoTapped,
   onActiveChange, // ← optional callback to mirror your previous onTouchStart/onTouchEnd behavior
+  currentIndexRef,
 }) {
+  const dispatch = useDispatch();
   const navigation = useNavigation();
   const postContent = post?.original ?? post ?? {};
   const media = postContent?.photos || postContent?.media;
-  const { isSuggestedFollowPost } = postContent;
-  const [currentPhotoIndex, setCurrentPhotoIndex] = useState()
-  const currentIndexRef = useRef(0);
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  const [detailsVisible, setDetailsVisible] = useState(false);
   
-  const taggedUsersByPhotoKey = Object.fromEntries(
-    (media || []).map((photo) => [
-      photo.photoKey,
-      photo.taggedUsers || [],
-    ])
+  const { handlePhotoTap } = useMemo(
+    () =>
+      createPhotoFeedHandlers({
+        dispatch,
+        navigation,
+        postContent,
+        onOpenDetails: setDetailsVisible,
+        photoTapped,
+      }),
+    [
+      postContent?._id,              // keep deps minimal & stable
+      postContent?.placeId,
+      photoTapped,
+    ]
   );
-
-  //console.log(media)
-
-  const onOpenFullScreen = (photo, index) => {
-    navigation.navigate('FullScreenPhoto', {
-      reviewId: postContent._id,
-      initialIndex: index,
-      taggedUsersByPhotoKey: taggedUsersByPhotoKey || {},
-      isSuggestedPost: isSuggestedFollowPost,
-    });
-  };
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -86,7 +88,7 @@ export default function PhotoFeed({
               reviewItem={post}
               index={index}
               photoTapped={photoTapped}
-              onOpenFullScreen={onOpenFullScreen}
+              onOpenFullScreen={handlePhotoTap}
             />
           </View>
         )}
@@ -94,6 +96,11 @@ export default function PhotoFeed({
       {media?.length > 1 && (
         <PhotoPaginationDots photos={media} scrollX={scrollX} />
       )}
+      <SuggestionDetailsModal 
+        visible={detailsVisible}
+        onClose={() => setDetailsVisible(false)}
+        suggestion={postContent}
+      />
     </View>
   );
 }

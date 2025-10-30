@@ -7,16 +7,9 @@ import InviteCard from '../InviteCard';
 
 export default function SharedPostContent({
   sharedItem,
-  animation,
   photoTapped,
-  toggleTaggedUsers,
-  handleLikeWithAnimation,
-  handleOpenComments,
-  lastTapRef,
   handleEdit,
   handleDelete,
-  following,
-  followRequests,
   onShare,
 }) {
   if (!sharedItem) return null;
@@ -28,19 +21,11 @@ export default function SharedPostContent({
         return (
           <CheckInItem
             item={sharedItem}
-            animation={animation}
             photoTapped={photoTapped}
-            toggleTaggedUsers={toggleTaggedUsers}
-            handleLikeWithAnimation={handleLikeWithAnimation}
-            handleLike={handleLikeWithAnimation}
-            handleOpenComments={handleOpenComments}
-            lastTapRef={lastTapRef}
             handleDelete={handleDelete}
             handleEdit={handleEdit}
-            following={following}
-            followRequests={followRequests}
             onShare={onShare}
-            sharedPost={true}
+            embeddedInShared={true}
           />
         );
 
@@ -48,18 +33,11 @@ export default function SharedPostContent({
         return (
           <ReviewItem
             item={sharedItem}
-            animation={animation}
             photoTapped={photoTapped}
-            toggleTaggedUsers={toggleTaggedUsers}
-            handleLikeWithAnimation={handleLikeWithAnimation}
-            handleOpenComments={handleOpenComments}
-            lastTapRef={lastTapRef}
             handleDelete={handleDelete}
             handleEdit={handleEdit}
-            following={following}
-            followRequests={followRequests}
             onShare={onShare}
-            sharedPost={true}
+            embeddedInShared={true}
           />
         );
 
@@ -71,9 +49,7 @@ export default function SharedPostContent({
           <SuggestionItem
             suggestion={sharedItem}
             onShare={onShare}
-            sharedPost={true}
-            animation={animation}
-            handleLikeWithAnimation={handleLikeWithAnimation}
+            embeddedInShared={true}
           />
         );
 
@@ -81,10 +57,8 @@ export default function SharedPostContent({
         return (
           <InviteCard
             invite={sharedItem}
-            handleLikeWithAnimation={handleLikeWithAnimation}
-            handleOpenComments={handleOpenComments}
             onShare={onShare}
-            sharedPost={true}
+            embeddedInShared={true}
           />
         );
 

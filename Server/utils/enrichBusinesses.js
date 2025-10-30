@@ -219,7 +219,6 @@ async function enrichBusinessWithPromosAndEvents(biz, userLat, userLng, now = ne
     upcomingEvent: await cleanAndEnrich(upcomingEvent),
   };
 
-  console.log(`✅ Enriched suggestion created for "${businessName}"`);
   return result;
 }
 

@@ -344,7 +344,7 @@ async function enrichSharedPost(shared, profilePicMap = {}, userLat = null, user
     let business = null;
     if (['review', 'check-in', 'promotion', 'event', 'invite'].includes(postType)) {
       business = await Business.findOne({ placeId: original.placeId })
-        .select('businessName logoKey location')
+        .select('businessName logoKey bannerKey location')
         .lean();
     }
 
@@ -404,6 +404,29 @@ async function enrichSharedPost(shared, profilePicMap = {}, userLat = null, user
           createdAt: original.createdAt || null,
           title: original.title || null,
         });
+
+        // ✅ inject business banner/logo as a synthetic photo if no media
+        const hasPhotos = Array.isArray(baseOriginal.photos) && baseOriginal.photos.length > 0;
+        const hasMedia = Array.isArray(baseOriginal.media) && baseOriginal.media.length > 0;
+
+        if (!hasPhotos && !hasMedia && (business?.bannerKey || business?.logoKey)) {
+          const key = business.bannerKey || business.logoKey;
+          const url = await getPresignedUrl(key);
+
+          const fallbackPhoto = {
+            photoKey: key,
+            uploadedBy: business._id,
+            description: 'Business banner',
+            taggedUsers: [],
+            uploadDate: new Date(),
+            url,
+            isFallbackBanner: true,
+          };
+
+          baseOriginal.photos = [fallbackPhoto];
+          baseOriginal.media = [fallbackPhoto];
+          baseOriginal.previewUrl = url; // handy for lists
+        }
       }
 
       if (postType === 'check-in') {
@@ -417,7 +440,7 @@ async function enrichSharedPost(shared, profilePicMap = {}, userLat = null, user
       const enrichedOriginalOwner = await enrichOriginalOwner(originalOwner, originalOwnerModel);
 
       // story uploader (union User | Business) – unchanged
-      const enrichedStoryUser = await shapeStoryUploader(user);
+      const enrichedStoryUser = await shapeStoryUploader(user, profilePicMap);
 
       return {
         _id: storyMeta._id?.toString?.() || storyMeta._id,
@@ -500,7 +523,7 @@ async function enrichSharedPost(shared, profilePicMap = {}, userLat = null, user
       const enrichedOriginalOwner = await enrichOriginalOwner(originalOwner, originalOwnerModel);
 
       // story uploader (union User | Business)
-      const enrichedStoryUser = await shapeStoryUploader(user);
+      const enrichedStoryUser = await shapeStoryUploader(user, profilePicMap);
 
       return {
         _id: storyMeta._id?.toString?.() || storyMeta._id,

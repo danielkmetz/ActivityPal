@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
     Modal,
     View,
@@ -7,13 +7,11 @@ import {
     StyleSheet,
     TextInput,
     Dimensions,
-    Image,
     KeyboardAvoidingView,
     Platform,
     TouchableWithoutFeedback,
     Switch,
     Keyboard,
-    ScrollView,
 } from 'react-native';
 import Animated from 'react-native-reanimated';
 import TagFriendsModal from '../Reviews/TagFriendsModal';
@@ -29,9 +27,11 @@ import useSlideDownDismiss from '../../utils/useSlideDown';
 import { googlePlacesDefaultProps } from '../../utils/googleplacesDefaults';
 import Notch from '../Notch/Notch';
 import { medium } from '../../utils/Haptics/haptics';
+import SelectFriendsPicker from './InviteModal/SelectFriendsPicker';
 
 const google_key = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 const SCREEN_HEIGHT = Dimensions.get('window').height;
+const MAX_SHEET_HEIGHT = Math.round(SCREEN_HEIGHT * 0.9);
 
 const InviteModal = ({
     visible,
@@ -55,12 +55,20 @@ const InviteModal = ({
     const googleRef = useRef(null);
     const { gesture, animateIn, animateOut, animatedStyle, } = useSlideDownDismiss(onClose);
 
-    const suggestedPlace = {
-        placeId: suggestionContent?.placeId,
-        name: suggestionContent?.businessName,
-        startTime: suggestionContent?.startTime,
-        note: `Lets go to ${suggestionContent?.businessName} for ${suggestionContent?.title}`
-    };
+    const suggestedPlace = useMemo(() => {
+        if (!suggestionContent) return null;
+        return {
+            placeId: suggestionContent.placeId,
+            name: suggestionContent.businessName,
+            startTime: suggestionContent.startTime,
+            note: `Lets go to ${suggestionContent.businessName} for ${suggestionContent.title}`,
+        };
+    }, [
+        suggestionContent?.placeId,
+        suggestionContent?.businessName,
+        suggestionContent?.startTime,
+        suggestionContent?.title,
+    ]);
 
     useEffect(() => {
         if (isEditing && initialInvite && visible) {
@@ -208,10 +216,9 @@ const InviteModal = ({
                         >
                             <Animated.View style={[styles.modalContainer, animatedStyle]}>
                                 <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-                                    <View style={{ flex: 1 }}>
+                                    <View>
                                         <Notch />
                                         <Text style={styles.title}>Create Vybe Invite</Text>
-
                                         <Text style={styles.label}>Search for a Place</Text>
                                         <GooglePlacesAutocomplete
                                             ref={googleRef}
@@ -227,34 +234,49 @@ const InviteModal = ({
                                                 language: 'en',
                                             }}
                                             styles={{
-                                                container: { zIndex: 100 },
+                                                container: {
+                                                    flex: 0,
+                                                    zIndex: 100,
+                                                    marginBottom: 20,
+                                                    paddingBottom: 0,
+                                                },
                                                 textInputContainer: {
-                                                    width: "100%",
+                                                    width: '100%',
                                                     zIndex: 101,
+                                                    marginBottom: 0,
+                                                    paddingBottom: 0,
+                                                    height: undefined,     // let textInput define height
                                                 },
                                                 textInput: {
-                                                    backgroundColor: "#f5f5f5",
+                                                    backgroundColor: '#f5f5f5',
                                                     height: 50,
                                                     borderRadius: 5,
                                                     paddingHorizontal: 10,
                                                     borderWidth: 1,
-                                                    borderColor: "#ccc",
+                                                    borderColor: '#ccc',
                                                     fontSize: 16,
+                                                    marginBottom: 0,       // no trailing gap from the input itself
+                                                    paddingBottom: 0,
                                                 },
                                                 listView: {
                                                     position: 'absolute',
-                                                    top: 60, // Push it just below the textInput
+                                                    top: 52,               // just below the 50px input
+                                                    left: 0,
+                                                    right: 0,
                                                     zIndex: 999,
-                                                    backgroundColor: "#fff",
+                                                    backgroundColor: '#fff',
                                                     borderRadius: 5,
                                                     elevation: 5,
                                                     maxHeight: 300,
+                                                },
+                                                poweredContainer: {
+                                                    marginBottom: 0,
+                                                    paddingBottom: 0,
                                                 },
                                             }}
                                             fetchDetails
                                             {...googlePlacesDefaultProps}
                                         />
-
                                         <View style={styles.switchContainer}>
                                             <Text style={styles.label}>
                                                 {isPublic ? 'Public Invite 🌍' : 'Private Invite 🔒'}
@@ -266,7 +288,6 @@ const InviteModal = ({
                                                 thumbColor={Platform.OS === 'android' ? '#fff' : undefined}
                                             />
                                         </View>
-
                                         <View style={styles.dateTimeInput}>
                                             <Text style={styles.label}>Select Date & Time</Text>
                                             <DateTimePicker
@@ -278,7 +299,6 @@ const InviteModal = ({
                                                 }}
                                             />
                                         </View>
-
                                         <View style={styles.noteContainer}>
                                             <Text style={styles.label}>Add a Note (optional)</Text>
                                             <TextInput
@@ -290,46 +310,12 @@ const InviteModal = ({
                                                 onChangeText={setNote}
                                             />
                                         </View>
-
-                                        <TouchableOpacity
-                                            style={styles.selectFriendsButton}
-                                            onPress={() => setShowFriendsModal(true)}
-                                        >
-                                            <Text style={styles.selectFriendsText}>
-                                                {selectedFriends?.length > 0
-                                                    ? `👥 ${selectedFriends?.length} Friend${selectedFriends?.length > 1 ? 's' : ''} Selected`
-                                                    : '➕ Select Friends'}
-                                            </Text>
-                                        </TouchableOpacity>
-
-                                        <ScrollView
-                                            horizontal
-                                            showsHorizontalScrollIndicator={false}
-                                            contentContainerStyle={styles.selectedFriendsPreview}
-                                        >
-                                            {displayFriends.map((friend) => {
-                                                const id = getUserId(friend);
-
-                                                return (
-                                                    <TouchableOpacity
-                                                        key={id}
-                                                        style={styles.friendPreview}
-                                                        onPress={() => setSelectedFriends(prev => prev.filter(fid => fid !== id))}
-                                                    >
-                                                        <Image
-                                                            source={
-                                                                friend.profilePicUrl || friend.presignedProfileUrl
-                                                                    ? { uri: friend.profilePicUrl || friend.presignedProfileUrl }
-                                                                    : require('../../assets/pics/profile-pic-placeholder.jpg')
-                                                            }
-                                                            style={styles.profilePic}
-                                                        />
-                                                        <Text style={styles.friendName}>{friend.firstName}</Text>
-                                                    </TouchableOpacity>
-                                                );
-                                            })}
-                                        </ScrollView>
-
+                                        <SelectFriendsPicker
+                                            selectedFriends={selectedFriends}
+                                            displayFriends={displayFriends}
+                                            onOpenModal={() => setShowFriendsModal(true)}
+                                            setSelectedFriends={setSelectedFriends}
+                                        />
                                         <TouchableOpacity
                                             style={styles.confirmButton}
                                             onPress={handleConfirmInvite}
@@ -361,10 +347,11 @@ const styles = StyleSheet.create({
     overlay: {
         flex: 1,
         backgroundColor: '#00000088',
+        justifyContent: 'flex-end',
     },
     modalContainer: {
         width: '100%',
-        height: SCREEN_HEIGHT * 0.70,
+        maxHeight: MAX_SHEET_HEIGHT,
         backgroundColor: '#fff',
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
@@ -376,32 +363,11 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.1,
         shadowRadius: 8,
         elevation: 10,
-        alignSelf: 'flex-end', // anchor it to the bottom
     },
     title: {
         fontSize: 20,
         fontWeight: '600',
         marginBottom: 20,
-    },
-    subtitle: {
-        fontSize: 14,
-        color: '#555',
-        marginBottom: 12,
-    },
-    list: {
-        flexGrow: 0,
-        maxHeight: 250,
-    },
-    friendItem: {
-        paddingVertical: 10,
-        borderBottomWidth: 1,
-        borderBottomColor: '#eee',
-    },
-    friendText: {
-        fontSize: 16,
-    },
-    selected: {
-        backgroundColor: '#e6f0ff',
     },
     confirmButton: {
         backgroundColor: '#009999',
@@ -415,93 +381,11 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: '600',
     },
-    placesInput: {
-        height: 44,
-        borderColor: '#ccc',
-        borderWidth: 1,
-        borderRadius: 8,
-        paddingHorizontal: 10,
-        fontSize: 16,
-        backgroundColor: '#f9f9f9',
-        marginBottom: 10,
-    },
     label: {
         fontSize: 14,
         fontWeight: '500',
         marginBottom: 4,
         color: '#555',
-    },
-    dateButton: {
-        padding: 12,
-        borderRadius: 8,
-        backgroundColor: '#f1f1f1',
-        marginBottom: 12,
-        alignItems: 'center',
-    },
-    dateText: {
-        fontSize: 16,
-        color: '#333',
-    },
-    selectedPlace: {
-        fontSize: 16,
-        color: '#333',
-        marginBottom: 10,
-        fontWeight: '500',
-    },
-    selectFriendsButton: {
-        backgroundColor: '#33cccc',
-        paddingVertical: 12,
-        paddingHorizontal: 14,
-        borderRadius: 8,
-        alignItems: 'center',
-        marginBottom: 12,
-    },
-    selectFriendsText: {
-        color: '#fff',
-        fontSize: 15,
-        fontWeight: '500',
-    },
-    list: {
-        maxHeight: 200,
-        backgroundColor: '#f9f9f9',
-        borderRadius: 8,
-        marginBottom: 16,
-        paddingHorizontal: 10,
-    },
-    friendItem: {
-        paddingVertical: 10,
-        borderBottomWidth: 1,
-        borderBottomColor: '#ddd',
-    },
-    friendText: {
-        fontSize: 15,
-        color: '#333',
-    },
-    selectedFriendsPreview: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingLeft: 2,
-    },
-    friendPreview: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#e6f0ff',
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        borderRadius: 20,
-        marginRight: 8,
-        marginBottom: 8,
-    },
-    profilePic: {
-        width: 28,
-        height: 28,
-        borderRadius: 14,
-        marginRight: 6,
-    },
-    friendName: {
-        fontSize: 14,
-        color: '#333',
-        fontWeight: '500',
     },
     dateTimeInput: {
         flexDirection: 'row',
@@ -513,15 +397,11 @@ const styles = StyleSheet.create({
         justifyContent: 'flex-end',
         backgroundColor: 'transparent',
     },
-    scrollContent: {
-        flexGrow: 1,
-        justifyContent: 'flex-end',
-    },
     switchContainer: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 12,
+        marginBottom: 20,
     },
     noteContainer: {
         marginBottom: 16,

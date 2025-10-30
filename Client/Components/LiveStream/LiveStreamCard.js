@@ -1,13 +1,5 @@
 import React, { useMemo, useState, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  Image,
-  Pressable,
-  ImageBackground,
-  Animated,
-} from 'react-native';
+import { View, Text, StyleSheet, Image, Pressable, ImageBackground, Animated } from 'react-native';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import VideoThumbnail from '../Reviews/VideoThumbnail';

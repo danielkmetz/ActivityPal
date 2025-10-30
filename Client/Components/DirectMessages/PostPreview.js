@@ -3,156 +3,139 @@ import { View, Text, Image, StyleSheet } from 'react-native';
 import dayjs from 'dayjs';
 import VideoThumbnail from '../Reviews/VideoThumbnail';
 
+const TYPE_MAP = {
+    invite: 'invites', invites: 'invites',
+    event: 'events', events: 'events',
+    promotion: 'promotions', promo: 'promotions', promotions: 'promotions',
+    review: 'reviews', reviews: 'reviews',
+    checkin: 'checkins', 'check-in': 'checkins', checkins: 'checkins',
+    live: 'liveStreams', livestream: 'liveStreams', liveStreams: 'liveStreams',
+    shared: 'sharedPosts', sharedpost: 'sharedPosts', sharedPosts: 'sharedPosts',
+};
+
+const FRIENDLY = {
+    reviews: 'review',
+    checkins: 'check-in',
+    invites: 'invite',
+    events: 'event',
+    promotions: 'promotion',
+    liveStreams: 'live',
+    sharedPosts: 'post',
+};
+
+const PLACEHOLDER = {
+    liveStreams: '🔴',
+    sharedPosts: '🔁',
+    default: '🖼️',
+};
+
+const nameFrom = (p) => [p?.firstName, p?.lastName].filter(Boolean).join(' ').trim();
+const normalizeType = (t) => TYPE_MAP[String(t || '').trim()] || '';
+
+const resolveType = (pp) =>
+    normalizeType(pp?.canonicalType || pp?.postType || pp?.type);
+
+const resolveFullName = (pp) =>
+    pp?.fullName ||
+    nameFrom(pp?.sender) ||
+    (pp?.originalOwner?.__typename === 'User' ? nameFrom(pp?.originalOwner) : '') ||
+    nameFrom(pp?.user) ||
+    'Someone';
+
+const resolveBusinessName = (pp) =>
+    pp?.user?.businessName ?? pp?.business?.businessName ?? pp?.businessName ?? null;
+
+const isBusinessOwned = (pp, type) =>
+    (type === 'events' || type === 'promotions') &&
+    (pp?.originalOwnerModel === 'Business' ||
+        pp?.originalOwner?.__typename === 'Business' ||
+        !!pp?.user?.businessName);
+
+const friendlyType = (type) => FRIENDLY[type] || 'post';
+
+const sharedFriendlyType = (pp) =>
+    friendlyType(normalizeType(pp?.shared?.originalType)) || 'post';
+
+const buildPrimaryLabel = ({ type, pp, overlayText, displayName, fullName }) => {
+    if (overlayText) return overlayText;
+    if (type === 'sharedPosts') return `${fullName || 'Someone'} shared a ${sharedFriendlyType(pp)}`;
+    if (type === 'liveStreams') return `${fullName || 'Someone'} is live`;
+    // invites are short-circuited earlier
+    return `${displayName}'s ${friendlyType(type)}`;
+};
+
+const buildSecondaryLabel = ({ type, pp }) => {
+    if (type === 'liveStreams') return pp?.live?.title || null;
+    if (type === 'sharedPosts') {
+        const op = pp?.shared?.originalPreview;
+        return op?.business?.businessName || op?.placeName || null;
+    }
+    return null;
+};
+
+const pickMedia = ({ type, pp }) => {
+    // Invites: no media by product decision
+    if (type === 'sharedPosts') {
+        let kind = pp?.mediaType === 'video' ? 'video' : pp?.mediaType === 'image' ? 'image' : 'none';
+        let uri = pp?.mediaUrl || null;
+        if (!uri && pp?.shared?.originalPreview) {
+            const op = pp.shared.originalPreview;
+            kind = op?.mediaType === 'video' ? 'video' : op?.mediaType === 'image' ? 'image' : 'none';
+            uri = op?.mediaUrl || null;
+        }
+        return { kind, uri };
+    }
+
+    if (type === 'liveStreams') {
+        // show cover image; playback handled elsewhere
+        const uri = pp?.mediaUrl || null;
+        const kind = (pp?.mediaType === 'live' || pp?.mediaType === 'video') ? 'image' : 'none';
+        return { kind, uri };
+    }
+
+    const kind = pp?.mediaType === 'video' ? 'video' : pp?.mediaType === 'image' ? 'image' : 'none';
+    const uri = pp?.mediaUrl || null;
+    return { kind, uri };
+};
+
 export default function PostPreview({
-    postPreview,
+    postPreview: pp,
     width = 200,
     height = 200,
     showOverlay = true,
     overlayText,
     showPostText = false,
 }) {
-    if (!postPreview) return null;
-    const canonicalType = postPreview.canonicalType || postPreview.postType || postPreview.type;
-    const isInvite = canonicalType === 'invites' || postPreview.postType === 'invite';
-    const isEvent = canonicalType === 'events' || postPreview.postType === 'event';
-    const isPromo = canonicalType === 'promotions' || postPreview.postType === 'promotion' || postPreview.postType === 'promo';
-    const isEventOrPromo = isEvent || isPromo;
-    const isShared = canonicalType === 'sharedPosts';
-    const isLive = canonicalType === 'liveStreams';
+    if (!pp) return null;
 
-    // Owner model when relevant
-    const ownerModel =
-        postPreview?.originalOwnerModel ||
-        postPreview?.originalOwner?.__typename ||
-        null;
+    const type = resolveType(pp);
+    const isInvite = type === 'invites';
 
-    // Business-owned iff it's an event/promo AND owner is Business OR user is business account
-    const isBusinessOwnedEventOrPromo =
-        isEventOrPromo && (ownerModel === 'Business' || !!postPreview?.user?.businessName);
-
-    // Names
-    const senderName = `${postPreview?.sender?.firstName || ''} ${postPreview?.sender?.lastName || ''}`.trim();
-    const originalOwnerUserName =
-        postPreview?.originalOwner?.__typename === 'User'
-            ? `${postPreview?.originalOwner?.firstName || ''} ${postPreview?.originalOwner?.lastName || ''}`.trim()
-            : '';
-    const userObjName =
-        (postPreview?.user?.firstName || postPreview?.user?.lastName)
-            ? `${postPreview?.user?.firstName || ''} ${postPreview?.user?.lastName || ''}`.trim()
-            : '';
-
-    // Shared posts: use sharer's name first
-    const sharerName = isShared ? (postPreview?.fullName || senderName || userObjName || '') : '';
-
-    // Person-first name for invites/reviews/other user posts
-    const personName =
-        senderName ||
-        postPreview?.fullName ||
-        originalOwnerUserName ||
-        userObjName ||
-        '';
-
-    const businessLabel =
-        postPreview?.user?.businessName ||
-        postPreview?.business?.businessName ||
-        postPreview?.businessName ||
-        null;
-
-    const displayName = isBusinessOwnedEventOrPromo
-        ? (businessLabel || 'A business')
-        : (personName || 'Someone');
-
-    // Primary label rules
-    let primaryLabel;
-    if (overlayText) {
-        primaryLabel = overlayText;
-    } else if (isShared) {
-        const sharedType = postPreview?.shared?.originalType || 'post';
-        // originalType is canonical (e.g., 'reviews', 'events', 'promotions')
-        const friendly = (
-            sharedType === 'reviews' ? 'review' :
-                sharedType === 'checkins' ? 'check-in' :
-                    sharedType === 'invites' ? 'invite' :
-                        sharedType === 'events' ? 'event' :
-                            sharedType === 'promotions' ? 'promotion' :
-                                sharedType
-        );
-        primaryLabel = `${sharerName || 'Someone'} shared a ${friendly}`;
-    } else if (isLive) {
-        primaryLabel = `${postPreview?.fullName || 'Someone'} is live`;
-    } else if (isInvite) {
-        primaryLabel = `${personName || 'Someone'}'s invite`;
-    } else {
-        const baseType = (
-            canonicalType === 'reviews' ? 'review' :
-                canonicalType === 'checkins' ? 'check-in' :
-                    canonicalType === 'events' ? 'event' :
-                        canonicalType === 'promotions' ? 'promotion' :
-                            canonicalType === 'invites' ? 'invite' :
-                                canonicalType === 'liveStreams' ? 'live' :
-                                    'post'
-        );
-        primaryLabel = `${displayName}'s ${baseType}`;
-    }
-
-    // Secondary label
-    let secondaryLabel = null;
+    // ✅ Invites: render ONLY "<fullName>'s invite"
     if (isInvite) {
-        secondaryLabel = postPreview?.businessName || postPreview?.placeName || null;
-    } else if (isLive) {
-        secondaryLabel = postPreview?.live?.title || null;
-    } else if (isShared) {
-        // Pull secondary details from the original preview if available
-        const op = postPreview?.shared?.originalPreview;
-        if (op?.business?.businessName) {
-            secondaryLabel = op.business.businessName;
-        } else if (op?.placeName) {
-            secondaryLabel = op.placeName;
-        }
+        const fullName = resolveFullName(pp);
+        return (
+            <View style={[styles.wrapper, styles.inviteOnlyWrapper, { width, height }]}>
+                <Text style={styles.inviteOnlyText} numberOfLines={1}>{`${fullName}'s invite`}</Text>
+            </View>
+        );
     }
 
-    // Media selection
-    let mediaKind = 'none';
-    let mediaUri = null;
+    const fullName = resolveFullName(pp);
+    const businessName = resolveBusinessName(pp);
+    const displayName = isBusinessOwned(pp, type) ? (businessName || 'A business') : fullName;
 
-    if (isInvite) {
-        mediaKind = (postPreview?.businessLogoUrl || postPreview?.sender?.profilePicUrl) ? 'image' : 'none';
-        mediaUri = postPreview?.businessLogoUrl || postPreview?.sender?.profilePicUrl || null;
-    } else if (isShared) {
-        // Prefer mediaUrl (already bubbled from original by helper)
-        if (postPreview?.mediaType === 'video') mediaKind = 'video';
-        else if (postPreview?.mediaType === 'image') mediaKind = 'image';
-        mediaUri = postPreview?.mediaUrl || null;
+    const primaryLabel = buildPrimaryLabel({ type, pp, overlayText, displayName, fullName });
+    const secondaryLabel = buildSecondaryLabel({ type, pp });
 
-        // If nothing bubbled, fall back to originalPreview media
-        if (!mediaUri && postPreview?.shared?.originalPreview) {
-            const op = postPreview.shared.originalPreview;
-            if (op.mediaType === 'video') mediaKind = 'video';
-            else if (op.mediaType === 'image') mediaKind = 'image';
-            mediaUri = op.mediaUrl || null;
-        }
-    } else if (isLive) {
-        // Helper sets mediaType to 'live' when status === 'live', otherwise 'video'
-        if (postPreview?.mediaType === 'live') mediaKind = 'image'; // show cover image with LIVE chip
-        else if (postPreview?.mediaType === 'video') mediaKind = 'image'; // still image cover; playback handled on tap
-        else mediaKind = 'none';
-        mediaUri = postPreview?.mediaUrl || null;
-    } else if (postPreview?.mediaType === 'video') {
-        mediaKind = 'video';
-        mediaUri = postPreview?.mediaUrl || null;
-    } else if (postPreview?.mediaType === 'image') {
-        mediaKind = 'image';
-        mediaUri = postPreview?.mediaUrl || null;
-    }
+    const { kind: mediaKind, uri: mediaUri } = pickMedia({ type, pp });
 
-    // Bottom text & date chip (existing behavior)
-    const previewBottomText = isInvite
-        ? (postPreview?.note || postPreview?.message || '')
-        : (postPreview?.reviewText || '');
+    // Review bottom text (non-invite)
+    const previewBottomText = pp?.reviewText || '';
 
-    const dateChip = isInvite && postPreview?.dateTime
-        ? dayjs(postPreview.dateTime).format('ddd, MMM D • h:mm A')
-        : null;
+    // Optional: you can still render invite date chips elsewhere if you add them back
+    const _unusedInviteDateChip =
+        pp?.dateTime ? dayjs(pp.dateTime).format('ddd, MMM D • h:mm A') : null;
 
     return (
         <View style={[styles.wrapper, { width, height }]}>
@@ -162,12 +145,7 @@ export default function PostPreview({
                     {!!secondaryLabel && (
                         <Text style={styles.overlaySubText} numberOfLines={1}>{secondaryLabel}</Text>
                     )}
-                    {!!dateChip && (
-                        <View style={styles.dateChip}>
-                            <Text style={styles.dateChipText}>{dateChip}</Text>
-                        </View>
-                    )}
-                    {isLive && postPreview?.live?.status === 'live' && (
+                    {type === 'liveStreams' && pp?.live?.status === 'live' && (
                         <View style={styles.livePill}>
                             <Text style={styles.liveText}>LIVE</Text>
                         </View>
@@ -181,7 +159,7 @@ export default function PostPreview({
             ) : (
                 <View style={[styles.media, styles.placeholder]}>
                     <Text style={styles.placeholderEmoji}>
-                        {isInvite ? '🎟️' : isLive ? '🔴' : isShared ? '🔁' : '🖼️'}
+                        {PLACEHOLDER[type] || PLACEHOLDER.default}
                     </Text>
                 </View>
             )}
@@ -198,6 +176,8 @@ export default function PostPreview({
 
 const styles = StyleSheet.create({
     wrapper: { borderRadius: 16, overflow: 'hidden', position: 'relative' },
+    inviteOnlyWrapper: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#111' },
+    inviteOnlyText: { color: '#fff', fontWeight: '600', fontSize: 16 },
     overlay: {
         position: 'absolute',
         top: 0,
@@ -210,8 +190,6 @@ const styles = StyleSheet.create({
     },
     overlayText: { color: '#fff', fontWeight: '600', fontSize: 16, padding: 2 },
     overlaySubText: { color: '#fff', opacity: 0.9, fontSize: 13, padding: 2 },
-    dateChip: { borderRadius: 12, paddingHorizontal: 2, marginTop: 5, zIndex: 3 },
-    dateChipText: { color: '#fff', fontSize: 12, fontWeight: '500' },
     media: { width: '100%', height: '100%' },
     placeholder: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#222' },
     placeholderEmoji: { fontSize: 28, opacity: 0.85 },

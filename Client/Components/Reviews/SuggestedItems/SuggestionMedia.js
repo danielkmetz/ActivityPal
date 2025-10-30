@@ -1,22 +1,13 @@
-import React, { useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  Dimensions,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-} from "react-native";
+import React, { useMemo } from "react";
+import { View, Text, StyleSheet, Dimensions, TouchableOpacity, TouchableWithoutFeedback } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Avatar } from "react-native-paper";
 import PhotoFeed from "../Photos/PhotoFeed";
-import PhotoItem from "../Photos/PhotoItem";
 import profilePicPlaceholder from "../../../assets/pics/profile-pic-placeholder.jpg";
-import { logEngagementIfNeeded, getEngagementTarget } from "../../../Slices/EngagementSlice";
+import { logEngagementIfNeeded } from "../../../Slices/EngagementSlice";
 import { useDispatch, useSelector } from "react-redux";
 import { selection } from "../../../utils/Haptics/haptics";
 import { selectInvites } from "../../../Slices/InvitesSlice";
-import SuggestionDetailsModal from "../../SuggestionDetails/SuggestionDetailsModal";
 
 const screenWidth = Dimensions.get("window").width;
 
@@ -24,10 +15,10 @@ export default function SuggestionMedia({
   suggestion,
   scrollX,              // Animated.Value
   currentIndexRef,      // ref
+  setInviteModalVisible,
 }) {
   const navigation = useNavigation();
   const dispatch = useDispatch();
-  const [detailsModalVisible, setDetailsModalVisible] = useState(false);
   const suggestionContent = suggestion?.original ? suggestion?.original : suggestion;
   const sharedPost = suggestion?.type === 'sharedPost' || suggestion?.original;
   const invites = useSelector(selectInvites);
@@ -48,6 +39,7 @@ export default function SuggestionMedia({
   const resolvedMedia = photos || media || [];
   const overlayTextSize = sharedPost ? 14 : 16;
 
+  /* ---------------- helpers ---------------- */
   const isSameLocalDay = (a, b) => {
     const da = new Date(a);
     const db = new Date(b);
@@ -57,7 +49,6 @@ export default function SuggestionMedia({
       da.getDate() === db.getDate()
     );
   };
-
   const getInviteSentAt = (invite) =>
     invite?.createdAt ||
     invite?.sentAt ||
@@ -66,6 +57,36 @@ export default function SuggestionMedia({
     invite?.updatedAt ||
     invite?.dateTime;
 
+  // If no media, try to pick a reasonable fallback image URL
+  const pickFallbackUrl = (s) =>
+    s?.bannerUrl ||
+    s?.coverUrl ||
+    s?.imageUrl ||
+    s?.photoUrl ||
+    s?.url ||
+    s?.logoUrl ||
+    s?.businessLogoUrl ||
+    null;
+
+  // Always pass a post with a photos array so PhotoFeed can render
+  const normalizedPost = useMemo(() => {
+    if (resolvedMedia?.length > 0) {
+      // already has media — just return the original suggestion untouched
+      return suggestion;
+    }
+    const fallback = pickFallbackUrl(suggestionContent);
+    const fallbackPhotos = fallback
+      ? [{ url: fallback, photoKey: `fallback-${suggestionContent?._id || placeId || Date.now()}` }]
+      : [];
+
+    // Place photos where PhotoFeed reads them: on original if present, else top-level
+    if (suggestion?.original) {
+      return { ...suggestion, original: { ...suggestion.original, photos: fallbackPhotos } };
+    }
+    return { ...suggestion, photos: fallbackPhotos };
+  }, [suggestion, suggestionContent, resolvedMedia, placeId]);
+
+  /* ---------------- invite detection ---------------- */
   const rawInvite = invites.find(invite => {
     if (!invite.placeId || !invite.dateTime) return false;
 
@@ -92,6 +113,7 @@ export default function SuggestionMedia({
   const wasSentToday = sentAt ? isSameLocalDay(sentAt, new Date()) : false;
   const existingInvite = rawInvite && wasSentToday ? { ...rawInvite, type: "invite" } : false;
 
+  /* ---------------- actions ---------------- */
   const onNavigateBusiness = () => {
     logEngagementIfNeeded(dispatch, {
       targetType: 'place',
@@ -111,31 +133,19 @@ export default function SuggestionMedia({
         initialPost: existingInvite,
       });
     } else {
-      // If you handle InviteModal here, keep state for it; otherwise navigate to your create flow:
-      navigation.navigate('CreatePost', { postType: 'invite', initialPlace: { placeId, name: businessName, startTime } });
+      setInviteModalVisible?.(true);
     }
   };
 
-  const onOpenFullScreen = () => {
-    selection();
-    setDetailsModalVisible(true);
-    const { targetType, targetId } = getEngagementTarget(suggestionContent);
-    logEngagementIfNeeded(dispatch, {
-      targetType,
-      targetId,
-      placeId,
-      engagementType: 'click',
-    });
-  };
-
-  const mediaBlock = resolvedMedia.length > 0 ? (
+  /* ---------------- render ---------------- */
+  return (
     <View style={styles.photoWrapper}>
       <PhotoFeed
-        post={suggestion}
+        post={normalizedPost}
         scrollX={scrollX}
         currentIndexRef={currentIndexRef}
-        onOpenFullScreen={onOpenFullScreen}
       />
+      {/* overlay */}
       <View style={styles.overlayTopText}>
         <TouchableWithoutFeedback onPress={onNavigateBusiness}>
           <View style={styles.overlayBusiness}>
@@ -158,48 +168,6 @@ export default function SuggestionMedia({
         </TouchableOpacity>
       </View>
     </View>
-  ) : (
-    <View>
-      <PhotoItem
-        photo={suggestion}      // uses url/uri/bannerUrl
-        reviewItem={suggestion} // animation key
-        index={0}
-        isInteractive={true}
-        onOpenFullScreen={onOpenFullScreen}
-      />
-      <View style={styles.overlayTopText}>
-        <TouchableWithoutFeedback onPress={onNavigateBusiness}>
-          <View style={styles.overlayBusiness}>
-            <Avatar.Image
-              size={45}
-              rounded
-              source={resolvedLogoUrl ? { uri: resolvedLogoUrl } : profilePicPlaceholder}
-              containerStyle={styles.overlayAvatar}
-            />
-            <View style={styles.overlayTextContainer}>
-              <Text style={[styles.overlayText, { fontSize: overlayTextSize }]}>{businessName}</Text>
-              <Text style={styles.overlaySubText}>
-                {distance ? `${(distance / 1609).toFixed(1)} mi away` : null}
-              </Text>
-            </View>
-          </View>
-        </TouchableWithoutFeedback>
-        <TouchableOpacity style={styles.inviteButton} onPress={onInvitePress}>
-          <Text style={styles.inviteText}>{existingInvite ? "Edit Invite" : "Invite"}</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  return (
-    <>
-      {mediaBlock}
-      <SuggestionDetailsModal
-        visible={detailsModalVisible}
-        onClose={() => setDetailsModalVisible(false)}
-        suggestion={suggestionContent}
-      />
-    </>
   );
 }
 

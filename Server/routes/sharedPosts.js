@@ -6,7 +6,6 @@ const User = require('../models/User');
 const Business = require('../models/Business');
 const { resolveUserProfilePics, enrichSharedPost } = require('../utils/userPosts');
 const { getModelByType } = require('../utils/getModelByType.js');
-const { toInviteUserShape, toInviteRecipientsShape, lookupBusinessBits } = require('../utils/invites/enrichInviteBits.js');
 
 // ✅ CREATE a shared post
 router.post('/', verifyToken, async (req, res) => {
@@ -16,44 +15,48 @@ router.post('/', verifyToken, async (req, res) => {
 
     if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-    if (!['review', 'check-in', 'invite', 'promotion', 'event'].includes(postType)) {
+    // Validate postType
+    const ALLOWED = ['review', 'check-in', 'invite', 'promotion', 'event'];
+    if (!ALLOWED.includes(postType)) {
       return res.status(400).json({ error: 'Invalid postType' });
     }
 
-    const Model = getModelByType(postType); // ⬅️ make sure 'invite' maps to ActivityInvite
-    const original = await Model.findById(originalPostId);
-    if (!original) {
-      return res.status(404).json({ error: 'Original post not found' });
-    }
+    // Verify original exists and load minimal fields needed to resolve originalOwner
+    const Model = getModelByType(postType);
+    if (!Model) return res.status(400).json({ error: 'Unsupported postType' });
 
-    // ---------- Resolve original owner ----------
+    const original = await Model.findById(originalPostId).lean();
+    if (!original) return res.status(404).json({ error: 'Original post not found' });
+
+    // Resolve original owner so the SharedPost document is valid
     let originalOwner = null;
     let originalOwnerModel = null;
 
     if (postType === 'invite') {
-      // ✅ Your schema: owner is the user that created the invite
-      originalOwner = original.senderId; // ObjectId(User)
+      originalOwner = original.senderId;
       originalOwnerModel = 'User';
-
       if (!originalOwner) {
         return res.status(500).json({ error: 'Invite is missing senderId' });
       }
     } else if (postType === 'review' || postType === 'check-in') {
-      originalOwner = original?.userId || original?.user || null; // User
+      originalOwner = original.userId || original.user || null;
       originalOwnerModel = 'User';
-      if (!originalOwner) return res.status(500).json({ error: `${postType} is missing user` });
-    } else if (postType === 'promotion' || postType === 'event') {
-      const placeId = original?.placeId || original?.business?.placeId || null;
+      if (!originalOwner) {
+        return res.status(500).json({ error: `${postType} is missing user` });
+      }
+    } else {
+      // promotion | event
+      const placeId = original.placeId || original.business?.placeId || null;
       if (!placeId) return res.status(500).json({ error: 'Promotion or Event is missing placeId' });
 
-      const business = await Business.findOne({ placeId });
+      const business = await Business.findOne({ placeId }).select('_id').lean();
       if (!business) return res.status(404).json({ error: 'Business not found for this promotion/event' });
 
-      originalOwner = business._id;       // Business
+      originalOwner = business._id;
       originalOwnerModel = 'Business';
     }
 
-    // ---------- Create shared post ----------
+    // Create the shared post record
     const sharedPost = await SharedPost.create({
       user: userId,
       originalOwner,
@@ -63,10 +66,7 @@ router.post('/', verifyToken, async (req, res) => {
       caption,
     });
 
-    // ---------- Enrich envelope (current user + owner pic) ----------
-    const userDoc = await User.findById(userId).lean();
-    const isBusinessUser = !!userDoc?.businessName;
-
+    // Resolve just the pics we need and let enrichSharedPost do the rest
     const profilePicTargets = [
       sharedPost.user.toString(),
       originalOwnerModel === 'User' ? sharedPost.originalOwner.toString() : null,
@@ -74,61 +74,25 @@ router.post('/', verifyToken, async (req, res) => {
 
     const profilePicMap = await resolveUserProfilePics(profilePicTargets);
 
-    // ---------- Enrich "original" for invites using YOUR HELPERS ----------
-    let enrichedOriginal;
-    if (postType === 'invite') {
-      // Sender
-      const sender = await toInviteUserShape(original.senderId);
-      // Recipients
-      const recipients = await toInviteRecipientsShape(original.recipients || []);
-      // Business bits
-      const { businessName, businessLogoUrl } = await lookupBusinessBits(original.placeId);
+    // Centralized enrichment (covers invites + promo/event banner fallback)
+    const sharer = await User.findById(userId)
+      .select('firstName lastName profilePic businessName placeId logoKey accountType __t')
+      .lean();
 
-      enrichedOriginal = {
-        __typename: 'ActivityInvite',
-        _id: original._id.toString(),
-        type: 'invite',
-        sender,                 // { id, firstName, lastName, profilePicUrl }
-        recipients,             // [{ user: {…}, status }]
-        businessName,
-        businessLogoUrl,
-        placeId: original.placeId,
-        dateTime: original.dateTime,
-        note: original.note || '',
-        message: original.message || '',
-        isPublic: !!original.isPublic,
-        likes: original.likes || [],
-        comments: original.comments || [],
-        requests: original.requests || [],
-        createdAt: original.createdAt,
-        sortDate: original.createdAt,     // or keep a dedicated sortDate if you have one
-        status: original.status || 'pending',
-      };
-    } else {
-      // keep your existing enrichment for non-invites
-      const enriched = await enrichSharedPost(sharedPost, profilePicMap);
-      enrichedOriginal = enriched.original;
-    }
+    const enriched = await enrichSharedPost(
+      { ...sharedPost.toObject(), user: sharer },
+      profilePicMap
+    );
 
-    // ---------- Respond ----------
+    // Respond in the shape your clients already consume
+    // (Keep the Mongo doc fields for consistency; override/augment with enriched blocks)
     return res.status(201).json({
       ...sharedPost.toObject(),
-      user: {
-        id: userId,
-        ...(isBusinessUser
-          ? { businessName: userDoc.businessName }
-          : { firstName: userDoc?.firstName || '', lastName: userDoc?.lastName || '' }),
-        ...profilePicMap[userId.toString()],
-      },
-      originalOwner: {
-        id: sharedPost.originalOwner,
-        model: originalOwnerModel,
-        ...(originalOwnerModel === 'User'
-          ? profilePicMap[sharedPost.originalOwner.toString()]
-          : {}),
-      },
-      original: enrichedOriginal, // ✅ invite payload your UI expects
       type: 'sharedPost',
+      // Use enriched blocks (these already include union/user/business shaping and media fallback)
+      user: enriched.user,
+      originalOwner: enriched.originalOwner,
+      original: enriched.original,
     });
   } catch (err) {
     console.error('❌ Error creating shared post:', err);
