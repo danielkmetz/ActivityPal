@@ -13,7 +13,7 @@ import { resetSelectedPromotion } from '../../../Slices/PromotionsSlice';
 import { logEngagementIfNeeded, getEngagementTarget } from '../../../Slices/EngagementSlice';
 import PhotoFeed from '../../Reviews/Photos/PhotoFeed';
 
-const DetailsHeader = ({ activity, getTimeSincePosted, handleLikeWithAnimation, lastTapRef }) => {
+const DetailsHeader = ({ activity, getTimeSincePosted }) => {
     const navigation = useNavigation();
     const dispatch = useDispatch();
     const logo = useSelector(selectLogo);
@@ -97,22 +97,18 @@ const DetailsHeader = ({ activity, getTimeSincePosted, handleLikeWithAnimation, 
                 </View>
                 {activity?.photos?.length > 0 && (
                     <PhotoFeed
-                        media={activity.photos}
+                        post={activity}
                         scrollX={scrollX}
                         currentIndexRef={currentIndexRef}
                         setCurrentPhotoIndex={setCurrentPhotoIndex}
-                        reviewItem={activity}
                         photoTapped={null} // hook up if you have a tap handler
-                        handleLikeWithAnimation={() => handleLikeWithAnimation(activity)}
-                        lastTapRef={lastTapRef}
                         onOpenFullScreen={onOpenFullScreen}
                     />
                 )}
             </View>
             <View style={{ paddingLeft: 15 }}>
                 <PostActions
-                    item={activity}
-                    handleLikeWithAnimation={handleLikeWithAnimation}
+                    post={activity}
                     isCommentScreen={true}
                 />
             </View>

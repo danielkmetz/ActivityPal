@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Alert, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Alert } from 'react-native';
 import InviteeModal from '../ActivityInvites/InviteeModal/InviteeModal';
 import { formatEventDate } from '../../functions';
 import { requestInvite, deleteInvite } from '../../Slices/InvitesSlice';
@@ -20,7 +20,7 @@ import { medium } from '../../utils/Haptics/haptics';
 import NonOwnerOptions from './PostOptionsMenu/NonOwnerPostOptions';
 import ViewerOptionsTrigger from './PostOptionsMenu/ViewerOptionsTrigger';
 
-const InviteCard = ({ invite, handleOpenComments, onShare }) => {
+const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) => {
     const dispatch = useDispatch();
     const navigation = useNavigation();
     const postContent = invite?.original ? invite?.original : invite 
@@ -179,9 +179,10 @@ const InviteCard = ({ invite, handleOpenComments, onShare }) => {
                 <View style={styles.actionsContainer}>
                     <View style={{ marginTop: 10 }}>
                         <PostActions
-                            item={invite}
+                            post={invite}
                             handleOpenComments={handleOpenComments}
                             onShare={onShare}
+                            embeddedInShared={embeddedInShared}
                         />
                     </View>
                 </View>

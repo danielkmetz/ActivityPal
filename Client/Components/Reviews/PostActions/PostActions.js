@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useRef } from "react";
 import { View, StyleSheet, TouchableWithoutFeedback } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -10,9 +10,11 @@ import SendButton from './SendButton';
 import ShareButton from './ShareButton';
 import { medium } from "../../../utils/Haptics/haptics";
 import TagUserModal from '../TagUserModal/TagUserModal';
+import { setSelectedReview } from "../../../Slices/ReviewsSlice";
 import { useLikeAnimations } from "../../../utils/LikeHandlers/LikeAnimationContext";
 import { pickPostId, typeFromKind as promoEventKind } from "../../../utils/posts/postIdentity";
 import { handleEventOrPromoLike } from "../../../utils/LikeHandlers/promoEventLikes";
+import { getEngagementTarget, logEngagementIfNeeded } from "../../../Slices/EngagementSlice";
 import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from "../../../utils/LikeHandlers";
 
 function deriveLikeState(item, currentUserId) {
@@ -44,25 +46,26 @@ function deriveLikeState(item, currentUserId) {
 export default function PostActions({
   post,
   onShare,
-  handleOpenComments,
   toggleTaggedUsers,
   photo,
   isCommentScreen = false,
   orientation = "row",
   onRequestShowTags,          // preferred deterministic show: (photoKey) => void
   setPhotoTapped,
+  embeddedInShared = false, 
 }) {
   const dispatch = useDispatch();
   const navigation = useNavigation();
   const user = useSelector(selectUser);
-  const isSharedPost = post?.type === 'sharedPost' || post?.original;
   const postContent = post?.original ?? post ?? {};
   const lastTapRef = useRef({});
   const [tagModalVisible, setTagModalVisible] = useState(false);
   const currentUserId = user?.id;
   const { hasLiked, count } = deriveLikeState(post, currentUserId);
-  const { getAnimation, registerAnimation } = useLikeAnimations(); // ✅ use context
+  const { getAnimation } = useLikeAnimations(); // ✅ use context
   const taggedUsers = Array.isArray(photo?.taggedUsers) ? photo.taggedUsers : [];
+  const postType = post?.type || post?.postType;
+  const isEventPromoOrSuggestion = postType === 'suggestion' || postType === 'promo' || postType === 'promotion' || postType === 'event';
   const shouldRenderTagButton =
     postContent?.type !== "invite" && photo?.taggedUsers?.length > 0;
 
@@ -132,9 +135,42 @@ export default function PostActions({
     }
   };
 
-  if (isSharedPost) {
-    return;
+  const navigateToCommentsScreen = (post) => {
+    if (!post) return;
+    medium();
+    const sharedPost = post?.original ? true : false;
+
+    navigation.navigate('CommentScreen', {
+      reviewId: post._id,
+      setSelectedReview,
+      isSuggestedFollowPost: post.isSuggestedFollowPost ? true : false,
+      sharedPost,
+    });
   }
+
+  const navigateToEventPromoComments = (post) => {
+    const { targetType, targetId } = getEngagementTarget(post);
+    medium();
+
+    logEngagementIfNeeded(dispatch, {
+      targetType,
+      targetId,
+      placeId: post.placeId,
+      engagementType: 'click',
+    });
+
+    navigation.navigate('EventDetails', { activity: post });
+  }
+
+  const handleOpenComments = (post) => {
+    if (isEventPromoOrSuggestion) {
+      navigateToEventPromoComments(post);
+    } else {
+      navigateToCommentsScreen(post);
+    }
+  };
+
+  if (embeddedInShared) return null;
 
   return (
     <View

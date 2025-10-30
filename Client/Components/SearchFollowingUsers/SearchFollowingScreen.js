@@ -144,8 +144,6 @@ const SearchFollowingScreen = ({ route }) => {
         }
     };
 
-    console.log(filteredUsers)
-
     return (
         <View style={styles.container}>
             <View style={styles.searchContainer}>

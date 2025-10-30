@@ -16,7 +16,6 @@ const CommentModalHeader = ({
     timeLeft,
     formatEventDate,
     photoTapped,
-    toggleTaggedUsers,
     setIsPhotoListActive,
     sharedPost,
     onShare
@@ -30,31 +29,22 @@ const CommentModalHeader = ({
     const isInvite = renderItem?.type === "invite";
     const likeAnim = useRef({});
     const isShared = !!sharedPost || renderItem?.type === 'sharedPost';
-    const photos = renderItem?.photos || renderItem?.media;
     const hasTaggedUsers = Array.isArray(renderItem?.taggedUsers) && renderItem.taggedUsers.length > 0;
     const postOwnerPic = isShared
-        ? (renderItem?.user?.profilePicUrl || renderItem?.profilePicUrl)                // sharer
+        ? (review?.user?.profilePicUrl || review?.profilePicUrl)                // sharer
         : isInvite
-            ? (renderItem?.sender?.profilePicUrl || renderItem?.profilePicUrl)            // invite creator
-            : (renderItem?.profilePicUrl || renderItem?.original?.profilePicUrl);
-    const postOwnerName = isInvite && renderItem?.sender?.firstName ? `${renderItem?.sender?.firstName} ${renderItem?.sender?.lastName}` : renderItem?.fullName || `${renderItem?.user?.firstName} ${renderItem?.user?.lastName}`;
+            ? (review?.sender?.profilePicUrl || review?.profilePicUrl)            // invite creator
+            : (review?.profilePicUrl || review?.original?.profilePicUrl);
+    const postOwnerName = isInvite && review?.sender?.firstName ? `${review?.sender?.firstName} ${review?.sender?.lastName}` : review?.fullName || `${review?.user?.firstName} ${review?.user?.lastName}`;
     const totalInvited = renderItem?.recipients?.length || 0;
     const dateTime = renderItem?.dateTime || renderItem?.date;
-    const commentActionsMargin = sharedPost ? -50 : 10;
-
+    
     const getTimeSincePosted = (date) => {
         return dayjs(date).fromNow(true);
     };
 
     const onClose = () => {
         navigation.goBack();
-    };
-
-    const onOpenFullScreen = (photo, index) => {
-        navigation.navigate("FullScreenPhoto", {
-            reviewId: renderItem?._id,
-            initialIndex: renderItem?.photos.findIndex(p => p._id === photo._id),
-        })
     };
 
     const { isLive, playbackUrl, vodUrl } = renderItem;
@@ -91,14 +81,7 @@ const CommentModalHeader = ({
                     <SharedPostContent
                         sharedItem={renderItem}
                         photoTapped={photoTapped}
-                        toggleTaggedUsers={toggleTaggedUsers}
                         setIsPhotoListActive={setIsPhotoListActive}
-                        onOpenFullScreen={(photo, index) => {
-                            navigation.navigate("FullScreenPhoto", {
-                                reviewId: renderItem?._id,
-                                initialIndex: index,
-                            });
-                        }}
                     />
                 )}
                 <Text style={styles.businessName}>
@@ -128,7 +111,6 @@ const CommentModalHeader = ({
                 currentIndexRef={currentIndexRef}
                 setCurrentPhotoIndex={setCurrentPhotoIndex}
                 photoTapped={photoTapped}
-                onOpenFullScreen={onOpenFullScreen}
                 onActiveChange={(active) => setIsPhotoListActive?.(active)} // keep your old behavior
             />
             {renderItem?.type === 'liveStream' && (
@@ -148,12 +130,13 @@ const CommentModalHeader = ({
                     style={styles.pinIcon}
                 />
             )}
-            <View style={{ marginTop: commentActionsMargin, justifyContent: 'center' }}>
+            <View style={{ justifyContent: 'center' }}>
                 <PostActions
                     post={review}
                     photo={currentPhoto}
                     isCommentScreen={true}
                     onShare={onShare}
+                    embeddedInShared={false}
                 />
             </View>
         </View>
