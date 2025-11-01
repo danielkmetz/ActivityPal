@@ -10,6 +10,8 @@ import { handleEventOrPromoLike } from '../../../utils/LikeHandlers/promoEventLi
 import { typeFromKind as promoEventKind, pickPostId } from '../../../utils/posts/postIdentity';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser } from '../../../Slices/UserSlice';
+import TagUserModal from '../TagUserModal/TagUserModal';
+import { medium } from '../../../utils/Haptics/haptics';
 
 const screenWidth = Dimensions.get("window").width;
 const DOUBLE_TAP_MS = 300;
@@ -19,6 +21,7 @@ const PhotoItem = ({
     photo,
     reviewItem,
     photoTapped,
+    setPhotoTapped,
     index,
     isInteractive = true,
     onOpenFullScreen,
@@ -26,10 +29,14 @@ const PhotoItem = ({
     const dispatch = useDispatch();
     const { getAnimation, registerAnimation } = useLikeAnimations(); // ✅ use context
     const [animation, setAnimation] = useState(null);
+    const [tagModalVisible, setTagModalVisible] = useState(false);
     const player = useSmartVideoPlayer(photo);
     const lastTapRef = useRef({});
     const timersRef = useRef({});
     const user = useSelector(selectUser);
+    const taggedUsers = Array.isArray(photo?.taggedUsers) ? photo.taggedUsers : [];
+    const shouldRenderTagButton =
+        reviewItem?.type !== "invite" && photo?.taggedUsers?.length > 0;
 
     useEffect(() => {
         if (!reviewItem?._id) return;
@@ -54,7 +61,7 @@ const PhotoItem = ({
                 postType: promoEventType || 'suggestion', // or pass 'event'/'promotion' explicitly if you know it
                 kind: reviewItem.kind,
                 postId: resolvedPostId,
-                review: reviewItem,            
+                review: reviewItem,
                 user,
                 animation,
                 dispatch,
@@ -121,6 +128,22 @@ const PhotoItem = ({
         }, SINGLE_TAP_MS);
     };
 
+    const closeTagModal = () => {
+        setTagModalVisible(false);
+        setPhotoTapped?.(null);
+    };
+
+    const toggleTaggedUsers = (photoKey) => {
+        setPhotoTapped(photoTapped === photoKey ? null : photoKey);
+    };
+
+    const openTagModal = () => {
+        if (!photo?.photoKey) return;
+        medium();
+        toggleTaggedUsers(photo?.photoKey)
+        setTagModalVisible(true);
+    };
+
     return (
         <View
             style={styles.photoContainer}
@@ -156,8 +179,25 @@ const PhotoItem = ({
                                 <Text style={styles.tagText}>{taggedUser.fullName}</Text>
                             </View>
                         ))}
+                    {shouldRenderTagButton && (
+                        <TouchableWithoutFeedback
+                            onPress={openTagModal}
+                        >
+                            <View style={styles.tagIcon}>
+                                <MaterialCommunityIcons name="tag" size={24} color="white" />
+                            </View>
+                        </TouchableWithoutFeedback>
+                    )}
                 </View>
             </TouchableWithoutFeedback>
+            <TagUserModal
+                visible={tagModalVisible}
+                post={reviewItem}
+                photoId={photo?._id}
+                onClose={closeTagModal}
+                taggedUsers={taggedUsers}
+                title="Tagged in this photo"
+            />
         </View>
     );
 };
@@ -196,7 +236,15 @@ const styles = StyleSheet.create({
         alignSelf: 'center',
         backgroundColor: '#000', // prevents white flash
     },
-
+    tagIcon: {
+        position: "absolute",
+        bottom: 20,
+        left: 10,
+        backgroundColor: "rgba(0,0,0,0.6)",
+        padding: 6,
+        borderRadius: 20,
+        zIndex: 99,
+    },
 
 
 })

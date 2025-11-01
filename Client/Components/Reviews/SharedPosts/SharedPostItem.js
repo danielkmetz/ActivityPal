@@ -12,9 +12,8 @@ import NonOwnerOptions from '../PostOptionsMenu/NonOwnerPostOptions';
 
 export default function SharedPostItem({
     item,
-    animation,
     photoTapped,
-    toggleTaggedUsers,
+    setPhotoTapped,
     handleOpenComments,
     handleEdit,
     handleDelete,
@@ -27,11 +26,9 @@ export default function SharedPostItem({
     const postOwner = `${item?.user?.firstName} ${item?.user?.lastName}`
     const postUserId = item?.user?.id || item?.user?._id;
     const isSender = postUserId === user?.id;
-    const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
     const [dropdownVisible, setDropdownVisible] = useState(false);
     const [viewerOptionsVisible, setViewerOptionsVisible] = useState(false);
-    const currentPhoto = item.photos?.[currentPhotoIndex];
-
+    
     const navigateToProfile = () => {
         if (item.user?.id) {
             navigation.navigate('OtherUserProfile', { userId: item.user.id });
@@ -66,7 +63,7 @@ export default function SharedPostItem({
                     }
                 </View>
             </View>
-            {!isSender &&  (
+            {!isSender && (
                 <TouchableOpacity
                     onPress={() => setViewerOptionsVisible(true)}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -80,21 +77,18 @@ export default function SharedPostItem({
                 <SharedPostContent
                     sharedItem={item}
                     photoTapped={photoTapped}
+                    setPhotoTapped={setPhotoTapped}
                     handleEdit={handleEdit}
                     handleDelete={handleDelete}
                     onShare={onShare}
                 />
             </View>
-            <View style={{ padding: 15 }}>
-                <PostActions
-                    post={item}
-                    handleOpenComments={handleOpenComments}
-                    toggleTaggedUsers={toggleTaggedUsers}
-                    photo={currentPhoto}
-                    onShare={onShare}
-                />
-            </View>
-             <NonOwnerOptions
+            <PostActions
+                post={item}
+                handleOpenComments={handleOpenComments}
+                onShare={onShare}
+            />
+            <NonOwnerOptions
                 visible={viewerOptionsVisible}
                 item={item}
                 onClose={() => setViewerOptionsVisible(false)}

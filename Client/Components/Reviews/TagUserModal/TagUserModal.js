@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   Modal,
   View,
@@ -19,7 +19,6 @@ import { selectUser } from '../../../Slices/UserSlice';
 import SelfTagActionSheet from './SelfTagActionSheet';
 import { navigateToOtherUserProfile } from '../../../utils/userActions';
 import { useNavigation } from '@react-navigation/native';
-import { selectFollowing } from '../../../Slices/friendsSlice';
 import FollowButton from '../PostActions/FollowButton';
 
 const ROW_HEIGHT = 72;
@@ -42,7 +41,7 @@ const TagUserModal = ({
   const postId = postContent?._id || postContent?.id;
   const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
   const [selfActionsVisible, setSelfActionsVisible] = useState(false);
-  
+
   useEffect(() => {
     if (visible) {
       animateIn();
@@ -58,12 +57,14 @@ const TagUserModal = ({
 
   const keyExtractor = (item, i) => String(item?.userId || i);
 
-  const onViewProfile = (targetId) =>
+  const onViewProfile = (targetId) => {
     navigateToOtherUserProfile({
       navigation,
       userId: targetId,
       currentUserId,
     });
+    animateOut();
+  }
 
   const getItemLayout = (_, index) => ({
     length: ROW_HEIGHT,
@@ -101,11 +102,9 @@ const TagUserModal = ({
     }
   };
 
+  // inside TagUserModal renderItem
   const renderItem = ({ item }) => {
-    const isSelf =
-      item?.userId != null &&
-      currentUserId != null &&
-      String(item.userId) === String(currentUserId);
+    const isSelf = String(item?.userId) === String(currentUserId);
 
     const handlePressRow = async () => {
       if (isSelf) {
@@ -132,11 +131,18 @@ const TagUserModal = ({
             {item.fullName || 'User'}
           </Text>
         </View>
+
         <View style={styles.actionsInline}>
-          <FollowButton 
-            post={post}
-            onPressFollowing={() => onViewProfile(postOwnerId)}
-          />
+          {!isSelf && (
+            <FollowButton
+              // IMPORTANT: aim at the tagged user, not the post owner
+              targetId={item.userId}
+              forceVisible      // bypass isSuggestedFollowPost gate
+              compact           // smaller button for list row
+              // if you have it on item: targetIsPrivate={item.isPrivateProfile}
+              onPressFollowing={() => onViewProfile(item.userId)}
+            />
+          )}
         </View>
       </TouchableOpacity>
     );
@@ -244,3 +250,4 @@ const styles = StyleSheet.create({
 });
 
 export default TagUserModal;
+    

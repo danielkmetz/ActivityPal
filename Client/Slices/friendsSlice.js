@@ -1,7 +1,7 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
 import { getUserToken } from '../functions';
-import { removeUserPostsFromUserAndFriends, fetchReviewsByUserAndFriends, invalidateUserAndFriendsFeed } from './ReviewsSlice';
+import { removeUserPostsFromUserAndFriends, invalidateUserAndFriendsFeed } from './ReviewsSlice';
 import { GET_SUGGESTED_FOLLOWS_QUERY } from './GraphqlQueries/Queries/suggestedFollowQuery';
 import client from '../apolloClient';
 

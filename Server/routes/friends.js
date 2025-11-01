@@ -4,38 +4,45 @@ const User = require('../models/User');
 const mongoose = require('mongoose');
 const verifyToken = require('../middleware/verifyToken'); // Import your middleware
 const { resolveUserProfilePics } = require('../utils/userPosts');
+const { Types } = require('mongoose');
+
+const oid = (v) => (Types.ObjectId.isValid(v) ? new Types.ObjectId(String(v)) : null);
+const sameId = (a, b) => String(a) === String(b);
 
 // Send Follow Request
 router.post('/follow-request', verifyToken, async (req, res) => {
   try {
     const followerId = req.user.id;
-    const { targetUserId } = req.body;
-
-    if (followerId === targetUserId) {
+    const { targetUserId } = req.body || {};
+    if (!oid(followerId) || !oid(targetUserId)) {
+      return res.status(400).json({ message: 'Invalid ids.' });
+    }
+    if (sameId(followerId, targetUserId)) {
       return res.status(400).json({ message: 'You cannot follow yourself.' });
     }
 
-    const follower = await User.findById(followerId).select('_id firstName lastName profilePic followRequests');
-    const targetUser = await User.findById(targetUserId).select('_id followRequests');
-
-    if (!targetUser) return res.status(404).json({ message: 'Target user not found.' });
-
-    // Already sent request
-    if (targetUser.followRequests.received.includes(followerId)) {
-      return res.status(400).json({ message: 'Follow request already sent.' });
+    // Pre-check: target exists and not already followed
+    const target = await User.findById(targetUserId).select('_id followers privacySettings').lean();
+    if (!target) return res.status(404).json({ message: 'Target user not found.' });
+    if ((target.followers || []).some(id => sameId(id, followerId))) {
+      return res.status(400).json({ message: 'Already following this user.' });
     }
 
-    // Add to follow request queues
-    follower.followRequests.sent.push(targetUserId);
-    targetUser.followRequests.received.push(followerId);
+    // Use $addToSet to avoid duplicates; do NOT push then save
+    await Promise.all([
+      User.updateOne(
+        { _id: followerId },
+        { $addToSet: { 'followRequests.sent': oid(targetUserId) } }
+      ),
+      User.updateOne(
+        { _id: targetUserId },
+        { $addToSet: { 'followRequests.received': oid(followerId) } }
+      ),
+    ]);
 
-    await follower.save();
-    await targetUser.save();
-
-    // Enrich the sender (follower) with presigned profile picture
-    const profilePicUrl = follower.profilePic?.photoKey
-      ? await generateDownloadPresignedUrl(follower.profilePic.photoKey)
-      : null;
+    // If you need enriched sender data:
+    const follower = await User.findById(followerId).select('_id firstName lastName profilePic').lean();
+    // (Resolve presigned URL if needed)
 
     return res.status(200).json({
       message: 'Follow request sent.',
@@ -44,74 +51,60 @@ router.post('/follow-request', verifyToken, async (req, res) => {
         firstName: follower.firstName,
         lastName: follower.lastName,
         profilePic: follower.profilePic || null,
-        presignedProfileUrl: profilePicUrl,
-      }
+        // presignedProfileUrl
+      },
     });
   } catch (err) {
     console.error('❌ Error sending follow request:', err);
-    return res.status(500).json({ message: 'Server error.', error: err });
+    return res.status(500).json({ message: 'Server error.' });
   }
 });
 
 // Approve a follow request
 router.post('/approve-follow-request', verifyToken, async (req, res) => {
   try {
-    const recipientId = req.user.id; // The user approving the follow
-    const { requesterId } = req.body; // The user who sent the follow request
-
-    // Fetch recipient with followers and followRequests
-    const recipient = await User.findById(recipientId).select('_id followers followRequests');
-    const requester = await User.findById(requesterId).select('_id firstName lastName email isBusiness profilePic followRequests following');
-
-    if (!recipient || !requester) {
-      return res.status(404).json({ message: 'User not found.' });
+    const recipientId = req.user.id;
+    const { requesterId } = req.body || {};
+    if (!oid(recipientId) || !oid(requesterId)) {
+      return res.status(400).json({ message: 'Invalid ids.' });
     }
 
-    console.log('🔍 Before removal:');
-    console.log('Recipient.received:', recipient.followRequests?.received);
-    console.log('Requester.sent:', requester.followRequests?.sent);
+    // Ensure there was a request (optional; $pull/$addToSet are safe anyway)
+    const had = await User.exists({
+      _id: recipientId,
+      'followRequests.received': oid(requesterId),
+    });
+    if (!had) return res.status(400).json({ message: 'No follow request from this user.' });
 
-    // Validate request exists
-    if (!recipient.followRequests?.received.includes(requesterId)) {
-      return res.status(400).json({ message: 'No follow request from this user.' });
-    }
+    await Promise.all([
+      // Remove request both sides
+      User.updateOne(
+        { _id: recipientId },
+        { $pull: { 'followRequests.received': oid(requesterId) } }
+      ),
+      User.updateOne(
+        { _id: requesterId },
+        { $pull: { 'followRequests.sent': oid(recipientId) } }
+      ),
+      // Add follower/following
+      User.updateOne(
+        { _id: recipientId },
+        { $addToSet: { followers: oid(requesterId) } }
+      ),
+      User.updateOne(
+        { _id: requesterId },
+        { $addToSet: { following: oid(recipientId) } }
+      ),
+      // Update the pending notification to "accepted" (match with ObjectId)
+      User.updateOne(
+        { _id: recipientId, 'notifications.relatedId': oid(requesterId), 'notifications.type': 'followRequest' },
+        { $set: { 'notifications.$.type': 'followRequestAccepted' } }
+      ),
+    ]);
 
-    // Remove follow request
-    recipient.followRequests.received = recipient.followRequests.received.filter(
-      id => id.toString() !== requesterId
-    );
-    requester.followRequests.sent = requester.followRequests.sent.filter(
-      id => id.toString() !== recipientId
-    );
+    const requester = await User.findById(requesterId)
+      .select('_id firstName lastName email isBusiness profilePic').lean();
 
-    console.log('✅ After removal:');
-    console.log('Recipient.received:', recipient.followRequests.received);
-    console.log('Requester.sent:', requester.followRequests.sent);
-
-    // Ensure arrays are initialized
-    recipient.followers = recipient.followers || [];
-    requester.following = requester.following || [];
-
-    // Add follower/following
-    recipient.followers.push(requesterId);
-    requester.following.push(recipientId);
-
-    // Save updates
-    await recipient.save();
-    await requester.save();
-
-    // Remove follow request notification from recipient
-    await User.updateOne(
-      { _id: recipientId, 'notifications.relatedId': requesterId, 'notifications.type': 'followRequest' },
-      {
-        $set: {
-          'notifications.$.type': 'followRequestAccepted',
-          'notifications.$.message': `You accepted ${requester.firstName} ${requester.lastName}'s follow request.`,
-        },
-      }
-    );
-
-    // Respond with enriched user object
     res.status(200).json({
       message: 'Follow request approved.',
       follower: {
@@ -125,184 +118,97 @@ router.post('/approve-follow-request', verifyToken, async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error approving follow request:', error);
-    res.status(500).json({ message: 'Server error.', error });
+    res.status(500).json({ message: 'Server error.' });
   }
 });
 
 // Decline Follow Request
 router.post('/decline-follow-request', verifyToken, async (req, res) => {
   try {
-    const recipientId = req.user.id; // Current user (the one declining)
-    const { requesterId } = req.body; // The user who sent the follow request
-
-    const recipient = await User.findById(recipientId).select('_id followRequests');
-    const requester = await User.findById(requesterId).select('_id followRequests');
-
-    if (!requester) {
-      return res.status(404).json({ message: 'Requester user not found.' });
+    const recipientId = req.user.id;
+    const { requesterId } = req.body || {};
+    if (!oid(recipientId) || !oid(requesterId)) {
+      return res.status(400).json({ message: 'Invalid ids.' });
     }
 
-    if (!recipient.followRequests?.received.includes(requesterId)) {
-      return res.status(400).json({ message: 'No follow request from this user.' });
-    }
-
-    // Remove from followRequests
-    recipient.followRequests.received = recipient.followRequests.received.filter(
-      id => id.toString() !== requesterId
-    );
-    requester.followRequests.sent = requester.followRequests.sent.filter(
-      id => id.toString() !== recipientId
-    );
-
-    await recipient.save();
-    await requester.save();
-
-    await User.findByIdAndUpdate(recipientId, {
-      $pull: {
-        notifications: {
-          type: 'followRequest',
-          relatedId: new mongoose.Types.ObjectId(requesterId),
-        },
-      },
-    });
+    await Promise.all([
+      User.updateOne(
+        { _id: recipientId },
+        { $pull: { 'followRequests.received': oid(requesterId) } }
+      ),
+      User.updateOne(
+        { _id: requesterId },
+        { $pull: { 'followRequests.sent': oid(recipientId) } }
+      ),
+      User.updateOne(
+        { _id: recipientId },
+        { $pull: { notifications: { type: 'followRequest', relatedId: oid(requesterId) } } }
+      ),
+    ]);
 
     res.status(200).json({ message: 'Follow request declined.' });
   } catch (error) {
     console.error('Error declining follow request:', error);
-    res.status(500).json({ message: 'Server error.', error });
+    res.status(500).json({ message: 'Server error.' });
   }
 });
 
 // Unfollow
 router.delete('/unfollow/:targetUserId', verifyToken, async (req, res) => {
   try {
-    const userId = req.user.id; // The current user performing the unfollow
-    const targetUserId = req.params.targetUserId; // The user being unfollowed
-
-    const user = await User.findById(userId);
-    const targetUser = await User.findById(targetUserId);
-
-    if (!targetUser) {
-      return res.status(404).json({ message: 'User to unfollow not found.' });
+    const userId = req.user.id;
+    const { targetUserId } = req.params || {};
+    if (!oid(userId) || !oid(targetUserId)) {
+      return res.status(400).json({ message: 'Invalid ids.' });
+    }
+    if (sameId(userId, targetUserId)) {
+      return res.status(400).json({ message: 'Invalid operation.' });
     }
 
-    const wasFollowing = user.following.includes(targetUserId);
-    const wasFollowed = targetUser.followers.includes(userId);
-
-    if (!wasFollowing && !wasFollowed) {
-      return res.status(400).json({ message: 'You are not following this user.' });
-    }
-
-    // Remove user from targetUser's followers
-    targetUser.followers = targetUser.followers.filter(id => id.toString() !== userId);
-    // Remove targetUser from user's following
-    user.following = user.following.filter(id => id.toString() !== targetUserId);
-
-    await user.save();
-    await targetUser.save();
-
-    // Optionally remove any previous follow confirmation notifications
-    await User.findByIdAndUpdate(userId, {
-      $pull: {
-        notifications: {
-          type: { $in: ['followRequestAccepted', 'follow', 'followRequest'] },
-          relatedId: new mongoose.Types.ObjectId(targetUserId),
-        },
-      },
-    });
-
-    await User.findByIdAndUpdate(targetUserId, {
-      $pull: {
-        notifications: {
-          type: { $in: ['followRequestAccepted', 'follow', 'followRequest'] },
-          relatedId: new mongoose.Types.ObjectId(userId),
-        },
-      },
-    });
+    // Pull from both sides; idempotent
+    await Promise.all([
+      User.updateOne({ _id: userId }, { $pull: { following: oid(targetUserId) } }),
+      User.updateOne({ _id: targetUserId }, { $pull: { followers: oid(userId) } }),
+      User.updateOne(
+        { _id: userId },
+        { $pull: { notifications: { type: { $in: ['followRequestAccepted', 'follow', 'followRequest'] }, relatedId: oid(targetUserId) } } }
+      ),
+      User.updateOne(
+        { _id: targetUserId },
+        { $pull: { notifications: { type: { $in: ['followRequestAccepted', 'follow', 'followRequest'] }, relatedId: oid(userId) } } }
+      ),
+    ]);
 
     res.status(200).json({ message: 'Successfully unfollowed the user.' });
   } catch (error) {
     console.error('Error unfollowing user:', error);
-    res.status(500).json({ message: 'Server error.', error });
-  }
-});
-
-// Search Users
-router.get('/search', verifyToken, async (req, res) => {
-  try {
-    const { query } = req.query;
-
-    if (!query || query.trim() === '') {
-      return res.status(400).json({ message: 'Search query is required.' });
-    }
-
-    // Find matching users excluding the authenticated user
-    const users = await User.find({
-      $or: [
-        { firstName: { $regex: query, $options: 'i' } },
-        { lastName: { $regex: query, $options: 'i' } },
-      ],
-      _id: { $ne: req.user.id },
-    }).select('_id firstName lastName profilePic');
-
-    if (!users.length) {
-      return res.status(200).json([]); // No matches
-    }
-
-    // Map user IDs to enrich with profile pics
-    const userIds = users.map((user) => user._id);
-    const profilePicMap = await resolveUserProfilePics(userIds);
-
-    const enriched = users.map((user) => {
-      const picInfo = profilePicMap[user._id.toString()] || {};
-      return {
-        ...user.toObject(),
-        profilePic: picInfo.profilePic || null,
-        presignedProfileUrl: picInfo.profilePicUrl || null,
-      };
-    });
-
-    console.log(`🔍 Found ${enriched.length} users with profile pics`);
-    res.status(200).json(enriched);
-  } catch (error) {
-    console.error('Error fetching users:', error);
     res.status(500).json({ message: 'Server error.' });
   }
 });
 
 router.post('/cancel-follow-request', verifyToken, async (req, res) => {
   try {
-    const senderId = req.user.id; // The user canceling the follow request
-    const { recipientId } = req.body; // The user who was supposed to approve it
-
-    const sender = await User.findById(senderId);
-    const recipient = await User.findById(recipientId);
-
-    if (!recipient) {
-      return res.status(404).json({ message: 'Recipient user not found.' });
+    const senderId = req.user.id;
+    const { recipientId } = req.body || {};
+    if (!oid(senderId) || !oid(recipientId)) {
+      return res.status(400).json({ message: 'Invalid ids.' });
     }
 
-    // Check if a follow request exists
-    if (!sender.followRequests?.sent.includes(recipientId)) {
-      return res.status(400).json({ message: 'No follow request to cancel.' });
-    }
-
-    // Remove the follow request from both users
-    sender.followRequests.sent = sender.followRequests.sent.filter(id => id.toString() !== recipientId);
-    recipient.followRequests.received = recipient.followRequests.received.filter(id => id.toString() !== senderId);
-
-    await sender.save();
-    await recipient.save();
-
-    // Remove follow request notification
-    await User.findByIdAndUpdate(recipientId, {
-      $pull: {
-        notifications: {
-          type: 'followRequest',
-          relatedId: new mongoose.Types.ObjectId(senderId),
-        },
-      },
-    });
+    // Atomic pulls (even if already missing, idempotent)
+    await Promise.all([
+      User.updateOne(
+        { _id: senderId },
+        { $pull: { 'followRequests.sent': oid(recipientId) } }
+      ),
+      User.updateOne(
+        { _id: recipientId },
+        { $pull: { 'followRequests.received': oid(senderId) } }
+      ),
+      User.updateOne(
+        { _id: recipientId },
+        { $pull: { notifications: { type: 'followRequest', relatedId: oid(senderId) } } }
+      ),
+    ]);
 
     res.status(200).json({ message: 'Follow request canceled.' });
   } catch (error) {
@@ -375,57 +281,45 @@ router.get('/suggested-friends/:userId', verifyToken, async (req, res) => {
 router.post('/follow/:targetUserId', verifyToken, async (req, res) => {
   try {
     const followerId = req.user.id;
-    const { targetUserId } = req.params;
-    const { isFollowBack } = req.body;
-
-    if (followerId === targetUserId) {
+    const { targetUserId } = req.params || {};
+    const { isFollowBack } = req.body || {};
+    if (!oid(followerId) || !oid(targetUserId)) {
+      return res.status(400).json({ message: 'Invalid ids.' });
+    }
+    if (sameId(followerId, targetUserId)) {
       return res.status(400).json({ message: 'Cannot follow yourself.' });
     }
 
-    const follower = await User.findById(followerId);
-    const targetUser = await User.findById(targetUserId).select('_id firstName lastName profilePic privacySettings followers');
-
-    if (!targetUser) return res.status(404).json({ message: 'Target user not found.' });
-
-    if (targetUser.privacySettings?.profileVisibility === 'private') {
+    const target = await User.findById(targetUserId).select('_id firstName lastName profilePic privacySettings').lean();
+    if (!target) return res.status(404).json({ message: 'Target user not found.' });
+    if (target?.privacySettings?.profileVisibility === 'private') {
       return res.status(403).json({ message: 'This user requires follow approval.' });
     }
 
-    if (follower.following.includes(targetUserId)) {
-      return res.status(400).json({ message: 'Already following this user.' });
-    }
+    await Promise.all([
+      User.updateOne({ _id: followerId }, { $addToSet: { following: oid(targetUserId) } }),
+      User.updateOne({ _id: targetUserId }, { $addToSet: { followers: oid(followerId) } }),
+      // optional: clean up any stale requests between these users
+      User.updateOne({ _id: followerId }, { $pull: { 'followRequests.sent': oid(targetUserId) } }),
+      User.updateOne({ _id: targetUserId }, { $pull: { 'followRequests.received': oid(followerId) } }),
+      isFollowBack
+        ? User.updateOne(
+            { _id: followerId },
+            { $pull: { notifications: { type: 'followRequestAccepted', relatedId: oid(targetUserId) } } }
+          )
+        : Promise.resolve(),
+    ]);
 
-    follower.following.push(targetUserId);
-    targetUser.followers.push(followerId);
-
-    await follower.save();
-    await targetUser.save();
-
-    if (isFollowBack) {
-      await User.findByIdAndUpdate(followerId, {
-        $pull: {
-          notifications: {
-            type: 'followRequestAccepted',
-            relatedId: targetUserId,
-          },
-        },
-      });
-    }
-
-    // ✅ Enrich target user with profile picture URL
-    const [profilePicData] = await Promise.all([resolveUserProfilePics([targetUserId])]);
-    const enrichedTarget = {
-      _id: targetUser._id,
-      firstName: targetUser.firstName,
-      lastName: targetUser.lastName,
-      profilePic: profilePicData[targetUserId]?.profilePic || null,
-      presignedProfileUrl: profilePicData[targetUserId]?.profilePicUrl || null,
+    const picMap = await resolveUserProfilePics([targetUserId]);
+    const enriched = {
+      _id: target._id,
+      firstName: target.firstName,
+      lastName: target.lastName,
+      profilePic: picMap[targetUserId]?.profilePic || null,
+      presignedProfileUrl: picMap[targetUserId]?.profilePicUrl || null,
     };
 
-    res.status(200).json({
-      message: 'Followed successfully.',
-      targetUser: enrichedTarget,
-    });
+    res.status(200).json({ message: 'Followed successfully.', targetUser: enriched });
   } catch (err) {
     console.error('❌ Error following user:', err);
     res.status(500).json({ message: 'Server error.' });

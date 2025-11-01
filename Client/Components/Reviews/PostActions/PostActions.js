@@ -1,6 +1,5 @@
-import React, { useState, useRef } from "react";
-import { View, StyleSheet, TouchableWithoutFeedback } from "react-native";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
+import React, { useRef, useState } from "react";
+import { View, StyleSheet } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { selectUser } from "../../../Slices/UserSlice";
 import { useDispatch, useSelector } from "react-redux";
@@ -9,13 +8,13 @@ import CommentButton from "./CommentButton";
 import SendButton from './SendButton';
 import ShareButton from './ShareButton';
 import { medium } from "../../../utils/Haptics/haptics";
-import TagUserModal from '../TagUserModal/TagUserModal';
 import { setSelectedReview } from "../../../Slices/ReviewsSlice";
 import { useLikeAnimations } from "../../../utils/LikeHandlers/LikeAnimationContext";
 import { pickPostId, typeFromKind as promoEventKind } from "../../../utils/posts/postIdentity";
 import { handleEventOrPromoLike } from "../../../utils/LikeHandlers/promoEventLikes";
 import { getEngagementTarget, logEngagementIfNeeded } from "../../../Slices/EngagementSlice";
 import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from "../../../utils/LikeHandlers";
+import BottomCommentsModal from "../BottomCommentsModal";
 
 function deriveLikeState(item, currentUserId) {
   // Normalize possible shapes:
@@ -46,29 +45,22 @@ function deriveLikeState(item, currentUserId) {
 export default function PostActions({
   post,
   onShare,
-  toggleTaggedUsers,
-  photo,
   isCommentScreen = false,
   orientation = "row",
-  onRequestShowTags,          // preferred deterministic show: (photoKey) => void
-  setPhotoTapped,
   embeddedInShared = false, 
 }) {
   const dispatch = useDispatch();
   const navigation = useNavigation();
+  const [bottomCommentsVisible, setBottomCommentsVisible] = useState(false);
   const user = useSelector(selectUser);
   const postContent = post?.original ?? post ?? {};
   const lastTapRef = useRef({});
-  const [tagModalVisible, setTagModalVisible] = useState(false);
   const currentUserId = user?.id;
   const { hasLiked, count } = deriveLikeState(post, currentUserId);
   const { getAnimation } = useLikeAnimations(); // ✅ use context
-  const taggedUsers = Array.isArray(photo?.taggedUsers) ? photo.taggedUsers : [];
   const postType = post?.type || post?.postType;
   const isEventPromoOrSuggestion = postType === 'suggestion' || postType === 'promo' || postType === 'promotion' || postType === 'event';
-  const shouldRenderTagButton =
-    postContent?.type !== "invite" && photo?.taggedUsers?.length > 0;
-
+  
   const handleSend = () => {
     medium();
     const kind = postContent?.kind?.toLowerCase();
@@ -83,22 +75,6 @@ export default function PostActions({
       postType: derivedType,
       placeId: postContent.placeId || postContent.business?.placeId || null,
     });
-  };
-
-  const openTagModal = () => {
-    if (!photo?.photoKey) return;
-    medium();
-    if (typeof onRequestShowTags === "function") {
-      onRequestShowTags(photo.photoKey);   // deterministic "show"
-    } else {
-      toggleTaggedUsers?.(photo.photoKey); // fallback "toggle"
-    }
-    setTagModalVisible(true);
-  };
-
-  const closeTagModal = () => {
-    setTagModalVisible(false);
-    setPhotoTapped?.(null);
   };
 
   const handleLikeWithAnimation = (force = false) => {
@@ -135,7 +111,7 @@ export default function PostActions({
     }
   };
 
-  const navigateToCommentsScreen = (post) => {
+  const navigateToRegularCommentsScreen = (post) => {
     if (!post) return;
     medium();
     const sharedPost = post?.original ? true : false;
@@ -162,13 +138,21 @@ export default function PostActions({
     navigation.navigate('EventDetails', { activity: post });
   }
 
-  const handleOpenComments = (post) => {
+  const navigateToFullSreenComments = (post) => {
     if (isEventPromoOrSuggestion) {
       navigateToEventPromoComments(post);
     } else {
-      navigateToCommentsScreen(post);
+      navigateToRegularCommentsScreen(post);
     }
   };
+
+  const handleOpenComments = (post) => {
+    if (orientation === 'column') {
+      setBottomCommentsVisible(true);
+    } else {
+      navigateToFullSreenComments(post)
+    }
+  }
 
   if (embeddedInShared) return null;
 
@@ -177,6 +161,7 @@ export default function PostActions({
       style={[
         styles.actionsContainer,
         orientation === "column" && styles.actionsContainerColumn,
+        isCommentScreen ? { padding: 10 } : { padding: 15 },
       ]}
     >
       <View
@@ -234,23 +219,10 @@ export default function PostActions({
           />
         </View>
       </View>
-      {/* Tagged Users Button (row mode only) */}
-      {shouldRenderTagButton && orientation !== "column" && (
-        <TouchableWithoutFeedback
-          onPress={openTagModal}
-        >
-          <View style={styles.tagIcon}>
-            <MaterialCommunityIcons name="tag" size={24} color="white" />
-          </View>
-        </TouchableWithoutFeedback>
-      )}
-      <TagUserModal
-        visible={tagModalVisible}
-        post={post}
-        photoId={photo?._id}
-        onClose={closeTagModal}
-        taggedUsers={taggedUsers}
-        title="Tagged in this photo"
+      <BottomCommentsModal
+        visible={bottomCommentsVisible}
+        onClose={() => setBottomCommentsVisible(false)}
+        review={post}
       />
     </View>
   );
@@ -289,8 +261,8 @@ const styles = StyleSheet.create({
   },
   tagIcon: {
     position: "absolute",
-    bottom: 40,
-    right: 0,
+    bottom: 50,
+    right: 10,
     backgroundColor: "rgba(0,0,0,0.6)",
     padding: 6,
     borderRadius: 20,

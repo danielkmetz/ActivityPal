@@ -3,11 +3,11 @@ import { View, Text, StyleSheet, Image } from 'react-native'; // ✅ add Image
 import StoryAvatar from '../../Stories/StoryAvatar';
 import TaggedUsersLine from './TaggedUsersLine';
 import FollowButton from '../PostActions/FollowButton';
-import { useDispatch, useSelector } from 'react-redux';           // ✅ useSelector
+import { useSelector } from 'react-redux';           // ✅ useSelector
 import { navigateToOtherUserProfile } from '../../../utils/userActions';
-import { logEngagementIfNeeded } from '../../../Slices/EngagementSlice';
 import { useNavigation } from '@react-navigation/native';
 import { selectUser } from '../../../Slices/UserSlice';            // ✅ get current user id
+import dayjs from 'dayjs';
 
 const pinPic = "https://cdn-icons-png.flaticon.com/512/684/684908.png";
 
@@ -19,34 +19,19 @@ export default function PostHeader({
   leftContainerStyle,
 }) {
   const navigation = useNavigation();
-  const dispatch = useDispatch();
   const postContent = post?.original ?? post ?? {};
   const currentUserId = useSelector(selectUser)?.id;
-  const postType = postContent?.type || postContent?.postType;
   const {
     isSuggestedFollowPost = false,
-    fullName: authorName,
-    businessName,
-    placeId,
-    taggedUsers = [],
     profilePicUrl,
     userId,
     photos,
     media: mediaRaw
   } = postContent;
+  const postDate = postContent?.date || postContent?.createdAt || postContent?.dateTime;
 
   // ✅ ensure media is an array
   const media = Array.isArray(photos) ? photos : (Array.isArray(mediaRaw) ? mediaRaw : []);
-
-  const onPressBusiness = () => {
-    logEngagementIfNeeded(dispatch, {
-      targetType: 'place',
-      targetId: placeId,
-      placeId,
-      engagementType: 'click',
-    });
-    navigation.navigate("BusinessProfile", { business: postContent });
-  };
 
   const onViewProfile = (targetId) =>
     navigateToOtherUserProfile({
@@ -55,22 +40,19 @@ export default function PostHeader({
       currentUserId,
     });
 
+  const getTimeSincePosted = (date) => dayjs(date).fromNow(true);
+
   return (
     <View style={[styles.header, containerStyle]}>
       <View style={[styles.userPicAndName, leftContainerStyle]}>
         <StoryAvatar userId={userId} profilePicUrl={profilePicUrl} />
-        <View style={{ flexShrink: 1 }}>
+        <View >
           <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
             <TaggedUsersLine
-              authorId={userId}
-              authorName={authorName}
-              taggedUsers={taggedUsers}
-              businessName={businessName}
+              post={post}
               onPressUser={onViewProfile}
-              onPressBusiness={onPressBusiness}
               includeAtWithBusiness={includeAtWithBusiness}
               showAtWhenNoTags={showAtWhenNoTags}
-              postType={postType}
               renderBusinessAccessory={
                 post?.type === 'check-in' && media.length > 0
                   ? () => <Image source={{ uri: pinPic }} style={styles.inlinePin} />
@@ -78,6 +60,7 @@ export default function PostHeader({
               }
             />
           </View>
+          <Text style={styles.reviewDate}>{getTimeSincePosted(postDate)} ago</Text>
           {isSuggestedFollowPost && <Text style={styles.subText}>Suggested user for you</Text>}
         </View>
       </View>
@@ -105,7 +88,8 @@ const styles = StyleSheet.create({
   },
   subText: {
     color: '#555',
-    marginTop: 4,
+    padding: 8,
+    marginTop: -10
   },
   inlinePin: {
     width: 14,
@@ -113,4 +97,5 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     marginBottom: -2,
   },
+  reviewDate: { padding: 8, marginTop: -15, color: '#555' },
 });
