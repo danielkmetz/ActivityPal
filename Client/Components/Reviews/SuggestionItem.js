@@ -49,14 +49,12 @@ export default function SuggestionItem({ suggestion, onShare, embeddedInShared =
                 currentIndexRef={currentIndexRef}
                 setInviteModalVisible={setInviteModalVisible}
             />
-            <View style={[{ padding: 15 }, dotsExist ? { marginTop: 5 } : { marginTop: -10 }]}>
-                <PostActions
-                    post={suggestion}
-                    handleOpenComments={handleOpenComments}
-                    onShare={onShare}
-                    embeddedInShared={embeddedInShared}
-                />
-            </View>
+            <PostActions
+                post={suggestion}
+                handleOpenComments={handleOpenComments}
+                onShare={onShare}
+                embeddedInShared={embeddedInShared}
+            />
             <InviteModal
                 visible={inviteModalVisible}
                 onClose={() => setInviteModalVisible(false)}

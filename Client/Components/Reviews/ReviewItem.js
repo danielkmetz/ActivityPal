@@ -22,7 +22,6 @@ export default function ReviewItem({
     item,
     photoTapped,
     setPhotoTapped,
-    toggleTaggedUsers,
     handleEdit,
     handleDelete,
     onShare,
@@ -33,9 +32,7 @@ export default function ReviewItem({
     const currentIndexRef = useRef(0);
     const [viewerOptionsVisible, setViewerOptionsVisible] = useState(false);
     const scrollX = useRef(new Animated.Value(0)).current;
-    const postContent = item?.original ? item?.original : item;
-    const currentPhoto = postContent.photos?.[currentPhotoIndex];
-
+    
     useEffect(() => {
         const interval = setInterval(() => {
             if (currentPhotoIndex !== currentIndexRef.current) {
@@ -79,19 +76,15 @@ export default function ReviewItem({
                 scrollX={scrollX}
                 post={item}
                 photoTapped={photoTapped}
+                setPhotoTapped={setPhotoTapped}
                 currentIndexRef={{ current: currentPhotoIndex, setCurrent: setCurrentPhotoIndex }}
             />
             <PostedDate post={item} />
-            <View style={{ padding: 15 }}>
-                <PostActions
-                    post={item}
-                    setPhotoTapped={setPhotoTapped}
-                    toggleTaggedUsers={toggleTaggedUsers}
-                    photo={currentPhoto}
-                    onShare={onShare}
-                    onRequestShowTags={(photoKey) => toggleTaggedUsers?.(photoKey)}   // or a deterministic show fn
-                />
-            </View>
+            <PostActions
+                post={item}
+                onShare={onShare}
+                embeddedInShared={embeddedInShared}
+            />
         </View>
     )
 

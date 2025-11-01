@@ -3,18 +3,31 @@ import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
 import { Avatar } from 'react-native-paper';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import profilePicPlaceholder from "../../../assets/pics/profile-pic-placeholder.jpg";
+import dayjs from 'dayjs';
 
-const PostUserInfo = ({
-  onClose,
-  isInvite,
-  hasTaggedUsers,
-  postOwnerPic,
-  postOwnerName,
-  totalInvited,
-  review,
-  sharedPost,
-  getTimeSincePosted,
-}) => {
+const smallPin = 'https://cdn-icons-png.flaticon.com/512/684/684908.png';
+
+const PostUserInfo = ({ onClose, review }) => {
+  const isShared =
+    review?.type === 'sharedPost' ||
+    review?.postType === 'sharedPost' ||
+    !!review?.original;
+
+  const isInvite = !isShared && (review?.type === 'invite' || review?.postType === 'invite');
+  const hasTaggedUsers = Array.isArray(review?.taggedUsers) && review.taggedUsers.length > 0;
+  const postOwnerName = isInvite && review?.sender?.firstName
+    ? `${review?.sender?.firstName} ${review?.sender?.lastName}`
+    : review?.fullName || `${review?.user?.firstName} ${review?.user?.lastName}`;
+  const totalInvited = review?.recipients?.length || 0;
+
+  const postOwnerPic = isShared
+    ? (review?.user?.profilePicUrl || review?.profilePicUrl)
+    : isInvite
+      ? (review?.sender?.profilePicUrl || review?.profilePicUrl)
+      : (review?.profilePicUrl || review?.original?.profilePicUrl);
+
+  const getTimeSincePosted = (date) => dayjs(date).fromNow(true);
+
   return (
     <View style={styles.userInfo}>
       <View style={styles.headerBar}>
@@ -24,43 +37,39 @@ const PostUserInfo = ({
       </View>
       <Avatar.Image
         size={48}
-        rounded
         source={postOwnerPic ? { uri: postOwnerPic } : profilePicPlaceholder}
-        icon={!postOwnerPic ? { name: 'person', type: 'material', color: '#fff' } : null}
-        containerStyle={{ backgroundColor: '#ccc' }}
+        style={{ backgroundColor: '#ccc' }}
       />
-      <View style={{ flexDirection: 'column', flexShrink: 1 }}>
-        <Text style={styles.reviewerName}>
+      <View style={styles.textCol}>
+        {/* ✅ one single Text that contains everything; no forced \n */}
+        <Text style={styles.line}>
           {isInvite ? (
-            <Text style={styles.fullName}>
-              {postOwnerName} invited {totalInvited} friend
-              {totalInvited.length === 1 ? '' : 's'} to a Vybe
-            </Text>
+            <>
+              <Text style={styles.fullName}>{postOwnerName}</Text>
+              {` invited ${totalInvited} friend${totalInvited === 1 ? '' : 's'} to a Vybe`}
+            </>
           ) : (
             <Text style={styles.fullName}>{postOwnerName}</Text>
           )}
-          {!isInvite && !sharedPost && hasTaggedUsers ? " is with " : !isInvite && !sharedPost ? " is " : null}
-          {Array.isArray(review?.taggedUsers) && review?.taggedUsers?.map((user, index) => (
-            <Text key={user?.userId || `tagged-${index}`} style={styles.taggedUser}>
-              {user?.fullName}
-              {index !== review?.taggedUsers.length - 1 ? ", " : ""}
+          {/* tagged users (inline) */}
+          {!isInvite && !isShared && (hasTaggedUsers ? ' is with ' : ' is ')}
+          {!isInvite && !isShared && hasTaggedUsers && review.taggedUsers.map((u, i) => (
+            <Text key={u?.userId || `tagged-${i}`} style={styles.taggedUser}>
+              {u?.fullName}{i !== review.taggedUsers.length - 1 ? ', ' : ''}
             </Text>
           ))}
-          {review?.type === "check-in" && (
-            <Text>
-              {" "}at{hasTaggedUsers ? <Text>{'\n'}</Text> : <Text>{" "}</Text>}
+          {/* check-in (inline) */}
+          {review?.type === 'check-in' && (
+            <>
+              {' at '}
               <Text style={styles.businessName}>{review?.businessName}</Text>
-              {review?.photos?.length > 0 && (
-                <Image
-                  source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }}
-                  style={styles.smallPinIcon}
-                />
+              {!!review?.photos?.length && (
+                <Image source={{ uri: smallPin }} style={styles.smallPinIcon} />
               )}
-            </Text>
+            </>
           )}
-          {sharedPost && (
-            <Text> shared a post</Text>
-          )}
+          {/* shared post (inline) */}
+          {isShared && ' shared a post'}
         </Text>
         <Text style={styles.reviewDate}>{getTimeSincePosted(review?.date)} ago</Text>
       </View>
@@ -72,7 +81,6 @@ const styles = StyleSheet.create({
   userInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 15,
   },
   headerBar: {
     flexDirection: 'row',
@@ -82,38 +90,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     zIndex: 1,
   },
-  backButton: {
-    padding: 5,
+  backButton: { padding: 5 },
+  textCol: {
+    flex: 1,
+    minWidth: 0,       // <-- critical on Android so the Text can shrink & wrap
+    marginLeft: 10,
   },
-  reviewerName: {
-    flexWrap: 'wrap',
-    flexShrink: 1,
+  line: {
     fontSize: 16,
-    marginLeft: 10,
   },
-  fullName: {
-    fontWeight: 'bold',
-    color: '#222',
-  },
-  taggedUser: {
-    fontWeight: 'bold',
-    color: '#444',
-  },
-  businessName: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: '#555',
-  },
-  smallPinIcon: {
-    width: 20,
-    height: 20,
-    marginLeft: 10,
-    marginTop: 10,
-  },
-  reviewDate: {
-    marginLeft: 10,
-    marginTop: 5,
-  },
+  fullName: { fontWeight: 'bold', color: '#222' },
+  taggedUser: { fontWeight: 'bold', color: '#444' },
+  businessName: { fontSize: 16, fontWeight: 'bold', color: '#555' },
+  smallPinIcon: { width: 16, height: 16, marginLeft: 6 },
+
+  reviewDate: { marginTop: 5, color: '#555' },
 });
 
 export default PostUserInfo;

@@ -13,8 +13,10 @@ export default function PhotoFeed({
   scrollX,
   post,
   photoTapped,
+  setPhotoTapped,
   onActiveChange, // ← optional callback to mirror your previous onTouchStart/onTouchEnd behavior
   currentIndexRef,
+  isCommentScreen=false,
 }) {
   const dispatch = useDispatch();
   const navigation = useNavigation();
@@ -31,6 +33,7 @@ export default function PhotoFeed({
         postContent,
         onOpenDetails: setDetailsVisible,
         photoTapped,
+        isCommentScreen,
       }),
     [
       postContent?._id,              // keep deps minimal & stable
@@ -88,6 +91,7 @@ export default function PhotoFeed({
               reviewItem={post}
               index={index}
               photoTapped={photoTapped}
+              setPhotoTapped={setPhotoTapped}
               onOpenFullScreen={handlePhotoTap}
             />
           </View>

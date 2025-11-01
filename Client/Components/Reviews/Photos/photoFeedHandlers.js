@@ -9,6 +9,7 @@ export function createPhotoFeedHandlers({
     postContent,
     onOpenDetails,     // e.g. setDetailsVisible
     photoTapped,       // optional callback from parent
+    isCommentScreen=false,
 }) {
     const postType = postContent?.type || postContent?.postType;
     const isEventPromoOrSuggestion = postType === 'event' || postType === 'promo' || postType === 'promotion' || postType === 'suggestion';
@@ -28,6 +29,7 @@ export function createPhotoFeedHandlers({
             initialIndex: index,
             taggedUsersByPhotoKey: taggedUsersByPhotoKey || {},
             isSuggestedPost: isSuggestedFollowPost,
+            isEventPromo: isEventPromoOrSuggestion,
         });
     };
 
@@ -42,10 +44,8 @@ export function createPhotoFeedHandlers({
         });
     };
 
-    console.log(isEventPromoOrSuggestion)
-
     const handlePhotoTap = (photo, index) => {
-        if (isEventPromoOrSuggestion) {
+        if (isEventPromoOrSuggestion && !isCommentScreen) {
             openSuggestionDetails();
         } else {
             onOpenFullScreen(photo, index);

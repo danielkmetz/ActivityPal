@@ -38,11 +38,10 @@ export default function CheckInItem({
     const [viewerOptionsVisible, setViewerOptionsVisible] = useState(false);
     const scrollX = useRef(new Animated.Value(0)).current;
     const postContent = item?.original ? item?.original : item
-    const currentPhoto = postContent.photos?.[currentPhotoIndex];
     const message = postContent?.message || postContent?.message;
-    
+
     return (
-        <MaybeTWF enabled={!!embeddedInShared} onPress={() => {}}>
+        <MaybeTWF enabled={!!embeddedInShared} onPress={() => { }}>
             <View style={[styles.reviewCard, embeddedInShared && styles.sharedHeader]}>
                 <PostOptionsMenu
                     dropdownVisible={dropdownVisible}
@@ -76,16 +75,13 @@ export default function CheckInItem({
                     scrollX={scrollX}
                     currentIndexRef={{ current: currentPhotoIndex, setCurrent: setCurrentPhotoIndex }}
                     photoTapped={photoTapped}
+                    setPhotoTapped={setPhotoTapped}
                 />
                 <PostedDate post={item} />
-                <View style={{ padding: 15 }}>
-                    <PostActions
-                        post={item}
-                        setPhotoTapped={setPhotoTapped}
-                        photo={currentPhoto}
-                        onShare={onShare}
-                    />
-                </View>
+                <PostActions
+                    post={item}
+                    onShare={onShare}
+                />
             </View>
             <NonOwnerOptions
                 visible={viewerOptionsVisible}

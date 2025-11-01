@@ -20,6 +20,6 @@ export default function InviteHeader({ sender, totalInvited, onPressName }) {
 
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  headerText: { flexDirection: 'column' },
+  headerText: { flexDirection: 'column', flexShrink: 1 },
   senderName: { fontWeight: 'bold', fontSize: 16 },
 });

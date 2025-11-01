@@ -10,7 +10,7 @@ import { getTimeLabel } from '../../../utils/formatEventPromoTime';
 import PostActions from '../../Reviews/PostActions/PostActions';
 import { resetSelectedEvent } from '../../../Slices/EventsSlice';
 import { resetSelectedPromotion } from '../../../Slices/PromotionsSlice';
-import { logEngagementIfNeeded, getEngagementTarget } from '../../../Slices/EngagementSlice';
+import { logEngagementIfNeeded } from '../../../Slices/EngagementSlice';
 import PhotoFeed from '../../Reviews/Photos/PhotoFeed';
 
 const DetailsHeader = ({ activity, getTimeSincePosted }) => {
@@ -102,7 +102,7 @@ const DetailsHeader = ({ activity, getTimeSincePosted }) => {
                         currentIndexRef={currentIndexRef}
                         setCurrentPhotoIndex={setCurrentPhotoIndex}
                         photoTapped={null} // hook up if you have a tap handler
-                        onOpenFullScreen={onOpenFullScreen}
+                        isCommentScreen={true}
                     />
                 )}
             </View>

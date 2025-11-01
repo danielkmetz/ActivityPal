@@ -12,18 +12,18 @@ import PostActions from './PostActions/PostActions';
 import PostOptionsMenu from './PostOptionsMenu';
 import { useNavigation } from '@react-navigation/native';
 import InviteHeader from './Invites/InviteHeader';
-import BusinessBadge from './Invites/BusinessBadge';
 import CountdownPill from './Invites/CountdownPill';
 import AttendanceRow from './Invites/AttendanceRow';
 import { useInviteState } from './Invites/useInviteState';
 import { medium } from '../../utils/Haptics/haptics';
 import NonOwnerOptions from './PostOptionsMenu/NonOwnerPostOptions';
 import ViewerOptionsTrigger from './PostOptionsMenu/ViewerOptionsTrigger';
+import BusinessLink from './PostHeader/BusinessLink';
 
 const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) => {
     const dispatch = useDispatch();
     const navigation = useNavigation();
-    const postContent = invite?.original ? invite?.original : invite 
+    const postContent = invite?.original ?? invite ?? {};
     const [modalVisible, setModalVisible] = useState(false);
     const [editInviteModal, setEditInviteModal] = useState(false);
     const [inviteToEdit, setInviteToEdit] = useState(null);
@@ -37,9 +37,8 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
     const senderId = postContent?.sender?.id;
     const recipientId = postContent?.sender?.id || postContent?.sender?.userId;
     const [requested, setRequested] = useState(false);
-    const hasRequested = requested || postContent.requests?.some(r => r.userId === user.id);
-    const businessLogoUrl = postContent?.businessLogoUrl;
-    const { timeLeft, isSender } = useInviteState(invite, user?.id);
+    const hasRequested = requested || postContent.requests?.some(r => r.userId === userId);
+    const { timeLeft, isSender } = useInviteState(postContent, user?.id);
 
     const handleEdit = () => {
         if (invite) {
@@ -151,19 +150,21 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
     return (
         <>
             <View style={styles.card}>
-                <PostOptionsMenu
-                    dropdownVisible={dropdownVisible}
-                    setDropdownVisible={setDropdownVisible}
-                    handleEdit={handleEdit}
-                    handleDelete={handleDelete}
-                    postData={invite}
-                />
+                {!embeddedInShared && (
+                    <PostOptionsMenu
+                        dropdownVisible={dropdownVisible}
+                        setDropdownVisible={setDropdownVisible}
+                        handleEdit={handleEdit}
+                        handleDelete={handleDelete}
+                        postData={invite}
+                    />
+                )}
                 <ViewerOptionsTrigger
                     post={invite}
                     onPress={() => setViewerOptionsVisible(true)}
                 />
-                <InviteHeader sender={postContent.sender} totalInvited={totalInvited} onPressName={() => navigateToOtherUserProfile(invite.senderId)} />
-                <BusinessBadge name={businessName} logoUrl={businessLogoUrl} />
+                <InviteHeader sender={postContent.sender} totalInvited={totalInvited} onPressName={() => navigateToOtherUserProfile(senderId)} />
+                <BusinessLink post={invite} />
                 {postContent.dateTime ? (
                     <Text style={styles.datetime}>On {formatEventDate(postContent.dateTime)}</Text>
                 ) : null}
@@ -175,17 +176,14 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
                     hasRequested={hasRequested}
                     onRequestJoin={handleRequest}
                     onOpenInvitees={() => setModalVisible(true)}
+                    post={invite}
                 />
-                <View style={styles.actionsContainer}>
-                    <View style={{ marginTop: 10 }}>
-                        <PostActions
-                            post={invite}
-                            handleOpenComments={handleOpenComments}
-                            onShare={onShare}
-                            embeddedInShared={embeddedInShared}
-                        />
-                    </View>
-                </View>
+                <PostActions
+                    post={invite}
+                    handleOpenComments={handleOpenComments}
+                    onShare={onShare}
+                    embeddedInShared={embeddedInShared}
+                />
             </View>
             <InviteeModal
                 visible={modalVisible}
@@ -235,11 +233,7 @@ const styles = StyleSheet.create({
         color: '#555',
         marginTop: 10,
     },
-    actionsContainer: {
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'space-between'
-    },
+
 });
 
 export default InviteCard;

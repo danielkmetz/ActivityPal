@@ -30,24 +30,19 @@ dayjs.extend(relativeTime);
 
 export default function CommentScreen() {
     const route = useRoute();
-    const { reviewId, targetId, sharedPost } = route.params || {};
+    const { reviewId, targetId } = route.params || {};
     const dispatch = useDispatch();
     const navigation = useNavigation();
     const selectedReview = useSelector(selectSelectedReview);
     const reviewFromFeed = useSelector((state) => selectPostById(state, reviewId));
     const review = reviewFromFeed || selectedReview;
-    const isSharedPost = !!(
-        sharedPost ||            // route flag
-        review?.original ||      // backend returned nested original
-        review?.type === 'sharedPost' ||  // canonical type
-        review?.postType === 'sharedPost' // (in case you stored it this way)
-    );
     const replyingTo = useSelector(selectReplyingTo);
     const nestedExpandedReplies = useSelector(selectNestedExpandedReplies);
     const isEditing = useSelector(selectIsEditing);
     const nestedReplyInput = useSelector(selectNestedReplyInput);
     const dateTime = review?.dateTime || review?.date;
     const isInvite = review?.type === 'invite';
+    const sharedPost = review?.type === 'sharedPost' || review?.postType === 'sharedPost' || review?.original;
 
     const [commentText, setCommentText] = useState('');
     const [keyboardHeight, setKeyboardHeight] = useState(null);
@@ -348,8 +343,8 @@ export default function CommentScreen() {
                         timeLeft={timeLeft}
                         formatEventDate={formatEventDate}
                         photoTapped={photoTapped}
+                        setPhotoTapped={setPhotoTapped}
                         setIsPhotoListActive={setIsPhotoListActive}
-                        sharedPost={isSharedPost}
                         onShare={openShareOptions}
                     />
                 }

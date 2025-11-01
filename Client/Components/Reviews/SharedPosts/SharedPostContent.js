@@ -8,6 +8,7 @@ import InviteCard from '../InviteCard';
 export default function SharedPostContent({
   sharedItem,
   photoTapped,
+  setPhotoTapped,
   handleEdit,
   handleDelete,
   onShare,
@@ -22,6 +23,7 @@ export default function SharedPostContent({
           <CheckInItem
             item={sharedItem}
             photoTapped={photoTapped}
+            setPhotoTapped={setPhotoTapped}
             handleDelete={handleDelete}
             handleEdit={handleEdit}
             onShare={onShare}
@@ -34,6 +36,7 @@ export default function SharedPostContent({
           <ReviewItem
             item={sharedItem}
             photoTapped={photoTapped}
+            setPhotoTapped={setPhotoTapped}
             handleDelete={handleDelete}
             handleEdit={handleEdit}
             onShare={onShare}
@@ -81,7 +84,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 15,
     backgroundColor: '#f9f9f9',
-    width: '95%',
+    width: '97%',
     alignSelf: 'center',
   },
 });

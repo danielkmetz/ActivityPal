@@ -7,87 +7,101 @@ import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../../Slices/UserSlice";
 
 export default function FollowButton({
-  onPressFollowing, // when user taps "Following" (opens profile)
+  onPressFollowing,
   post,
+  // NEW props ↓↓↓
+  targetId: targetIdProp,          // user id you want to follow (e.g., tagged user)
+  forceVisible = false,            // bypass isSuggestedFollowPost gate (use in modal)
+  compact = false,                 // smaller chip for inline rows
+  targetIsPrivate = null,          // if you know it; otherwise we fall back to post privacy
 }) {
   const dispatch = useDispatch();
   const user = useSelector(selectUser);
   const postContent = post?.original ?? post ?? {};
   const { isSuggestedFollowPost } = postContent;
   const postOwnerId = postContent?.userId;
-  const isPrivate = postContent?.privacySettings?.public !== 'public';
-  const targetId = useMemo(() => String(postOwnerId || ""), [postOwnerId]);
-  const following = useSelector(selectFollowing);
-  const followRequests = useSelector(selectFollowRequests);
+  const postIsPrivate = postContent?.privacySettings?.public !== "public";
+
+  // Use targetIdProp when provided (e.g., modal rows), else fall back to post owner
+  const targetId = useMemo(
+    () => String(targetIdProp || postOwnerId || ""),
+    [targetIdProp, postOwnerId]
+  );
+
+  const following = useSelector(selectFollowing) || [];
+  const followRequests = useSelector(selectFollowRequests) || {};
   const [isFollowing, setIsFollowing] = useState(false);
   const [isRequestReceived, setIsRequestReceived] = useState(false);
   const [isRequestSent, setIsRequestSent] = useState(false);
-  const fullName = `${user?.firstName} ${user?.lastName}`
 
-  if (!isSuggestedFollowPost) return null;
+  const fullName = `${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim();
+
+  // Keep the old behavior unless forceVisible is true
+  if (!forceVisible && !isSuggestedFollowPost) return null;
+  if (!targetId || !user?.id) return null; // nothing to do
 
   useEffect(() => {
-    if (!user || !followRequests || !following) return;
+    const followingIds = following.map(u => String(u?._id ?? u?.id ?? u));
+    const sentRequestIds = (followRequests?.sent || []).map(u => String(u?._id ?? u));
+    const receivedRequestIds = (followRequests?.received || []).map(u => String(u?._id ?? u));
 
-    const followingIds = following.map(u => u._id);
-    const sentRequestIds = (followRequests?.sent || []).map(u => u._id || u);
-    const receivedRequestIds = (followRequests?.received || []).map(u => u._id || u);
-
-    setIsRequestSent(sentRequestIds.includes(postOwnerId));
-    setIsRequestReceived(receivedRequestIds.includes(postOwnerId));
-    setIsFollowing(followingIds.includes(postOwnerId));
-  }, [user, following, followRequests, postOwnerId]);
+    setIsRequestSent(sentRequestIds.includes(targetId));
+    setIsRequestReceived(receivedRequestIds.includes(targetId));
+    setIsFollowing(followingIds.includes(targetId));
+  }, [following, followRequests, targetId]);
 
   const onFollow = () =>
     handleFollowUser({
-      isPrivate,                // boolean
-      userId: postOwnerId,      // target
-      mainUser: user,           // current user object from Redux
+      isPrivate: targetIsPrivate ?? postIsPrivate, // prefer explicit, fall back to post privacy
+      userId: targetId,                             // IMPORTANT: follow the tagged user
+      mainUser: user,
       dispatch,
-      setIsFollowing,           // state setter from component
-      setIsRequestSent,         // state setter from component
+      setIsFollowing,
+      setIsRequestSent,
     });
 
-   const onAcceptRequest = async () => {
-    await dispatch(approveFollowRequest({ requesterId: targetId }));
+  const onAcceptRequest = async () => {
+    await dispatch(approveFollowRequest(targetId));
     setIsFollowing(true);
     setIsRequestReceived(false);
 
     await dispatch(
       createNotification({
-        userId: targetId,          // notify the requester
+        userId: targetId,
         type: "followAccepted",
         message: `${fullName} accepted your follow request!`,
-        relatedId: user?.id,       // the acceptor (you)
+        relatedId: user?.id,
         typeRef: "User",
       })
     );
   };
 
-  const onDenyRequest = () => dispatch(declineFollowRequest({ requesterId: targetId }));
+  const onDenyRequest = () => dispatch(declineFollowRequest(targetId));
 
   const onCancelRequest = async () => {
-    await dispatch(cancelFollowRequest({ recipientId: postOwnerId }));
-    // ✅ Explicitly update the state to ensure UI reflects the change
+    await dispatch(cancelFollowRequest(targetId));
     setIsRequestSent(false);
   };
 
+  const btn = compact ? styles.followButtonSm : styles.followButton;
+  const txt = compact ? styles.followButtonTextSm : styles.followButtonText;
+
   if (isFollowing) {
     return (
-      <TouchableOpacity style={s.followButton} onPress={onPressFollowing}>
-        <Text style={s.followingText}>Following</Text>
+      <TouchableOpacity style={btn} onPress={onPressFollowing}>
+        <Text style={txt}>Following</Text>
       </TouchableOpacity>
     );
   }
 
   if (isRequestReceived) {
     return (
-      <View style={s.requestButtonsContainer}>
-        <TouchableOpacity style={s.acceptRequestButton} onPress={onAcceptRequest}>
-          <Text style={s.acceptRequestText}>Accept Request</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <TouchableOpacity style={btn} onPress={onAcceptRequest}>
+          <Text style={txt}>Accept</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={s.followButton} onPress={onDenyRequest}>
-          <Text style={s.followButtonText}>Deny Request</Text>
+        <TouchableOpacity style={btn} onPress={onDenyRequest}>
+          <Text style={txt}>Deny</Text>
         </TouchableOpacity>
       </View>
     );
@@ -95,36 +109,20 @@ export default function FollowButton({
 
   if (isRequestSent) {
     return (
-      <TouchableOpacity style={s.followButton} onPress={onCancelRequest}>
-        <Text style={s.followButtonText}>Cancel Request</Text>
+      <TouchableOpacity style={btn} onPress={onCancelRequest}>
+        <Text style={txt}>Cancel</Text>
       </TouchableOpacity>
     );
   }
 
   return (
-    <TouchableOpacity style={s.followButton} onPress={onFollow}>
-      <Text style={s.followButtonText}>Follow</Text>
+    <TouchableOpacity style={btn} onPress={onFollow}>
+      <Text style={txt}>Follow</Text>
     </TouchableOpacity>
   );
 }
 
-const s = StyleSheet.create({
-  requestButtonsContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  acceptRequestButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: "#2c7a7b", // teal-ish accept
-  },
-  acceptRequestText: {
-    fontSize: 15,
-    fontWeight: "bold",
-    color: "#fff",
-  },
+const styles = StyleSheet.create({
   followButton: {
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -136,9 +134,15 @@ const s = StyleSheet.create({
     fontWeight: "bold",
     color: "#fff",
   },
-  followingText: {
-    fontSize: 15,
-    fontWeight: "bold",
+  followButtonSm: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: "#b3b3b3",
+  },
+  followButtonTextSm: {
+    fontSize: 13,
+    fontWeight: "700",
     color: "#fff",
   },
 });
