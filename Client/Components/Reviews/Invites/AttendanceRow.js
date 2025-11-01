@@ -12,7 +12,7 @@ export default function AttendanceRow({
 }) {
   const user = useSelector(selectUser);
   const userId = user?.id;
-  const postContent = post?.original ? post?.original : post;
+  const postContent = post?.original ?? post ?? {};
   const totalGoing = postContent?.recipients?.filter(r => r.status === 'accepted').length || 0;
   const { isSender, isRecipient } = useInviteState(postContent, userId);
 

@@ -1,6 +1,10 @@
 import React, { useRef, useMemo, useState, useEffect } from "react";
-import { View, Text, Image, Animated, StyleSheet, Dimensions } from "react-native";
-import dayjs from 'dayjs';
+import { View, Text, Image, Animated, StyleSheet, Dimensions, TouchableOpacity } from "react-native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { Avatar } from "react-native-paper";
+import dayjs from "dayjs";
+import TaggedUsersLine from "./PostHeader/TaggedUsersLine";
+import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import { useNavigation } from "@react-navigation/native";
 import PostActions from './PostActions/PostActions';
 import PostUserInfo from "./CommentScreen/PostUserInfo";
@@ -8,16 +12,19 @@ import SharedPostContent from "./SharedPosts/SharedPostContent";
 import VideoThumbnail from "./VideoThumbnail";
 import PhotoFeed from "./Photos/PhotoFeed";
 import RatingsButton from "./ReviewItem/RatingsButton";
+import BusinessLink from "./PostHeader/BusinessLink";
+
 
 const { width, height } = Dimensions.get('window');
+const pinPic = "https://cdn-icons-png.flaticon.com/512/684/684908.png";
 
 const CommentModalHeader = ({
     review,
     timeLeft,
     formatEventDate,
     photoTapped,
+    setPhotoTapped,
     setIsPhotoListActive,
-    sharedPost,
     onShare
 }) => {
     const navigation = useNavigation();
@@ -26,28 +33,26 @@ const CommentModalHeader = ({
     const scrollX = useRef(new Animated.Value(0)).current;
     const currentIndexRef = useRef(0);
     const currentPhoto = renderItem?.photos?.[currentPhotoIndex];
-    const isInvite = renderItem?.type === "invite";
+    const isInvite = review?.type === "invite";
     const likeAnim = useRef({});
-    const isShared = !!sharedPost || renderItem?.type === 'sharedPost';
-    const hasTaggedUsers = Array.isArray(renderItem?.taggedUsers) && renderItem.taggedUsers.length > 0;
-    const postOwnerPic = isShared
-        ? (review?.user?.profilePicUrl || review?.profilePicUrl)                // sharer
-        : isInvite
-            ? (review?.sender?.profilePicUrl || review?.profilePicUrl)            // invite creator
-            : (review?.profilePicUrl || review?.original?.profilePicUrl);
-    const postOwnerName = isInvite && review?.sender?.firstName ? `${review?.sender?.firstName} ${review?.sender?.lastName}` : review?.fullName || `${review?.user?.firstName} ${review?.user?.lastName}`;
-    const totalInvited = renderItem?.recipients?.length || 0;
     const dateTime = renderItem?.dateTime || renderItem?.date;
-    
-    const getTimeSincePosted = (date) => {
-        return dayjs(date).fromNow(true);
-    };
-
-    const onClose = () => {
-        navigation.goBack();
-    };
-
+    const postType = review?.type || review?.postType;
+    const postText = review?.reviewText || review?.message || review?.caption;
+    const isShared = review?.type === 'sharedPost' || review?.postType === 'sharedPost' || !!review?.original;
     const { isLive, playbackUrl, vodUrl } = renderItem;
+    const totalInvited = Array.isArray(review?.recipients) ? review.recipients.length : 0;
+
+    const authorPic = (() => {
+        if (isShared) return review?.user?.profilePicUrl || review?.profilePicUrl;
+        if (isInvite) return review?.sender?.profilePicUrl || review?.profilePicUrl;
+        return review?.profilePicUrl || review?.original?.profilePicUrl;
+    })();
+
+    const onPressUser = (userId) => {
+        if (!userId) return;
+
+        navigation.navigate('OtherUserProfile', { userId });
+    };
 
     const fileForThumb = useMemo(() => {
         const src = isLive ? playbackUrl : (vodUrl || playbackUrl);
@@ -66,28 +71,51 @@ const CommentModalHeader = ({
     return (
         <View style={styles.header}>
             <View style={styles.headerText}>
-                <PostUserInfo
-                    onClose={onClose}
-                    isInvite={isInvite}
-                    hasTaggedUsers={hasTaggedUsers}
-                    postOwnerPic={postOwnerPic}
-                    postOwnerName={postOwnerName}
-                    totalInvited={totalInvited}
-                    review={renderItem}
-                    sharedPost={sharedPost}
-                    getTimeSincePosted={getTimeSincePosted}
-                />
-                {sharedPost && review?.original && (
-                    <SharedPostContent
-                        sharedItem={renderItem}
-                        photoTapped={photoTapped}
-                        setIsPhotoListActive={setIsPhotoListActive}
+                <View style={styles.userRow}>
+                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                        <MaterialCommunityIcons name="chevron-left" size={26} color="#000" />
+                    </TouchableOpacity>
+                    <Avatar.Image
+                        size={48}
+                        source={authorPic ? { uri: authorPic } : profilePicPlaceholder}
+                        style={{ backgroundColor: '#ccc', marginRight: 10 }}
                     />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                        <TaggedUsersLine
+                            post={review}
+                            onPressUser={onPressUser}
+                            // For check-ins, show "at {business}" even when no tags:
+                            includeAtWithBusiness={postType === 'check-in'}
+                            showAtWhenNoTags={postType === 'check-in'}
+                            prefix=" is with "
+                            containerStyle={{ paddingHorizontal: 0, paddingVertical: 0 }}
+                            nameStyle={{ fontSize: 16, fontWeight: 'bold', color: '#222' }}
+                            connectorStyle={{ fontSize: 15, fontWeight: 'bold', color: '#555' }}
+                        // Optionally add a tiny accessory near the business name:
+                        // renderBusinessAccessory={() => <Image source={{ uri: smallPin }} style={{ width: 14, height: 14, marginLeft: 6 }} />}
+                        />
+                        {/* tiny subline(s) below the tagged line */}
+                        {!!review?.date && (
+                            <Text style={styles.reviewDate}>
+                                {dayjs(review.date).fromNow(true)} ago
+                            </Text>
+                        )}
+                        {isShared && (
+                            <Text style={styles.sharedNote}>shared a post</Text>
+                        )}
+                        {isInvite && (
+                            <Text style={styles.inviteNote}>
+                                invited {totalInvited} friend{totalInvited === 1 ? '' : 's'} to a Vybe
+                            </Text>
+                        )}
+                    </View>
+                </View>
+                {postType !== 'check-in' && postType !== 'sharedPost' && (
+                    <View style={{ marginTop: 10, marginBottom: 5 }}>
+                        <BusinessLink post={renderItem} />
+                    </View>
                 )}
-                <Text style={styles.businessName}>
-                    {renderItem?.type === "review" || isInvite ? renderItem?.businessName : ""}
-                </Text>
-                {(renderItem?.dateTime || renderItem?.date) && isInvite && (
+                {(review?.dateTime || review?.date) && isInvite && (
                     <>
                         <Text style={styles.datetime}>On {formatEventDate(dateTime)}</Text>
                         <Text style={styles.note}>{renderItem.note}</Text>
@@ -97,22 +125,30 @@ const CommentModalHeader = ({
                         </View>
                     </>
                 )}
-                {renderItem?.type === "review" && (
+                {review?.type === "review" && (
                     <RatingsButton post={review} />
 
                 )}
-                <Text style={styles.reviewText}>
-                    {renderItem?.type === "review" ? renderItem?.reviewText : renderItem?.message}
-                </Text>
+                <Text style={styles.reviewText}>{postText}</Text>
+                {isShared && (
+                    <SharedPostContent
+                        sharedItem={review}
+                        photoTapped={photoTapped}
+                        setIsPhotoListActive={setIsPhotoListActive}
+                    />
+                )}
             </View>
-            <PhotoFeed
-                post={review}
-                scrollX={scrollX}
-                currentIndexRef={currentIndexRef}
-                setCurrentPhotoIndex={setCurrentPhotoIndex}
-                photoTapped={photoTapped}
-                onActiveChange={(active) => setIsPhotoListActive?.(active)} // keep your old behavior
-            />
+            {!isShared && (
+                <PhotoFeed
+                    post={review}
+                    scrollX={scrollX}
+                    currentIndexRef={currentIndexRef}
+                    setCurrentPhotoIndex={setCurrentPhotoIndex}
+                    photoTapped={photoTapped}
+                    setPhotoTapped={setPhotoTapped}
+                    onActiveChange={(active) => setIsPhotoListActive?.(active)} // keep your old behavior
+                />
+            )}
             {renderItem?.type === 'liveStream' && (
                 <View style={{ marginTop: -50 }}>
                     <VideoThumbnail
@@ -124,9 +160,9 @@ const CommentModalHeader = ({
                     />
                 </View>
             )}
-            {renderItem?.type === "check-in" && renderItem?.photos?.length === 0 && (
+            {review?.type === "check-in" && renderItem?.photos?.length === 0 && (
                 <Image
-                    source={{ uri: 'https://cdn-icons-png.flaticon.com/512/684/684908.png' }}
+                    source={{ uri: pinPic }}
                     style={styles.pinIcon}
                 />
             )}
@@ -190,13 +226,36 @@ const styles = StyleSheet.create({
     reviewText: {
         fontSize: 15,
         color: '#333',
-        marginBottom: 10,
+        marginVertical: 10,
     },
     pinIcon: {
         width: 50,
         height: 50,
         alignSelf: 'center',
-        marginBottom: 10,
+        marginBottom: 30,
+    },
+    userRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    backButton: {
+        padding: 5,
+        marginRight: 4,
+    },
+    reviewDate: {
+        marginTop: 4,
+        color: '#555',
+        fontSize: 12,
+    },
+    sharedNote: {
+        marginTop: 2,
+        color: '#555',
+        fontSize: 12,
+    },
+    inviteNote: {
+        marginTop: 2,
+        color: '#555',
+        fontSize: 12,
     },
 });
 

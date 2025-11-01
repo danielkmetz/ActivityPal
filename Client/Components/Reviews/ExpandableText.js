@@ -8,7 +8,7 @@ export default function ExpandableText({ post, maxLines = 2, textStyle = {}, see
   const [fullHeight, setFullHeight] = useState(0);
   const [truncatedHeight, setTruncatedHeight] = useState(0);
   const postContent = post?.original ? post?.original : post;
-  const text = postContent?.reviewText || postContent?.message || postContent?.caption || postContent?.note;
+  const text = postContent?.reviewText || postContent?.message || postContent?.caption || postContent?.note || postContent?.description;
 
   return (
     <View>

@@ -6,7 +6,6 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser } from '../../../Slices/UserSlice';
-import BottomCommentsModal from '../BottomCommentsModal';
 import { isVideo } from '../../../utils/isVideo';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import VideoThumbnail from '../VideoThumbnail';
@@ -46,7 +45,6 @@ const FullScreenPhoto = () => {
     return selectPostById(state, reviewId); // ← now correct, no factory
   });
   const flatListRef = useRef();
-  const [commentsVisible, setCommentsVisible] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [showTags, setShowTags] = useState(false);
   const [originalSize, setOriginalSize] = useState({ width: 1, height: 1 });
@@ -60,11 +58,10 @@ const FullScreenPhoto = () => {
   const animation = getAnimation(review?._id);
   const lastTapRef = useRef({});
   const taggedUsers = taggedUsersByPhotoKey?.[currentPhoto?.photoKey] || [];
-  const postText = review?.reviewText || review?.message || review?.description || null;
   const ownerId = review?.userId || review?.placeId;
-  const ownerPic = review?.profilePicUrl || review?.businessLogoUrl;
+  const ownerPic = review?.profilePicUrl || review?.businessLogoUrl || review?.logoUrl;
   const ownerName = review?.fullName || review?.businessName;
-  
+
   const handleLikeWithAnimation = (review, force = true) => {
     const derivedType =
       (review?.type && String(review.type).toLowerCase()) ||
@@ -224,8 +221,6 @@ const FullScreenPhoto = () => {
           <PostActions
             post={review}
             onShare={openShareOptions}
-            handleOpenComments={() => setCommentsVisible(true)}
-            toggleTaggedUsers={() => setShowTags((prev) => !prev)}
             photo={currentPhoto}
             isCommentScreen={false}
             orientation="column"
@@ -240,7 +235,7 @@ const FullScreenPhoto = () => {
             <Text style={styles.title}>{review?.title}</Text>
           )}
           <ExpandableText
-            text={postText}
+            post={review}
             maxLines={3}
             textStyle={styles.reviewText}
             seeMoreStyle={styles.seeMoreLink}
@@ -251,12 +246,6 @@ const FullScreenPhoto = () => {
           <MaterialCommunityIcons name="thumb-up" size={80} color="#80E6D2" />
         </Animated.View>
       </View>
-      {/* Comments Modal */}
-      <BottomCommentsModal
-        visible={commentsVisible}
-        onClose={() => setCommentsVisible(false)}
-        review={review}
-      />
       <SharePostModal
         visible={shareToFeedVisible}
         onClose={closeShareToFeed}

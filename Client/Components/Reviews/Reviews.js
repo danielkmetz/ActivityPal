@@ -7,7 +7,7 @@ import {
   Text,
 } from "react-native";
 import { deleteCheckIn } from "../../Slices/CheckInsSlice";
-import { deleteReview, removePostFromFeeds, setSelectedReview } from "../../Slices/ReviewsSlice";
+import { deleteReview, removePostFromFeeds } from "../../Slices/ReviewsSlice";
 import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
 import InviteCard from "./InviteCard";
@@ -34,7 +34,6 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
   const [shareToFeedVisible, setShareToFeedVisible] = useState(false);
   const [selectedPostForShare, setSelectedPostForShare] = useState(null);
   const [editingSharedPost, setEditingSharedPost] = useState(false);
-  const lastTapRef = useRef({});
   const userId = user?.id;
   const listHeightRef = useRef(0);
   const contentHeightRef = useRef(0);
@@ -110,26 +109,6 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
     contentHeightRef.current = h;
   }, []);
   // ---------------------------------
-
-  const handleOpenComments = (review) => {
-    if (!review) return;
-    medium();
-    const sharedPost = review?.original ? true : false;
-
-    navigation.navigate('CommentScreen', {
-      reviewId: review._id,
-      setSelectedReview,
-      toggleTaggedUsers,
-      lastTapRef,
-      photoTapped,
-      isSuggestedFollowPost: review.isSuggestedFollowPost ? true : false,
-      sharedPost,
-    });
-  };
-
-  const toggleTaggedUsers = (photoKey) => {
-    setPhotoTapped(photoTapped === photoKey ? null : photoKey);
-  };
 
   const handleDeletePost = (post) => {
     const typeLabels = {
@@ -278,7 +257,6 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
             return (
               <InviteCard
                 invite={item}
-                handleOpenComments={handleOpenComments}
                 onShare={openShareOptions}
               />
             )
@@ -288,8 +266,6 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
               <CheckInItem
                 item={item}
                 photoTapped={photoTapped}
-                toggleTaggedUsers={toggleTaggedUsers}
-                handleOpenComments={handleOpenComments}
                 handleDelete={handleDeletePost}
                 handleEdit={handleEditPost}
                 onShare={openShareOptions}
@@ -310,8 +286,7 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
               <SharedPostItem
                 item={item}
                 photoTapped={photoTapped}
-                toggleTaggedUsers={toggleTaggedUsers}
-                handleOpenComments={handleOpenComments}
+                setPhotoTapped={setPhotoTapped}
                 handleDelete={handleDeletePost}
                 handleEdit={handleEditPost}
                 onShare={openShareOptions}
@@ -325,7 +300,6 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
                 onProfile={(userId) => navigation.navigate('OtherUserProfile', { userId })}
                 handleEdit={handleEditPost}
                 handleDelete={handleDeletePost}
-                handleOpenComments={handleOpenComments}
               />
             )
           }
@@ -334,7 +308,6 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
               item={item}
               photoTapped={photoTapped}
               setPhotoTapped={setPhotoTapped}
-              toggleTaggedUsers={toggleTaggedUsers}
               handleDelete={handleDeletePost}
               handleEdit={handleEditPost}
               onShare={openShareOptions}
