@@ -18,6 +18,12 @@ const _getTimeFromPost = (p) => {
   return Number.isFinite(t) ? t : 0;
 };
 
+const _toId = (x) => (x && (x._id || x.id)) ? String(x._id || x.id) : '';
+const _isSharedPost = (p) => {
+  const t = p?.type || p?.postType || p?.canonicalType;
+  return t === 'sharedPost' || t === 'sharedPosts';
+};
+
 const _findInsertIndexDesc = (arr, ts, tieId) => {
   let lo = 0, hi = arr.length;
   while (lo < hi) {
@@ -437,18 +443,38 @@ const reviewsSlice = createSlice({
       state.profileReviews = (state.profileReviews || []).filter(notThisPost);
     },
     replacePostInFeeds: (state, action) => {
-      const updatedPost = action.payload;
-      if (!updatedPost?._id && !updatedPost?.id) return;
+      const updated = action.payload;
+      const updatedId = _toId(updated);
+      if (!updatedId) return;
 
-      const matchId = updatedPost._id || updatedPost.id;
+      const updateArray = (arr = []) =>
+        arr.map((item) => {
+          if (!item) return item;
 
-      const updateArray = (arr) =>
-        (arr || []).map((item) =>
-          (item?._id || item?.id) === matchId ? updatedPost : item
-        );
+          // 1) Replace the top-level post if it matches the updated id
+          if (_toId(item) === updatedId) {
+            return updated;
+          }
+
+          // 2) If it's a shared post whose original matches the updated id, replace original
+          if (_isSharedPost(item)) {
+            const originalId =
+              _toId(item.original) || String(item.originalPostId || '');
+
+            if (originalId && originalId === updatedId) {
+              // Replace the nested original, keep the wrapper intact
+              return { ...item, original: updated };
+            }
+          }
+
+          return item;
+        });
 
       state.userAndFriendsReviews = updateArray(state.userAndFriendsReviews);
       state.profileReviews = updateArray(state.profileReviews);
+      state.otherUserReviews = updateArray(state.otherUserReviews);
+      state.businessReviews = updateArray(state.businessReviews);
+      state.suggestedPosts = updateArray(state.suggestedPosts);
     },
     // Add this inside `reducers: { ... }` in your createSlice
     removeUserPostsFromUserAndFriends: (state, action) => {

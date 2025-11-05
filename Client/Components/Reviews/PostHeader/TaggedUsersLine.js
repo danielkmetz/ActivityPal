@@ -16,29 +16,31 @@ export default function TaggedUsersLine({
   nameStyle,
   connectorStyle,
   renderBusinessAccessory,   // <- only use if provided
+  embeddedInShared,
 }) {
   const dispatch = useDispatch();
-  const postContent = post?.original ?? post ?? {};
+  const postContent = embeddedInShared ? post?.original : post;
   const navigation = useNavigation();
   const _nameStyle = [styles.name, nameStyle];
   const _connectorStyle = [styles.connector, connectorStyle];
   const {
-    fullName: authorName,
     businessName,
     placeId,
     taggedUsers = [],
-    userId: authorId,
+    photos,
+    media: mediaRaw,
   } = postContent;
-  const postType = post?.type || post?.postType;
+  const postType = postContent?.type || postContent?.postType;
   const isCheckIn = postType === 'check-in';
-  const isShared = postType === 'sharedPost' || postType === 'sharedPost' || !!post?.original;
+  const isShared = postType === 'sharedPost' || postType === 'sharedPost' || !!postContent?.original;
   const safeTagged = Array.isArray(taggedUsers) ? taggedUsers : [];
   const hasTags = safeTagged.length > 0;
+  const media = Array.isArray(photos) ? photos : (Array.isArray(mediaRaw) ? mediaRaw : []);
 
-  const sharerName =
+  const authorName =
     postContent?.fullName ||
     (postContent?.user ? [postContent.user.firstName, postContent.user.lastName].filter(Boolean).join(' ') : undefined);
-  const sharerId = postContent?.userId || postContent?.user?._id;
+  const authorId = postContent?.userId || postContent?.user?.id || postContent?.user?.userId || postContent?.user?._id;
 
   const onPressBusiness = () => {
     logEngagementIfNeeded(dispatch, {
@@ -53,7 +55,7 @@ export default function TaggedUsersLine({
   const accessory =
     typeof renderBusinessAccessory === 'function'
       ? renderBusinessAccessory()
-      : (isCheckIn ? (
+      : ((isCheckIn && !media) ? (
         <Image source={{ uri: smallPin }} style={styles.pinIconSmall} />
       ) : null);
 
