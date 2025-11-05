@@ -6,8 +6,8 @@ import FollowButton from '../PostActions/FollowButton';
 import { useSelector } from 'react-redux';           // ✅ useSelector
 import { navigateToOtherUserProfile } from '../../../utils/userActions';
 import { useNavigation } from '@react-navigation/native';
-import { selectUser } from '../../../Slices/UserSlice';            // ✅ get current user id
-import dayjs from 'dayjs';
+import { selectUser } from '../../../Slices/UserSlice'; 
+import { getDisplayDayjs } from '../../../utils/posts/dateTime';
 
 const pinPic = "https://cdn-icons-png.flaticon.com/512/684/684908.png";
 
@@ -17,19 +17,19 @@ export default function PostHeader({
   showAtWhenNoTags = false,
   containerStyle,
   leftContainerStyle,
+  embeddedInShared,
 }) {
   const navigation = useNavigation();
-  const postContent = post?.original ?? post ?? {};
+  const postContent = embeddedInShared ? post?.original : post ;
   const currentUserId = useSelector(selectUser)?.id;
   const {
     isSuggestedFollowPost = false,
-    profilePicUrl,
     userId,
     photos,
     media: mediaRaw
   } = postContent;
-  const postDate = postContent?.date || postContent?.createdAt || postContent?.dateTime;
-
+  const profilePicUrl = postContent?.profilePicUrl || postContent?.user?.profilePicUrl
+  
   // ✅ ensure media is an array
   const media = Array.isArray(photos) ? photos : (Array.isArray(mediaRaw) ? mediaRaw : []);
 
@@ -40,7 +40,8 @@ export default function PostHeader({
       currentUserId,
     });
 
-  const getTimeSincePosted = (date) => dayjs(date).fromNow(true);
+  const d = getDisplayDayjs(post, { embeddedInShared });
+  const timeAgo = d ? d.fromNow(true) + ' ago' : ''; // empty if invalid or missing
 
   return (
     <View style={[styles.header, containerStyle]}>
@@ -50,6 +51,7 @@ export default function PostHeader({
           <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
             <TaggedUsersLine
               post={post}
+              embeddedInShared={embeddedInShared}
               onPressUser={onViewProfile}
               includeAtWithBusiness={includeAtWithBusiness}
               showAtWhenNoTags={showAtWhenNoTags}
@@ -60,7 +62,7 @@ export default function PostHeader({
               }
             />
           </View>
-          <Text style={styles.reviewDate}>{getTimeSincePosted(postDate)} ago</Text>
+          <Text style={styles.reviewDate}>{timeAgo}</Text>
           {isSuggestedFollowPost && <Text style={styles.subText}>Suggested user for you</Text>}
         </View>
       </View>

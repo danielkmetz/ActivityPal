@@ -165,7 +165,6 @@ const invitesSlice = createSlice({
       })
       .addCase(acceptInvite.fulfilled, (state, action) => {
         const updated = action.payload.invite;
-        console.log('updated invite from slice', updated);
         const index = state.invites.findIndex(inv => inv._id === updated._id);
         if (index !== -1) {
           state.invites[index] = updated;
