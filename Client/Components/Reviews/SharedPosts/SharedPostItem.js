@@ -1,14 +1,12 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import StoryAvatar from '../../Stories/StoryAvatar';
 import PostActions from '../PostActions/PostActions';
-import ExpandableText from '../ExpandableText';
 import PostOptionsMenu from '../PostOptionsMenu';
 import { useSelector } from 'react-redux';
 import { selectUser } from '../../../Slices/UserSlice';
 import SharedPostContent from './SharedPostContent';
 import NonOwnerOptions from '../PostOptionsMenu/NonOwnerPostOptions';
+import PostHeader from '../PostHeader/PostHeader';
 
 export default function SharedPostItem({
     item,
@@ -21,19 +19,11 @@ export default function SharedPostItem({
     embeddedInShared = false,
     ...rest
 }) {
-    const navigation = useNavigation();
     const user = useSelector(selectUser);
-    const postOwner = `${item?.user?.firstName} ${item?.user?.lastName}`
     const postUserId = item?.user?.id || item?.user?._id;
     const isSender = postUserId === user?.id;
     const [dropdownVisible, setDropdownVisible] = useState(false);
     const [viewerOptionsVisible, setViewerOptionsVisible] = useState(false);
-    
-    const navigateToProfile = () => {
-        if (item.user?.id) {
-            navigation.navigate('OtherUserProfile', { userId: item.user.id });
-        }
-    };
 
     return (
         <View style={styles.sharedCard}>
@@ -45,24 +35,11 @@ export default function SharedPostItem({
                 postData={item}
             />
             {/* Shared By Header */}
-            <View style={styles.header}>
-                <StoryAvatar profilePicUrl={item.user?.profilePicUrl} userId={item.user?.id} />
-                <View style={styles.nameAndCaption}>
-                    <Text>
-                        <Text style={styles.name} onPress={navigateToProfile}>
-                            {postOwner}
-                        </Text>{" "}
-                        <Text style={styles.sharedText}>shared a post</Text>
-                    </Text>
-                    {item.caption &&
-                        <ExpandableText
-                            text={item.caption}
-                            maxLines={4}
-                            textStyle={styles.caption}
-                        />
-                    }
-                </View>
-            </View>
+            <PostHeader 
+                post={item}
+                includeAtWithBusiness={false}
+                showAtWhenNoTags={false}
+            />
             {!isSender && (
                 <TouchableOpacity
                     onPress={() => setViewerOptionsVisible(true)}

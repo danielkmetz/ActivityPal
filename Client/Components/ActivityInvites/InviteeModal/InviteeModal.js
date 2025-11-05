@@ -27,6 +27,7 @@ const toId = (v) => (v && v.toString ? v.toString() : v || '');
 const InviteeModal = ({ visible, onClose, requests = [], recipients = [], isSender, invite }) => {
     const dispatch = useDispatch();
     const [selectedTab, setSelectedTab] = useState('going');
+    const postContent = invite?.original ?? invite ?? {};
     const user = useSelector(selectUser);
     const userAndFriendsReviews = useSelector(selectUserAndFriendsReviews);
     const notifications = useSelector(selectNotifications);
@@ -123,7 +124,7 @@ const InviteeModal = ({ visible, onClose, requests = [], recipients = [], isSend
     const meId = toId(user?.id);
     const doAccept = async () => {
         try {
-            await dispatch(acceptInvite({ recipientId: meId, inviteId: invite._id })).unwrap();
+            await dispatch(acceptInvite({ recipientId: meId, inviteId: postContent._id })).unwrap();
         } catch (e) {
             console.warn('Failed to accept invite:', e?.message || e);
         }
@@ -131,7 +132,7 @@ const InviteeModal = ({ visible, onClose, requests = [], recipients = [], isSend
 
     const doDecline = async () => {
         try {
-            const res = await dispatch(rejectInvite({ recipientId: meId, inviteId: invite._id })).unwrap();
+            const res = await dispatch(rejectInvite({ recipientId: meId, inviteId: postContent._id })).unwrap();
         } catch (e) {
             console.warn('Failed to decline invite:', e?.message || e);
         }

@@ -13,7 +13,6 @@ import PhotoFeed from "./Photos/PhotoFeed";
 import ViewerOptionsTrigger from "./PostOptionsMenu/ViewerOptionsTrigger";
 import PostHeader from './PostHeader/PostHeader';
 import NonOwnerOptions from "./PostOptionsMenu/NonOwnerPostOptions";
-import PostedDate from "./PostedDate";
 
 const pinPic = "https://cdn-icons-png.flaticon.com/512/684/684908.png";
 
@@ -60,7 +59,9 @@ export default function CheckInItem({
                         includeAtWithBusiness
                         showAtWhenNoTags
                     />
-                    <Text style={styles.message}>{message || null}</Text>
+                    {message && (
+                        <Text style={styles.message}>{message || null}</Text>
+                    )}
                     {postContent?.photos?.length === 0 && (
                         <Image
                             source={{
@@ -77,7 +78,6 @@ export default function CheckInItem({
                     photoTapped={photoTapped}
                     setPhotoTapped={setPhotoTapped}
                 />
-                <PostedDate post={item} />
                 <PostActions
                     post={item}
                     onShare={onShare}
@@ -123,7 +123,7 @@ const styles = StyleSheet.create({
     pinIcon: {
         width: 50,
         height: 50,
-        marginTop: 15,
+        marginBottom: 15,
         alignSelf: "center",
     },
     message: {

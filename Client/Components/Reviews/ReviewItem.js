@@ -9,7 +9,6 @@ import PostHeader from './PostHeader/PostHeader';
 import NonOwnerOptions from './PostOptionsMenu/NonOwnerPostOptions';
 import ViewerOptionsTrigger from './PostOptionsMenu/ViewerOptionsTrigger';
 import BusinessLink from './PostHeader/BusinessLink';
-import PostedDate from './PostedDate';
 
 const MaybeTWF = ({ enabled, onPress, children }) =>
     enabled ? (
@@ -62,6 +61,7 @@ export default function ReviewItem({
                     // Reviews: business shown on its own line below, so keep both false
                     includeAtWithBusiness={false}
                     showAtWhenNoTags={false}
+                    embeddedInShared={embeddedInShared}
                 />
                 <BusinessLink post={item} />
                 <RatingsButton post={item} />
@@ -79,7 +79,6 @@ export default function ReviewItem({
                 setPhotoTapped={setPhotoTapped}
                 currentIndexRef={{ current: currentPhotoIndex, setCurrent: setCurrentPhotoIndex }}
             />
-            <PostedDate post={item} />
             <PostActions
                 post={item}
                 onShare={onShare}
