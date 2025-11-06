@@ -28,6 +28,7 @@ export default function TaggedUsersLine({
     placeId,
     taggedUsers = [],
     photos,
+    owner,
     media: mediaRaw,
   } = postContent;
   const postType = postContent?.type || postContent?.postType;
@@ -38,8 +39,8 @@ export default function TaggedUsersLine({
   const media = Array.isArray(photos) ? photos : (Array.isArray(mediaRaw) ? mediaRaw : []);
 
   const authorName =
-    postContent?.fullName ||
-    (postContent?.user ? [postContent.user.firstName, postContent.user.lastName].filter(Boolean).join(' ') : undefined);
+    owner?.fullName ||
+    (owner?.user ? [postContent.user.firstName, postContent.user.lastName].filter(Boolean).join(' ') : undefined);
   const authorId = postContent?.userId || postContent?.user?.id || postContent?.user?.userId || postContent?.user?._id;
 
   const onPressBusiness = () => {

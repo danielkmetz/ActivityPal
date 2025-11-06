@@ -1,7 +1,7 @@
 import { createListenerMiddleware, isAnyOf } from '@reduxjs/toolkit';
 
 // Reviews
-import { applyPostUpdates } from '../Slices/ReviewsSlice';
+import { applyPostUpdates } from '../Slices/PostsSlice';
 
 // Comment thunks
 import {

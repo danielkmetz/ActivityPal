@@ -3,7 +3,6 @@ import client from '../apolloClient';
 import { GET_USER_TAGGED_POSTS_QUERY } from './GraphqlQueries/Queries/getUserTaggedPosts';
 import axios from 'axios';
 import { getUserToken } from '../functions';
-import { normalizePostType } from '../utils/normalizePostType';
 import { removeSelfFromPost, removeSelfFromPhoto } from './RemoveTagsSlice';
 
 const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
@@ -25,6 +24,7 @@ const EMPTY_FEED = Object.freeze({
 const toStr = (v) => (v == null ? '' : String(v));
 const typeOf = (item) => (item?.__typename || item?.type || '').toLowerCase();
 const idOf = (item) => toStr(item?._id || item?.id);
+const idOnly = (v) => String(v ?? '').trim().split(':').pop();
 const getCompositeKey = (item) => {
     const typ = toStr(item?.__typename || item?.type || 'Post');
     const id = toStr(item?._id || item?.id);
@@ -72,8 +72,7 @@ const compKeyForHidden = (wrapper) => {
     return `${typ}:${id}`;
 };
 
-const hidKey = (postType, postId) =>
-    `${normalizePostTypeForCompare(postType)}:${toStr(postId)}`;
+const hidKey = (postId) => idOnly(postId);
 
 // One user's feed state
 const makeFeedState = () => ({
@@ -173,18 +172,19 @@ export const refreshTaggedPosts = createAsyncThunk(
  */
 export const hideTaggedPost = createAsyncThunk(
     'taggedPosts/hideTaggedPost',
-    async ({ postType, postId }, { rejectWithValue }) => {
+    async ({ postId }, { rejectWithValue }) => {
         try {
             const token = await getUserToken();
-            await axios.post(
-                `${BASE_URL}/hidden-tags/${normalizePostType(postType)}/${postId}`,
+            const { data } = await axios.post(
+                `${BASE_URL}/hidden-tags/${idOnly(postId)}`,
                 null,
                 { headers: { Authorization: token ? `Bearer ${token}` : '' } }
             );
-            return { postType, postId };
+            // server may return "type:id" or "id" in data.key — normalize to id
+            return { postId: idOnly(data?.key ?? postId) };
         } catch (err) {
             const message = err?.response?.data?.message || err?.message || 'Failed to hide tagged post';
-            return rejectWithValue({ postType, postId, message });
+            return rejectWithValue({ postId, message });
         }
     }
 );
@@ -195,17 +195,17 @@ export const hideTaggedPost = createAsyncThunk(
  */
 export const unhideTaggedPost = createAsyncThunk(
     'taggedPosts/unhideTaggedPost',
-    async ({ postType, postId }, { rejectWithValue }) => {
+    async ({ postId }, { rejectWithValue }) => {
         try {
             const token = await getUserToken();
-            await axios.delete(
-                `${BASE_URL}/hidden-tags/${normalizePostType(postType)}/${postId}`,
+            const { data } = await axios.delete(
+                `${BASE_URL}/hidden-tags/${idOnly(postId)}`,
                 { headers: { Authorization: token ? `Bearer ${token}` : '' } }
             );
-            return { postType, postId };
+            return { postId: idOnly(data?.key ?? postId) };
         } catch (err) {
             const message = err?.response?.data?.message || err?.message || 'Failed to unhide tagged post';
-            return rejectWithValue({ postType, postId, message });
+            return rejectWithValue({ postId, message });
         }
     }
 );
@@ -583,7 +583,7 @@ const taggedPostsSlice = createSlice({
         builder
             .addCase(hideTaggedPost.fulfilled, (state, { payload, meta }) => {
                 // ✅ ALWAYS mark hidden in ID map (independent of which profile is visible)
-                state.hiddenIds.map[hidKey(payload?.postType, payload?.postId)] = true;
+                state.hiddenIds.map[hidKey(payload?.postId)] = true;
 
                 // Optionally update the currently viewed tagged feed if we know which user it is
                 const uid = toStr(meta?.arg?.forUserId || state.activeUserId);
@@ -591,16 +591,9 @@ const taggedPostsSlice = createSlice({
 
                 const feed = ensureFeed(state, uid);
 
-                const pid = toStr(payload?.postId);
-                const ptype = normalizePostType(payload?.postType);
-
                 // remove from visible tagged feed
                 feed.items = (feed.items || []).filter((it) => {
-                    const sameId = idOf(it) === pid;
-                    const sameType =
-                        typeOf(it) === ptype ||
-                        (ptype === 'check-in' && typeOf(it) === 'checkin');
-                    if (sameId && sameType) {
+                    if (idOf(it) === toStr(payload?.postId)) {
                         const key = `${it.__typename || it.type}:${idOf(it)}`;
                         if (feed.keys && key) delete feed.keys[key];
                         return false;
@@ -616,7 +609,7 @@ const taggedPostsSlice = createSlice({
             })
             .addCase(unhideTaggedPost.fulfilled, (state, { payload }) => {
                 // ✅ unmark from ID map (post will reappear on next refresh/fetch)
-                delete state.hiddenIds.map[hidKey(payload?.postType, payload?.postId)];
+                delete state.hiddenIds.map[hidKey(payload?.postId)];
             })
             .addCase(unhideTaggedPost.rejected, (state, { payload }) => {
                 const uid = state.activeUserId;
@@ -720,7 +713,9 @@ const taggedPostsSlice = createSlice({
             .addCase(fetchHiddenTaggedIds.fulfilled, (state, action) => {
                 const map = {};
                 for (const it of action.payload?.items || []) {
-                    map[hidKey(it.postType, it.postId)] = true;
+                    // accept {postId}, {postType, postId}, or raw strings
+                    const id = idOnly(it?.postId ?? it);
+                    if (id) map[hidKey(id)] = true;
                 }
                 state.hiddenIds.map = map;
                 state.hiddenIds.status = 'succeeded';
@@ -827,8 +822,8 @@ export const selectHiddenPostsError = (s) => s?.taggedPosts?.hidden?.error || nu
 export const selectHiddenTaggedIdsMap = (s) =>
     s?.taggedPosts?.hiddenIds?.map || {};
 
-export const selectIsTaggedHidden = (s, postType, postId) =>
-    Boolean(selectHiddenTaggedIdsMap(s)[hidKey(postType, postId)]);
+export const selectIsTaggedHidden = (s, postId) =>
+    Boolean(selectHiddenTaggedIdsMap(s)[hidKey(postId)]);
 
 export const selectHiddenTaggedIdsStatus = (s) =>
     s?.taggedPosts?.hiddenIds?.status || 'idle';

@@ -1,19 +1,11 @@
-const safeStringify = (obj) => {
-  const seen = new WeakSet();
-  return JSON.stringify(
-    obj,
-    (k, v) => {
-      if (typeof v === 'object' && v !== null) {
-        if (seen.has(v)) return '[Circular]';
-        seen.add(v);
-      }
-      return v;
-    },
-    2
-  );
-};
+const toStr = (v) => (v == null ? "" : String(v));
 
-const toStr = (v) => (v == null ? '' : String(v));
+const getId = (x) => toStr(x?._id ?? x?.id);
+const isSharedPost = (p) => {
+  const t = p?.type || p?.postType || p?.canonicalType;
+  return t === "sharedPost" || t === "sharedPosts";
+};
+const getOriginalId = (p) => (isSharedPost(p) ? getId(p.original) : "");
 
 function removeUserFromTagArray(arr, userId) {
   if (!Array.isArray(arr)) return { next: arr, removed: 0 };
@@ -38,42 +30,44 @@ export const updatePostCollections = ({
   postId,
   updates = {},
   postKeys = [],
-  debug = true,             // kept for API compatibility; unused
-  label = 'updatePostCollections' // kept for API compatibility; unused
+  alsoMatchSharedOriginal = true, // NEW: apply to SharedPost.original when IDs match
 }) => {
-  const applyCustomUpdate = (post) => {
-    if (!post) return false;
+  const postIdStr = toStr(postId);
+
+  // ---- core mutators (operate on a single node: a post or an original) ----
+  const applyCustomUpdateToNode = (node) => {
+    if (!node) return false;
 
     const u = updates || {};
     let mutated = false;
     const mark = () => { mutated = true; };
 
-    // 6) Update likes on the post itself
+    // A) Update likes on the node itself
     if (u.__updatePostLikes) {
       const val = u.__updatePostLikes;
       if (Array.isArray(val)) {
-        post.likes = val; mark();
-      } else if (val && typeof val === 'object') {
-        if (Array.isArray(val.likes)) { post.likes = val.likes; mark(); }
-        if (typeof val.likesCount === 'number') { post.likesCount = val.likesCount; mark(); }
-        if (typeof val.liked === 'boolean') { post.liked = val.liked; mark(); }
+        node.likes = val; mark();
+      } else if (val && typeof val === "object") {
+        if (Array.isArray(val.likes)) { node.likes = val.likes; mark(); }
+        if (typeof val.likesCount === "number") { node.likesCount = val.likesCount; mark(); }
+        if (typeof val.liked === "boolean") { node.liked = val.liked; mark(); }
       }
     }
 
-    // 0) Append a top-level comment
+    // B) Append a top-level comment
     if (u.__appendComment) {
-      post.comments = [...(post.comments || []), u.__appendComment];
+      node.comments = [...(node.comments || []), u.__appendComment];
       mark();
     }
 
-    // 1) Append a reply to a specific comment
+    // C) Append a reply (by commentId)
     if (u.__appendReply) {
       const { commentId, reply } = u.__appendReply;
 
       const insertReply = (comments) => {
         for (const c of comments) {
-          if (!c || typeof c !== 'object') continue;
-          if (c._id === commentId) {
+          if (!c || typeof c !== "object") continue;
+          if (toStr(c._id) === toStr(commentId)) {
             c.replies = [...(c.replies || []), reply];
             return true;
           }
@@ -82,17 +76,17 @@ export const updatePostCollections = ({
         return false;
       };
 
-      if (Array.isArray(post.comments) && insertReply(post.comments)) mark();
+      if (Array.isArray(node.comments) && insertReply(node.comments)) mark();
     }
 
-    // 2) Update a comment or reply
+    // D) Update a comment or reply by id
     if (u.__updateComment) {
       const { commentId, updatedComment = {} } = u.__updateComment;
 
       const updateComment = (comments) => {
         for (const c of comments) {
-          if (!c || typeof c !== 'object') continue;
-          if (c._id === commentId) {
+          if (!c || typeof c !== "object") continue;
+          if (toStr(c._id) === toStr(commentId)) {
             Object.assign(c, updatedComment || {});
             return true;
           }
@@ -101,39 +95,39 @@ export const updatePostCollections = ({
         return false;
       };
 
-      if (Array.isArray(post.comments) && updateComment(post.comments)) mark();
+      if (Array.isArray(node.comments) && updateComment(node.comments)) mark();
     }
 
-    // 3) Delete a comment or reply
+    // E) Delete a comment or reply by id
     if (u.__deleteComment) {
-      const targetId = u.__deleteComment;
+      const targetId = toStr(u.__deleteComment);
 
       const deleteComment = (comments) =>
         comments
           .map((c) => {
-            if (!c || typeof c !== 'object') return c;
-            if (c._id === targetId) return null;
+            if (!c || typeof c !== "object") return c;
+            if (toStr(c._id) === targetId) return null;
             if (Array.isArray(c.replies)) c.replies = deleteComment(c.replies);
             return c;
           })
           .filter(Boolean);
 
-      if (Array.isArray(post.comments)) {
-        const before = post.comments.length;
-        post.comments = deleteComment(post.comments);
-        if (post.comments.length !== before) mark();
+      if (Array.isArray(node.comments)) {
+        const before = node.comments.length;
+        node.comments = deleteComment(node.comments);
+        if (node.comments.length !== before) mark();
       }
     }
 
-    // 4) Update likes on a comment or reply (immutable rebuild so lists re-render)
+    // F) Update likes on a specific comment or reply
     if (u.__updateCommentLikes) {
       const { commentId: topId, replyId, likes = [] } = u.__updateCommentLikes;
 
       const updateReplyLikesDeep = (nodes) => {
         let changed = false;
         const next = (nodes || []).map((n) => {
-          if (!n || typeof n !== 'object') return n;
-          if (String(n._id) === String(replyId)) {
+          if (!n || typeof n !== "object") return n;
+          if (toStr(n._id) === toStr(replyId)) {
             changed = true;
             return { ...n, likes };
           }
@@ -149,118 +143,152 @@ export const updatePostCollections = ({
         return { next, changed };
       };
 
-      if (Array.isArray(post.comments)) {
+      if (Array.isArray(node.comments)) {
         if (replyId) {
-          const idx = (post.comments || []).findIndex((c) => String(c?._id) === String(topId));
+          const idx = (node.comments || []).findIndex((c) => toStr(c?._id) === toStr(topId));
           if (idx !== -1) {
-            const top = post.comments[idx];
+            const top = node.comments[idx];
             const { next: newReplies, changed } = updateReplyLikesDeep(top?.replies || []);
             if (changed) {
               const newTop = { ...top, replies: newReplies };
-              post.comments = [
-                ...post.comments.slice(0, idx),
+              node.comments = [
+                ...node.comments.slice(0, idx),
                 newTop,
-                ...post.comments.slice(idx + 1),
+                ...node.comments.slice(idx + 1),
               ];
               mark();
             }
           } else {
-            const { next: newComments, changed } = updateReplyLikesDeep(post.comments || []);
+            const { next: newComments, changed } = updateReplyLikesDeep(node.comments || []);
             if (changed) {
-              post.comments = newComments;
+              node.comments = newComments;
               mark();
             }
           }
         } else {
-          const mapped = (post.comments || []).map((c) =>
-            String(c._id) === String(topId) ? { ...c, likes } : c
+          const mapped = (node.comments || []).map((c) =>
+            toStr(c._id) === toStr(topId) ? { ...c, likes } : c
           );
-          if (mapped !== post.comments) {
-            post.comments = mapped;
+          if (mapped !== node.comments) {
+            node.comments = mapped;
             mark();
           }
         }
       }
     }
 
-    /* ---------- A) remove from post-level (handles ids OR objects) ---------- */
+    // G) Remove user from post-level tags
     if (u.__removeSelfFromPost) {
       const { userId } = u.__removeSelfFromPost;
-      // Try canonical + a few common alternates
-      const bumpIfRemoved = (field) => {
-        if (!Array.isArray(post[field])) return;
-        const { next, removed } = removeUserFromTagArray(post[field], userId);
-        if (removed > 0) { post[field] = next; mark(); }
+      const maybeStrip = (field) => {
+        if (!Array.isArray(node[field])) return;
+        const { next, removed } = removeUserFromTagArray(node[field], userId);
+        if (removed > 0) { node[field] = next; mark(); }
       };
-      bumpIfRemoved('taggedUsers');   // canonical
-      bumpIfRemoved('tags');          // alt naming
-      bumpIfRemoved('peopleTagged');  // alt naming
+      maybeStrip("taggedUsers");
+      maybeStrip("tags");
+      maybeStrip("peopleTagged");
     }
 
-    /* ---------- B) remove from ALL photos ---------- */
+    // H) Remove user from ALL photos
     if (u.__removeSelfFromAllPhotos) {
       const { userId } = u.__removeSelfFromAllPhotos;
-      if (Array.isArray(post.photos)) {
+      if (Array.isArray(node.photos)) {
         let removedAny = 0;
-        post.photos.forEach((p) => { removedAny += removeUserFromPhotoTags(p, userId); });
+        node.photos.forEach((p) => { removedAny += removeUserFromPhotoTags(p, userId); });
         if (removedAny > 0) mark();
       }
     }
 
-    /* ---------- C) remove from ONE photo ---------- */
+    // I) Remove user from ONE photo
     if (u.__removeSelfFromPhoto) {
       const { userId, photoId } = u.__removeSelfFromPhoto;
-
-      if (Array.isArray(post.photos)) {
+      if (Array.isArray(node.photos)) {
         const pid = toStr(photoId);
-        const photoIdx = post.photos.findIndex(
-          (p) => toStr(p._id) === pid || toStr(p.id) === pid || toStr(p.photoId) === pid || toStr(p.photoKey) === pid
+        const photoIdx = node.photos.findIndex(
+          (p) =>
+            toStr(p._id) === pid ||
+            toStr(p.id) === pid ||
+            toStr(p.photoId) === pid ||
+            toStr(p.photoKey) === pid
         );
-
         if (photoIdx !== -1) {
-          const target = post.photos[photoIdx];
+          const target = node.photos[photoIdx];
           if (removeUserFromPhotoTags(target, userId) > 0) mark();
         }
       }
     }
 
-    /* ---------- merge plain fields ---------- */
-    const plainEntries = Object.entries(u).filter(([k]) => !k.startsWith('__'));
+    // J) Merge plain fields (non __ keys)
+    const plainEntries = Object.entries(u).filter(([k]) => !k.startsWith("__"));
     if (plainEntries.length) {
-      Object.assign(post, Object.fromEntries(plainEntries));
+      Object.assign(node, Object.fromEntries(plainEntries));
       mark();
     }
 
     return mutated;
   };
 
-  const postIdStr = String(postId);
+  // ---- apply to arrays in state (by postKeys) ----
+  const tryApplyToItem = (item) => {
+    if (!item) return false;
 
-  // Apply to lists that contain the post
+    // 1) If it's exactly the post
+    if (getId(item) === postIdStr) {
+      return applyCustomUpdateToNode(item);
+    }
+
+    // 2) If it's a shared wrapper and caller wants nested matching
+    if (alsoMatchSharedOriginal && isSharedPost(item) && getOriginalId(item) === postIdStr) {
+      // Apply updates to the original, not the wrapper
+      if (!item.original) return false;
+      const changed = applyCustomUpdateToNode(item.original);
+      if (changed) {
+        // preserve wrapper, bump identity
+        item.original = { ...item.original };
+      }
+      return changed;
+    }
+
+    return false;
+  };
+
   for (const key of postKeys || []) {
     const list = state?.[key];
     if (!Array.isArray(list)) continue;
-    const idx = list.findIndex((p) => {
-      const pid = String(p?._id ?? p?.id);
-      return pid === postIdStr;
-    });
-    if (idx === -1) continue;
 
-    const changed = applyCustomUpdate(list[idx]);
-    if (changed) {
-      // bump object identity so memoized components re-render
-      state[key][idx] = { ...state[key][idx] };
+    let changedAt = -1;
+
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i];
+      if (tryApplyToItem(item)) {
+        changedAt = i;
+        break; // assume unique id
+      }
+    }
+
+    if (changedAt !== -1) {
+      // bump identity for Immer/react re-render
+      state[key][changedAt] = { ...state[key][changedAt] };
     }
   }
 
-  // Apply to selectedReview / selectedPost if it matches
-  if (state?.selectedPost && String(state.selectedPost?._id ?? state.selectedPost?.id) === postIdStr) {
-    if (applyCustomUpdate(state.selectedPost)) {
-      state.selectedPost = { ...state.selectedPost };
+  // ---- apply to selectedPost in state (if present) ----
+  if (state?.selectedPost) {
+    const sel = state.selectedPost;
+    let did = false;
+
+    if (getId(sel) === postIdStr) {
+      did = applyCustomUpdateToNode(sel);
+    } else if (alsoMatchSharedOriginal && isSharedPost(sel) && getOriginalId(sel) === postIdStr) {
+      if (sel.original) {
+        did = applyCustomUpdateToNode(sel.original);
+        if (did) sel.original = { ...sel.original };
+      }
     }
-  } else if (state?.selectedReview && String(state.selectedReview?._id ?? state.selectedReview?.id) === postIdStr) {
-    if (applyCustomUpdate(state.selectedReview)) {
-      state.selectedReview = { ...state.selectedReview };
+
+    if (did) {
+      state.selectedPost = { ...state.selectedPost };
     }
   }
 };

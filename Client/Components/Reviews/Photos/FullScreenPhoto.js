@@ -20,7 +20,7 @@ import { typeFromKind, pickPostId } from '../../../utils/posts/postIdentity';
 import { selectPromotionById } from '../../../Slices/PromotionsSlice';
 import { selectEventById } from '../../../Slices/EventsSlice';
 import PostActions from '../PostActions/PostActions';
-import { selectPostById } from '../../../Slices/ReviewsSlice';
+import { selectPostById } from '../../../Slices/PostsSlice';
 
 const { width, height } = Dimensions.get('window');
 

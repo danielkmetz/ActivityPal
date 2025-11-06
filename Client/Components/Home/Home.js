@@ -4,7 +4,8 @@ import {
   setHasFetchedOnce,
   setSuggestedPosts,
   selectSuggestedPosts,
-} from "../../Slices/ReviewsSlice";
+  fetchMyInvites,        
+} from "../../Slices/PostsSlice";
 import {
   selectSuggestedUsers,
   fetchFollowRequests,
@@ -21,7 +22,6 @@ import { selectStories, fetchStories } from "../../Slices/StoriesSlice";
 import Stories from "../Stories/Stories";
 import { closeInviteModal, inviteModalStatus } from "../../Slices/ModalSlice";
 import { selectNearbySuggestions } from "../../Slices/GooglePlacesSlice";
-import { fetchInvites } from "../../Slices/InvitesSlice";
 import { fetchConversations } from "../../Slices/DirectMessagingSlice";
 import ChangeLocationModal from "../Location/ChangeLocationModal";
 import { logEngagementIfNeeded } from "../../Slices/EngagementSlice";
@@ -29,8 +29,7 @@ import { useUserFeed } from "../../Providers/UserFeedContext";
 
 const Home = ({ scrollY, onScroll, isAtEnd }) => {
   const dispatch = useDispatch();
-  // 🔄 Feed from provider (pagination centralized)
-  const { reviews, loadMore, isLoading, hasMore /* , refresh, enabled */ } = useUserFeed();
+  const { posts, loadMore, isLoading, hasMore } = useUserFeed();
   const friends = useSelector(selectFriends);
   const user = useSelector(selectUser);
   const suggestedFollows = useSelector(selectSuggestedUsers);
@@ -38,15 +37,17 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
   const inviteModal = useSelector(inviteModalStatus);
   const stories = useSelector(selectStories);
   const suggestedPosts = useSelector(selectSuggestedPosts);
-
   const [updatedFeed, setUpdatedFeed] = useState([]);
   const seenToday = useRef(new Set());
   const userId = user?.id;
 
-  const viewabilityConfig = useMemo(() => ({
-  itemVisiblePercentThreshold: 60,
-  viewAreaCoveragePercentThreshold: undefined, // <- force the other one off
-}), []);
+  const viewabilityConfig = useMemo(
+    () => ({
+      itemVisiblePercentThreshold: 60,
+      viewAreaCoveragePercentThreshold: undefined,
+    }),
+    []
+  );
 
   const handleViewableItemsChanged = useRef(({ viewableItems }) => {
     viewableItems.forEach((item) => {
@@ -57,7 +58,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
         let targetId = null;
         let targetType = null;
 
-        const kind = data.kind?.toLowerCase() || "";
+        const kind = (data.kind || "").toLowerCase();
 
         if (kind.includes("event")) {
           targetType = "event";
@@ -85,78 +86,74 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
     });
   }).current;
 
-  // Keep bootstrapping for peripheral data
+  // Bootstrap peripheral data (stories, friends, DMs, invites, etc.)
   useEffect(() => {
-    if (userId) {
-      // If you really want to force a refresh here, uncomment and ensure it's from the hook:
-      // refresh();
-      dispatch(fetchFavorites(userId));
-      dispatch(fetchStories(userId));
-      dispatch(fetchFollowRequests(userId));
-      dispatch(fetchMutualFriends(userId));
-      dispatch(fetchFollowersAndFollowing(userId));
-      dispatch(fetchInvites(userId));
-      dispatch(fetchConversations());
-      dispatch(setHasFetchedOnce(true));
-    }
+    if (!userId) return;
+
+    dispatch(fetchFavorites(userId));
+    dispatch(fetchStories(userId));
+    dispatch(fetchFollowRequests(userId));
+    dispatch(fetchMutualFriends(userId));
+    dispatch(fetchFollowersAndFollowing(userId));
+    dispatch(fetchConversations());
+
+    // ⬇️ unified invites into the feed from PostsSlice
+    dispatch(fetchMyInvites(userId));
+
+    dispatch(setHasFetchedOnce(true));
   }, [userId, dispatch]);
 
-  function injectSuggestions(base, suggestions, interval = 3) {
-    const result = [];
-    let reviewCount = 0;
-    let suggestionIndex = 0;
-
-    for (let i = 0; i < base.length; i++) {
-      result.push({ ...base[i], __wrapped: false });
-      reviewCount++;
-
-      if (reviewCount % interval === 0 && suggestionIndex < suggestions.length) {
-        const suggestion = suggestions[suggestionIndex];
-        result.push({
-          ...suggestion,
-          type: suggestion.type ?? "suggestion",
-          __wrapped: true,
-        });
-        suggestionIndex++;
-      }
-    }
-
-    while (suggestionIndex < suggestions.length) {
-      const suggestion = suggestions[suggestionIndex];
-      result.push({
-        ...suggestion,
-        type: suggestion.type ?? "suggestion",
-        __wrapped: true,
-      });
-      suggestionIndex++;
-    }
-
-    return result;
-  }
-
+  // Turn suggested follows into unified posts (prefer u.posts; fallback kept)
   function flattenSuggestedFollows(users) {
-    const posts = [];
+    const out = [];
     users.forEach((u) => {
-      (u.reviews || []).forEach((r) => posts.push({ ...r, isSuggestedFollowPost: true }));
-      (u.checkIns || []).forEach((c) => posts.push({ ...c, isSuggestedFollowPost: true }));
+      const unified = Array.isArray(u.posts) ? u.posts : [
+        ...(u.reviews || []),
+        ...(u.checkIns || []),
+      ];
+      unified.forEach((p) => out.push({ ...p, isSuggestedFollowPost: true }));
     });
-    return posts;
+    return out;
   }
 
   useEffect(() => {
     if (suggestedFollows.length > 0) {
       const followPosts = flattenSuggestedFollows(suggestedFollows);
       dispatch(setSuggestedPosts(followPosts));
+    } else {
+      dispatch(setSuggestedPosts([]));
     }
   }, [suggestedFollows, dispatch]);
 
+  // Interleave nearby suggestion cards into the unified post feed
+  function injectSuggestions(base, suggestions, interval = 3) {
+    const result = [];
+    let count = 0;
+    let si = 0;
+
+    for (let i = 0; i < base.length; i++) {
+      result.push({ ...base[i], __wrapped: false });
+      count++;
+      if (count % interval === 0 && si < suggestions.length) {
+        const s = suggestions[si++];
+        result.push({ ...s, type: s.type ?? "suggestion", __wrapped: true });
+      }
+    }
+    while (si < suggestions.length) {
+      const s = suggestions[si++];
+      result.push({ ...s, type: s.type ?? "suggestion", __wrapped: true });
+    }
+    return result;
+  }
+
   useEffect(() => {
     const suggestionCards = nearbySuggestions.map((s) => ({ ...s, type: "suggestion" }));
-    const allSuggestions = [...suggestionCards, ...suggestedPosts];
-    // ⬇️ Use reviews from the provider, not Redux
-    const merged = injectSuggestions(reviews, allSuggestions, 3);
+    const allSuggestions = [...suggestionCards, ...(suggestedPosts || [])];
+
+    // ⬇️ use unified posts from the context provider
+    const merged = injectSuggestions(posts, allSuggestions, 3);
     setUpdatedFeed(merged);
-  }, [reviews, nearbySuggestions, suggestedPosts]);
+  }, [posts, nearbySuggestions, suggestedPosts]);
 
   const safeLoadMore = useCallback(() => {
     if (!isLoading && hasMore) loadMore();
@@ -172,6 +169,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
         hasMore={hasMore}
         onViewableItemsChanged={handleViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
+        // ⬇️ This prop name stays “reviews” to avoid downstream churn; data are unified posts
         reviews={updatedFeed}
         ListHeaderComponent={
           <View style={styles.storiesWrapper}>

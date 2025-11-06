@@ -20,9 +20,8 @@ import PostPreviewCard from '../PostPreviewCard/index';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser } from '../../../Slices/UserSlice';
 import { selectProfilePic } from '../../../Slices/PhotosSlice';
-import { createSharedPost, editSharedPost } from '../../../Slices/SharedPostsSlice';
+import { createPost, updatePost } from '../../../Slices/PostsSlice';
 import VideoThumbnail from '../VideoThumbnail';
-import { postLiveSession, editLiveCaption } from '../../../Slices/LiveStreamSlice';
 
 export default function SharePostModal({ visible, onClose, post, isEditing = false, setIsEditing }) {
   const dispatch = useDispatch();
@@ -50,72 +49,66 @@ export default function SharePostModal({ visible, onClose, post, isEditing = fal
         onClose?.();
       })();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
-  const resolveShareType = () => {
-    const t = post?.type?.toLowerCase?.();
-    if (!t) return null;
-
-    if (t === 'hls') {
-      return 'replay';
-    }
-
-    if (t === 'suggestion') {
-      // Suggestion → promotion if kind mentions "promo", otherwise event
-      const kindStr = post?.kind?.toLowerCase?.() || '';
-      return kindStr.includes('promo') ? 'promotion' : 'event';
-    }
-
-    if (t === 'invite') {
-      return 'invite';
-    }
-
-    return post.type; // review, event, promotion, etc.
-  };
-
   const handleSubmit = async () => {
-    if (!post?._id) {
-      return;
-    }
+    if (!post?._id) return;
+
     const trimmed = (comment ?? '').trim();
-    // For live caption endpoints, send null to CLEAR if user left it empty.
-    const liveCaption = trimmed || null;
+    const caption = trimmed || null;
+    const currentUserId = user?._id || user?.id;
 
     try {
       if (isEditing) {
-        // EDIT MODE
-        if (post.type === 'liveStream') {
-          // Edit caption on a posted live stream
-          await dispatch(editLiveCaption({ liveId: post._id, caption: liveCaption }));
-        } else if (post.type === 'sharedPost') {
-          // Edit an existing shared post's caption
-          await dispatch(editSharedPost({ sharedPostId: post._id, caption: trimmed }));
+        const isShared = post?.type === 'sharedPost' || post?.canonicalType === 'sharedPost';
+        const isLivePost = post?.type === 'liveStream' || post?.canonicalType === 'liveStream';
+
+        if (isShared || isLivePost) {
+          await dispatch(
+            updatePost({
+              postId: post._id,
+              updates: { message: caption },
+            })
+          ).unwrap();
         } else {
-          console.warn('[SharePostModal] Unsupported type in edit mode:', post.type);
-          return;
-        }
-        setIsEditing(false);
-      } else {
-        // CREATE/POST MODE
-        const postType = resolveShareType();
-        if (!postType) {
-          console.warn('[SharePostModal] Could not resolve post type.');
+          console.warn('[SharePostModal] Unsupported type in edit mode:', post?.type);
           return;
         }
 
-        if (postType === 'replay') {
-          // Post a live session replay with caption
-          await dispatch(postLiveSession({ liveId: post._id, isPosted: true, caption: liveCaption }));
+        setIsEditing(false);
+      } else {
+        // ---- CREATE NEW POST (unified) ----
+        if (isReplay) {
+          // Create a liveStream post referencing the VOD/live session
+          const payload = {
+            type: 'liveStream',
+            userId: currentUserId,
+            message: caption,
+            // picked up by buildRefsSection('liveStream')
+            liveStreamId: post._id,
+            // optional niceties if present on your live object:
+            title: post.title,
+            status: post.status || 'ended',
+            coverKey: post.coverKey,
+            durationSec: post.durationSec,
+            viewerPeak: post.viewerPeak,
+            startedAt: post.startedAt || post.createdAt,
+            endedAt: post.endedAt || new Date().toISOString(),
+          };
+
+          await dispatch(createPost(payload)).unwrap();
         } else {
-          // Create a new shared post with caption
-          await dispatch(
-            createSharedPost({
-              postType,
-              originalPostId: post._id,
-              caption: trimmed,
-            })
-          );
+          // Share any post → create a sharedPost with a caption
+          const payload = {
+            type: 'sharedPost',
+            userId: currentUserId,
+            message: trimmed,
+            originalPostId: post._id, // required; server infers original type
+            // you can also pass snapshot if you want immutable preview:
+            // snapshot: { ...post },  // keep small if you do this
+          };
+
+          await dispatch(createPost(payload)).unwrap();
         }
       }
 
@@ -126,8 +119,10 @@ export default function SharePostModal({ visible, onClose, post, isEditing = fal
     }
   };
 
-  useEffect(() => {
-    if (isEditing && post?.caption) {
+ useEffect(() => {
+    if (isEditing && post?.message) {
+      setComment(post.message);
+    } else if (isEditing && post?.caption) {
       setComment(post.caption);
     }
   }, [isEditing, post]);

@@ -1,10 +1,8 @@
-import { REVIEW_FRAGMENT } from "../Fragments/reviewFragment";
-import { CHECKIN_FRAGMENT } from "../Fragments/checkInFragment";
 import { gql } from "@apollo/client";
+import { POST_FIELDS } from "../Fragments/postFragment";
 
 export const GET_SUGGESTED_FOLLOWS_QUERY = gql`
-  ${REVIEW_FRAGMENT}
-  ${CHECKIN_FRAGMENT}
+  ${POST_FIELDS}
 
   query GetSuggestedFollows($userId: ID!) {
     getSuggestedFollows(userId: $userId) {
@@ -36,8 +34,9 @@ export const GET_SUGGESTED_FOLLOWS_QUERY = gql`
         profilePicUrl
       }
       profileVisibility
-      reviews { ...ReviewFields }
-      checkIns { ...CheckInFields }
+      posts {
+        ...PostFields
+      }
     }
   }
 `;

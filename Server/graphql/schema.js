@@ -1,112 +1,62 @@
 const { ApolloServer } = require('@apollo/server');
 const depthLimit = require('graphql-depth-limit');
-const typeDefs = require('./typeDefs.js');
 const { GraphQLScalarType, Kind } = require('graphql');
-const { getUserFromToken } = require('../utils/auth.js');
+const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
+const typeDefs = require('./typeDefs.js');
+
+// Query resolvers (Post-based)
 const { getUserActivity } = require('./resolvers/getUserActivity.js');
 const { getUserPosts } = require('./resolvers/getUserPosts.js');
-const { getBusinessReviews } = require('./resolvers/getBusinessReviews.js');
+const { getPostsByPlace } = require('./resolvers/getPostsByPlace.js'); // reused as getPostsByPlace
 const { getSuggestedFollows } = require('./resolvers/getSuggestedFollows.js');
 const { userAndFollowingStories } = require('./resolvers/userAndFollowingStories.js');
 const { storiesByUser } = require('./resolvers/storiesByUser.js');
 const { getBusinessRatingSummaries } = require('./resolvers/getBusinessRatingSummaries.js');
 const { getUserTaggedPosts } = require('./resolvers/getUserTaggedPosts.js');
 
-// ✅ Custom Scalar Type for Date
+// Models used in field resolvers
+const User = require('../models/User');
+const Business = require('../models/Business');
+const LiveStream = require('../models/LiveStream'); // if you keep a separate LS model
+const { getUserFromToken } = require('../utils/auth.js');
+
+// ---------------- Scalars ----------------
 const DateScalar = new GraphQLScalarType({
-  name: "Date",
-  description: "Custom scalar type for Date values",
-  serialize(value) {
-    return new Date(value).toISOString(); // Convert MongoDB timestamps to ISO format
-  },
-  parseValue(value) {
-    return new Date(value); // Convert input value to Date object
-  },
+  name: 'Date',
+  description: 'ISO-8601 date (no time assumptions)',
+  serialize(value) { return new Date(value).toISOString(); },
+  parseValue(value) { return new Date(value); },
   parseLiteral(ast) {
-    if (ast.kind === Kind.INT) {
-      return new Date(parseInt(ast.value, 10)); // Convert string to Date object
-    }
+    if (ast.kind === Kind.STRING || ast.kind === Kind.INT) return new Date(ast.value);
     return null;
   }
 });
 
-const resolvers = {
-  Query: {
-    getUserPosts,
-    getBusinessReviews,
-    getUserActivity,
-    getSuggestedFollows,
-    userAndFollowingStories,
-    storiesByUser,
-    getBusinessRatingSummaries,
-    getUserTaggedPosts,
-  },
-  UserActivity: {
-    __resolveType(obj) {
-      switch (obj.type) {
-        case 'review': return 'Review';
-        case 'check-in': return 'CheckIn';
-        case 'invite': return 'ActivityInvite';
-        case 'sharedPost': return 'SharedPost';
-        case 'liveStream': return 'LiveStream';
-        default: return null;
-      }
-    }
-  },
-  OriginalOwner: {
-    __resolveType(obj) {
-      if (obj.businessName || obj.placeId || obj.logoUrl) {
-        return 'Business';
-      }
-      if (obj.firstName || obj.lastName || obj.profilePicUrl) {
-        return 'User';
-      }
+const DateTimeScalar = new GraphQLScalarType({
+  name: 'DateTime',
+  description: 'ISO-8601 date-time',
+  serialize(value) { return new Date(value).toISOString(); },
+  parseValue(value) { return new Date(value); },
+  parseLiteral(ast) {
+    if (ast.kind === Kind.STRING || ast.kind === Kind.INT) return new Date(ast.value);
+    return null;
+  }
+});
 
-      return null;
-    }
-  },
-  SharedContent: {
-    __resolveType(obj) {
-      if (obj.__typename) return obj.__typename;
+// Lightweight JSON scalar (vars preferred; inline literals return null)
+const JSONScalar = new GraphQLScalarType({
+  name: 'JSON',
+  description: 'Arbitrary JSON value',
+  serialize(value) { return value; },
+  parseValue(value) { return value; },
+  parseLiteral() { return null; }
+});
 
-      // Fallbacks for safety
-      const map = {
-        review: 'Review',
-        'check-in': 'CheckIn',
-        checkIn: 'CheckIn',
-        invite: 'ActivityInvite',
-        promotion: 'Promotion',
-        event: 'Event',
-        liveStream: 'LiveStream',
-      };
-
-      if (map[obj.originalPostType]) return map[obj.originalPostType];
-
-      console.error('❌ Cannot resolve SharedContent type:', JSON.stringify(obj, null, 2));
-      return null;
-    }
-  },
-  UserPost: {
-    __resolveType(obj) {
-      if (obj.__typename) return obj.__typename;
-      if (obj.type === 'review' || obj.reviewText !== undefined) return 'Review';
-      if (obj.type === 'check-in' || obj.message !== undefined) return 'CheckIn';
-      if (obj.type === 'checkIn' || obj.message !== undefined) return 'CheckIn';
-      if (obj.type === 'sharedPost' || obj.original !== undefined) return 'SharedPost';
-      if (obj.type === 'promotion' || obj.message !== undefined) return 'Promotion';
-      if (obj.type === 'event' || obj.original !== undefined) return 'Event';
-      if (obj.type === 'liveStream' || obj.original !== undefined) return 'LiveStream';
-      return null; // ← THIS is what causes graphql-depth-limit to explode
-    }
-  },
-  Date: DateScalar,
-};
-
-// Defensive wrapper around graphql-depth-limit
+// ---------------- Depth-limit guard ----------------
 const safeDepthLimit = (maxDepth, options) => {
-  const originalRule = depthLimit(maxDepth, options);
+  const original = depthLimit(maxDepth, options);
   return (context) => {
-    const ruleVisitor = originalRule(context);
+    const ruleVisitor = original(context);
     return {
       ...ruleVisitor,
       Field(node, ...rest) {
@@ -120,35 +70,134 @@ const safeDepthLimit = (maxDepth, options) => {
   };
 };
 
+// ---------------- Apollo setup ----------------
+const resolvers = {
+  Query: {
+    // Post-based queries
+    getUserActivity,
+    getUserPosts,
+    getPostsByPlace,
+    getUserTaggedPosts,
+
+    // Other queries you already have
+    getSuggestedFollows,
+    userAndFollowingStories,
+    storiesByUser,
+    getBusinessRatingSummaries,
+  },
+
+  // ------- Field resolvers for the unified Post shape -------
+  Post: {
+    // Resolve the owner union from ownerId/ownerModel
+    owner: async (post) => {
+      if (!post?.ownerId) return null;
+      if (post.ownerModel === 'Business') {
+        return Business.findById(post.ownerId).lean();
+      }
+      return User.findById(post.ownerId).lean();
+    },
+    // Pass-through helpers (kept explicit for clarity)
+    details: (post) => post.details || null,
+    shared: (post) => post.shared || null,
+    refs: (post) => post.refs || null,
+    businessName: async (post) => {
+      if (post.businessName) return post.businessName; // if you ever store it on the doc
+      if (!post.placeId) return null;
+      const b = await Business.findOne({ placeId: post.placeId })
+        .select('businessName')
+        .lean();
+      return b?.businessName || null;
+    },
+  },
+
+  User: {
+    id: (u) => u.id || (u._id && String(u._id)),
+    fullName: (u) => {
+      if (u.fullName) return u.fullName; // allow pre-enriched
+      const first = u?.firstName || '';
+      const last  = u?.lastName  || '';
+      const name = `${first} ${last}`.trim();
+      return name || null;
+    },
+    profilePicUrl: async (u) => {
+      if (u.profilePicUrl) return u.profilePicUrl; // allow pre-enriched
+      const key = u?.profilePic?.photoKey;
+      return key ? await getPresignedUrl(key) : null;
+    },
+  },
+
+  Business: {
+    id: (b) => b.id || (b._id && String(b._id)),
+    logoUrl: async (b) => {
+      if (b.logoUrl) return b.logoUrl; // allow pre-enriched
+      const key = b?.logoKey;
+      return key ? await getPresignedUrl(key) : null;
+    },
+  },
+
+  // If you expose refs.liveStream → hydrate it here
+  PostRefs: {
+    liveStream: (refs) =>
+      refs?.liveStreamId ? LiveStream.findById(refs.liveStreamId).lean() : null,
+  },
+
+  // Discriminate the Post.details union based on present fields
+  PostDetails: {
+    __resolveType(obj) {
+      if (!obj || typeof obj !== 'object') return null;
+      if ('reviewText' in obj || 'rating' in obj) return 'ReviewDetails';
+      if ('dateTime' in obj || 'recipients' in obj) return 'InviteDetails';
+      if ('startsAt' in obj || 'endsAt' in obj || 'hostId' in obj) return 'EventDetails';
+      if ('discountPct' in obj || 'code' in obj) return 'PromotionDetails';
+      if ('title' in obj || 'status' in obj || 'viewerPeak' in obj) return 'LiveStreamDetails';
+      if ('date' in obj) return 'CheckInDetails';
+      return null;
+    },
+  },
+
+  // Owner union for Post.owner (and anywhere else you reuse it)
+  OriginalOwner: {
+    __resolveType(obj) {
+      if (!obj || typeof obj !== 'object') return null;
+      if ('placeId' in obj || 'businessName' in obj || 'logoUrl' in obj) return 'Business';
+      return 'User';
+    },
+  },
+
+  // Scalars
+  Date: DateScalar,
+  DateTime: DateTimeScalar,
+  JSON: JSONScalar,
+};
+
 const createApolloServer = () => {
   return new ApolloServer({
     typeDefs,
     resolvers,
     validationRules: [
       (context) => {
-        try {
-          return safeDepthLimit(30)(context);
-        } catch (e) {
-          throw e;
-        }
-      }
+        try { return safeDepthLimit(30)(context); }
+        catch (e) { throw e; }
+      },
     ],
-    plugins: [{
-      async requestDidStart() {
-        return {
-          didEncounterErrors(ctx) {
-            ctx.errors.forEach((err) => {
-              console.error('[Apollo Error]', {
-                message: err.message,
-                locations: err.locations,
-                path: err.path,
-                stack: err.originalError?.stack,
+    plugins: [
+      {
+        async requestDidStart() {
+          return {
+            didEncounterErrors(ctx) {
+              ctx.errors.forEach((err) => {
+                console.error('[Apollo Error]', {
+                  message: err.message,
+                  locations: err.locations,
+                  path: err.path,
+                  stack: err.originalError?.stack,
+                });
               });
-            });
-          },
-        };
-      }
-    }],
+            },
+          };
+        },
+      },
+    ],
     context: async ({ req }) => {
       const user = await getUserFromToken(req);
       return { user };

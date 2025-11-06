@@ -45,7 +45,7 @@ const CommentModalHeader = ({
     const authorPic = (() => {
         if (isShared) return review?.user?.profilePicUrl || review?.profilePicUrl;
         if (isInvite) return review?.sender?.profilePicUrl || review?.profilePicUrl;
-        return review?.profilePicUrl || review?.original?.profilePicUrl;
+        return review?.owner?.profilePicUrl || review?.original?.profilePicUrl;
     })();
 
     const onPressUser = (userId) => {

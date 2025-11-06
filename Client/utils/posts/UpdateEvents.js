@@ -1,12 +1,18 @@
-/* ===== Tag helpers (top of file) ===== */
+/* ===== helpers (top) ===== */
 const toStr = (v) => (v == null ? '' : String(v));
+const getId = (x) => toStr(x?._id ?? x?.id);
+const isSharedPost = (p) => {
+  const t = p?.type || p?.postType || p?.canonicalType;
+  return t === 'sharedPost' || t === 'sharedPosts';
+};
+const getOriginalId = (p) => (isSharedPost(p) ? getId(p.original) : '');
 
 const photoMatches = (photo, photoId) => {
   const pid = toStr(photoId);
   return (
     toStr(photo?._id) === pid ||
-    toStr(photo?.photoId) === pid ||   // if you add this later
-    toStr(photo?.photoKey) === pid     // your schema uses photoKey
+    toStr(photo?.photoId) === pid ||
+    toStr(photo?.photoKey) === pid
   );
 };
 
@@ -18,180 +24,237 @@ const removeUserFromPhotoTags = (photo, userId) => {
   return Math.max(0, before - photo.taggedUsers.length);
 };
 
+/* mutate a single node (a Post or a SharedPost.original) */
+const applyCustomUpdateToNode = (post, updates) => {
+  if (!post) return false;
+  const u = updates || {};
+  let mutated = false;
+  const mark = () => { mutated = true; };
+
+  /* ---------- Tag removals (post-level and photos) ---------- */
+
+  // Remove THIS USER from post-level tags (if the schema has post.taggedUsers)
+  // updates.__removeSelfFromPost = { userId }
+  if (u.__removeSelfFromPost && Array.isArray(post.taggedUsers)) {
+    const { userId } = u.__removeSelfFromPost;
+    const before = post.taggedUsers.length;
+    post.taggedUsers = post.taggedUsers.filter((t) => toStr(t?.userId) !== toStr(userId));
+    if (post.taggedUsers.length !== before) mark();
+  }
+
+  // Remove THIS USER from ALL photos
+  // updates.__removeSelfFromAllPhotos = { userId }
+  if (u.__removeSelfFromAllPhotos && Array.isArray(post.photos)) {
+    const { userId } = u.__removeSelfFromAllPhotos;
+    let removedAny = 0;
+    post.photos.forEach((p) => { removedAny += removeUserFromPhotoTags(p, userId); });
+    if (removedAny > 0) mark();
+  }
+
+  // Remove THIS USER from ONE specific photo
+  // updates.__removeSelfFromPhoto = { userId, photoId }
+  if (u.__removeSelfFromPhoto && Array.isArray(post.photos)) {
+    const { userId, photoId } = u.__removeSelfFromPhoto;
+    const photo = post.photos.find((p) => photoMatches(p, photoId));
+    if (photo && removeUserFromPhotoTags(photo, userId) > 0) mark();
+  }
+
+  /* ---------- Likes on the post ---------- */
+
+  if (u.__updatePostLikes) {
+    const val = u.__updatePostLikes;
+    if (Array.isArray(val)) { post.likes = val; mark(); }
+    else if (val && typeof val === 'object') {
+      if (Array.isArray(val.likes))         { post.likes = val.likes; mark(); }
+      if (typeof val.likesCount === 'number'){ post.likesCount = val.likesCount; mark(); }
+      if (typeof val.liked === 'boolean')    { post.liked = val.liked; mark(); }
+    }
+  }
+
+  /* ---------- Comments & replies ---------- */
+
+  // Append top-level comment
+  if (u.__appendComment) {
+    post.comments = [...(post.comments || []), u.__appendComment];
+    mark();
+  }
+
+  // Append reply
+  if (u.__appendReply) {
+    const { commentId, reply } = u.__appendReply;
+    const insertReply = (arr) => {
+      for (const c of arr || []) {
+        if (!c || typeof c !== 'object') continue;
+        if (toStr(c._id) === toStr(commentId)) {
+          c.replies = [...(c.replies || []), reply];
+          return true;
+        }
+        if (Array.isArray(c.replies) && insertReply(c.replies)) return true;
+      }
+      return false;
+    };
+    if (Array.isArray(post.comments) && insertReply(post.comments)) mark();
+  }
+
+  // Update a comment or reply (immutable rebuild)
+  if (u.__updateComment) {
+    const { commentId, updatedComment = {} } = u.__updateComment;
+
+    const updateCommentDeep = (nodes) => {
+      let changed = false;
+      const next = (nodes || []).map((n) => {
+        if (!n || typeof n !== 'object') return n;
+        if (toStr(n._id) === toStr(commentId)) {
+          changed = true;
+          return { ...n, ...updatedComment };
+        }
+        if (n.replies?.length) {
+          const { next: childNext, changed: childChanged } = updateCommentDeep(n.replies);
+          if (childChanged) {
+            changed = true;
+            return { ...n, replies: childNext };
+          }
+        }
+        return n;
+      });
+      return { next, changed };
+    };
+
+    if (Array.isArray(post.comments)) {
+      const { next, changed } = updateCommentDeep(post.comments);
+      if (changed) { post.comments = next; mark(); }
+    }
+  }
+
+  // Delete a comment or reply
+  if (u.__deleteComment) {
+    const targetId = toStr(u.__deleteComment);
+    const prune = (arr) =>
+      (arr || [])
+        .map((c) => {
+          if (!c || typeof c !== 'object') return c;
+          if (toStr(c._id) === targetId) return null;
+          if (Array.isArray(c.replies)) c.replies = prune(c.replies);
+          return c;
+        })
+        .filter(Boolean);
+    if (Array.isArray(post.comments)) {
+      const before = post.comments.length;
+      post.comments = prune(post.comments);
+      if (post.comments.length !== before) mark();
+    }
+  }
+
+  // Update likes on a comment or reply
+  if (u.__updateCommentLikes) {
+    const { commentId: topId, replyId, likes = [] } = u.__updateCommentLikes;
+
+    const updateReplyLikesDeep = (nodes) => {
+      let changed = false;
+      const next = (nodes || []).map((n) => {
+        if (!n || typeof n !== 'object') return n;
+        if (replyId && toStr(n._id) === toStr(replyId)) {
+          changed = true;
+          return { ...n, likes };
+        }
+        if (n.replies?.length) {
+          const r = updateReplyLikesDeep(n.replies);
+          if (r.changed) {
+            changed = true;
+            return { ...n, replies: r.next };
+          }
+        }
+        return n;
+      });
+      return { next, changed };
+    };
+
+    if (Array.isArray(post.comments)) {
+      if (replyId) {
+        const idx = post.comments.findIndex((c) => toStr(c?._id) === toStr(topId));
+        if (idx !== -1) {
+          const top = post.comments[idx];
+          const r = updateReplyLikesDeep(top?.replies || []);
+          if (r.changed) {
+            post.comments = [
+              ...post.comments.slice(0, idx),
+              { ...top, replies: r.next },
+              ...post.comments.slice(idx + 1),
+            ];
+            mark();
+          }
+        } else {
+          const r = updateReplyLikesDeep(post.comments || []);
+          if (r.changed) { post.comments = r.next; mark(); }
+        }
+      } else {
+        const mapped = (post.comments || []).map((c) =>
+          toStr(c._id) === toStr(topId) ? { ...c, likes } : c
+        );
+        if (mapped !== post.comments) { post.comments = mapped; mark(); }
+      }
+    }
+  }
+
+  // Merge plain fields
+  const plain = Object.entries(u).filter(([k]) => !k.startsWith('__'));
+  if (plain.length) { Object.assign(post, Object.fromEntries(plain)); mark(); }
+
+  return mutated;
+};
+
+/**
+ * Unified updater for the events slice (works with either root draft or slice draft).
+ * - Updates the matched event by _id
+ * - ALSO updates a SharedPost.original when `postId` refers to the original inside a shared event
+ * - Bumps identities so React re-renders
+ */
 export const updateEvents = ({
-  state,          // draft of root OR events slice draft
-  postId,         // event _id
+  state,                 // draft of root OR events slice draft
+  postId,                // event or original _id
   updates = {},
+  alsoMatchSharedOriginal = true,
 }) => {
-  const sliceOrArray = state?.events ?? state;
+  const sliceOrArray = state?.events ?? state; // support root or slice
   const listKey = 'events';
   const selectedKey = 'selectedEvent';
 
   const list = Array.isArray(sliceOrArray) ? sliceOrArray : sliceOrArray?.[listKey];
   const selected = Array.isArray(sliceOrArray) ? null : sliceOrArray?.[selectedKey] || null;
 
-  const applyCustomUpdate = (post) => {
-    if (!post) return;
-    const u = updates || {};
+  const pid = toStr(postId);
 
-    /* ===== TAG REMOVAL (Events have tags only in photos) ===== */
-
-    // Remove THIS USER from ALL photos in this event
-    // updates.__removeSelfFromAllPhotos = { userId }
-    if (u.__removeSelfFromAllPhotos && Array.isArray(post.photos)) {
-      const { userId } = u.__removeSelfFromAllPhotos;
-      post.photos.forEach((p) => removeUserFromPhotoTags(p, userId));
+  const tryApply = (item) => {
+    if (!item) return false;
+    // direct match
+    if (getId(item) === pid) {
+      const changed = applyCustomUpdateToNode(item, updates);
+      if (changed) Object.assign(item, { ...item }); // bump identity
+      return changed;
     }
-
-    // Remove THIS USER from ONE specific photo
-    // updates.__removeSelfFromPhoto = { userId, photoId }
-    if (u.__removeSelfFromPhoto && Array.isArray(post.photos)) {
-      const { userId, photoId } = u.__removeSelfFromPhoto;
-      const photo = post.photos.find((p) => photoMatches(p, photoId));
-      if (photo) removeUserFromPhotoTags(photo, userId);
+    // SharedPost.original match
+    if (alsoMatchSharedOriginal && isSharedPost(item) && getOriginalId(item) === pid && item.original) {
+      const changed = applyCustomUpdateToNode(item.original, updates);
+      if (changed) item.original = { ...item.original }; // bump nested identity
+      return changed;
     }
-
-    /* ===== EXISTING BEHAVIOR BELOW ===== */
-
-    // Update likes on the event itself
-    if (u.__updatePostLikes) {
-      const { likes, likesCount, liked } = u.__updatePostLikes;
-      if (Array.isArray(likes)) post.likes = likes;                 // array
-      if (typeof likesCount === 'number') post.likesCount = likesCount; // number
-      if (typeof liked === 'boolean') post.liked = liked;           // boolean
-    }
-
-    // Append a top-level comment
-    if (u.__appendComment) {
-      post.comments = [...(post.comments || []), u.__appendComment];
-    }
-
-    // Append a reply
-    if (u.__appendReply) {
-      const { commentId, reply } = u.__appendReply;
-      const insertReply = (arr) => {
-        for (const c of arr || []) {
-          if (!c || typeof c !== 'object') continue;
-          if (String(c._id) === String(commentId)) {
-            c.replies = [...(c.replies || []), reply];
-            return true;
-          }
-          if (Array.isArray(c.replies) && insertReply(c.replies)) return true;
-        }
-        return false;
-      };
-      if (Array.isArray(post.comments)) insertReply(post.comments);
-    }
-
-    // Update a comment or reply (immutable rebuild)
-    if (u.__updateComment) {
-      const { commentId, updatedComment = {} } = u.__updateComment;
-
-      const updateCommentDeep = (nodes) => {
-        let changed = false;
-        const next = (nodes || []).map((n) => {
-          if (!n || typeof n !== 'object') return n;
-          if (String(n._id) === String(commentId)) {
-            changed = true;
-            return { ...n, ...updatedComment };
-          }
-          if (n.replies?.length) {
-            const { next: childNext, changed: childChanged } = updateCommentDeep(n.replies);
-            if (childChanged) {
-              changed = true;
-              return { ...n, replies: childNext };
-            }
-          }
-          return n;
-        });
-        return { next, changed };
-      };
-
-      if (Array.isArray(post.comments)) {
-        const { next, changed } = updateCommentDeep(post.comments);
-        if (changed) post.comments = next;
-      }
-    }
-
-    // Delete a comment or reply
-    if (u.__deleteComment) {
-      const targetId = u.__deleteComment;
-      const prune = (arr) =>
-        (arr || [])
-          .map((c) => {
-            if (!c || typeof c !== 'object') return c;
-            if (String(c._id) === String(targetId)) return null;
-            if (Array.isArray(c.replies)) c.replies = prune(c.replies);
-            return c;
-          })
-          .filter(Boolean);
-      if (Array.isArray(post.comments)) post.comments = prune(post.comments);
-    }
-
-    // Update likes on a comment/reply
-    if (u.__updateCommentLikes) {
-      const { commentId: topId, replyId, likes = [] } = u.__updateCommentLikes;
-
-      const updateReplyLikesDeep = (nodes) => {
-        let changed = false;
-        const next = (nodes || []).map((n) => {
-          if (!n || typeof n !== 'object') return n;
-          if (replyId && String(n._id) === String(replyId)) {
-            changed = true;
-            return { ...n, likes };
-          }
-          if (n.replies?.length) {
-            const r = updateReplyLikesDeep(n.replies);
-            if (r.changed) {
-              changed = true;
-              return { ...n, replies: r.next };
-            }
-          }
-          return n;
-        });
-        return { next, changed };
-      };
-
-      if (Array.isArray(post.comments)) {
-        if (replyId) {
-          const idx = post.comments.findIndex((c) => String(c?._id) === String(topId));
-          if (idx !== -1) {
-            const top = post.comments[idx];
-            const r = updateReplyLikesDeep(top?.replies || []);
-            if (r.changed) {
-              post.comments = [
-                ...post.comments.slice(0, idx),
-                { ...top, replies: r.next },
-                ...post.comments.slice(idx + 1),
-              ];
-            }
-          } else {
-            const r = updateReplyLikesDeep(post.comments || []);
-            if (r.changed) post.comments = r.next;
-          }
-        } else {
-          post.comments = (post.comments || []).map((c) =>
-            String(c._id) === String(topId) ? { ...c, likes } : c
-          );
-        }
-      }
-    }
-
-    // Merge plain fields
-    const plain = Object.entries(u).filter(([k]) => !k.startsWith('__'));
-    if (plain.length) {
-      Object.assign(post, Object.fromEntries(plain));
-    }
+    return false;
   };
 
   if (Array.isArray(list)) {
-    const idx = list.findIndex((p) => String(p?._id) === String(postId));
-    if (idx !== -1) {
-      applyCustomUpdate(list[idx]);
+    for (let i = 0; i < list.length; i++) {
+      if (tryApply(list[i])) {
+        list[i] = { ...list[i] }; // bump wrapper identity
+        break;
+      }
     }
   }
 
-  if (selected && String(selected._id) === String(postId)) {
-    applyCustomUpdate(selected);
+  if (selected && (getId(selected) === pid || (alsoMatchSharedOriginal && isSharedPost(selected) && getOriginalId(selected) === pid))) {
+    // tryApply already bumps inner, now bump selected
+    tryApply(selected);
+    if (!Array.isArray(sliceOrArray)) {
+      sliceOrArray[selectedKey] = { ...sliceOrArray[selectedKey] };
+    }
   }
 };
