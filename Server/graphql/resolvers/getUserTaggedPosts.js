@@ -1,138 +1,122 @@
 const mongoose = require('mongoose');
 const User = require('../../models/User');
-const Review = require('../../models/Reviews');
-const CheckIn = require('../../models/CheckIns');
-const HiddenPost = require('../../models/HiddenPosts'); // ⬅️ add
-const {
-  toFlatResponseFromCanonical,
-  createNormalizerContext,
-} = require('../../utils/normalizePostStructure'); // adjust path if needed
-const { getHiddenIdsForUser } = require('../../utils/hiddenTags'); // adjust path if needed
+const HiddenPost = require('../../models/HiddenPosts');
+const { Post } = require('../../models/Post');              // ✅ unified Post model
+const { resolveTaggedPhotoUsers } = require('../../utils/userPosts');
+const { getHiddenPostIdsForUser } = require('../../utils/hiddenTags'); // update your util to return Post ids
 
-const isValidId = (id) => mongoose.Types.ObjectId.isValid(String(id));
+const isOid = (v) => mongoose.Types.ObjectId.isValid(String(v));
+const oid   = (v) => new mongoose.Types.ObjectId(String(v));
+
 const getAuthUserId = (ctx) =>
   ctx?.user?._id?.toString?.() || ctx?.user?.id || ctx?.user?.userId || null;
 
-const toObjIds = (ids) =>
-  (ids || []).map((v) => new mongoose.Types.ObjectId(String(v)));
+function buildCursorQuery(after) {
+  if (!after?.sortDate || !after?.id || !isOid(after.id)) return {};
+  const sd = new Date(after.sortDate);
+  return {
+    $or: [
+      { sortDate: { $lt: sd } },
+      { sortDate: sd, _id: { $lt: oid(after.id) } },
+    ],
+  };
+}
 
+/**
+ * getUserTaggedPosts(userId, limit, after) -> [Post!]
+ * Lists posts authored by others where `userId` is tagged (post-level or media-level),
+ * filtered by viewer privacy and hidden settings.
+ */
 const getUserTaggedPosts = async (_, { userId, limit = 15, after }, context) => {
   try {
-    if (!isValidId(userId)) throw new Error('Invalid userId');
+    if (!isOid(userId)) throw new Error('Invalid userId');
 
-    const userObjectId = new mongoose.Types.ObjectId(userId);
-    const userIdStr = userObjectId.toString();
+    const taggedUserId = oid(userId);                  // the profile we're viewing
+    const viewerIdStr  = getAuthUserId(context);       // who is looking
+    const viewerId     = viewerIdStr && isOid(viewerIdStr) ? oid(viewerIdStr) : null;
 
-    const user = await User.findById(userObjectId).select('_id').lean();
-    if (!user) throw new Error('User not found');
+    // ensure target user exists (optional but nice)
+    const exists = await User.exists({ _id: taggedUserId });
+    if (!exists) throw new Error('User not found');
 
-    // A) Hidden *from this profile* (owner’s own “hidden tagged”)
-    const { hiddenReviewIds = [], hiddenCheckInIds = [] } =
-      await getHiddenIdsForUser(userObjectId);
-
-    // B) Hidden *globally for the viewer* (never show anywhere)
-    const viewerId = getAuthUserId(context);
-    let globalHiddenReviewIds = [];
-    let globalHiddenCheckInIds = [];
-    if (viewerId && isValidId(viewerId)) {
-      try {
-        const rows = await HiddenPost.find(
-          { userId: new mongoose.Types.ObjectId(viewerId), targetRef: { $in: ['Review', 'CheckIn'] } },
-          { targetRef: 1, targetId: 1, _id: 0 }
-        ).lean();
-
-        for (const r of rows || []) {
-          if (r.targetRef === 'Review') globalHiddenReviewIds.push(String(r.targetId));
-          if (r.targetRef === 'CheckIn') globalHiddenCheckInIds.push(String(r.targetId));
+    // viewer privacy scope
+    // self -> sees everything; follower -> public|followers; anon/other -> public only
+    let allowedPrivacy = ['public'];
+    let viewerFollowingOids = [];
+    if (viewerId) {
+      if (viewerId.equals(taggedUserId)) {
+        allowedPrivacy = ['public', 'followers', 'private', 'unlisted'];
+      } else {
+        const viewer = await User.findById(viewerId).select('following').lean();
+        viewerFollowingOids = (viewer?.following || []).map((id) => oid(id));
+        if (viewerFollowingOids.length) {
+          allowedPrivacy = ['public', 'followers'];
         }
-      } catch (e) {
-        console.warn('[getUserTaggedPosts] failed to load global hidden posts:', e?.message);
       }
     }
 
-    // Merge owner-hidden + viewer-global-hidden and convert to ObjectIds
-    const mergedHiddenReviewIds = toObjIds([...new Set([...(hiddenReviewIds || []).map(String), ...globalHiddenReviewIds])]);
-    const mergedHiddenCheckInIds = toObjIds([...new Set([...(hiddenCheckInIds || []).map(String), ...globalHiddenCheckInIds])]);
+    // posts this profile owner hid from their tagged tab
+    const ownerHiddenIds = await getHiddenPostIdsForUser(taggedUserId); // -> [ObjectId|string]
+    const ownerHiddenOidSet = new Set((ownerHiddenIds || []).map((x) => String(x)));
 
-    const reviewQuery = {
-      userId: { $ne: userObjectId },
-      ...(mergedHiddenReviewIds.length ? { _id: { $nin: mergedHiddenReviewIds } } : {}),
-      $or: [
-        { taggedUsers: userObjectId },
-        { 'photos.taggedUsers.userId': userIdStr },
-      ],
-    };
-
-    const checkInQuery = {
-      userId: { $ne: userObjectId },
-      ...(mergedHiddenCheckInIds.length ? { _id: { $nin: mergedHiddenCheckInIds } } : {}),
-      $or: [
-        { taggedUsers: userObjectId },
-        { 'photos.taggedUsers.userId': userIdStr },
-      ],
-    };
-
-    const [reviewsRaw, checkInsRaw] = await Promise.all([
-      Review.find(reviewQuery).sort({ date: -1 }).lean(),
-      CheckIn.find(checkInQuery).sort({ date: -1 }).lean(),
-    ]);
-
-    const { normalizers } = createNormalizerContext();
-
-    const [normalizedReviews, normalizedCheckIns] = await Promise.all([
-      Promise.all(reviewsRaw.map((r) => normalizers.review(r))),
-      Promise.all(checkInsRaw.map((c) => normalizers['check-in'](c))),
-    ]);
-
-    const flatReviews = normalizedReviews
-      .filter((r) => typeof r?.rating === 'number' && r.rating >= 1)
-      .map((r) => {
-        const o = toFlatResponseFromCanonical(r);
-        return { __typename: 'Review', ...o };
-      });
-
-    const flatCheckIns = normalizedCheckIns.map((c) => {
-      const o = toFlatResponseFromCanonical(c);
-      delete o.rating;
-      delete o.priceRating;
-      delete o.atmosphereRating;
-      delete o.serviceRating;
-      delete o.wouldRecommend;
-      delete o.reviewText;
-      return { __typename: 'CheckIn', ...o };
-    });
-
-    let flat = [...flatReviews, ...flatCheckIns].map((p) => ({
-      ...p,
-      sortDate: p.date,
-    }));
-
-    flat.sort((a, b) => {
-      const dateDiff = new Date(b.sortDate) - new Date(a.sortDate);
-      if (dateDiff !== 0) return dateDiff;
-      const aId = new mongoose.Types.ObjectId(a._id).toString();
-      const bId = new mongoose.Types.ObjectId(b._id).toString();
-      return bId.localeCompare(aId);
-    });
-
-    if (after?.sortDate && after?.id) {
-      const afterTime = new Date(after.sortDate).getTime();
-      const afterObjectId = new mongoose.Types.ObjectId(after.id).toString();
-
-      flat = flat.filter((post) => {
-        const postTime = new Date(post.sortDate).getTime();
-        const postId = new mongoose.Types.ObjectId(post._id).toString();
-        return postTime < afterTime || (postTime === afterTime && postId < afterObjectId);
-      });
+    // global hidden for the viewer (never show anywhere)
+    let viewerHiddenIdSet = new Set();
+    if (viewerId) {
+      const rows = await HiddenPost.find(
+        { userId: viewerId, targetRef: 'Post' },
+        { targetId: 1, _id: 0 }
+      ).lean();
+      viewerHiddenIdSet = new Set(rows.map((r) => String(r.targetId)));
     }
 
-    const out = flat.slice(0, limit);
+    // build privacy filter
+    const privacyOr = viewerId
+      ? [
+          { ownerId: viewerId },                          // viewer always sees their own posts
+          { privacy: 'public' },
+          ...(viewerFollowingOids.length
+            ? [{ $and: [{ privacy: 'followers' }, { ownerId: { $in: viewerFollowingOids } }] }]
+            : []),
+        ]
+      : [{ privacy: 'public' }];
 
-    const safeOut = out.filter(
-      (x) => x.__typename !== 'Review' || (typeof x.rating === 'number' && x.rating >= 1)
+    // query: posts by others where target user is tagged (post-level or media-level)
+    const base = {
+      ownerId: { $ne: taggedUserId },
+      visibility: { $in: ['visible'] },
+      $or: [
+        { taggedUsers: taggedUserId },
+        { 'media.taggedUsers.userId': taggedUserId },
+      ],
+      $and: [
+        { $or: privacyOr },
+      ],
+      ...buildCursorQuery(after),
+    };
+
+    // fetch
+    const items = await Post.find(base)
+      .sort({ sortDate: -1, _id: -1 })
+      .limit(Math.min(Number(limit) || 15, 100))
+      .lean();
+
+    // filter out hidden (owner-tagged-tab + viewer-global)
+    const visible = items.filter((p) => {
+      const id = String(p._id);
+      if (ownerHiddenOidSet.has(id)) return false;
+      if (viewerHiddenIdSet.has(id)) return false;
+      return true;
+    });
+
+    // enrich media tags for the UI
+    const enriched = await Promise.all(
+      visible.map(async (p) => ({
+        ...p,
+        media: await resolveTaggedPhotoUsers(p.media || []),
+      }))
     );
 
-    return safeOut;
+    return enriched;
   } catch (error) {
     throw new Error(`[Resolver Error] ${error.message}`);
   }

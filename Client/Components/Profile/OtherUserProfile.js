@@ -29,11 +29,11 @@ import {
 } from "../../Slices/PhotosSlice";
 import {
   fetchPostsByOtherUserId,
-  selectOtherUserReviews,
-  resetOtherUserReviews,
-  appendOtherUserReviews,
-  setOtherUserReviews,
-} from "../../Slices/ReviewsSlice";
+  selectOtherUserPosts,
+  resetOtherUserPosts,
+  appendOtherUserPosts,
+  setOtherUserPosts,
+} from "../../Slices/PostsSlice";
 import { createNotification } from "../../Slices/NotificationsSlice";
 import Favorites from "./Favorites";
 import { fetchOtherUserFavorites, selectOtherUserFavorites } from "../../Slices/FavoritesSlice";
@@ -53,7 +53,7 @@ export default function OtherUserProfile({ route, navigation }) {
   const following = useSelector(selectFollowing)
   const banner = useSelector(selectOtherUserBanner);
   const favorites = useSelector(selectOtherUserFavorites);
-  const profileReviews = useSelector(selectOtherUserReviews);
+  const profileReviews = useSelector(selectOtherUserPosts);
   const otherUserProfilePic = useSelector(selectOtherUserProfilePic);
   const otherUserPrivacy = useSelector(selectOtherUserSettings);
   const fullName = useSelector(selectOtherUserName);
@@ -68,8 +68,8 @@ export default function OtherUserProfile({ route, navigation }) {
   const [activeConnectionsTab, setActiveConnectionsTab] = useState("followers");
   const { loadMore, refresh, isLoading, hasMore } = usePaginatedFetch({
     fetchThunk: fetchPostsByOtherUserId,
-    appendAction: appendOtherUserReviews,
-    resetAction: setOtherUserReviews,
+    appendAction: appendOtherUserPosts,
+    resetAction: setOtherUserPosts,
     params: { userId },
     limit: 5,
   });
@@ -109,7 +109,7 @@ export default function OtherUserProfile({ route, navigation }) {
   useEffect(() => {
     const unsubscribe = navigation.addListener("beforeRemove", () => {
       dispatch(resetOtherUserBanner());
-      dispatch(resetOtherUserReviews());
+      dispatch(resetOtherUserPosts());
       dispatch(resetOtherUserProfilePic());
     });
 

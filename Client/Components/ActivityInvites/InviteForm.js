@@ -11,11 +11,10 @@ import {
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useDispatch, useSelector } from 'react-redux';
-import { sendInvite, editInvite } from '../../Slices/InvitesSlice';
+import { sendInvite, editInvite } from '../../Slices/PostsSlice'; 
 import { selectFriends } from '../../Slices/friendsSlice';
 import { FontAwesome } from '@expo/vector-icons';
 import { selectUser } from '../../Slices/UserSlice';
-import { addPostToFeeds, replacePostInFeeds } from '../../Slices/ReviewsSlice';
 import { googlePlacesDefaultProps } from '../../utils/googleplacesDefaults';
 import TagFriendsModal from '../Reviews/TagFriendsModal';
 import { useNavigation } from '@react-navigation/native';
@@ -37,6 +36,8 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
   const [isPublic, setIsPublic] = useState(true);
   const [note, setNote] = useState('');
   const googleRef = useRef(null);
+  const toId = (u) =>
+    u?._id || u?.id || u?.userId || u?.user?._id || u?.user?.id || null;
 
   useEffect(() => {
     if (isEditing && initialInvite) {
@@ -48,12 +49,9 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
       }
 
       setNote(initialInvite.note || '');
-      setDateTime(new Date(initialInvite.dateTime));
+      setDateTime(initialInvite.dateTime ? new Date(initialInvite.dateTime) : new Date());
 
       // Normalize recipients → friend objects
-      const toId = (u) =>
-        u?._id || u?.id || u?.userId || u?.user?._id || u?.user?.id;
-
       const selectedAsObjects = (initialInvite.recipients || [])
         .map((r) => {
           const id = toId(r.user || r);
@@ -63,12 +61,14 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
           const fromFriends = (friends || []).find((f) => toId(f) === id);
           if (fromFriends) return fromFriends;
 
-          // fall back to shaping from the invite payload if present
+          // fallback from invite payload
           const src = r.user || r;
           return {
             _id: id,
             id,
             userId: id,
+            firstName: src?.firstName,
+            lastName: src?.lastName,
             username: src?.username || src?.fullName || src?.firstName || 'Unknown',
             profilePicUrl: src?.profilePicUrl || src?.presignedProfileUrl || null,
           };
@@ -84,15 +84,22 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
       alert('Please complete all invite details.');
       return;
     }
-    const invitePayload = {
+
+    // Always pass IDs to backend
+    const recipientIds = Array.from(
+      new Set(selectedFriends.map((f) => toId(f)).filter(Boolean))
+    );
+
+    const base = {
       senderId: user.id,
-      recipientIds: selectedFriends,
+      recipientIds,
       placeId: selectedPlace.placeId,
       businessName: selectedPlace.name,
       dateTime,
       note,
       isPublic,
     };
+
     try {
       if (isEditing && initialInvite) {
         const updates = {
@@ -103,28 +110,26 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
           isPublic,
         };
 
-        const { payload: updatedInvite } = await dispatch(editInvite({
-          recipientId: user.id,
-          inviteId: initialInvite._id,
-          updates,
-          recipientIds: selectedFriends,
-          businessName: selectedPlace.name,
-        }));
+        await dispatch(
+          editInvite({
+            recipientId: user.id,
+            inviteId: initialInvite._id,
+            updates,
+            recipientIds, // keep recipients in sync
+          })
+        );
 
-        await dispatch(replacePostInFeeds(updatedInvite));
         medium();
-
         alert('Invite updated!');
       } else {
-        const { payload: newInvite } = await dispatch(sendInvite(invitePayload));
-
-        await dispatch(addPostToFeeds(newInvite?.invite));
+        await dispatch(sendInvite(base));
         medium();
-
         alert('Invite sent!');
       }
+
       navigation.goBack();
     } catch (err) {
+      console.error(err);
       alert('Something went wrong. Please try again.');
     }
   };
@@ -143,10 +148,7 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
         query={{ key: google_key, language: 'en' }}
         styles={{
           textInput: styles.input,
-          listView: {
-            maxHeight: 300,
-            zIndex: 999,
-          },
+          listView: { maxHeight: 300, zIndex: 999 },
         }}
         fetchDetails
         {...googlePlacesDefaultProps}
@@ -194,14 +196,18 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
         onPress={() => setShowFriendsModal(true)}
       >
         <Text style={styles.friendButtonText}>
-          {selectedFriends.length > 0 ? `👥 ${selectedFriends.length} Selected` : '➕ Select Friends'}
+          {selectedFriends.length > 0
+            ? `👥 ${selectedFriends.length} Selected`
+            : '➕ Select Friends'}
         </Text>
       </TouchableOpacity>
       <FriendPills
         friends={selectedFriends}
         onRemove={(userToRemove) => {
-          const id = userToRemove?._id || userToRemove?.id || userToRemove;
-          setSelectedFriends(prev => prev.filter(u => u !== id));
+          const id = toId(userToRemove);
+          setSelectedFriends((prev) =>
+            prev.filter((u) => toId(u) !== id)
+          );
         }}
       />
       <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmInvite}>
@@ -237,12 +243,12 @@ const styles = StyleSheet.create({
     marginVertical: 10,
   },
   input: {
-    backgroundColor: "#f5f5f5",
+    backgroundColor: '#f5f5f5',
     height: 50,
     borderRadius: 5,
     paddingHorizontal: 10,
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: '#ccc',
     fontSize: 16,
   },
   noteInput: {
@@ -299,7 +305,6 @@ const styles = StyleSheet.create({
   switchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    //marginVertical: 16,
   },
   switchLabelContainer: {
     flexDirection: 'row',
@@ -309,5 +314,4 @@ const styles = StyleSheet.create({
   icon: {
     marginRight: 8,
   },
-
 });

@@ -1,34 +1,29 @@
-const User = require("../models/User");
-const Business = require("../models/Business");
-const CheckIn = require('../models/CheckIns.js');
-const Review = require('../models/Reviews.js');
+const User = require('../models/User');
+const Business = require('../models/Business');
+const { Post } = require('../models/Post'); // ⬅️ unified Post model
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 const haversineDistance = require('../utils/haversineDistance.js');
-const { getModelByType } = require('../utils/getModelByType.js');
-const { toInviteUserShape, toInviteRecipientsShape, lookupBusinessBits } = require('./invites/enrichInviteBits.js');
+const {
+  toInviteUserShape,
+  toInviteRecipientsShape,
+  lookupBusinessBits,
+} = require('./invites/enrichInviteBits.js');
 const { enrichOriginalOwner } = require('./stories/enrichOriginalOwner.js');
 const { shapeStoryUploader } = require('./stories/shapeStoryUploader.js');
 
+/* ----------------------------- Comments/media ----------------------------- */
+
 async function enrichCommentMedia(media) {
-  if (!media || !media.photoKey) {
-    return null;
-  }
-
+  if (!media || !media.photoKey) return null;
   const url = await getPresignedUrl(media.photoKey);
-
-  return {
-    photoKey: media.photoKey,
-    mediaType: media.mediaType,
-    url,
-  };
+  return { photoKey: media.photoKey, mediaType: media.mediaType, url };
 }
 
 async function enrichReplies(replies = []) {
   return Promise.all(
-    replies.map(async reply => {
+    replies.map(async (reply) => {
       const enrichedMedia = await enrichCommentMedia(reply.media);
       const nestedReplies = await enrichReplies(reply.replies || []);
-
       return {
         ...reply,
         _id: reply._id?.toString?.() || reply._id,
@@ -44,10 +39,9 @@ async function enrichReplies(replies = []) {
 
 async function enrichComments(comments = []) {
   return Promise.all(
-    comments.map(async comment => {
+    comments.map(async (comment) => {
       const enrichedMedia = await enrichCommentMedia(comment.media);
       const enrichedReplies = await enrichReplies(comment.replies || []);
-
       return {
         ...comment,
         _id: comment._id?.toString?.() || comment._id,
@@ -61,108 +55,13 @@ async function enrichComments(comments = []) {
   );
 }
 
-async function gatherUserReviews(userObjectId, profilePic, profilePicUrl) {
-  try {
-    const reviews = await Review.find({ userId: userObjectId }).lean();
-
-    const enriched = await Promise.all(
-      reviews.map(async (review) => {
-        try {
-          const [taggedUsers, rawPhotos, business] = await Promise.all([
-            resolveTaggedUsers(review.taggedUsers || []),
-            resolveTaggedPhotoUsers(review.photos || []),
-            Business.findOne({ placeId: review.placeId }).select('businessName').lean(),
-          ]);
-
-          const photos = (rawPhotos || []).filter(p => p && p._id && p.photoKey);
-          const comments = await enrichComments(review.comments || []);
-
-          return {
-            __typename: "Review",
-            ...review,
-            businessName: business?.businessName || null,
-            placeId: review.placeId,
-            date: new Date(review.date).toISOString(),
-            profilePic,
-            profilePicUrl,
-            taggedUsers,
-            photos,
-            comments,
-            type: "review",
-          };
-        } catch {
-          return null;
-        }
-      })
-    );
-
-    return enriched.filter(r => r !== null);
-  } catch {
-    return [];
-  }
-}
-
-async function gatherUserCheckIns(user, profilePicUrl) {
-  const userIdStr = user?._id?.toString?.() || String(user?._id || '');
-
-  try {
-    // Query supports both ObjectId and string userId
-    const checkIns = await CheckIn.find({
-      $or: [{ userId: user._id }, { userId: userIdStr }],
-    }).lean();
-
-    const enriched = await Promise.all(
-      checkIns.map(async (checkIn) => {
-        try {
-          const [taggedUsers, rawPhotos, business, comments] = await Promise.all([
-            resolveTaggedUsers(checkIn.taggedUsers || []),
-            resolveTaggedPhotoUsers(checkIn.photos || []),
-            Business.findOne({ placeId: (checkIn.placeId || '').trim() })
-              .select('businessName placeId')
-              .lean(),
-            enrichComments(checkIn.comments || []),
-          ]);
-
-          const photos = (rawPhotos || []).filter(p => p && p._id && p.photoKey);
-          const dist = (typeof distance !== 'undefined') ? distance : null;
-
-          return {
-            __typename: 'CheckIn',
-            _id: checkIn._id,
-            userId: user._id,
-            fullName: `${user.firstName} ${user.lastName}`,
-            message: checkIn.message,
-            date: checkIn.date ? new Date(checkIn.date).toISOString() : null,
-            profilePic: user.profilePic || null,
-            profilePicUrl,
-            placeId: checkIn.placeId || null,
-            businessName: business?.businessName || 'Unknown Business',
-            taggedUsers,
-            photos,
-            likes: checkIn.likes || [],
-            comments,
-            distance: dist,
-            type: 'check-in',
-          };
-        } catch {
-          return null;
-        }
-      })
-    );
-
-    return enriched.filter(Boolean);
-  } catch {
-    return [];
-  }
-}
+/* -------------------------- Tagged users / media -------------------------- */
 
 async function resolveTaggedUsers(taggedUserIds = []) {
   if (!Array.isArray(taggedUserIds) || taggedUserIds.length === 0) return [];
-
-  const ids = taggedUserIds.map(id => id?.toString()).filter(Boolean);
-
+  const ids = taggedUserIds.map((id) => id?.toString()).filter(Boolean);
   const users = await User.find({ _id: { $in: ids } }, { firstName: 1, lastName: 1 });
-  return users.map(u => ({
+  return users.map((u) => ({
     userId: u._id,
     fullName: `${u.firstName} ${u.lastName}`,
   }));
@@ -171,15 +70,11 @@ async function resolveTaggedUsers(taggedUserIds = []) {
 async function resolveTaggedPhotoUsers(photos = []) {
   if (!Array.isArray(photos) || photos.length === 0) return [];
 
-  // Normalize to plain objects and keep only items with a photoKey
-  const cleanPhotos = photos
-    .map(p => p.toObject?.() || p)
-    .filter(p => p?.photoKey);
+  const cleanPhotos = photos.map((p) => p.toObject?.() || p).filter((p) => p?.photoKey);
 
-  // Collect all unique tagged userIds across all photos
   const allTaggedIds = new Set();
   for (const photo of cleanPhotos) {
-    (photo.taggedUsers || []).forEach(tag => {
+    (photo.taggedUsers || []).forEach((tag) => {
       const raw = tag?.userId;
       const id =
         (raw && raw._id?.toString?.()) ||
@@ -190,10 +85,6 @@ async function resolveTaggedPhotoUsers(photos = []) {
   }
   const taggedUserArray = [...allTaggedIds];
 
-  // Fetch everything we need in parallel:
-  // 1) Names for fullName
-  // 2) Profile pics via resolveUserProfilePics (gives us profilePicUrl)
-  // 3) Presigned URLs for each photo
   const [users, profilePicMap, urlMap] = await Promise.all([
     taggedUserArray.length
       ? User.find({ _id: { $in: taggedUserArray } }, { firstName: 1, lastName: 1 })
@@ -210,25 +101,23 @@ async function resolveTaggedPhotoUsers(photos = []) {
     })(),
   ]);
 
-  // Build a quick id -> fullName map
   const nameMap = {};
   for (const u of users) {
-    nameMap[u._id.toString()] = `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Unknown User';
+    nameMap[u._id.toString()] =
+      `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Unknown User';
   }
 
-  // Return enriched photos with tagged users including profilePicUrl
-  return cleanPhotos.map(photo => {
-    const enrichedTags = (photo.taggedUsers || []).map(tag => {
+  return cleanPhotos.map((photo) => {
+    const enrichedTags = (photo.taggedUsers || []).map((tag) => {
       const raw = tag?.userId;
       const id =
         (raw && raw._id?.toString?.()) ||
         (raw && raw.toString?.()) ||
         (typeof raw === 'string' ? raw : null);
-
       const profile = id ? profilePicMap[id] : null;
 
       return {
-        userId: tag.userId,                         // keep original shape
+        userId: tag.userId,
         fullName: (id && nameMap[id]) || 'Unknown User',
         profilePicUrl: profile?.profilePicUrl || null,
         x: tag.x || 0,
@@ -247,16 +136,14 @@ async function resolveTaggedPhotoUsers(photos = []) {
 async function resolveUserProfilePics(userIds) {
   const result = {};
 
-  // Step 1: Try resolving all IDs as Users first
   const users = await User.find({ _id: { $in: userIds } })
     .select('_id profilePic')
     .lean();
 
-  const foundUserIds = new Set(users.map(u => u._id.toString()));
+  const foundUserIds = new Set(users.map((u) => u._id.toString()));
 
   for (const user of users) {
     let presignedUrl = null;
-
     if (user.profilePic?.photoKey) {
       try {
         presignedUrl = await getPresignedUrl(user.profilePic.photoKey);
@@ -264,38 +151,36 @@ async function resolveUserProfilePics(userIds) {
         console.warn(`⚠️ Failed to get presigned URL for user ${user._id}:`, err.message);
       }
     }
-
     result[user._id.toString()] = {
       _id: user._id,
-      id: user._id.toString(), // <-- Add this
+      id: user._id.toString(),
       profilePic: user.profilePic || null,
       profilePicUrl: presignedUrl,
     };
   }
 
-  // Step 2: Check if any IDs were *not* found in Users
-  const remainingIds = userIds.filter(id => !foundUserIds.has(id.toString()));
+  const remainingIds = userIds.filter((id) => !foundUserIds.has(id.toString()));
   if (remainingIds.length === 0) return result;
 
-  // Step 3: Query Business only if needed
   const businesses = await Business.find({ _id: { $in: remainingIds } })
     .select('_id logoKey')
     .lean();
 
   for (const business of businesses) {
     let presignedUrl = null;
-
     if (business.logoKey) {
       try {
         presignedUrl = await getPresignedUrl(business.logoKey);
       } catch (err) {
-        console.warn(`⚠️ Failed to get presigned URL for business ${business._id}:`, err.message);
+        console.warn(
+          `⚠️ Failed to get presigned URL for business ${business._id}:`,
+          err.message
+        );
       }
     }
-
     result[business._id.toString()] = {
       _id: business._id,
-      id: business._id.toString(), // <-- Add this
+      id: business._id.toString(),
       profilePic: business.logoKey || null,
       profilePicUrl: presignedUrl,
     };
@@ -304,71 +189,183 @@ async function resolveUserProfilePics(userIds) {
   return result;
 }
 
+/* --------------------------- Gather user posts --------------------------- */
+
+async function gatherUserReviews(userObjectId, profilePic, profilePicUrl) {
+  try {
+    const [reviews, author] = await Promise.all([
+      Post.find({
+        type: 'review',
+        ownerId: userObjectId,
+        visibility: { $ne: 'deleted' },
+      }).lean(),
+      User.findById(userObjectId).select('firstName lastName').lean(),
+    ]);
+
+    const authorName = author
+      ? `${author.firstName || ''} ${author.lastName || ''}`.trim()
+      : null;
+
+    const enriched = await Promise.all(
+      reviews.map(async (review) => {
+        try {
+          const [taggedUsers, rawMedia, business, comments] = await Promise.all([
+            resolveTaggedUsers(review.taggedUsers || []),
+            resolveTaggedPhotoUsers(review.media || []),
+            Business.findOne({ placeId: review.placeId })
+              .select('businessName')
+              .lean(),
+            enrichComments(review.comments || []),
+          ]);
+
+          const media = (rawMedia || []).filter((m) => m && m.photoKey);
+          return {
+            __typename: 'Review',
+            ...review,
+            fullName: authorName,
+            businessName: business?.businessName || null,
+            placeId: review.placeId || null,
+            date: review.createdAt ? new Date(review.createdAt).toISOString() : null,
+            profilePic: profilePic || null,
+            profilePicUrl: profilePicUrl || null,
+            taggedUsers,
+            photos: media, // keep legacy key
+            media,
+            comments,
+            type: 'review',
+          };
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    return enriched.filter((r) => r !== null);
+  } catch {
+    return [];
+  }
+}
+
+async function gatherUserCheckIns(user, profilePicUrl) {
+  const userIdStr = user?._id?.toString?.() || String(user?._id || '');
+
+  try {
+    const checkIns = await Post.find({
+      type: 'check-in',
+      ownerId: userIdStr,
+      visibility: { $ne: 'deleted' },
+    }).lean();
+
+    const enriched = await Promise.all(
+      checkIns.map(async (checkIn) => {
+        try {
+          const [taggedUsers, rawMedia, business, comments] = await Promise.all([
+            resolveTaggedUsers(checkIn.taggedUsers || []),
+            resolveTaggedPhotoUsers(checkIn.media || []),
+            Business.findOne({ placeId: (checkIn.placeId || '').trim() })
+              .select('businessName placeId')
+              .lean(),
+            enrichComments(checkIn.comments || []),
+          ]);
+
+          const media = (rawMedia || []).filter((m) => m && m.photoKey);
+
+          return {
+            __typename: 'CheckIn',
+            _id: checkIn._id,
+            userId: user._id,
+            fullName: `${user.firstName} ${user.lastName}`,
+            message: checkIn.message || '',
+            date: checkIn.details?.date
+              ? new Date(checkIn.details.date).toISOString()
+              : checkIn.createdAt
+              ? new Date(checkIn.createdAt).toISOString()
+              : null,
+            profilePic: user.profilePic || null,
+            profilePicUrl,
+            placeId: checkIn.placeId || null,
+            businessName: business?.businessName || 'Unknown Business',
+            taggedUsers,
+            photos: media, // keep legacy key
+            media,
+            likes: checkIn.likes || [],
+            comments,
+            distance: null,
+            type: 'check-in',
+          };
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    return enriched.filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/* ----------------------------- Shared content ---------------------------- */
+
 async function enrichSharedPost(shared, profilePicMap = {}, userLat = null, userLng = null) {
   try {
     const {
-      postType,              // 'review' | 'check-in' | 'invite' | 'promotion' | 'event'
+      postType, // may be provided by caller; prefer original.type once loaded
       originalPostId,
       original: providedOriginal,
-      originalOwner,         // can be ObjectId or {_id}
-      originalOwnerModel,    // 'User' | 'Business'
+      originalOwner, // ObjectId or {_id}
+      originalOwnerModel, // 'User' | 'Business'
       user,
       storyMeta = {},
     } = shared;
 
-    const Model = getModelByType(postType);
-    if (!Model) return null;
-
-    // --- always normalize "original" to a plain object
+    // --- Normalize "original" from unified Post
     let original = providedOriginal;
     if (!original) {
-      original = await Model.findById(originalPostId).lean();
+      original = await Post.findById(originalPostId).lean();
     } else if (typeof original.toObject === 'function') {
       original = original.toObject();
     }
     if (!original || !original._id) {
-      console.warn(`[❌ MISSING ORIGINAL DOC] type: ${postType}, originalPostId: ${originalPostId}, sharedId: ${shared._id}`);
+      console.warn(
+        `[❌ MISSING ORIGINAL DOC] originalPostId: ${originalPostId}, sharedId: ${shared._id}`
+      );
       return null;
     }
 
-    // common normalizations
+    const effectiveType = original.type || postType;
     original._id = original._id.toString?.() || original._id;
-    if (original.userId?.toString) original.userId = original.userId.toString();
+    if (original.ownerId?.toString) original.ownerId = original.ownerId.toString();
 
-    // pull profile for original.userId if present (reviews/check-ins)
-    const profile = original.userId ? profilePicMap[original.userId] : null;
+    // pull profile for owner (user or business)
+    const ownerIdStr = original.ownerId?.toString?.() || original.ownerId;
+    const profile = ownerIdStr ? profilePicMap[ownerIdStr] : null;
     const profilePic = profile?.profilePic?.photoKey ? profile.profilePic : null;
     const profilePicUrl = profile?.profilePicUrl || null;
 
-    // resolve business bits where applicable
+    // business bits
     let business = null;
-    if (['review', 'check-in', 'promotion', 'event', 'invite'].includes(postType)) {
-      business = await Business.findOne({ placeId: original.placeId })
-        .select('businessName logoKey bannerKey location')
-        .lean();
-    }
-
-    // standard comment enrichment (if you already have these)
-    let comments = [];
-    if (original.comments) {
-      comments = await enrichComments(original.comments);
-    }
-
-    // --- BASE containers for each type (all return a GraphQL-typed shape) ---
-
-    // reviews / check-ins / promotion / event: your existing code…
-    if (['review', 'check-in', 'promotion', 'event'].includes(postType)) {
-      let taggedUsers = [];
-      let rawPhotos = [];
-      if (['review', 'check-in', 'promotion', 'event'].includes(postType)) {
-        taggedUsers = await resolveTaggedUsers(original.taggedUsers || []);
-        rawPhotos = await resolveTaggedPhotoUsers(original.photos || []);
+    if (['review', 'check-in', 'promotion', 'event', 'invite'].includes(effectiveType)) {
+      if (original.placeId) {
+        business = await Business.findOne({ placeId: original.placeId })
+          .select('businessName logoKey bannerKey location')
+          .lean();
       }
+    }
+
+    // comments
+    const comments = await enrichComments(original.comments || []);
+
+    // ----------------- Non-invite types (review/check-in/event/promo) -----------------
+    if (['review', 'check-in', 'promotion', 'event'].includes(effectiveType)) {
+      const taggedUsers = await resolveTaggedUsers(original.taggedUsers || []);
+      const rawMedia = await resolveTaggedPhotoUsers(original.media || []);
 
       let distance = null;
       if (
-        ['event', 'promotion', 'promo'].includes(postType) &&
-        userLat != null && userLng != null &&
+        ['event', 'promotion'].includes(effectiveType) &&
+        userLat != null &&
+        userLng != null &&
         business?.location?.coordinates?.length === 2
       ) {
         const [bizLng, bizLat] = business.location.coordinates;
@@ -378,41 +375,45 @@ async function enrichSharedPost(shared, profilePicMap = {}, userLat = null, user
       }
 
       const baseOriginal = {
-        __typename: capitalizeFirstLetter(postType), // Review | CheckIn | Promotion | Event
+        __typename: capitalizeFirstLetter(effectiveType), // Review | CheckIn | Promotion | Event
         _id: original._id,
         ...original,
         businessName: business?.businessName || null,
         businessLogoUrl: business?.logoKey ? await getPresignedUrl(business.logoKey) : null,
-        type: postType,
+        type: effectiveType,
         profilePic,
         profilePicUrl,
         taggedUsers,
-        photos: rawPhotos.filter(p => p && p._id && p.photoKey),
-        media: rawPhotos.filter(p => p && p._id && p.photoKey),
+        photos: rawMedia.filter((p) => p && p.photoKey),
+        media: rawMedia.filter((p) => p && p.photoKey),
         comments,
-        date: original.date ? new Date(original.date).toISOString() : new Date().toISOString(),
+        date:
+          original.details?.date ||
+          original.createdAt ||
+          new Date(), // ISO below
       };
 
-      if (['event', 'promotion', 'promo'].includes(postType)) {
+      baseOriginal.date = new Date(baseOriginal.date).toISOString();
+
+      if (['event', 'promotion'].includes(effectiveType)) {
         Object.assign(baseOriginal, {
           distance,
           formattedAddress: business?.location?.formattedAddress || null,
-          recurringDays: original.recurringDays || [],
-          startTime: original.startTime || null,
-          endTime: original.endTime || null,
+          recurringDays: original.details?.recurringDays || [],
+          startTime:
+            original.details?.startsAt || original.startTime || null,
+          endTime: original.details?.endsAt || original.endTime || null,
           allDay: original.allDay || false,
           createdAt: original.createdAt || null,
           title: original.title || null,
         });
 
-        // ✅ inject business banner/logo as a synthetic photo if no media
-        const hasPhotos = Array.isArray(baseOriginal.photos) && baseOriginal.photos.length > 0;
-        const hasMedia = Array.isArray(baseOriginal.media) && baseOriginal.media.length > 0;
-
-        if (!hasPhotos && !hasMedia && (business?.bannerKey || business?.logoKey)) {
+        // fallback banner/logo if no media
+        const hasMedia =
+          Array.isArray(baseOriginal.media) && baseOriginal.media.length > 0;
+        if (!hasMedia && (business?.bannerKey || business?.logoKey)) {
           const key = business.bannerKey || business.logoKey;
           const url = await getPresignedUrl(key);
-
           const fallbackPhoto = {
             photoKey: key,
             uploadedBy: business._id,
@@ -422,24 +423,25 @@ async function enrichSharedPost(shared, profilePicMap = {}, userLat = null, user
             url,
             isFallbackBanner: true,
           };
-
           baseOriginal.photos = [fallbackPhoto];
           baseOriginal.media = [fallbackPhoto];
-          baseOriginal.previewUrl = url; // handy for lists
+          baseOriginal.previewUrl = url;
         }
       }
 
-      if (postType === 'check-in') {
-        const checkInUser = await User.findById(original.userId).select('firstName lastName').lean();
+      if (effectiveType === 'check-in') {
+        const checkInUser = await User.findById(original.ownerId)
+          .select('firstName lastName')
+          .lean();
         baseOriginal.fullName = checkInUser
           ? `${checkInUser.firstName || ''} ${checkInUser.lastName || ''}`.trim()
           : null;
       }
 
-      // enrich originalOwner (union User | Business) – unchanged
-      const enrichedOriginalOwner = await enrichOriginalOwner(originalOwner, originalOwnerModel);
-
-      // story uploader (union User | Business) – unchanged
+      const enrichedOriginalOwner = await enrichOriginalOwner(
+        originalOwner,
+        originalOwnerModel
+      );
       const enrichedStoryUser = await shapeStoryUploader(user, profilePicMap);
 
       return {
@@ -451,64 +453,64 @@ async function enrichSharedPost(shared, profilePicMap = {}, userLat = null, user
         expiresAt: storyMeta.expiresAt,
         viewedBy: storyMeta.viewedBy,
         user: enrichedStoryUser,
-        original: baseOriginal,         // ✅ SharedContent union member
-        originalPostType: postType,
+        original: baseOriginal,
+        originalPostType: effectiveType,
         originalPostId: originalPostId?.toString?.(),
-        originalOwner: enrichedOriginalOwner, // ✅ OriginalOwner union member
+        originalOwner: enrichedOriginalOwner,
         originalOwnerModel,
       };
     }
 
-    // ---------- NEW: INVITE ----------
-    if (postType === 'invite') {
-      // Build the ActivityInvite GraphQL shape exactly:
-      // type ActivityInvite {
-      //   _id, sender(InviteUser), recipients([InviteRecipient]),
-      //   placeId, businessName, businessLogoUrl, note, dateTime,
-      //   message, isPublic, status, createdAt, likes, comments, type, requests, sortDate
-      // }
+    // -------------------------------------- INVITE --------------------------------------
+    if (effectiveType === 'invite') {
+      const senderId =
+        original.ownerId ||
+        original.details?.senderId ||
+        original.sender?.id ||
+        original.sender;
 
-      // sender
-      const senderId = original.senderId || original.sender._id || original.sender.id || original.sender;
       const sender = senderId ? await toInviteUserShape(senderId) : null;
-
       if (!sender || !sender.id) {
         console.warn(
-          `[❌ INVITE ENRICH] Missing sender or sender.id for invite ${original._id} (senderId: ${senderId}) — skipping shared post`
+          `[❌ INVITE ENRICH] Missing sender for invite ${original._id} (senderId: ${senderId}) — skipping shared post`
         );
         return null;
       }
 
-      // recipients
-      const recipients = await toInviteRecipientsShape(original.recipients || []);
+      const recipients = await toInviteRecipientsShape(
+        original.details?.recipients || []
+      );
+      const { businessName, businessLogoUrl } = await lookupBusinessBits(
+        original.placeId
+      );
 
-      // business bits
-      const { businessName, businessLogoUrl } = await lookupBusinessBits(original.placeId);
-
-      // likes → [{ userId, fullName }]
-      const likes = (original.likes || []).map(l => ({
+      const likes = (original.likes || []).map((l) => ({
         userId: (l.userId?._id || l.userId || '').toString?.() || (l.userId || ''),
         fullName: l.fullName || '',
       }));
 
       const baseInvite = {
-        __typename: 'ActivityInvite',   // ✅ helps union resolution
+        __typename: 'ActivityInvite',
         _id: original._id,
-        sender,                         // InviteUser
-        recipients,                     // [InviteRecipient]
+        sender,
+        recipients,
         placeId: original.placeId || null,
         businessName,
         businessLogoUrl,
         note: original.note || null,
-        dateTime: original.dateTime ? new Date(original.dateTime).toISOString() : null,
+        dateTime: original.details?.dateTime
+          ? new Date(original.details.dateTime).toISOString()
+          : null,
         message: original.message || null,
-        isPublic: !!original.isPublic,
+        isPublic: original.privacy ? original.privacy === 'public' : !!original.isPublic,
         status: original.status || 'pending',
-        createdAt: original.createdAt ? new Date(original.createdAt).toISOString() : new Date().toISOString(),
+        createdAt: original.createdAt
+          ? new Date(original.createdAt).toISOString()
+          : new Date().toISOString(),
         likes,
-        comments,                       // already enriched above
-        type: 'invite',                 // ✅ matches your schema
-        requests: (original.requests || []).map(r => ({
+        comments,
+        type: 'invite',
+        requests: (original.details?.requests || []).map((r) => ({
           _id: r._id?.toString?.() || r._id,
           userId: (r.userId?._id || r.userId || '').toString?.() || (r.userId || ''),
           status: r.status || 'pending',
@@ -519,10 +521,10 @@ async function enrichSharedPost(shared, profilePicMap = {}, userLat = null, user
         sortDate: original.sortDate || original.createdAt || null,
       };
 
-      // enrich originalOwner (union User | Business)
-      const enrichedOriginalOwner = await enrichOriginalOwner(originalOwner, originalOwnerModel);
-
-      // story uploader (union User | Business)
+      const enrichedOriginalOwner = await enrichOriginalOwner(
+        originalOwner,
+        originalOwnerModel
+      );
       const enrichedStoryUser = await shapeStoryUploader(user, profilePicMap);
 
       return {
@@ -534,28 +536,26 @@ async function enrichSharedPost(shared, profilePicMap = {}, userLat = null, user
         expiresAt: storyMeta.expiresAt,
         viewedBy: storyMeta.viewedBy,
         user: enrichedStoryUser,
-        original: baseInvite,                 // ✅ SharedContent → ActivityInvite
-        originalPostType: postType,
+        original: baseInvite,
+        originalPostType: effectiveType,
         originalPostId: originalPostId?.toString?.(),
-        originalOwner: enrichedOriginalOwner, // ✅ OriginalOwner union
+        originalOwner: enrichedOriginalOwner,
         originalOwnerModel,
       };
     }
 
-    // (should never hit)
     return null;
-
   } catch (err) {
     console.error('[❌ enrichSharedPost failed]', err);
     return null;
   }
 }
 
-// Utility to ensure GraphQL-friendly __typename
+/* --------------------------------- utils --------------------------------- */
+
 function capitalizeFirstLetter(type) {
   if (!type) return '';
-  if (type === 'check-in') return 'CheckIn';
-  if (type === 'checkIn') return 'CheckIn';
+  if (type === 'check-in' || type === 'checkIn') return 'CheckIn';
   if (type === 'invite') return 'ActivityInvite';
   if (type === 'promotion') return 'Promotion';
   if (type === 'event') return 'Event';

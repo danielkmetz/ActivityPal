@@ -1,11 +1,11 @@
 const User = require('../../models/User');
 const Business = require('../../models/Business');
+const { Post } = require('../../models/Post'); // ✅ unified Post model
 const { enrichStory } = require('../../utils/enrichStories');
-const { enrichSharedPost, resolveUserProfilePics } = require('../../utils/userPosts');
-const { resolveSharedPostData } = require('../../utils/resolveSharedPostType');
+const { enrichSharedPost, resolveUserProfilePics } = require('../../utils/userPosts'); // enrichSharedPost already updated to unified Post
 
 const DEBUG_STORIES = process.env.DEBUG_STORIES === '1';
-const DEBUG_HTTP = process.env.DEBUG_STORIES_HTTP_HEAD === '1'; // kept for compatibility; now uses GET Range internally
+const DEBUG_HTTP = process.env.DEBUG_STORIES_HTTP_HEAD === '1';
 const PROBE_LIMIT = Number(process.env.DEBUG_STORIES_PROBE_LIMIT || 5);
 
 function log(...args) {
@@ -26,14 +26,12 @@ function maskUrl(u) {
 function guessKeyFromUrl(u) {
   try {
     const url = new URL(u);
-    // works for virtual-hosted & path-style S3 URLs
     return url.pathname.startsWith('/') ? url.pathname.slice(1) : url.pathname;
   } catch {
     return null;
   }
 }
 
-// ---- Probe helper: ONLY uses GET Range so presigned GET works ----
 async function rangeProbe(url) {
   if (!DEBUG_HTTP || !url) return null;
 
@@ -49,13 +47,12 @@ async function rangeProbe(url) {
   }
 
   try {
-    // Ask for the first byte only; S3 should return 206 + Content-Range
     const r = await _fetch(url, { headers: { Range: 'bytes=0-0' } });
     return {
       status: r.status,
       ok: r.ok,
       contentType: r.headers.get('content-type'),
-      contentRange: r.headers.get('content-range'), // e.g. "bytes 0-0/12345"
+      contentRange: r.headers.get('content-range'),
       acceptRanges: r.headers.get('accept-ranges'),
     };
   } catch (e) {
@@ -71,6 +68,7 @@ const userAndFollowingStories = async (_, { userId }, context) => {
   try {
     const currentUserId = context?.user?._id || userId;
 
+    // Pull current user + following with their stories
     const user = await User.findById(userId)
       .select('firstName lastName profilePic stories following')
       .populate({
@@ -87,47 +85,71 @@ const userAndFollowingStories = async (_, { userId }, context) => {
     const usersToCheck = [user, ...(user.following || [])];
     log(`👥 users to check: ${usersToCheck.length}`);
 
-    // Collect IDs for resolving original owners and profile pics
-    const userIdsToResolve = new Set();
-    const userOwnerIds = new Set();
-    const businessOwnerIds = new Set();
+    // -------------------- Batch collect ids for one-shot queries --------------------
+    const uploaderIds = new Set();
+    const originalPostIds = new Set();
 
     for (const u of usersToCheck) {
-      userIdsToResolve.add(u._id.toString());
+      uploaderIds.add(u._id.toString());
       for (const story of u.stories || []) {
         const valid = new Date(story.expiresAt) > now && story.visibility === 'public';
         if (!valid) continue;
-        if (story.originalOwner) {
-          userIdsToResolve.add(story.originalOwner.toString());
-          if (story.originalOwnerModel === 'Business') {
-            businessOwnerIds.add(story.originalOwner.toString());
-          } else {
-            userOwnerIds.add(story.originalOwner.toString());
-          }
+        if (story.originalPostId) {
+          originalPostIds.add(story.originalPostId.toString());
         }
       }
     }
 
-    log('📸 resolving profile pics for', [...userIdsToResolve].map(short));
-    const profilePicMap = await resolveUserProfilePics([...userIdsToResolve]).catch((e) => {
+    // Load all originals at once from unified Post collection
+    const originalPosts = originalPostIds.size
+      ? await Post.find({ _id: { $in: [...originalPostIds] } }).lean()
+      : [];
+    const originalPostMap = new Map(originalPosts.map((p) => [p._id.toString(), p]));
+
+    // Collect owner ids from originals (by model) for later lookups + pics
+    const ownerUserIds = new Set();
+    const ownerBusinessIds = new Set();
+
+    for (const p of originalPosts) {
+      if (p.ownerModel === 'Business' && p.ownerId) {
+        ownerBusinessIds.add(p.ownerId.toString());
+      } else if (p.ownerId) {
+        ownerUserIds.add(p.ownerId.toString());
+      }
+    }
+
+    // Resolve profile pics for uploaders + owners (users/businesses)
+    const picIds = new Set([...uploaderIds, ...ownerUserIds, ...ownerBusinessIds]);
+    log('📸 resolving profile pics for', [...picIds].map(short));
+    const profilePicMap = await resolveUserProfilePics([...picIds]).catch((e) => {
       log('⚠️ resolveUserProfilePics failed:', e?.message || e);
       return {};
     });
     log('✅ profile pics resolved');
 
-    const [userDocs, businessDocs] = await Promise.all([
-      User.find({ _id: { $in: [...userOwnerIds] } })
-        .select('firstName lastName profilePic profilePicUrl')
-        .lean(),
-      Business.find({ _id: { $in: [...businessOwnerIds] } })
-        .select('businessName logoKey profilePic profilePicUrl')
-        .lean(),
+    // Load owner docs in batch (only if needed)
+    const [ownerUsers, ownerBusinesses] = await Promise.all([
+      ownerUserIds.size
+        ? User.find({ _id: { $in: [...ownerUserIds] } })
+            .select('firstName lastName profilePic profilePicUrl')
+            .lean()
+        : [],
+      ownerBusinessIds.size
+        ? Business.find({ _id: { $in: [...ownerBusinessIds] } })
+            .select('businessName logoKey profilePic profilePicUrl')
+            .lean()
+        : [],
     ]);
 
     const originalOwnerMap = new Map();
-    for (const userDoc of userDocs) originalOwnerMap.set(userDoc._id.toString(), { ...userDoc, __model: 'User' });
-    for (const bizDoc of businessDocs) originalOwnerMap.set(bizDoc._id.toString(), { ...bizDoc, __model: 'Business' });
+    for (const udoc of ownerUsers) {
+      originalOwnerMap.set(udoc._id.toString(), { ...udoc, __model: 'User' });
+    }
+    for (const bdoc of ownerBusinesses) {
+      originalOwnerMap.set(bdoc._id.toString(), { ...bdoc, __model: 'Business' });
+    }
 
+    // -------------------- Build grouped response --------------------
     const groupedStoriesMap = new Map();
     let probes = 0;
 
@@ -145,20 +167,24 @@ const userAndFollowingStories = async (_, { userId }, context) => {
         const valid = new Date(story.expiresAt) > now && story.visibility === 'public';
         if (!valid) continue;
 
-        const isSharedPost = story.originalPostId && story.postType;
-        const originalOwnerId = story.originalOwner?.toString();
-        const originalOwner = originalOwnerMap.get(originalOwnerId) || null;
-
+        const hasOriginal = !!story.originalPostId;
         let enrichedStory;
         const sid = short(story?._id);
 
-        if (isSharedPost) {
-          log(`🔗 shared story id=${sid} postType=${story.postType} originalPostId=${short(story.originalPostId)}`);
-          const { original } = await resolveSharedPostData(story.postType, story.originalPostId);
-          if (!original || !original._id) {
-            log(`⚠️ skip story id=${sid}, missing original post ${story.originalPostId}`);
+        if (hasOriginal) {
+          const original = originalPostMap.get(story.originalPostId.toString());
+          if (!original) {
+            log(`⚠️ skip story id=${sid}, missing original post ${short(story.originalPostId)}`);
             continue;
           }
+
+          // Owner doc for original
+          const ownerIdStr = original.ownerId?.toString?.() || String(original.ownerId || '');
+          const originalOwner =
+            originalOwnerMap.get(ownerIdStr) ||
+            null;
+
+          // Normalize story meta for enrichSharedPost
           const normalizedStory = {
             _id: story._id.toString?.() || story._id,
             mediaKey: story.mediaKey,
@@ -167,18 +193,23 @@ const userAndFollowingStories = async (_, { userId }, context) => {
             visibility: story.visibility,
             expiresAt: story.expiresAt,
             viewedBy: story.viewedBy,
-            originalPostId: story.originalPostId?.toString?.() || story.originalPostId,
-            postType: story.postType,
-            originalOwner: story.originalOwner?.toString?.() || story.originalOwner,
-            originalOwnerModel: story.originalOwnerModel,
+            originalPostId: original._id?.toString?.() || original._id,
+            postType: original.type, // ✅ prefer the unified post.type
+            originalOwner: original.ownerId?.toString?.() || original.ownerId,
+            originalOwnerModel: original.ownerModel,
           };
 
+          // enrichSharedPost now expects unified Post in `original`
           const enrichedSharedStory = await enrichSharedPost(
-            { ...normalizedStory, original, user: u, storyMeta: normalizedStory },
-            profilePicMap,
-            null,
-            currentUserId
+            {
+              ...normalizedStory,
+              original,
+              user: u,
+              storyMeta: normalizedStory,
+            },
+            profilePicMap // userLat/userLng not used here
           );
+
           const baseEnriched = await enrichStory(story, u, currentUserId, originalOwner);
 
           enrichedStory = {
@@ -186,15 +217,15 @@ const userAndFollowingStories = async (_, { userId }, context) => {
             ...baseEnriched,
             _id: story._id,
             type: 'sharedStory',
-            original: enrichedSharedStory.original,
+            original: enrichedSharedStory?.original,
           };
         } else {
           log(`📝 regular story id=${sid} mediaKey=${story.mediaKey}`);
-          enrichedStory = await enrichStory(story, u, currentUserId, originalOwner);
+          enrichedStory = await enrichStory(story, u, currentUserId, null);
           enrichedStory = { ...enrichedStory, type: 'story' };
         }
 
-        // 🔍 Optional S3 health check for VIDEO stories (limited by PROBE_LIMIT)
+        // Optional S3 health probe for videos
         if (
           DEBUG_HTTP &&
           probes < PROBE_LIMIT &&
@@ -229,24 +260,22 @@ const userAndFollowingStories = async (_, { userId }, context) => {
 
     const result = Array.from(groupedStoriesMap.values());
 
-    // helper to coerce to epoch ms robustly
+    // Robust ms coercion
     const toMs = (v) => {
       if (!v) return 0;
       if (typeof v === 'number') return v;
       if (v instanceof Date) return v.getTime();
       if (typeof v === 'string') return Date.parse(v) || 0;
-      // ObjectId fallback (if you ever pass one through)
       return v?.getTimestamp?.().getTime?.() || 0;
     };
 
-    // 1) sort each user's stories newest → oldest
+    // Sort each user's stories newest → oldest
     for (const g of result) {
       g.stories.sort((a, b) => toMs(b.createdAt) - toMs(a.createdAt));
-      // track each group's latest story time for step 2
       g._latestMs = g.stories.length ? toMs(g.stories[0].createdAt) : 0;
     }
 
-    // 2) sort users by their most recent story newest → oldest
+    // Sort users by most recent story
     result.sort((a, b) => (b._latestMs || 0) - (a._latestMs || 0));
     for (const g of result) delete g._latestMs;
 

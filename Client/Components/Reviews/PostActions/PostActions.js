@@ -8,7 +8,7 @@ import CommentButton from "./CommentButton";
 import SendButton from './SendButton';
 import ShareButton from './ShareButton';
 import { medium } from "../../../utils/Haptics/haptics";
-import { setSelectedReview } from "../../../Slices/ReviewsSlice";
+import { setSelectedReview } from "../../../Slices/PostsSlice";
 import { useLikeAnimations } from "../../../utils/LikeHandlers/LikeAnimationContext";
 import { pickPostId, typeFromKind as promoEventKind } from "../../../utils/posts/postIdentity";
 import { handleEventOrPromoLike } from "../../../utils/LikeHandlers/promoEventLikes";

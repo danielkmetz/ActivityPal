@@ -20,7 +20,7 @@ import { useHiddenTagged } from '../../../Providers/HiddenTaggedContext'; // pro
 import { restoreUnhiddenTaggedToFeed, filterTaggedPost } from '../../../Slices/TaggedPostsSlice';
 import { useHiddenPosts } from '../../../Providers/HiddenPostsContext'; // adjust path if needed
 import { normalizePostType as normalizeHideType } from '../../../utils/normalizePostType';
-import { addPostBackToProfileByCreatedAt, addPostBackToUserAndFriendsByCreatedAt } from '../../../Slices/ReviewsSlice';
+import { addPostBackToProfileByCreatedAt, addPostBackToUserAndFriendsByCreatedAt } from '../../../Slices/PostsSlice';
 
 const toStr = (v) => (v == null ? '' : String(v));
 const getTagId = (t) => toStr(t?.userId ?? t?._id ?? t?.id ?? t);

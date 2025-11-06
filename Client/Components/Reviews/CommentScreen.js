@@ -20,7 +20,7 @@ import { formatEventDate, getTimeLeft } from '../../functions';
 import { uploadReviewPhotos } from '../../Slices/PhotosSlice';
 import { useLikeAnimations } from '../../utils/LikeHandlers/LikeAnimationContext';
 import { addComment as addCommentGeneric, toApiPostType } from '../../Slices/CommentsSlice';
-import { selectPostById, selectSelectedReview } from '../../Slices/ReviewsSlice';
+import { selectPostById, selectSelectedPost } from '../../Slices/PostsSlice';
 import ShareOptionsModal from './SharedPosts/ShareOptionsModal';
 import SharePostModal from './SharedPosts/SharePostModal';
 import { medium } from '../../utils/Haptics/haptics';
@@ -33,7 +33,7 @@ export default function CommentScreen() {
     const { reviewId, targetId } = route.params || {};
     const dispatch = useDispatch();
     const navigation = useNavigation();
-    const selectedReview = useSelector(selectSelectedReview);
+    const selectedReview = useSelector(selectSelectedPost);
     const reviewFromFeed = useSelector((state) => selectPostById(state, reviewId));
     const review = reviewFromFeed || selectedReview;
     const replyingTo = useSelector(selectReplyingTo);
