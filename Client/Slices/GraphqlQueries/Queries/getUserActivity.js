@@ -1,35 +1,12 @@
 import { gql } from '@apollo/client';
-import { REVIEW_FRAGMENT } from '../Fragments/reviewFragment';
-import { CHECKIN_FRAGMENT } from '../Fragments/checkInFragment';
-import { INVITE_FRAGMENT } from '../Fragments/inviteFragment';
-import { SHARED_POST_FRAGMENT } from '../Fragments/sharedPostFragment';
-import { LIVE_STREAM_FRAGMENT } from '../Fragments/liveStreamsFragment';
+import { POST_FIELDS } from '../Fragments/postFragment'; // ← your new unified Post fragment
 
 export const GET_USER_ACTIVITY_QUERY = gql`
-  ${REVIEW_FRAGMENT}
-  ${CHECKIN_FRAGMENT}
-  ${INVITE_FRAGMENT}
-  ${SHARED_POST_FRAGMENT}
-  ${LIVE_STREAM_FRAGMENT}
+  ${POST_FIELDS}
 
   query GetUserActivity($limit: Int, $after: ActivityCursor, $userLat: Float, $userLng: Float) {
     getUserActivity(limit: $limit, after: $after, userLat: $userLat, userLng: $userLng) {
-      ... on Review {
-        ...ReviewFields
-      }
-      ... on CheckIn {
-        ...CheckInFields
-      }
-      ... on ActivityInvite {
-        ...InviteFields
-      }
-      ... on SharedPost {
-        ...SharedPostFields
-      }
-
-      ... on LiveStream {
-        ...LiveStreamFields
-      }
+      ...PostFields
     }
   }
 `;

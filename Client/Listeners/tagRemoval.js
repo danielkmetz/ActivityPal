@@ -1,6 +1,6 @@
 import { createListenerMiddleware, isAnyOf } from '@reduxjs/toolkit';
 import { removeSelfFromPost, removeSelfFromPhoto } from '../Slices/RemoveTagsSlice';
-import { applyPostUpdates as applyReviewUpdates } from '../Slices/ReviewsSlice';
+import { applyPostUpdates as applyReviewUpdates } from '../Slices/PostsSlice';
 import { applyEventUpdates } from '../Slices/EventsSlice';
 import { applyPromotionUpdates } from '../Slices/PromotionsSlice';
 import { normalizePostType } from '../utils/normalizePostType';

@@ -15,9 +15,7 @@ import EditPhotosModal from "../../Profile/EditPhotosModal";
 import EditPhotoDetailsModal from "../../Profile/EditPhotoDetailsModal";
 import TagFriendsModal from "../TagFriendsModal";
 import { selectUser } from "../../../Slices/UserSlice";
-import { editReview } from "../../../Slices/ReviewsSlice";
-import { createReview } from "../../../Slices/ReviewsSlice";
-import { createCheckIn, editCheckIn } from "../../../Slices/CheckInsSlice";
+import { createPost, updatePost } from "../../../Slices/PostsSlice";
 import { createNotification } from "../../../Slices/NotificationsSlice";
 import { createBusinessNotification } from "../../../Slices/BusNotificationsSlice";
 import { selectMediaFromGallery } from "../../../utils/selectPhotos";
@@ -56,7 +54,6 @@ export default function CreatePost() {
   const initialPost = route.params?.initialPost || null;
   const googlePlacesRef = useRef(null);
   const fullName = `${user.firstName} ${user?.lastName}`;
-  const userId = user.id;
 
   const initialType = route.params?.isEditing
     ? route.params?.initialPost?.type
@@ -163,151 +160,150 @@ export default function CreatePost() {
     setPhotoDetailsEditing(false); // close modal after deletion
   };
 
+  // ------------ helpers -------------
+  const normalizeId = (u) => u?._id || u?.userId || u?.id;
+
+  const uploadDedupPhotos = async ({ dispatch, userId, placeId, photos }) => {
+    if (!Array.isArray(photos) || photos.length === 0) return [];
+    const seen = new Set();
+    const deduped = [];
+    for (const p of photos) {
+      const k = p.photoKey || p.uri || p.localKey || JSON.stringify(p);
+      if (!seen.has(k)) { seen.add(k); deduped.push(p); }
+    }
+    return handlePhotoUpload({ dispatch, userId, placeId, photos: deduped });
+  };
+
+  const notifyAll = async ({
+    dispatch, fullName, currentUserId, placeId, businessName,
+    postType, postId, taggedUsers, uploadedPhotos,
+  }) => {
+    const postTagPromises = (taggedUsers || []).map((tu) =>
+      dispatch(createNotification({
+        userId: normalizeId(tu),
+        type: "tag",
+        message: `${fullName} tagged you in a ${postType}!`,
+        relatedId: currentUserId,
+        typeRef: "User",
+        targetId: postId,
+        postType,
+      }))
+    );
+
+    const photoTagPromises = (uploadedPhotos || []).flatMap((photo) =>
+      (photo.taggedUsers || []).map((u) =>
+        dispatch(createNotification({
+          userId: normalizeId(u),
+          type: "photoTag",
+          message: `${fullName} tagged you in a photo!`,
+          relatedId: currentUserId,
+          typeRef: "User",
+          targetId: postId,
+          postType,
+        }))
+      )
+    );
+
+    const businessPromise = dispatch(createBusinessNotification({
+      placeId,
+      postType,
+      type: postType,
+      message: `${fullName} ${postType === "review" ? "left a review on" : "checked in at"} ${businessName}`,
+      relatedId: currentUserId,
+      typeRef: "User",
+      targetId: postId,
+      targetRef: "Post",
+    }));
+
+    return Promise.all([...postTagPromises, ...photoTagPromises, businessPromise]);
+  };
+
+  // ------------ main ---------------
   const handleSubmit = async () => {
-    if (!business || (postType === "review" && !review.trim())) {
+    const isReview = postType === "review";
+    const trimmedReview = (review || "").trim();
+    const trimmedCheckIn = (checkInMessage || "").trim();
+
+    if (!business || (isReview && !trimmedReview)) {
       Alert.alert("Error", "Please fill in all required fields.");
       return;
     }
 
     try {
-      let uploadedPhotos = [];
+      const currentUserId = user?.id || user?._id;
+      const placeId = business.place_id;
+      const businessName = business.name || "";
+      const location = business.formatted_address || "";
+      const rawPhotos = (Array.isArray(photoList) && photoList.length > 0 ? photoList : selectedPhotos) || [];
 
-      if (selectedPhotos.length > 0) {
-        const dedupedPhotos = [];
-        const seenKeys = new Set();
+      // 1) upload photos (deduped)
+      const uploadedPhotos = await uploadDedupPhotos({
+        dispatch, userId: currentUserId, placeId, photos: rawPhotos,
+      });
 
-        for (const photo of photoList) {
-          const key = photo.photoKey || photo.uri || photo.localKey;
-          if (!seenKeys.has(key)) {
-            seenKeys.add(key);
-            dedupedPhotos.push(photo);
-          }
-        }
-        uploadedPhotos = await handlePhotoUpload({
-          dispatch,
-          userId: user.id,
-          placeId: business.place_id,
-          photos: photoList,
-        });
-      }
+      // 2) common fields
+      const taggedUserIds = (taggedUsers || []).map(normalizeId).filter(Boolean);
+      let postId;
 
-      let postId = null;
-
+      // 3) edit vs create
       if (isEditing && initialPost) {
-        if (postType === "review") {
-          await dispatch(
-            editReview({
-              placeId: business.place_id,
-              reviewId: initialPost._id,
-              rating,
-              priceRating,
-              serviceRating,
-              atmosphereRating,
-              wouldRecommend,
-              reviewText: review.trim(),
-              taggedUsers,
-              photos: uploadedPhotos,
-            })
-          ).unwrap();
-          postId = initialPost._id;
-        } else {
-          const taggedUserIds = taggedUsers.map(friend => friend._id || friend.userId || friend.id);
-          await dispatch(
-            editCheckIn({
-              userId,
-              checkInId: initialPost._id,
-              updatedData: {
-                message: checkInMessage.trim(),
-                taggedUsers: taggedUserIds,
-                photos: uploadedPhotos,
-                placeId: business.place_id,
-              },
-            })
-          ).unwrap();
-          postId = initialPost._id;
-        }
+        const base = { placeId, taggedUsers: taggedUserIds, photos: uploadedPhotos };
+        const updates = isReview
+          ? {
+            ...base,
+            // details for reviews
+            rating, priceRating, serviceRating, atmosphereRating, wouldRecommend,
+            reviewText: trimmedReview,           // your backend maps reviewText/message
+            message: trimmedReview,              // keep both for safety
+          }
+          : { ...base, message: trimmedCheckIn || null };
+
+        await dispatch(updatePost({ postId: initialPost._id, updates })).unwrap();
+        postId = initialPost._id;
 
         Alert.alert("Success", `Your ${postType} has been updated!`);
-        navigation.goBack();
-        return;
-      }
-
-      if (postType === "review") {
-        const reviewResponse = await dispatch(
-          createReview({
-            placeId: business.place_id,
-            businessName: business.name,
-            userId,
-            fullName,
-            rating,
-            priceRating,
-            serviceRating,
-            atmosphereRating,
-            wouldRecommend,
-            reviewText: review.trim(),
-            photos: uploadedPhotos,
-            taggedUsers,
-          })
-        ).unwrap();
-        postId = reviewResponse._id;
       } else {
-        const taggedUserIds = taggedUsers.map(friend => friend._id || friend.userId || friend.id);
-        const checkInResponse = await dispatch(
-          createCheckIn({
-            placeId: business.place_id,
-            location: business.formatted_address,
-            businessName: business.name,
-            userId,
-            fullName,
-            message: checkInMessage.trim() || null,
-            taggedUsers: taggedUserIds,
-            photos: uploadedPhotos,
-          })
-        ).unwrap();
-        postId = checkInResponse._id;
+        // unified create payload: single shape for any type
+        const payload = {
+          type: postType,                  // backend can use this for /posts or ignore if path-param based
+          userId: currentUserId,
+          placeId,
+          location,
+          businessName,
+          photos: uploadedPhotos,
+          taggedUsers: taggedUserIds,      // backend will extract ids if objects are passed
+          // message + type-specific fields:
+          ...(isReview
+            ? {
+              message: trimmedReview,    // server prefers message; also honors reviewText
+              reviewText: trimmedReview,
+              rating, priceRating, serviceRating, atmosphereRating, wouldRecommend,
+            }
+            : { message: trimmedCheckIn || null }),
+        };
+
+        const created = await dispatch(createPost(payload)).unwrap();
+        postId = created._id;
+
+        Alert.alert("Success", `Your ${postType} has been posted!`);
       }
 
-      await Promise.all([
-        ...taggedUsers.map(user =>
-          dispatch(createNotification({
-            userId: user._id || user.userId,
-            type: "tag",
-            message: `${fullName} tagged you in a ${postType}!`,
-            relatedId: userId,
-            typeRef: "User",
-            targetId: postId,
-            postType,
-          }))
-        ),
-        ...uploadedPhotos.flatMap(photo =>
-          photo.taggedUsers.map(user =>
-            dispatch(createNotification({
-              userId: user.userId,
-              type: "photoTag",
-              message: `${fullName} tagged you in a photo!`,
-              relatedId: userId,
-              typeRef: "User",
-              targetId: postId,
-              postType,
-            }))
-          )
-        ),
-        dispatch(createBusinessNotification({
-          placeId: business.place_id,
-          postType,
-          type: postType,
-          message: `${fullName} ${postType === "review" ? "left a review on" : "checked in at"} ${business.name}`,
-          relatedId: userId,
-          typeRef: "User",
-          targetId: postId,
-          targetRef: "Review",
-        })),
-      ]);
+      // 4) notifications
+      await notifyAll({
+        dispatch,
+        fullName,
+        currentUserId,
+        placeId,
+        businessName,
+        postType,
+        postId,
+        taggedUsers,      // use original array so post-level tags still notify even if you sent ids
+        uploadedPhotos,
+      });
 
-      Alert.alert("Success", `Your ${postType} has been posted!`);
       navigation.goBack();
     } catch (err) {
-      Alert.alert("Error", err.message || "Failed to submit.");
+      Alert.alert("Error", err?.message || "Failed to submit.");
     }
   };
 

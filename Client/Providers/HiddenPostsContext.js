@@ -14,172 +14,116 @@ import {
   unhidePost,
   selectHiddenMap,
 } from '../Slices/HiddenPostsSlice';
-import { removePostFromFeeds } from '../Slices/ReviewsSlice';
-import { normalizePostType as normalizeKeyType } from '../utils/normalizePostType';
+import { removePostFromFeeds } from '../Slices/PostsSlice';
 
 const HiddenPostsContext = createContext(null);
 
-// ---------- Debug helpers ----------
+// ---- optional debug switches ----
 const TAG = '[HiddenPostsContext]';
-const DEBUG = false;               // master switch
-const VERBOSE_IS_HIDDEN = false;  // logs every isHidden call (noisy)
-const VERBOSE_ANNOTATE = false;   // logs every annotated item (very noisy)
-
-const now = () => new Date().toISOString();
-const dbg = (...args) => { if (DEBUG) console.log(TAG, ...args); };
-const warn = (...args) => { if (DEBUG) console.warn(TAG, ...args); };
-const err = (...args) => { if (DEBUG) console.error(TAG, ...args); };
-
-const hiddenKey = (postType, postId) => `${normalizeKeyType(postType)}:${String(postId)}`;
+const DEBUG = false;
+const dbg = (...a) => { if (DEBUG) console.log(TAG, ...a); };
+const warn = (...a) => { if (DEBUG) console.warn(TAG, ...a); };
+const err  = (...a) => { if (DEBUG) console.error(TAG, ...a); };
 
 export function HiddenPostsProvider({ children }) {
-  const dispatch = useDispatch();
-  const user = useSelector(selectUser);
+  const dispatch   = useDispatch();
+  const user       = useSelector(selectUser);
   const isBusiness = useSelector(selectIsBusiness);
-  const userId = user?.id || null;
+  const userId     = user?.id || null;
+
   const enabled = Boolean(userId && !isBusiness);
-  const map = useSelector(selectHiddenMap) || {};
+
+  // Map should now be { [postId: string]: true }
+  const map    = useSelector(selectHiddenMap) || {};
   const status = useSelector((s) => s.hiddenPosts?.status || 'idle');
-  const error = useSelector((s) => s.hiddenPosts?.error || null);
+  const error  = useSelector((s) => s.hiddenPosts?.error || null);
 
-  // Track previous values to log transitions/diffs
-  const prevStatusRef = useRef(status);
-  const prevMapRef = useRef(map);
-  const prevEnabledRef = useRef(enabled);
+  const lastEnabledRef = useRef(enabled);
 
-  // Initial / dependency-based fetch
+  // Initial fetch (and re-fetch when enabling toggles on)
   useEffect(() => {
-    dbg('mount/effect -> enabled?', enabled, { userId, isBusiness, at: now() });
     if (!enabled) {
-      dbg('skipping fetchHiddenPostIds(): provider disabled');
+      dbg('disabled; skipping fetchHiddenPostIds()');
       return;
     }
-    dbg('dispatch(fetchHiddenPostIds())');
+    if (!lastEnabledRef.current) dbg('enabled -> fetching hidden ids');
+    lastEnabledRef.current = true;
     dispatch(fetchHiddenPostIds());
-  }, [enabled, userId, isBusiness, dispatch]);
+  }, [enabled, dispatch]);
 
-  // Status transition logging
   useEffect(() => {
-    if (prevStatusRef.current !== status) {
-      dbg('status change', { from: prevStatusRef.current, to: status, at: now() });
-      prevStatusRef.current = status;
-    }
-  }, [status]);
-
-  // Enabled transition logging
-  useEffect(() => {
-    if (prevEnabledRef.current !== enabled) {
-      dbg('enabled change', { from: prevEnabledRef.current, to: enabled, at: now() });
-      prevEnabledRef.current = enabled;
-    }
-  }, [enabled]);
-
-  // Error logging
-  useEffect(() => {
-    if (error) err('slice error', { error, at: now() });
+    if (error) err('HiddenPosts slice error:', error);
   }, [error]);
-
-  // Map updates: size + sample keys
-  useEffect(() => {
-    if (prevMapRef.current !== map) {
-      const keys = Object.keys(map || {});
-      const size = keys.length;
-      dbg('hiddenMap updated', {
-        size,
-        sampleKeys: keys.slice(0, 10),
-        at: now(),
-      });
-      prevMapRef.current = map;
-    }
-  }, [map]);
 
   const refresh = useCallback(() => {
     if (!enabled) {
       warn('refresh() called while disabled');
       return;
     }
-    dbg('refresh -> dispatch(fetchHiddenPostIds())');
     dispatch(fetchHiddenPostIds());
   }, [enabled, dispatch]);
 
+  // id-only check
   const isHidden = useCallback(
-    (postType, postId) => {
-      if (!postType || !postId) {
-        warn('isHidden called with missing args', { postType, postId });
+    (_postType, postId) => {
+      const id = String(postId ?? '');
+      if (!id) {
+        warn('isHidden called with empty postId');
+        return false;
       }
-      const key = hiddenKey(postType, postId);
-      const hit = Boolean(map[key]);
-      if (DEBUG && VERBOSE_IS_HIDDEN) {
-        dbg('isHidden?', { postType, postId, key, hit });
-      }
-      return hit;
+      return Boolean(map[id]);
     },
     [map]
   );
 
   const hide = useCallback(
-    (postType, postId) => {
+    (_postType, postId) => {
       if (!enabled) {
-        warn('hide() called while disabled', { postType, postId });
+        warn('hide() called while disabled', { postId });
         return;
       }
-      const key = hiddenKey(postType, postId);
-      dbg('HIDE request', { postType, postId, key, at: now() });
+      const id = String(postId ?? '');
+      if (!id) return;
+
       try {
-        dispatch(hidePost({ postType, postId }));
-        // If your feed keys are composite, confirm this call matches that schema
-        dispatch(removePostFromFeeds(postId));
-        dbg('hidePost dispatched; removePostFromFeeds dispatched', { key });
+        // Thunk should accept id-only now; if your API still allows postType, passing it is harmless
+        dispatch(hidePost({ postId: id }));
+        // Optimistic: remove from visible feeds immediately
+        dispatch(removePostFromFeeds(id));
       } catch (e) {
-        err('hidePost dispatch failed', { e });
+        err('hidePost dispatch failed', e);
       }
     },
     [enabled, dispatch]
   );
 
   const unhide = useCallback(
-    (postType, postId) => {
+    (_postType, postId) => {
       if (!enabled) {
-        warn('unhide() called while disabled', { postType, postId });
+        warn('unhide() called while disabled', { postId });
         return;
       }
-      const key = hiddenKey(postType, postId);
-      dbg('UNHIDE request', { postType, postId, key, at: now() });
+      const id = String(postId ?? '');
+      if (!id) return;
+
       try {
-        dispatch(unhidePost({ postType, postId }));
-        dbg('unhidePost dispatched', { key });
+        dispatch(unhidePost({ postId: id }));
       } catch (e) {
-        err('unhidePost dispatch failed', { e });
+        err('unhidePost dispatch failed', e);
       }
     },
     [enabled, dispatch]
   );
 
-  // annotate a list of posts with __hidden
+  // annotate a list with __hidden using id-only
   const withHiddenFlags = useCallback(
     (items) => {
       if (!Array.isArray(items)) return items;
-      const t0 = Date.now();
-      let hiddenCount = 0;
-
-      const out = items.map((it) => {
-        const typ = normalizeKeyType(it?.__typename || it?.type || '');
+      return items.map((it) => {
         const id = String(it?._id || it?.id || '');
-        const key = `${typ}:${id}`;
-        const flag = Boolean(map[key]);
-        if (flag) hiddenCount += 1;
-        if (DEBUG && VERBOSE_ANNOTATE) dbg('annotate', { key, flag });
+        const flag = id ? Boolean(map[id]) : false;
         return { ...it, __hidden: flag };
       });
-
-      const durMs = Date.now() - t0;
-      dbg('withHiddenFlags', {
-        total: items.length,
-        hiddenCount,
-        durMs,
-      });
-
-      return out;
     },
     [map]
   );

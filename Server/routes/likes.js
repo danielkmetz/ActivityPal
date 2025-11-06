@@ -1,14 +1,10 @@
 const router = require('express').Router();
+const mongoose = require('mongoose');
 const verifyToken = require('../middleware/verifyToken');
-const Promotion = require('../models/Promotions.js');
-const Event = require('../models/Events.js');
-const LiveStream = require('../models/LiveStream.js');
-const Review = require('../models/Reviews.js');
-const CheckIn = require('../models/CheckIns.js');
-const ActivityInvite = require('../models/ActivityInvites.js');
-const SharedPost = require('../models/SharedPost.js');
-const User = require('../models/User.js');
-const Business = require('../models/Business.js');
+
+const { Post } = require('../models/Post');  // ✅ unified Post model
+const User = require('../models/User');
+const Business = require('../models/Business');
 
 /* -------------------------------------------------------------------------- */
 /*                               Local utilities                               */
@@ -51,108 +47,93 @@ const mkLoggers = (rid) => {
   };
 };
 
-/* -------------------------------------------------------------------------- */
-/*                      Model map + owner resolver (local)                     */
-/* -------------------------------------------------------------------------- */
-
-// Map postType segment -> model
-const MODEL_BY_TYPE = {
-  promotions: Promotion,
-  promos: Promotion,
-  promo: Promotion,
-  promotion: Promotion,
-
-  events: Event,
-  event: Event,
-
-  liveStreams: LiveStream,
-  live: LiveStream, // allow shorthand
-  livestreams: LiveStream,
-
-  reviews: Review,
-  review: Review,
-
-  checkins: CheckIn,
-  'check-ins': CheckIn,
-  checkIns: CheckIn,
-  checkin: CheckIn,
-  'check-in': CheckIn,
-
-  invites: ActivityInvite,
-  invite: ActivityInvite,
-
-  sharedPosts: SharedPost,
-  shared: SharedPost,
-};
-
-// Who owns each post type (for notification cleanup on UNLIKE)
-const ownerResolvers = {
-  promotions: async (doc) => {
-    if (!doc?.placeId) return { ownerId: null, ownerRef: 'Business' };
-    const biz = await Business.findOne({ placeId: doc.placeId }).select('_id').lean();
-    return { ownerId: biz?._id || null, ownerRef: 'Business' };
-  },
-  promos: async (doc) => ownerResolvers.promotions(doc),
-  promotion: async (doc) => ownerResolvers.promotions(doc),
-
-  events: async (doc) => {
-    if (!doc?.placeId) return { ownerId: null, ownerRef: 'Business' };
-    const biz = await Business.findOne({ placeId: doc.placeId }).select('_id').lean();
-    return { ownerId: biz?._id || null, ownerRef: 'Business' };
-  },
-  event: async (doc) => ownerResolvers.events(doc),
-
-  liveStreams: async (doc) => ({ ownerId: String(doc?.hostUserId || ''), ownerRef: 'User' }),
-  livestreams: async (doc) => ownerResolvers.liveStreams(doc),
-  live: async (doc) => ownerResolvers.liveStreams(doc),
-
-  reviews: async (doc) => ({ ownerId: String(doc?.userId || ''), ownerRef: 'User' }),
-  review: async (doc) => ownerResolvers.reviews(doc),
-
-  checkins: async (doc) => ({ ownerId: String(doc?.userId || ''), ownerRef: 'User' }),
-  'check-ins': async (doc) => ownerResolvers.checkins(doc),
-  checkIns: async (doc) => ownerResolvers.checkins(doc),
-  checkin: async (doc) => ownerResolvers.checkins(doc),
-  'check-in': async (doc) => ownerResolvers.checkins(doc),
-
-  invites: async (doc) => ({ ownerId: String(doc?.senderId || ''), ownerRef: 'User' }),
-  invite: async (doc) => ownerResolvers.invites(doc),
-
-  sharedPosts: async (doc) => ({ ownerId: String(doc?.user || ''), ownerRef: 'User' }),
-  shared: async (doc) => ownerResolvers.sharedPosts(doc),
-};
+const isOid = (v) => mongoose.Types.ObjectId.isValid(String(v));
+const oid   = (v) => new mongoose.Types.ObjectId(String(v));
 
 /* -------------------------------------------------------------------------- */
-/*                              Helper functions                               */
+/*                        Notification helpers (Post)                          */
 /* -------------------------------------------------------------------------- */
 
-async function removeLikeNotification({ ownerRef, ownerId, userId, postId, postType }) {
-  if (!ownerId) return;
+function findLikeNotifIndex(notifs = [], { likerId, postId, postType }) {
+  return notifs.findIndex(
+    (n) =>
+      n?.type === 'like' &&
+      String(n?.relatedId) === String(likerId) &&
+      String(n?.targetId) === String(postId) &&
+      n?.postType === postType
+  );
+}
 
-  if (ownerRef === 'Business') {
-    const biz = await Business.findById(ownerId);
+async function addLikeNotification({ post, likerId, likerName }) {
+  if (!post?.ownerId) return;
+  if (String(post.ownerId) === String(likerId)) return; // don't notify self
+
+  const payload = {
+    type: 'like',
+    message: `${likerName} liked your ${post.type}`,
+    relatedId: likerId,
+    typeRef: 'User',
+    targetId: post._id,
+    targetRef: 'Post',
+    commentId: null,
+    replyId: null,
+    read: false,
+    postType: post.type,
+    createdAt: new Date(),
+  };
+
+  if (post.ownerModel === 'Business') {
+    const biz = await Business.findById(post.ownerId);
     if (!biz) return;
-    const idx = (biz.notifications || []).findIndex(
-      (n) =>
-        n?.type === 'like' &&
-        String(n?.relatedId) === String(userId) &&
-        String(n?.targetId) === String(postId) &&
-        n?.postType === postType
-    );
+    biz.notifications = biz.notifications || [];
+    const idx = findLikeNotifIndex(biz.notifications, {
+      likerId,
+      postId: post._id,
+      postType: post.type,
+    });
+    if (idx === -1) {
+      biz.notifications.push(payload);
+      await biz.save();
+    }
+  } else {
+    const user = await User.findById(post.ownerId);
+    if (!user) return;
+    user.notifications = user.notifications || [];
+    const idx = findLikeNotifIndex(user.notifications, {
+      likerId,
+      postId: post._id,
+      postType: post.type,
+    });
+    if (idx === -1) {
+      user.notifications.push(payload);
+      await user.save();
+    }
+  }
+}
+
+async function removeLikeNotification({ post, likerId }) {
+  if (!post?.ownerId) return;
+
+  if (post.ownerModel === 'Business') {
+    const biz = await Business.findById(post.ownerId);
+    if (!biz) return;
+    const idx = findLikeNotifIndex(biz.notifications || [], {
+      likerId,
+      postId: post._id,
+      postType: post.type,
+    });
     if (idx !== -1) {
       biz.notifications.splice(idx, 1);
       await biz.save();
     }
   } else {
-    const user = await User.findById(ownerId);
+    const user = await User.findById(post.ownerId);
     if (!user) return;
-    const idx = (user.notifications || []).findIndex(
-      (n) =>
-        n?.type === 'like' &&
-        String(n?.relatedId) === String(userId) &&
-        String(n?.targetId) === String(postId) &&
-        n?.postType === postType
-    );
+    const idx = findLikeNotifIndex(user.notifications || [], {
+      likerId,
+      postId: post._id,
+      postType: post.type,
+    });
     if (idx !== -1) {
       user.notifications.splice(idx, 1);
       await user.save();
@@ -161,78 +142,64 @@ async function removeLikeNotification({ ownerRef, ownerId, userId, postId, postT
 }
 
 /* -------------------------------------------------------------------------- */
-/*                                  Handlers                                   */
+/*                                   Routes                                   */
 /* -------------------------------------------------------------------------- */
 
 /**
- * Toggle like for any supported post type.
- * POST /likes/:postType/:postId/like
+ * Toggle like on a unified Post
+ * POST /likes/:postId/like
  */
-router.post('/:postType/:postId/like', verifyToken, async (req, res) => {
+router.post('/:postId/like', verifyToken, async (req, res) => {
   const rid = genRid('tgl');
   const { log, warn, err } = mkLoggers(rid);
   res.set('X-Request-Id', rid);
 
   try {
-    const { postType, postId } = req.params;
-
-    const Model = MODEL_BY_TYPE[postType];
-    if (!Model) return res.status(400).json({ message: `Unsupported postType: ${postType}`, rid });
+    const { postId } = req.params;
+    if (!isOid(postId)) return res.status(400).json({ message: 'Invalid postId', rid });
 
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ message: 'Unauthorized', rid });
 
-    const fullName =
+    const likerName =
       (typeof req.user?.fullName === 'string' && req.user.fullName.trim()) ||
       [req.user?.firstName, req.user?.lastName].filter(Boolean).join(' ') ||
       'Unknown';
 
-    const doc = await Model.findById(postId);
-    if (!doc) return res.status(404).json({ message: 'Post not found', rid });
+    const post = await Post.findById(postId);
+    if (!post) return res.status(404).json({ message: 'Post not found', rid });
 
-    // Normalize likes array
-    doc.likes = Array.isArray(doc.likes) ? doc.likes : [];
+    post.likes = Array.isArray(post.likes) ? post.likes : [];
 
-    const idx = doc.likes.findIndex((l) => String(l.userId) === String(userId));
+    const idx = post.likes.findIndex((l) => String(l.userId) === String(userId));
     const isUnliking = idx > -1;
 
     if (isUnliking) {
-      doc.likes.splice(idx, 1);
+      post.likes.splice(idx, 1);
     } else {
-      doc.likes.push({ userId, fullName, date: new Date() });
+      post.likes.push({ userId, fullName: likerName, date: new Date() });
     }
 
-    await doc.save();
+    await post.save();
 
-    if (isUnliking) {
-      // Remove existing like notification if it exists
-      try {
-        const resolver = ownerResolvers[postType];
-        if (typeof resolver === 'function') {
-          const { ownerId, ownerRef } = await resolver(doc);
-          if (ownerId && String(ownerId) !== String(userId)) {
-            await removeLikeNotification({
-              ownerRef,
-              ownerId,
-              userId,
-              postId: doc._id,
-              postType,
-            });
-          }
-        }
-      } catch (e) {
-        warn('removeLikeNotification err (continuing)', { err: e?.message });
+    // Notifications (best-effort)
+    try {
+      if (isUnliking) {
+        await removeLikeNotification({ post, likerId: userId });
+      } else {
+        await addLikeNotification({ post, likerId: userId, likerName });
       }
+    } catch (e) {
+      warn('notification step failed (continuing)', { err: e?.message });
     }
 
     return res.json({
       ok: true,
       message: isUnliking ? 'Like removed' : 'Like added',
-      postType,
-      postId: String(doc._id),
+      postId: String(post._id),
       liked: !isUnliking,
-      likes: doc.likes,
-      likesCount: doc.likes.length,
+      likes: post.likes,
+      likesCount: post.likes.length,
       rid,
     });
   } catch (e) {
@@ -242,16 +209,14 @@ router.post('/:postType/:postId/like', verifyToken, async (req, res) => {
 });
 
 /**
- * Convenience alias specifically for live streams
- * POST /likes/live/:id/like
- * (Equivalent to POST /likes/liveStreams/:id/like)
+ * Convenience alias for historical clients:
+ * POST /likes/live/:id/like   →  /likes/:postId/like
+ * (This assumes you now create a Post for live streams and pass that Post id.)
  */
-router.post('/live/:id/like', verifyToken, async (req, res) => {
-  // Rewrite params and forward to the unified handler
-  req.params.postType = 'liveStreams';
+router.post('/live/:id/like', verifyToken, async (req, res, next) => {
   req.params.postId = req.params.id;
   delete req.params.id;
-  return router.handle(req, res);
-});
+  next();
+}, router); // delegate to the handler above
 
 module.exports = router;

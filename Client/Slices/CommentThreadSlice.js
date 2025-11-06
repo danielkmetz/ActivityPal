@@ -1,6 +1,6 @@
 import { createAsyncThunk } from '@reduxjs/toolkit';
 import { createSlice } from '@reduxjs/toolkit';
-import { addReply, addComment, editCommentOrReply, deleteCommentOrReply } from './ReviewsSlice';
+import { addReply, addComment, editCommentOrReply, deleteCommentOrReply } from './PostsSlice';
 import { createNotification } from './NotificationsSlice';
 
 export const addNewReply = createAsyncThunk(

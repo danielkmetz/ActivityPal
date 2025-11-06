@@ -26,10 +26,11 @@ export default function PostHeader({
     isSuggestedFollowPost = false,
     userId,
     photos,
+    owner,
     media: mediaRaw
   } = postContent;
-  const profilePicUrl = postContent?.profilePicUrl || postContent?.user?.profilePicUrl
-  
+  const profilePicUrl = owner?.profilePicUrl;
+
   // ✅ ensure media is an array
   const media = Array.isArray(photos) ? photos : (Array.isArray(mediaRaw) ? mediaRaw : []);
 

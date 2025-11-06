@@ -21,7 +21,7 @@ import { resetBanner, resetLogo, resetProfilePicture } from "../../../Slices/Pho
 import { resetPlaces, resetEvents, resetBusinessData } from "../../../Slices/PlacesSlice";
 import { resetFriends } from "../../../Slices/friendsSlice";
 import { clearGooglePlaces } from "../../../Slices/GooglePlacesSlice";
-import { resetAllReviews } from "../../../Slices/ReviewsSlice";
+import { resetAllReviews } from "../../../Slices/PostsSlice";
 import { resetNotifications } from "../../../Slices/NotificationsSlice";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";

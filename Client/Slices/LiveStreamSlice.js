@@ -1,8 +1,8 @@
 import { createSlice, createAsyncThunk, createEntityAdapter, createSelector, createAction } from '@reduxjs/toolkit';
 import axios from 'axios';
 import { getAuthHeaders } from '../utils/Authorization/getAuthHeaders';
-import { pushSharedPostToUserAndFriends } from './ReviewsSlice';
-import { updateSharedPostInReviews } from './ReviewsSlice';
+import { pushSharedPostToUserAndFriends } from './PostsSlice';
+import { updateSharedPostInReviews } from './PostsSlice';
 
 const API = `${process.env.EXPO_PUBLIC_SERVER_URL}/liveStream`;
 

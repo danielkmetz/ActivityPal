@@ -1,29 +1,12 @@
-import { REVIEW_FRAGMENT } from '../Fragments/reviewFragment';
-import { CHECKIN_FRAGMENT } from '../Fragments/checkInFragment';
-import { SHARED_POST_FRAGMENT } from '../Fragments/sharedPostFragment';
-import { LIVE_STREAM_FRAGMENT } from '../Fragments/liveStreamsFragment'; 
 import { gql } from '@apollo/client';
+import { POST_FIELDS } from '../Fragments/postFragment';
 
 export const GET_USER_POSTS_QUERY = gql`
-  ${REVIEW_FRAGMENT}
-  ${CHECKIN_FRAGMENT}
-  ${SHARED_POST_FRAGMENT}
-  ${LIVE_STREAM_FRAGMENT}
+  ${POST_FIELDS}
 
-  query GetUserPosts($userId: ID!, $limit: Int, $after: ActivityCursor) {
-    getUserPosts(userId: $userId, limit: $limit, after: $after) {
-      ... on Review {
-        ...ReviewFields
-      }
-      ... on CheckIn {
-        ...CheckInFields
-      }
-      ... on SharedPost {
-        ...SharedPostFields
-      }
-      ... on LiveStream {
-        ...LiveStreamFields
-      }
+  query GetUserPosts($userId: ID!, $types: [String!], $limit: Int, $after: ActivityCursor) {
+    getUserPosts(userId: $userId, types: $types, limit: $limit, after: $after) {
+      ...PostFields
     }
   }
 `;

@@ -6,8 +6,7 @@ import {
   ActivityIndicator,
   Text,
 } from "react-native";
-import { deleteCheckIn } from "../../Slices/CheckInsSlice";
-import { deleteReview, removePostFromFeeds } from "../../Slices/ReviewsSlice";
+import { deletePost } from "../../Slices/PostsSlice";
 import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
 import InviteCard from "./InviteCard";
@@ -17,10 +16,8 @@ import SuggestionItem from "./SuggestionItem";
 import { useNavigation } from "@react-navigation/native";
 import SharePostModal from "./SharedPosts/SharePostModal";
 import SharedPostItem from "./SharedPosts/SharedPostItem";
-import { deleteSharedPost } from "../../Slices/SharedPostsSlice";
 import ShareOptionsModal from "./SharedPosts/ShareOptionsModal";
 import LiveStreamCard from '../LiveStream/LiveStreamCard';
-import { unpostLiveSession } from "../../Slices/LiveStreamSlice";
 import { medium } from "../../utils/Haptics/haptics";
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
@@ -28,13 +25,11 @@ const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 export default function Reviews({ reviews, viewabilityConfig, onViewableItemsChanged, ListHeaderComponent, hasMore, scrollY, onScroll, onLoadMore, isLoadingMore }) {
   const dispatch = useDispatch();
   const navigation = useNavigation();
-  const user = useSelector(selectUser);
   const [photoTapped, setPhotoTapped] = useState(null);
   const [shareOptionsVisible, setShareOptionsVisible] = useState(false);
   const [shareToFeedVisible, setShareToFeedVisible] = useState(false);
   const [selectedPostForShare, setSelectedPostForShare] = useState(null);
   const [editingSharedPost, setEditingSharedPost] = useState(false);
-  const userId = user?.id;
   const listHeightRef = useRef(0);
   const contentHeightRef = useRef(0);
   const momentumGuardRef = useRef(false);
@@ -130,25 +125,8 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
           style: "destructive",
           onPress: async () => {
             try {
-              switch (post.type) {
-                case "review":
-                  await dispatch(deleteReview({ placeId: post.placeId, reviewId: post._id }));
-                  break;
-                case "check-in":
-                  await dispatch(deleteCheckIn({ userId, checkInId: post._id }));
-                  break;
-                case "sharedPost":
-                  await dispatch(deleteSharedPost(post._id));
-                  break;
-                case "liveStream":
-                  await dispatch(unpostLiveSession({ liveId: post._id, removeLinkedPost: true }));
-                  break;
-                default:
-                  console.warn("Unsupported post type:", post.type);
-                  return;
-              }
-
-              await dispatch(removePostFromFeeds(post._id));
+              await dispatch(deletePost({ postId: post._id }));
+              
               medium();
             } catch (error) {
               console.error("Error deleting post:", error);

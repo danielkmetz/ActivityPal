@@ -1,148 +1,187 @@
 const mongoose = require('mongoose');
 const User = require('../../models/User');
-const SharedPost = require('../../models/SharedPost');
 const HiddenPost = require('../../models/HiddenPosts');
-const { getPresignedUrl } = require('../../utils/cachePresignedUrl');
-const {
-  gatherUserReviews,
-  gatherUserCheckIns,
-  resolveUserProfilePics,
-  enrichSharedPost
-} = require('../../utils/userPosts');
+const { Post } = require('../../models/Post');
+const { resolveTaggedPhotoUsers } = require('../../utils/userPosts');
 
-const getAuthUserId = (ctx) =>
-  ctx?.user?._id?.toString?.() || ctx?.user?.id || ctx?.user?.userId || null;
+const oid = (v) => new mongoose.Types.ObjectId(String(v));
+const isOid = (v) => mongoose.Types.ObjectId.isValid(String(v));
 
-const getUserPosts = async (_, { userId, limit = 15, after }, context) => {
+function buildCursorQuery(after) {
+  if (!after?.sortDate || !after?.id || !isOid(after.id)) return {};
+  const sd = new Date(after.sortDate);
+  return {
+    $or: [
+      { sortDate: { $lt: sd } },
+      { sortDate: sd, _id: { $lt: oid(after.id) } },
+    ],
+  };
+}
+
+const getUserPosts = async (_, { userId, types, limit = 15, after }, context) => {
+  const TAG = '[getUserPosts]';
+  const t = (label) => `${TAG} ${label}`;
+  const log = (...args) => console.log(TAG, ...args);
+
   try {
-    const userObjectId = new mongoose.Types.ObjectId(userId);
+    console.time(t('total'));
+    log('args:', { userId, types, limit, after });
 
-    // 👇 Determine viewer (who may have hidden posts)
-    const viewerId = getAuthUserId(context);
-    const viewerObjectId = viewerId && mongoose.Types.ObjectId.isValid(viewerId)
-      ? new mongoose.Types.ObjectId(viewerId)
-      : null;
-
-    // 👇 Build hidden ID sets per model for the viewer
-    let hiddenByRef = { Review: new Set(), CheckIn: new Set(), SharedPost: new Set() };
-    if (viewerObjectId) {
-      try {
-        const rows = await HiddenPost.find(
-          { userId: viewerObjectId },
-          { targetRef: 1, targetId: 1, _id: 0 }
-        ).lean();
-
-        hiddenByRef = rows.reduce((acc, r) => {
-          const ref = r?.targetRef;
-          if (!ref) return acc;
-          if (!acc[ref]) acc[ref] = new Set();
-          acc[ref].add(String(r.targetId));
-          return acc;
-        }, { Review: new Set(), CheckIn: new Set(), SharedPost: new Set() });
-      } catch (e) {
-        console.warn('[getUserPosts] hidden fetch failed:', e?.message);
-      }
+    if (!isOid(userId)) {
+      log('❌ invalid userId format:', userId);
+      throw new Error('Invalid userId format');
     }
+    const targetId = oid(userId);
+    log('targetId (ObjectId):', String(targetId));
 
-    const user = await User.findById(userObjectId).select(
-      '_id profilePic firstName lastName'
-    );
-    if (!user) throw new Error('User not found');
+    // who is viewing?
+    const viewerIdStr =
+      context?.user?._id?.toString?.() ||
+      context?.user?.id ||
+      context?.user?.userId ||
+      null;
 
-    const photoKey = user.profilePic?.photoKey || null;
-    const profilePicUrl = photoKey ? await getPresignedUrl(photoKey) : null;
+    const viewerId =
+      viewerIdStr && isOid(viewerIdStr) ? oid(viewerIdStr) : null;
 
-    // Fetch all content
-    const reviewsRaw = await gatherUserReviews(userObjectId, user.profilePic, profilePicUrl);
-    const checkInsRaw = await gatherUserCheckIns(user, profilePicUrl);
-
-    const sharedPostsRaw = await SharedPost.find({ user: userObjectId })
-      .sort({ createdAt: -1 })
-      .lean();
-
-    // 🔒 Filter each list by the viewer's hidden sets (DB-model refs)
-    const reviews = (reviewsRaw || []).filter(r =>
-      !hiddenByRef.Review?.has(String(r._id || r.id))
-    );
-    const checkIns = (checkInsRaw || []).filter(c =>
-      !hiddenByRef.CheckIn?.has(String(c._id || c.id))
-    );
-    const sharedPostsSource = (sharedPostsRaw || []).filter(sp =>
-      !hiddenByRef.SharedPost?.has(String(sp._id || sp.id))
-    );
-
-    const profilePicMap = await resolveUserProfilePics([
-      user._id.toString(),
-      ...sharedPostsSource.map(sp => sp.originalOwner?.toString()).filter(Boolean),
-    ]);
-
-    const enrichedSharedPosts = await Promise.all(
-      sharedPostsSource.map(async (shared) => {
-        const enrichedOriginal = await enrichSharedPost(shared, profilePicMap);
-        if (!enrichedOriginal) return null;
-
-        return {
-          _id: shared._id,
-          user: {
-            id: user._id,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            profilePic: user.profilePic,
-            profilePicUrl,
-          },
-          originalOwner: {
-            id: shared.originalOwner,
-            ...profilePicMap[shared.originalOwner?.toString()],
-          },
-          postType: shared.postType,
-          originalPostId: shared.originalPostId,
-          caption: shared.caption,
-          createdAt: shared.createdAt,
-          original: enrichedOriginal.original,
-          comments: shared.comments || [],
-          type: 'sharedPost',
-          sortDate: shared.createdAt,
-        };
-      })
-    );
-
-    const sharedPosts = enrichedSharedPosts.filter(Boolean);
-
-    // Ensure type is set on reviews/check-ins so downstream code is consistent
-    const allPosts = [
-      ...reviews.map(post => ({ ...post, type: 'review',    sortDate: post.date })),
-      ...checkIns.map(post => ({ ...post, type: 'check-in', sortDate: post.date })),
-      ...sharedPosts,
-    ];
-
-    let sorted = allPosts.sort((a, b) => {
-      const dateDiff = new Date(b.sortDate) - new Date(a.sortDate);
-      if (dateDiff !== 0) return dateDiff;
-      return new mongoose.Types.ObjectId(b._id).toString().localeCompare(
-        new mongoose.Types.ObjectId(a._id).toString()
-      );
+    log('viewer:', {
+      raw: viewerIdStr,
+      valid: !!viewerId,
+      viewerId: viewerId ? String(viewerId) : null,
     });
 
-    if (after?.sortDate && after?.id) {
-      const afterTime = new Date(after.sortDate).getTime();
-      const afterObjectId = new mongoose.Types.ObjectId(after.id).toString();
+    // determine privacy scope
+    let allowedPrivacy = ['public'];
+    if (viewerId && viewerId.equals(targetId)) {
+      allowedPrivacy = ['public', 'followers', 'private', 'unlisted'];
+      log('privacy scope: SELF →', allowedPrivacy);
+    } else if (viewerId) {
+      const viewer = await User.findById(viewerId).select('following').lean();
+      const followsTarget = !!(viewer?.following || []).some(
+        (id) => String(id) === String(targetId)
+      );
+      allowedPrivacy = followsTarget ? ['public', 'followers'] : ['public'];
+      log('privacy scope: VIEWER', {
+        followsTarget,
+        allowedPrivacy,
+      });
+    } else {
+      log('privacy scope: ANON/NO-VIEWER →', allowedPrivacy);
+    }
 
-      sorted = sorted.filter(post => {
-        const postTime = new Date(post.sortDate).getTime();
-        const postId = new mongoose.Types.ObjectId(post._id).toString();
-        return (
-          postTime < afterTime ||
-          (postTime === afterTime && postId < afterObjectId)
-        );
+    // hidden posts for this viewer
+    let hiddenIds = new Set();
+    if (viewerId) {
+      const rows = await HiddenPost.find(
+        { userId: viewerId, targetRef: 'Post' },
+        { targetId: 1, _id: 0 }
+      ).lean();
+      hiddenIds = new Set(rows.map((r) => String(r.targetId)));
+      log('hidden rows:', rows.length);
+    } else {
+      log('hidden rows: skipped (no viewer)');
+    }
+
+    // optional type filter
+    const typeFilter =
+      Array.isArray(types) && types.length ? { type: { $in: types } } : {};
+    log('typeFilter:', typeFilter);
+
+    // base filter (allow legacy docs missing privacy/visibility)
+    const base = {
+      ownerId: targetId,
+      ...typeFilter,
+      $and: [
+        {
+          $or: [
+            { visibility: { $in: ['visible'] } },
+            { visibility: { $exists: false } },
+          ],
+        },
+        {
+          $or: [
+            { privacy: { $in: allowedPrivacy } },
+            { privacy: { $exists: false } }, // treat missing as public
+          ],
+        },
+      ],
+      ...buildCursorQuery(after),
+    };
+
+    // For readability in logs
+    const printableBase = {
+      ...base,
+      ownerId: String(base.ownerId),
+    };
+    log('query base:', JSON.stringify(printableBase));
+
+    // DEBUG: quick counts to diagnose mismatches
+    const c_owner_only = await Post.countDocuments({ ownerId: targetId });
+    log('debug counts:', { byOwnerOnly: c_owner_only });
+
+    console.time(t('db.find'));
+    const items = await Post.find(base)
+      .sort({ sortDate: -1, _id: -1 })
+      .limit(Math.min(Number(limit) || 15, 100))
+      .lean();
+    console.timeEnd(t('db.find'));
+
+    log('db results:', {
+      total: items.length,
+      sampleIds: items.slice(0, 5).map((p) => String(p._id)),
+      sampleOwnerIds: items.slice(0, 5).map((p) => String(p.ownerId)),
+    });
+
+    // apply hidden filter
+    const visible = items.filter((p) => !hiddenIds.has(String(p._id)));
+    log('after hidden filter:', {
+      kept: visible.length,
+      removed: items.length - visible.length,
+    });
+
+    // If nothing returned, add extra diagnostics
+    if (visible.length === 0) {
+      const c_owner_priv_anyVis = await Post.countDocuments({
+        ownerId: targetId,
+        $or: [{ privacy: { $exists: false } }, { privacy: { $in: allowedPrivacy } }],
+      });
+      const c_owner_vis_anyPriv = await Post.countDocuments({
+        ownerId: targetId,
+        $or: [{ visibility: { $exists: false } }, { visibility: { $in: ['visible'] } }],
+      });
+      log('debug counts (owner with relaxed filters):', {
+        owner_priv_ok_anyVis: c_owner_priv_anyVis,
+        owner_vis_ok_anyPriv: c_owner_vis_anyPriv,
       });
     }
 
-    return sorted.slice(0, limit);
+    // enrich media
+    console.time(t('enrich'));
+    const enriched = await Promise.all(
+      visible.map(async (p) => ({
+        ...p,
+        media: await resolveTaggedPhotoUsers(p.media || []),
+      }))
+    );
+    console.timeEnd(t('enrich'));
+
+    log('returning:', {
+      count: enriched.length,
+      sample: enriched.slice(0, 3).map((p) => ({
+        id: String(p._id),
+        ownerId: String(p.ownerId),
+        type: p.type,
+        privacy: p.privacy,
+        visibility: p.visibility,
+      })),
+    });
+
+    console.timeEnd(t('total'));
+    return enriched;
   } catch (error) {
+    console.error(`${TAG} ❌ Error:`, error?.message, error?.stack);
     throw new Error(`[Resolver Error] ${error.message}`);
   }
 };
 
-module.exports = {
-  getUserPosts,
-};
+module.exports = { getUserPosts };

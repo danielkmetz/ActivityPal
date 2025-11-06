@@ -6,13 +6,14 @@ import { selection } from "../../../utils/Haptics/haptics";
 
 export default function RatingsButton({ post }) {
   const postContent = post?.original ?? post ?? {};
-  const rating = postContent?.rating;
+  const details = postContent?.details;
+  const rating = details?.rating;
   const ratings = {
     rating,
-    pricRating: postContent?.priceRating,
-    serviceRating: postContent?.serviceRating,
-    atmosphereRating: postContent?.atmosphereRating,
-    wouldRecommend: postContent?.wouldRecommend,
+    pricRating: details?.priceRating,
+    serviceRating: details?.serviceRating,
+    atmosphereRating: details?.atmosphereRating,
+    wouldRecommend: details?.wouldRecommend,
   }
   const [open, setOpen] = useState(false);
 

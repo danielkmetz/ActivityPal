@@ -1,57 +1,151 @@
-const Review = require('../../models/Reviews');
+const { Post } = require('../../models/Post'); // ✅ unified Post model
 
 const getBusinessRatingSummaries = async (_, { placeIds }) => {
   try {
     if (!Array.isArray(placeIds) || placeIds.length === 0) {
-      throw new Error("placeIds must be a non-empty array");
+      throw new Error('placeIds must be a non-empty array');
     }
 
-    const summaries = await Promise.all(placeIds.map(async (placeId) => {
-      const reviews = await Review.find({ placeId });
+    // One aggregation over the unified Post collection (type: 'review')
+    const agg = await Post.aggregate([
+      { $match: { type: 'review', placeId: { $in: placeIds } } },
 
-      if (!reviews.length) {
-        return {
-          placeId,
-          averageRating: 0,
-          averagePriceRating: 0,
-          averageServiceRating: 0,
-          averageAtmosphereRating: 0,
-          recommendPercentage: 0,
-        };
-      }
+      {
+        $group: {
+          _id: '$placeId',
+          totalReviews: { $sum: 1 },
 
-      const ratingFields = {
-        rating: [],
-        priceRating: [],
-        serviceRating: [],
-        atmosphereRating: [],
-        wouldRecommendCount: 0,
-      };
+          // Only count numeric values for each rating bucket
+          ratingSum: {
+            $sum: {
+              $cond: [{ $isNumber: '$details.rating' }, '$details.rating', 0],
+            },
+          },
+          ratingCount: {
+            $sum: { $cond: [{ $isNumber: '$details.rating' }, 1, 0] },
+          },
 
-      reviews.forEach((r) => {
-        if (typeof r.rating === 'number') ratingFields.rating.push(r.rating);
-        if (typeof r.priceRating === 'number') ratingFields.priceRating.push(r.priceRating);
-        if (typeof r.serviceRating === 'number') ratingFields.serviceRating.push(r.serviceRating);
-        if (typeof r.atmosphereRating === 'number') ratingFields.atmosphereRating.push(r.atmosphereRating);
-        if (r.wouldRecommend === true) ratingFields.wouldRecommendCount += 1;
-      });
+          priceSum: {
+            $sum: {
+              $cond: [{ $isNumber: '$details.priceRating' }, '$details.priceRating', 0],
+            },
+          },
+          priceCount: {
+            $sum: { $cond: [{ $isNumber: '$details.priceRating' }, 1, 0] },
+          },
 
-      const avg = (arr) => arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+          serviceSum: {
+            $sum: {
+              $cond: [{ $isNumber: '$details.serviceRating' }, '$details.serviceRating', 0],
+            },
+          },
+          serviceCount: {
+            $sum: { $cond: [{ $isNumber: '$details.serviceRating' }, 1, 0] },
+          },
 
-      return {
-        placeId,
-        averageRating: parseFloat(avg(ratingFields.rating).toFixed(2)),
-        averagePriceRating: parseFloat(avg(ratingFields.priceRating).toFixed(2)),
-        averageServiceRating: parseFloat(avg(ratingFields.serviceRating).toFixed(2)),
-        averageAtmosphereRating: parseFloat(avg(ratingFields.atmosphereRating).toFixed(2)),
-        recommendPercentage: Math.round((ratingFields.wouldRecommendCount / reviews.length) * 100),
-      };
-    }));
+          atmosphereSum: {
+            $sum: {
+              $cond: [{ $isNumber: '$details.atmosphereRating' }, '$details.atmosphereRating', 0],
+            },
+          },
+          atmosphereCount: {
+            $sum: { $cond: [{ $isNumber: '$details.atmosphereRating' }, 1, 0] },
+          },
+
+          recommendCount: {
+            $sum: { $cond: [{ $eq: ['$details.wouldRecommend', true] }, 1, 0] },
+          },
+        },
+      },
+
+      {
+        $project: {
+          _id: 0,
+          placeId: '$_id',
+
+          averageRating: {
+            $round: [
+              {
+                $cond: [
+                  { $gt: ['$ratingCount', 0] },
+                  { $divide: ['$ratingSum', '$ratingCount'] },
+                  0,
+                ],
+              },
+              2,
+            ],
+          },
+          averagePriceRating: {
+            $round: [
+              {
+                $cond: [
+                  { $gt: ['$priceCount', 0] },
+                  { $divide: ['$priceSum', '$priceCount'] },
+                  0,
+                ],
+              },
+              2,
+            ],
+          },
+          averageServiceRating: {
+            $round: [
+              {
+                $cond: [
+                  { $gt: ['$serviceCount', 0] },
+                  { $divide: ['$serviceSum', '$serviceCount'] },
+                  0,
+                ],
+              },
+              2,
+            ],
+          },
+          averageAtmosphereRating: {
+            $round: [
+              {
+                $cond: [
+                  { $gt: ['$atmosphereCount', 0] },
+                  { $divide: ['$atmosphereSum', '$atmosphereCount'] },
+                  0,
+                ],
+              },
+              2,
+            ],
+          },
+
+          recommendPercentage: {
+            $cond: [
+              { $gt: ['$totalReviews', 0] },
+              {
+                $round: [
+                  { $multiply: [{ $divide: ['$recommendCount', '$totalReviews'] }, 100] },
+                  0,
+                ],
+              },
+              0,
+            ],
+          },
+        },
+      },
+    ]);
+
+    // Ensure we return an entry for every requested placeId (even if no reviews)
+    const map = new Map(agg.map((d) => [d.placeId, d]));
+    const empty = {
+      averageRating: 0,
+      averagePriceRating: 0,
+      averageServiceRating: 0,
+      averageAtmosphereRating: 0,
+      recommendPercentage: 0,
+    };
+
+    const summaries = placeIds.map((placeId) =>
+      map.has(placeId) ? { placeId, ...map.get(placeId) } : { placeId, ...empty }
+    );
 
     return summaries;
   } catch (err) {
-    console.error("❌ Error in getBusinessRatingSummaries:", err);
-    throw new Error("Failed to compute business rating summaries");
+    console.error('❌ Error in getBusinessRatingSummaries:', err);
+    throw new Error('Failed to compute business rating summaries');
   }
 };
 

@@ -2,32 +2,69 @@ const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
 const verifyToken = require('../middleware/verifyToken');
-const HiddenPost = require('../models/HiddenPosts'); // adjust path if needed
-const { normalizeTypeRef } = require('../utils/normalizeTypeRef'); // should map 'invite' -> 'ActivityInvite'
-const { normalizePostType } = require('../utils/normalizePostType'); // should accept 'invite'
-const { getModelByType } = require('../utils/getModelByType');
-const { getPostPayloadById } = require('../utils/normalizePostStructure');
+const HiddenPost = require('../models/HiddenPosts');
+const { Post } = require('../models/Post'); // ✅ unified Post (with discriminators)
+const { getPostPayloadById } = require('../utils/normalizePostStructure'); // ✅ assumes updated to 1-arg (postId)
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(String(id));
 
-// ModelName -> raw key used client-side
-const REF_TO_RAW = {
+/** Canonical unified post types we support */
+const CANON_TYPES = new Set([
+  'review',
+  'check-in',
+  'invite',
+  'event',
+  'promotion',
+  'sharedPost',
+  'liveStream',
+]);
+
+/** Map legacy model names -> unified type (for backward compatibility of HiddenPost.targetRef) */
+const LEGACY_TO_TYPE = {
   Review: 'review',
   CheckIn: 'check-in',
-  SharedPost: 'sharedPost',
-  ActivityInvite: 'invite',      // <-- switched to 'invite'
+  ActivityInvite: 'invite',
   Event: 'event',
   Promotion: 'promotion',
+  SharedPost: 'sharedPost',
+  LiveStream: 'liveStream',
 };
 
-// Helper to build the response key consistently
-const modelNameToRaw = (modelName) =>
-  REF_TO_RAW[modelName] || String(modelName || '').toLowerCase();
+/** For filtering by query param: type -> [aliases accepted in HiddenPost.targetRef] */
+const TYPE_ALIASES = {
+  review: ['review', 'Review'],
+  'check-in': ['check-in', 'CheckIn'],
+  invite: ['invite', 'ActivityInvite'],
+  event: ['event', 'Event'],
+  promotion: ['promotion', 'Promotion'],
+  sharedPost: ['sharedPost', 'SharedPost'],
+  liveStream: ['liveStream', 'LiveStream'],
+};
+
+/** Normalize any user-provided type string to our canonical unified type */
+function normalizeUnifiedType(t = '') {
+  const s = String(t).trim().toLowerCase();
+  if (!t) return null;
+  if (s === 'review' || s === 'reviews') return 'review';
+  if (s === 'check-in' || s === 'checkin' || s === 'checkins') return 'check-in';
+  if (s === 'invite' || s === 'invites' || s === 'activityinvite') return 'invite';
+  if (s === 'event' || s === 'events') return 'event';
+  if (s === 'promotion' || s === 'promotions' || s === 'promo' || s === 'promos') return 'promotion';
+  if (s === 'sharedpost' || s === 'sharedposts' || s === 'shared') return 'sharedPost';
+  if (s === 'livestream' || s === 'live' || s === 'live_stream') return 'liveStream';
+  return null;
+}
+
+/** Convert any HiddenPost.targetRef (legacy or unified) to canonical type */
+function refToType(ref = '') {
+  if (CANON_TYPES.has(ref)) return ref;
+  return LEGACY_TO_TYPE[ref] || null;
+}
 
 /**
  * GET /api/hidden
  * Returns enriched hidden posts OR ids depending on ?include=docs|ids
- * Supports optional ?postType=review|check-in|sharedPost|invite|event|promotion
+ * Supports optional ?postType=review|check-in|sharedPost|invite|event|promotion|liveStream
  * Supports pagination (page, limit)
  */
 router.get('/', verifyToken, async (req, res) => {
@@ -37,19 +74,21 @@ router.get('/', verifyToken, async (req, res) => {
   const userId = req.user?.id;
   if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
-  // normalizeTypeRef must map 'invite' -> 'ActivityInvite'
-  const typeRef = normalizeTypeRef(req.query.postType);
   const include = (req.query.include || 'docs').toLowerCase() === 'ids' ? 'ids' : 'docs';
-
   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
   const limitRaw = parseInt(req.query.limit, 10);
   const limit = Math.min(Math.max(limitRaw || 20, 1), 100);
   const skip = (page - 1) * limit;
 
-  try {
-    const match = { userId: new mongoose.Types.ObjectId(String(userId)) };
-    if (typeRef) match.targetRef = typeRef;
+  // Optional type filter
+  const qpType = normalizeUnifiedType(req.query.postType);
+  const match = { userId: new mongoose.Types.ObjectId(String(userId)) };
+  if (qpType) {
+    const aliases = TYPE_ALIASES[qpType] || [qpType];
+    match.targetRef = { $in: aliases };
+  }
 
+  try {
     const projection = { targetRef: 1, targetId: 1, createdAt: 1 };
 
     const [rows, total] = await Promise.all([
@@ -65,45 +104,50 @@ router.get('/', verifyToken, async (req, res) => {
         total,
         items: rows.map((r) => ({
           hiddenId: r._id,
-          targetRef: r.targetRef,
+          // Return the canonical type for client consistency
+          targetRef: refToType(r.targetRef) || r.targetRef,
           targetId: r.targetId,
           createdAt: r.createdAt,
         })),
       });
     }
 
+    // Batch-load posts to minimize roundtrips
+    const ids = rows.map((r) => r.targetId).filter(Boolean);
+    const posts = ids.length
+      ? await Post.find({ _id: { $in: ids } }).lean()
+      : [];
+    const postMap = new Map(posts.map((p) => [p._id.toString(), p]));
+
     const items = await Promise.all(
       rows.map(async (r) => {
-        const rawType = REF_TO_RAW[r.targetRef]; // includes 'invite' for ActivityInvite
-        let post = null;
+        const canonicalType = refToType(r.targetRef) || r.targetRef;
+        let postPayload = null;
 
-        if (!rawType) {
-          console.warn(`${TAG} unmapped targetRef`, {
+        try {
+          // Prefer the already-fetched doc if available, else let the utility fetch it
+          const doc = postMap.get(String(r.targetId));
+          if (doc) {
+            // If your getPostPayloadById can accept a doc, use that; otherwise call by id.
+            postPayload = await getPostPayloadById(doc._id); // 1-arg version (unified)
+          } else {
+            postPayload = await getPostPayloadById(r.targetId);
+          }
+        } catch (e) {
+          console.error(`${TAG} warn: failed to build payload`, {
             at: now(),
             userId,
-            targetRef: r.targetRef,
             targetId: String(r.targetId),
+            message: e?.message,
           });
-        } else {
-          try {
-            post = await getPostPayloadById(rawType, r.targetId);
-          } catch (e) {
-            console.error(`${TAG} warn: failed to build payload`, {
-              at: now(),
-              userId,
-              rawType,
-              targetId: String(r.targetId),
-              message: e?.message,
-            });
-          }
         }
 
         return {
           hiddenId: r._id,
-          targetRef: r.targetRef,
+          targetRef: canonicalType,
           targetId: r.targetId,
           createdAt: r.createdAt,
-          post,
+          post: postPayload,
         };
       })
     );
@@ -118,32 +162,32 @@ router.get('/', verifyToken, async (req, res) => {
 /**
  * POST /api/hidden/:postType/:postId
  * Hide a post globally for the current user
+ * With unified Post, we always store targetRef as the canonical type string.
  */
 router.post('/:postType/:postId', verifyToken, async (req, res) => {
   const TAG = '[POST /hidden/:postType/:postId]';
   const userId = req.user?.id;
   const { postType: rawType, postId } = req.params || {};
-  const postType = normalizePostType(rawType);
+  const reqType = normalizeUnifiedType(rawType);
 
   if (!userId) return res.status(401).json({ message: 'Unauthorized' });
   if (!isValidObjectId(postId)) return res.status(400).json({ message: 'Invalid postId' });
-
-  const Model = getModelByType(postType);
-  if (!Model) return res.status(400).json({ message: 'Invalid postType' });
+  if (!reqType) return res.status(400).json({ message: 'Invalid postType' });
 
   try {
-    const exists = await Model.exists({ _id: postId });
-    if (!exists) return res.status(404).json({ message: 'Post not found' });
+    const doc = await Post.findById(postId).select('_id type').lean();
+    if (!doc) return res.status(404).json({ message: 'Post not found' });
+
+    // Ensure requested type matches actual type (or at least don't store a wrong ref)
+    const canonicalType = CANON_TYPES.has(doc.type) ? doc.type : reqType;
 
     await HiddenPost.findOneAndUpdate(
-      { userId, targetRef: Model.modelName, targetId: postId },
+      { userId, targetRef: canonicalType, targetId: postId },
       { $setOnInsert: { createdAt: new Date() } },
       { upsert: true, new: true }
     );
 
-    // Build key using our mapping so ActivityInvite -> 'invite'
-    const raw = modelNameToRaw(Model.modelName);
-    return res.status(200).json({ ok: true, key: `${raw}:${postId}`, hidden: true });
+    return res.status(200).json({ ok: true, key: `${canonicalType}:${postId}`, hidden: true });
   } catch (err) {
     console.error(`${TAG} ❌`, { rawType, postId, userId, err: err?.message });
     return res.status(500).json({ message: 'Server error' });
@@ -153,23 +197,29 @@ router.post('/:postType/:postId', verifyToken, async (req, res) => {
 /**
  * DELETE /api/hidden/:postType/:postId
  * Unhide a post
+ * We delete by (userId, targetId) and either canonical type or any legacy alias that could have been stored.
  */
 router.delete('/:postType/:postId', verifyToken, async (req, res) => {
   const TAG = '[DELETE /hidden/:postType/:postId]';
   const userId = req.user?.id;
   const { postType: rawType, postId } = req.params || {};
-  const postType = normalizePostType(rawType);
+  const reqType = normalizeUnifiedType(rawType);
 
   if (!userId) return res.status(401).json({ message: 'Unauthorized' });
   if (!isValidObjectId(postId)) return res.status(400).json({ message: 'Invalid postId' });
-
-  const Model = getModelByType(postType);
-  if (!Model) return res.status(400).json({ message: 'Invalid postType' });
+  if (!reqType) return res.status(400).json({ message: 'Invalid postType' });
 
   try {
-    await HiddenPost.deleteOne({ userId, targetRef: Model.modelName, targetId: postId });
-    const raw = modelNameToRaw(Model.modelName);
-    return res.status(200).json({ ok: true, key: `${raw}:${postId}`, hidden: false });
+    // Accept both canonical and legacy ref values in case of old rows
+    const aliases = TYPE_ALIASES[reqType] || [reqType];
+
+    await HiddenPost.deleteOne({
+      userId,
+      targetId: postId,
+      targetRef: { $in: aliases },
+    });
+
+    return res.status(200).json({ ok: true, key: `${reqType}:${postId}`, hidden: false });
   } catch (err) {
     console.error(`${TAG} ❌`, { rawType, postId, userId, err: err?.message });
     return res.status(500).json({ message: 'Server error' });
@@ -179,7 +229,7 @@ router.delete('/:postType/:postId', verifyToken, async (req, res) => {
 /**
  * GET /api/hidden/keys
  * List all hidden keys for the current user (for boot-time hydration)
- * Keys will use raw mapping (e.g., ActivityInvite -> 'invite', CheckIn -> 'check-in')
+ * Keys are `${canonicalType}:${id}` — we canonicalize legacy targetRef values too.
  */
 router.get('/keys', verifyToken, async (req, res) => {
   const TAG = '[GET /hidden/keys]';
@@ -193,8 +243,8 @@ router.get('/keys', verifyToken, async (req, res) => {
     ).lean();
 
     const keys = rows.map((r) => {
-      const raw = modelNameToRaw(r.targetRef);
-      return `${raw}:${String(r.targetId)}`;
+      const type = refToType(r.targetRef) || r.targetRef;
+      return `${type}:${String(r.targetId)}`;
     });
 
     return res.status(200).json({ ok: true, keys });

@@ -1,10 +1,11 @@
 const { gql } = require('graphql-tag')
 
-// Define GraphQL Schema
 const typeDefs = gql`
   scalar Date
   scalar DateTime
-  
+  scalar JSON
+
+  # -------- Core entities --------
   type User {
     id: ID!
     firstName: String
@@ -27,169 +28,122 @@ const typeDefs = gql`
 
   type Location {
     type: String!
-    coordinates: [Float!]   # [longitude, latitude]
+    coordinates: [Float!]   # [lng, lat]
     formattedAddress: String
   }
 
-  # ✅ Review Type
-  type Review {
+  # -------- One Post model --------
+  type Post {
     _id: ID!
-    businessName: String 
-    placeId: String! 
+    type: String!                 # 'review' | 'check-in' | 'invite' | 'event' | 'promotion' | 'sharedPost' | 'liveStream'
+    owner: OriginalOwner          # resolved from ownerId/ownerModel
+    ownerId: ID
+    ownerModel: String            # 'User' | 'Business'
+    message: String               # canonical user-authored post text
+    placeId: String
+    location: Location
+    media: [Photo!]
+    taggedUsers: [TaggedUser]
+    likes: [Like]
+    comments: [Comment]
+    stats: PostStats
+    privacy: String               # 'public' | 'followers' | 'private' | 'unlisted'
+    visibility: String            # 'visible' | 'hidden' | 'deleted'
+    sortDate: DateTime
+    createdAt: DateTime
+    updatedAt: DateTime
+    details: PostDetails          # per-type data (see union below)
+    shared: SharedMeta            # present when type === 'sharedPost'
+    refs: PostRefs                # cross-links (e.g., liveStream)
+    businessName: String
+  }
+
+  type PostStats {
+    likeCount: Int
+    commentCount: Int
+    shareCount: Int
+  }
+
+  # -------- Per-type "details" union --------
+  union PostDetails =
+      ReviewDetails
+    | CheckInDetails
+    | InviteDetails
+    | EventDetails
+    | PromotionDetails
+    | LiveStreamDetails
+
+  type ReviewDetails {
     rating: Int!
-    priceRating: Int         
-    atmosphereRating: Int    
-    serviceRating: Int       
-    wouldRecommend: Boolean
     reviewText: String!
-    date: Date
-    likes: [Like]
-    comments: [Comment]
-    userId: ID!
+    priceRating: Int
+    atmosphereRating: Int
+    serviceRating: Int
+    wouldRecommend: Boolean
     fullName: String
-    profilePic: ProfilePic
-    profilePicUrl: String
-    taggedUsers: [TaggedUser]
-    photos: [Photo!]
-    type: String!
-    sortDate: String
   }
 
-  # ✅ Check-In Type
-  type CheckIn {
-    _id: ID!
+  type CheckInDetails {
     date: Date
-    userId: ID!
-    fullName: String
-    placeId: String!
-    businessName: String
-    message: String
-    photos: [Photo!]
-    profilePic: ProfilePic
-    profilePicUrl: String
-    comments: [Comment]
-    likes: [Like]
-    taggedUsers: [TaggedUser]
-    type: String! # ✅ Used to distinguish between reviews and check-ins in frontend
-    sortDate: String
   }
 
-  type ActivityInvite {
-    _id: ID!
-    sender: InviteUser!
+  type InviteDetails {
+    dateTime: DateTime!
     recipients: [InviteRecipient!]!
-    placeId: String!
-    businessName: String
-    businessLogoUrl: String
-    note: String
-    dateTime: String!
-    message: String
-    isPublic: Boolean!
-    status: String!
-    createdAt: String!
-    likes: [Like]
-    comments: [Comment]
-    type: String!
     requests: [Request]
-    sortDate: String
   }
 
-  type Promotion {
-    _id: ID!
-    placeId: String!
-    businessName: String
-    businessLogoUrl: String
-    formattedAddress: String
-    title: String!
-    description: String
-    startDate: String
-    endDate: String
-    startTime: String
-    endTime: String
-    recurringDays: [String]
-    media: [Media!]
-    likes: [Like]
-    allDay: Boolean
-    comments: [Comment]
-    createdAt: String!
-    type: String!
-    distance: Float
-    sortDate: String
+  type EventDetails {
+    startsAt: DateTime
+    endsAt: DateTime
+    hostId: ID
   }
 
-  type Event {
-    _id: ID!
-    placeId: String!
-    businessName: String
-    businessLogoUrl: String
-    formattedAddress: String
-    title: String!
-    description: String
-    date: Date
-    startTime: String
-    endTime: String
-    allDay: Boolean
-    recurringDays: [String]
-    media: [Media!]
-    likes: [Like]
-    comments: [Comment]
-    createdAt: String!
-    type: String!
-    distance: Float
-    sortDate: String
+  type PromotionDetails {
+    startsAt: DateTime
+    endsAt: DateTime
+    discountPct: Int
+    code: String
   }
 
-  type SharedPost {
-    _id: ID!
-    user: User!
-    originalOwner: User
-    postType: String
-    originalPostId: ID
-    caption: String
-    createdAt: String!
-    original: SharedContent
-    comments: [Comment]
-    type: String!
-    sortDate: String
+  type LiveStreamDetails {
+    title: String
+    status: String              # 'idle' | 'live' | 'ended' | 'error'
+    coverKey: String
+    durationSec: Int
+    viewerPeak: Int
+    startedAt: DateTime
+    endedAt: DateTime
+    playbackUrl: String
+    vodUrl: String
   }
 
-  enum LiveVisibility {
-    public
-    followers
-    private
-    unlisted
+  # -------- Sharing & refs --------
+  type SharedMeta {
+    originalPostId: ID!
+    originalOwner: OriginalOwner
+    originalOwnerModel: String
+    snapshot: JSON              # frozen minimal view of original (optional)
   }
 
+  type PostRefs {
+    liveStreamId: ID
+    liveStream: LiveStream
+  }
+
+  # LiveStream domain object (kept lightweight; social lives on Post)
   type LiveStream {
     _id: ID!
-    userId: ID!
-    fullName: String
-    profilePic: ProfilePic
-    profilePicUrl: String
-    date: Date
     playbackUrl: String
     vodUrl: String
     coverKey: String
-    previewThumbUrl: String
-    durationSecs: Int
-    isLive: Boolean!
+    status: String
     startedAt: DateTime
     endedAt: DateTime
-    type: String!
-    visibility: LiveVisibility
-    isPosted: Boolean!
-    postId: ID
-    caption: String
-    comments: [Comment]
-    likes: [Like]
-    taggedUsers: [TaggedUser]
+    durationSec: Int
   }
 
-  input ActivityCursor {
-    sortDate: String!
-    id: ID!
-  }
-
+  # -------- Shared building blocks --------
   type Request {
     _id: ID!
     userId: ID!
@@ -199,19 +153,18 @@ const typeDefs = gql`
     profilePicUrl: String
   }
 
+  type InviteRecipient {
+    user: InviteUser!
+    status: String!
+  }
+
   type InviteUser {
     id: ID!
     firstName: String
     lastName: String
     profilePicUrl: String
   }
-    
-  type InviteRecipient {
-    user: InviteUser!
-    status: String!
-  }
 
-  # ✅ Photo Type
   type Photo {
     _id: ID!
     photoKey: String
@@ -219,10 +172,9 @@ const typeDefs = gql`
     description: String
     taggedUsers: [TaggedUser]
     uploadDate: Date
-    url: String # ✅ Added field for pre-signed URL
+    url: String
   }
 
-  # ✅ Profile Picture Type
   type ProfilePic {
     _id: ID!
     photoKey: String
@@ -240,7 +192,6 @@ const typeDefs = gql`
     y: Float
   }
 
-  # ✅ Likes
   type Like {
     userId: ID!
     fullName: String
@@ -248,11 +199,10 @@ const typeDefs = gql`
 
   type Media {
     photoKey: String
-    mediaType: String # "image" or "video"
+    mediaType: String
     url: String
   }
 
-  # ✅ Comments & Replies (Nested)
   type Comment {
     _id: ID!
     commentText: String!
@@ -297,8 +247,7 @@ const typeDefs = gql`
     profilePic: ProfilePic
     mutualConnections: [MutualUser!]!
     profileVisibility: String!
-    reviews: [Review!]!
-    checkIns: [CheckIn!]!
+    posts: [Post!]!            # replaced reviews/checkIns arrays
   }
 
   type Caption {
@@ -322,11 +271,11 @@ const typeDefs = gql`
     mediaUrl: String
     profilePicUrl: String
     user: OriginalOwner
-    viewedBy: [User!]           # Array of user IDs who have viewed the story
-    type: String                # "story" or "sharedStory"
-    postType: String            # "review", "check-in", "invite", "promotion", "event"
-    original: SharedContent
-    isViewed: Boolean         # Derived field, based on current user context
+    viewedBy: [User!]
+    type: String
+    postType: String @deprecated(reason: "Use originalPost.type")
+    originalPost: Post         # replaces SharedContent union
+    isViewed: Boolean
   }
 
   type StoryGroup {
@@ -343,12 +292,6 @@ const typeDefs = gql`
     profilePicUrl: String
   }
 
-  type UserAndFriendsInvites {
-    user: User!
-    userInvites: [ActivityInvite!]!
-    friendPublicInvites: [ActivityInvite!]!
-  }
-
   type BusinessRatingSummary {
     placeId: String!
     averageRating: Float!
@@ -358,27 +301,37 @@ const typeDefs = gql`
     recommendPercentage: Int!
   }
 
-  union UserActivity = Review | CheckIn | ActivityInvite | SharedPost | LiveStream
-  union SharedContent = Review | CheckIn | ActivityInvite | Promotion | Event | LiveStream
-  union UserPost = Review | CheckIn | SharedPost | LiveStream
   union OriginalOwner = User | Business
 
-  # ✅ Queries
+  input ActivityCursor {
+    sortDate: String!
+    id: ID!
+  }
+
+  # -------- Queries (Post-centric) --------
   type Query {
-    getUserAndFollowingReviews(userId: String!): [Review!]
-    getUserPosts(userId: ID!, limit: Int, after: ActivityCursor): [UserPost!]
-    getBusinessReviews(placeId: String!, limit: Int, after: ActivityCursor): [UserPost!]
-    getUserAndFollowingCheckIns(userId: String!): [CheckIn!]
-    getUserAndFollowingInvites(userId: ID!): UserAndFriendsInvites
-    getUserActivity(limit: Int, after: ActivityCursor, userLat: Float, userLng: Float): [UserActivity!]
+    getPostById(id: ID!): Post
+
+    # generic lists (optionally filter by types: ['review','check-in',...])
+    getUserPosts(userId: ID!, types: [String!], limit: Int, after: ActivityCursor): [Post!]
+    getPostsByPlace(placeId: String!, types: [String!], limit: Int, after: ActivityCursor): [Post!]
+    getUserActivity(types: [String!], limit: Int, after: ActivityCursor, userLat: Float, userLng: Float): [Post!]
+    getUserTaggedPosts(userId: ID!, limit: Int, after: ActivityCursor): [Post!]
+
+    # suggestions, stories, ratings kept (rewired internally to Posts)
     getSuggestedFollows(userId: ID!): [SuggestedUser!]!
     userAndFollowingStories(userId: ID!): [StoryGroup]
     storiesByUser(userId: ID!): [StoryGroup]
     getBusinessRatingSummaries(placeIds: [String!]!): [BusinessRatingSummary!]!
-    getUserAndFollowingSharedPosts(userId: ID!, userLat: Float, userLng: Float): [SharedPost]
-    getPostedLiveStreams(userId: ID!): [LiveStream]
-    getUserTaggedPosts(userId: ID!, limit: Int, after: ActivityCursor): [UserPost!]
-  }
-`;
 
-module.exports = typeDefs;
+    # legacy-style queries removed in favor of Post-based ones:
+    # - getUserAndFollowingReviews
+    # - getBusinessReviews
+    # - getUserAndFollowingCheckIns
+    # - getUserAndFollowingInvites
+    # - getUserAndFollowingSharedPosts
+    # - getPostedLiveStreams
+  }
+`
+
+module.exports = typeDefs

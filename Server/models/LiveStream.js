@@ -1,4 +1,3 @@
-// Server/models/LiveStream.js
 const mongoose = require('mongoose');
 const { Schema, model } = mongoose;
 const { CommentSchema } = require('./Comment.js');

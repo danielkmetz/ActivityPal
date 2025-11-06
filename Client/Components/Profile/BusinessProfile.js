@@ -16,7 +16,7 @@ import bannerPlaceholder from '../../assets/pics/business-placeholder.png';
 import EditProfileModal from "./EditProfileModal";
 import { selectLogo, fetchLogo, selectBusinessBanner, resetBusinessBanner, resetLogo, fetchBusinessBanner, selectAlbum, fetchPhotos } from "../../Slices/PhotosSlice";
 import { useRoute, useNavigation } from "@react-navigation/native";
-import { fetchReviewsByPlaceId, selectBusinessReviews, appendBusinessReviews, setBusinessReviews, resetBusinessReviews } from '../../Slices/ReviewsSlice';
+import { fetchBusinessPosts, selectBusinessPosts, appendBusinessPosts, setBusinessPosts, resetBusinessPosts } from '../../Slices/PostsSlice';
 import Reviews from "../Reviews/Reviews";
 import Photos from "./Photos";
 import { selectFavorites, addFavorite, removeFavorite } from "../../Slices/FavoritesSlice";
@@ -42,7 +42,7 @@ export default function BusinessProfile() {
   const user = business ? business : useSelector(selectUser)?.businessDetails;
   const mainUser = useSelector(selectUser);
   const mainUserFavorites = useSelector(selectFavorites);
-  const reviews = useSelector(selectBusinessReviews);
+  const reviews = useSelector(selectBusinessPosts);
   const logo = useSelector(selectLogo) || business?.logoFallback;
   const banner = useSelector(selectBusinessBanner);
   const photos = useSelector(selectAlbum);
@@ -73,9 +73,9 @@ export default function BusinessProfile() {
     isLoading,
     hasMore,
   } = usePaginatedFetch({
-    fetchThunk: fetchReviewsByPlaceId,
-    appendAction: appendBusinessReviews,
-    resetAction: setBusinessReviews,
+    fetchThunk: fetchBusinessPosts,
+    appendAction: appendBusinessPosts,
+    resetAction: setBusinessPosts,
     params: { placeId },
     limit: 10,
   });
@@ -96,7 +96,7 @@ export default function BusinessProfile() {
   };
 
   const handleGoBack = async () => {
-    dispatch(resetBusinessReviews());
+    dispatch(resetBusinessPosts());
     navigation.goBack();
   };
 
@@ -197,7 +197,7 @@ export default function BusinessProfile() {
       const nextRoute = e.data?.action?.payload?.name;
 
       if (nextRoute !== 'MessageThread') {
-        dispatch(resetBusinessReviews());
+        dispatch(resetBusinessPosts());
         dispatch(resetBusinessBanner());
         dispatch(resetLogo());
         dispatch(resetBusinessId());

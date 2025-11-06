@@ -1,154 +1,177 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const router = express.Router();
-const Review = require('../models/Reviews');
-const CheckIn = require('../models/CheckIns');
-const Event = require('../models/Events');
-const Promotion = require('../models/Promotions');
-const { removeTagNotifications } = require('../utils/notifications/removeTagNotifications');
-const verifyToken = require('../middleware/verifyToken'); // <-- update path or replace with your own
 
-// Map postType → Model
-const MODEL_BY_TYPE = {
-    review: Review,
-    reviews: Review,
-    'check-in': CheckIn,
-    'check-ins': CheckIn,
-    checkin: CheckIn,
-    event: Event,
-    events: Event,
-    promotion: Promotion,
-    promotions: Promotion,
-};
+const { Post } = require('../models/Post'); // ✅ unified Post model (with discriminators)
+const { removeTagNotifications } = require('../utils/notifications/removeTagNotifications');
+const verifyToken = require('../middleware/verifyToken');
+
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(String(id));
+
+/* ----------------------------- type helpers ----------------------------- */
+
+const CANON_TYPES = new Set([
+  'review',
+  'check-in',
+  'invite',
+  'event',
+  'promotion',
+  'sharedPost',
+  'liveStream',
+]);
 
 function normalizeType(t) {
-    return String(t || '').trim().toLowerCase();
+  const s = String(t || '').trim().toLowerCase();
+  if (s === 'review' || s === 'reviews') return 'review';
+  if (s === 'check-in' || s === 'checkins' || s === 'checkin') return 'check-in';
+  if (s === 'invite' || s === 'invites' || s === 'activityinvite') return 'invite';
+  if (s === 'event' || s === 'events') return 'event';
+  if (s === 'promotion' || s === 'promotions' || s === 'promo' || s === 'promos') return 'promotion';
+  if (s === 'sharedpost' || s === 'sharedposts' || s === 'shared') return 'sharedPost';
+  if (s === 'livestream' || s === 'live_stream' || s === 'live') return 'liveStream';
+  return null;
 }
 
-function getModelOrNull(postType) {
-    return MODEL_BY_TYPE[normalizeType(postType)] || null;
-}
+// If your notifications store still expects legacy model names, map unified -> legacy
+const TYPE_TO_LEGACY_REF = {
+  review: 'Review',
+  'check-in': 'CheckIn',
+  invite: 'ActivityInvite',
+  event: 'Event',
+  promotion: 'Promotion',
+  sharedPost: 'SharedPost',
+  liveStream: 'LiveStream',
+};
 
-// ---- helpers ----
+/* ------------------------------- utils ---------------------------------- */
+
 function toStr(v) {
-    return v != null ? String(v) : '';
+  return v != null ? String(v) : '';
 }
 
-// Summarize whether user is still tagged post-level / how many photos contain tag
+// Summarize whether user is still tagged post-level / how many media items contain tag
 function tagSummary(doc, userId) {
-    const uid = toStr(userId);
+  const uid = toStr(userId);
 
-    const postLevel =
-        Array.isArray(doc.taggedUsers) &&
-        doc.taggedUsers.some(id => toStr(id) === uid);
+  const postLevel =
+    Array.isArray(doc.taggedUsers) &&
+    doc.taggedUsers.some((id) => toStr(id) === uid);
 
-    const photoCount = Array.isArray(doc.photos)
-        ? doc.photos.reduce((n, p) => {
-            const has = Array.isArray(p.taggedUsers) &&
-                p.taggedUsers.some(t => toStr(t.userId) === uid);
-            return n + (has ? 1 : 0);
-        }, 0)
-        : 0;
+  const photoCount = Array.isArray(doc.media)
+    ? doc.media.reduce((n, m) => {
+        const has =
+          Array.isArray(m.taggedUsers) &&
+          m.taggedUsers.some((t) => toStr(t.userId) === uid);
+        return n + (has ? 1 : 0);
+      }, 0)
+    : 0;
 
-    return { postLevel, photoCount };
+  return { postLevel, photoCount };
 }
 
 function removePostLevelTagIfPresent(doc, userId) {
-    if (!Array.isArray(doc.taggedUsers)) return false;
-    const uid = toStr(userId);
-    const before = doc.taggedUsers.length;
-    doc.taggedUsers = doc.taggedUsers.filter(id => toStr(id) !== uid);
-    return before !== doc.taggedUsers.length;
+  if (!Array.isArray(doc.taggedUsers)) return false;
+  const uid = toStr(userId);
+  const before = doc.taggedUsers.length;
+  doc.taggedUsers = doc.taggedUsers.filter((id) => toStr(id) !== uid);
+  return before !== doc.taggedUsers.length;
 }
 
 function removeFromAllPhotos(doc, userId) {
-    if (!Array.isArray(doc.photos)) return 0;
-    const uid = toStr(userId);
-    let removed = 0;
-    doc.photos.forEach(p => {
-        if (!Array.isArray(p.taggedUsers)) return;
-        const before = p.taggedUsers.length;
-        p.taggedUsers = p.taggedUsers.filter(t => toStr(t.userId) !== uid);
-        removed += Math.max(0, before - p.taggedUsers.length);
-    });
-    return removed;
+  if (!Array.isArray(doc.media)) return 0;
+  const uid = toStr(userId);
+  let removed = 0;
+  doc.media.forEach((m) => {
+    if (!Array.isArray(m.taggedUsers)) return;
+    const before = m.taggedUsers.length;
+    m.taggedUsers = m.taggedUsers.filter((t) => toStr(t.userId) !== uid);
+    removed += Math.max(0, before - m.taggedUsers.length);
+  });
+  return removed;
 }
 
 function removeFromOnePhoto(doc, photoId, userId) {
-    if (!Array.isArray(doc.photos)) return 0;
-    const uid = toStr(userId);
-    const pid = toStr(photoId);
-    const photo = doc.photos.find(p => toStr(p._id) === pid);
-    if (!photo || !Array.isArray(photo.taggedUsers)) return 0;
-    const before = photo.taggedUsers.length;
-    photo.taggedUsers = photo.taggedUsers.filter(t => toStr(t.userId) !== uid);
-    return Math.max(0, before - photo.taggedUsers.length);
+  if (!Array.isArray(doc.media)) return 0;
+  const uid = toStr(userId);
+  const pid = toStr(photoId);
+  const mediaItem = doc.media.find((m) => toStr(m._id) === pid);
+  if (!mediaItem || !Array.isArray(mediaItem.taggedUsers)) return 0;
+  const before = mediaItem.taggedUsers.length;
+  mediaItem.taggedUsers = mediaItem.taggedUsers.filter((t) => toStr(t.userId) !== uid);
+  return Math.max(0, before - mediaItem.taggedUsers.length);
 }
 
 // Ensure only the authenticated user can self-untag
 function ensureSelfUntag(req, res) {
-    if (!req.user || !req.user._id) {
-        res.status(401).json({ message: 'Unauthorized' });
-        return false;
-    }
-    return true;
+  if (!req.user || !req.user._id) {
+    res.status(401).json({ message: 'Unauthorized' });
+    return false;
+  }
+  return true;
 }
 
-// =============== ROUTES ===============
+/* ============================== ROUTES ================================== */
 
 /**
  * DELETE /api/self-tags/:postType/:postId
  * Remove the authenticated user from the entire post:
- * - Removes post-level tag (Review/CheckIn) if present
- * - Removes all photo-level tags across photos (all post types)
+ * - Removes post-level tag if present
+ * - Removes all media-level tags across all media items
  */
 router.delete('/:postType/:postId', verifyToken, async (req, res) => {
   const TAG = '[DELETE /:postType/:postId remove-self-tag]';
   const now = () => new Date().toISOString();
 
   try {
-    // Auth / ownership check (sends its own response on failure)
     if (!ensureSelfUntag(req, res)) return;
 
     const { postType, postId } = req.params || {};
     const userId = req.user?.id;
 
-    const Model = getModelOrNull(postType);
-    if (!Model) return res.status(400).json({ message: 'Invalid postType' });
+    if (!isValidObjectId(postId)) {
+      return res.status(400).json({ message: 'Invalid postId' });
+    }
 
-    const doc = await Model.findById(postId);
+    const reqType = normalizeType(postType);
+    if (!reqType || !CANON_TYPES.has(reqType)) {
+      return res.status(400).json({ message: 'Invalid postType' });
+    }
+
+    const doc = await Post.findById(postId);
     if (!doc) return res.status(404).json({ message: 'Post not found' });
+
+    // Optional: guard against mismatched type in URL vs doc
+    if (doc.type !== reqType) {
+      return res.status(400).json({ message: `Type mismatch: expected ${doc.type}, got ${reqType}` });
+    }
 
     const before = tagSummary(doc, userId);
 
-    // Remove post-level tag if present
     let removedPostLevel = false;
     if (Array.isArray(doc.taggedUsers)) {
       removedPostLevel = removePostLevelTagIfPresent(doc, userId);
     }
 
-    // Remove from all photos
     const removedFromPhotos = removeFromAllPhotos(doc, userId);
 
     await doc.save();
 
-    // 🧹 Remove all tag-related notifications for this user on this post
-    const targetRef = Model.modelName; // e.g. 'Review' | 'CheckIn' | 'SharedPost' | 'LiveStream'
+    // Remove tag-related notifications (post-level + photo-level) for this post
+    const targetRef = TYPE_TO_LEGACY_REF[doc.type] || doc.type;
     const notificationsRemoved = await removeTagNotifications({
       userId,
       targetRef,
       targetId: postId,
-      types: ['tag', 'photoTag'], // both, for the post-level route
+      types: ['tag', 'photoTag'],
     });
 
     const after = tagSummary(doc, userId);
 
-    // Optional debug log
     if (removedPostLevel || removedFromPhotos || notificationsRemoved) {
       console.log(`${TAG} ✅`, {
         at: now(),
         userId,
-        postType,
+        postType: doc.type,
         postId,
         removedPostLevel,
         removedFromPhotos,
@@ -158,14 +181,14 @@ router.delete('/:postType/:postId', verifyToken, async (req, res) => {
       console.log(`${TAG} ℹ️ nothing-to-remove`, {
         at: now(),
         userId,
-        postType,
+        postType: doc.type,
         postId,
       });
     }
 
     return res.json({
       ok: true,
-      postType: normalizeType(postType),
+      postType: doc.type,
       postId,
       userId,
       removed: {
@@ -174,7 +197,7 @@ router.delete('/:postType/:postId', verifyToken, async (req, res) => {
       },
       notificationsRemoved,
       remaining: after,
-      before, // helpful for analytics/debugging
+      before,
     });
   } catch (err) {
     console.error(`${TAG} ❌ 500`, {
@@ -190,9 +213,9 @@ router.delete('/:postType/:postId', verifyToken, async (req, res) => {
 
 /**
  * DELETE /api/self-tags/:postType/:postId/photo/:photoId
- * Remove the authenticated user from one specific photo within the post.
- * - Leaves any post-level tag intact
- * - Leaves any tags on other photos intact
+ * Remove the authenticated user from one specific media item within the post.
+ * - Leaves post-level tag intact
+ * - Leaves tags on other media items intact
  */
 router.delete('/:postType/:postId/photo/:photoId', verifyToken, async (req, res) => {
   const TAG = '[DELETE /:postType/:postId/photo/:photoId remove-self-photo-tag]';
@@ -203,34 +226,42 @@ router.delete('/:postType/:postId/photo/:photoId', verifyToken, async (req, res)
   try {
     if (!ensureSelfUntag(req, res)) return;
 
-    const Model = getModelOrNull(postType);
-    if (!Model) return res.status(400).json({ message: 'Invalid postType' });
+    if (!isValidObjectId(postId)) {
+      return res.status(400).json({ message: 'Invalid postId' });
+    }
     if (!photoId) return res.status(400).json({ message: 'photoId is required' });
 
-    const doc = await Model.findById(postId);
+    const reqType = normalizeType(postType);
+    if (!reqType || !CANON_TYPES.has(reqType)) {
+      return res.status(400).json({ message: 'Invalid postType' });
+    }
+
+    const doc = await Post.findById(postId);
     if (!doc) return res.status(404).json({ message: 'Post not found' });
+
+    if (doc.type !== reqType) {
+      return res.status(400).json({ message: `Type mismatch: expected ${doc.type}, got ${reqType}` });
+    }
 
     const before = tagSummary(doc, userId);
 
     const removedCount = removeFromOnePhoto(doc, photoId, userId);
     if (removedCount === 0) {
-      // No save to avoid bumping updatedAt
       return res.json({
         ok: true,
-        postType: normalizeType(postType),
+        postType: doc.type,
         postId,
         photoId,
         removed: 0,
-        remaining: before, // unchanged
-        message: 'No matching tag found on the specified photo',
+        remaining: before,
+        message: 'No matching tag found on the specified media item',
       });
     }
 
     await doc.save();
 
-    // 🔁 Remove ONLY photoTag notifications associated with THIS POST for this user
-    // (Schema lacks photoId; this removes all photoTag notifs tied to the post.)
-    const targetRef = Model.modelName; // 'Review' | 'CheckIn' | 'SharedPost' | 'LiveStream' ...
+    // Remove only photoTag notifications for this post
+    const targetRef = TYPE_TO_LEGACY_REF[doc.type] || doc.type;
     const notificationsRemoved = await removeTagNotifications({
       userId,
       targetRef,
@@ -242,17 +273,24 @@ router.delete('/:postType/:postId/photo/:photoId', verifyToken, async (req, res)
 
     return res.json({
       ok: true,
-      postType: normalizeType(postType),
+      postType: doc.type,
       postId,
       photoId,
       removed: removedCount,
       notificationsRemoved,
       remaining: after,
       userId,
-      before, // optional
+      before,
     });
   } catch (err) {
-    console.error(`${TAG} ❌ 500`, { err: err?.message, stack: err?.stack, postType, postId, photoId, userId });
+    console.error(`${TAG} ❌ 500`, {
+      err: err?.message,
+      stack: err?.stack,
+      postType,
+      postId,
+      photoId,
+      userId,
+    });
     return res.status(500).json({ message: 'Internal server error' });
   }
 });

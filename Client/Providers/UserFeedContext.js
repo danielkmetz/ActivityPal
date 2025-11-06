@@ -3,12 +3,12 @@ import { useSelector, useDispatch } from 'react-redux';
 import { selectUser, selectIsBusiness } from '../Slices/UserSlice';
 import { selectCoordinates } from '../Slices/LocationSlice';
 import {
-  fetchReviewsByUserAndFriends,
-  appendUserAndFriendsReviews,
-  setUserAndFriendsReviews,
-  selectUserAndFriendsReviews,
+  fetchUserActivity,
+  appendUserAndFriendsPosts,
+  setUserAndFriendsPosts,
+  selectUserAndFriendsPosts,
   selectUserAndFriendsRefreshNonce,
-} from '../Slices/ReviewsSlice';
+} from '../Slices/PostsSlice';
 import usePaginatedFetch from '../utils/usePaginatedFetch';
 
 const UserFeedContext = createContext(null);
@@ -19,26 +19,25 @@ export function UserFeedProvider({ children }) {
   const isBusiness = useSelector(selectIsBusiness);
   const coords = useSelector(selectCoordinates);
   const refreshSignal = useSelector(selectUserAndFriendsRefreshNonce);
-
-  const userId = user?.id ?? null;
+  const userId = user?.id ?? null;          
   const userLat = coords?.lat ?? null;
   const userLng = coords?.lng ?? null;
 
-  // ✅ Only fetch for NON-business users with a valid userId
+  // Only fetch for non-business accounts with a valid user
   const enabled = Boolean(userId && !isBusiness);
 
   const { loadMore, refresh, isLoading, hasMore } = usePaginatedFetch({
-    fetchThunk: fetchReviewsByUserAndFriends,
-    appendAction: appendUserAndFriendsReviews,
-    resetAction: setUserAndFriendsReviews,
-    params: { userId, userLat, userLng },
+    fetchThunk: fetchUserActivity,                
+    appendAction: appendUserAndFriendsPosts,      
+    resetAction: setUserAndFriendsPosts,          
+    params: { userLat, userLng },                 
     limit: 5,
     refreshSignal,
   });
 
-  const reviews = useSelector(selectUserAndFriendsReviews);
+  const posts = useSelector(selectUserAndFriendsPosts);
 
-  // Refresh when enabled and keys (userId/refreshSignal) change
+  // Kick a refresh when enabled and dependencies change
   const lastKeyRef = useRef({ userId: null, refreshSignal: null });
   useEffect(() => {
     if (!enabled) return;
@@ -49,15 +48,15 @@ export function UserFeedProvider({ children }) {
     }
   }, [enabled, userId, refreshSignal, refresh]);
 
-  // Clear feed when disabled (logout or switched to business)
+  // Clear when disabled (logout or switched to business)
   useEffect(() => {
     if (!enabled && lastKeyRef.current.userId !== null) {
-      dispatch(setUserAndFriendsReviews([]));
+      dispatch(setUserAndFriendsPosts([]));
       lastKeyRef.current = { userId: null, refreshSignal: null };
     }
   }, [enabled, dispatch]);
 
-  // Safe no-op wrappers
+  // Safe wrappers
   const safeRefresh = useCallback(() => {
     if (enabled) refresh();
   }, [enabled, refresh]);
@@ -69,13 +68,13 @@ export function UserFeedProvider({ children }) {
   const value = useMemo(
     () => ({
       enabled,
-      reviews: enabled ? reviews : [],
+      posts: enabled ? posts : [],       // ⬅️ expose unified posts
       loadMore: safeLoadMore,
       refresh: safeRefresh,
       isLoading: enabled ? isLoading : false,
       hasMore: enabled ? hasMore : false,
     }),
-    [enabled, reviews, safeLoadMore, safeRefresh, isLoading, hasMore]
+    [enabled, posts, safeLoadMore, safeRefresh, isLoading, hasMore]
   );
 
   return <UserFeedContext.Provider value={value}>{children}</UserFeedContext.Provider>;

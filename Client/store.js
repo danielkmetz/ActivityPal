@@ -4,16 +4,14 @@ import placesReducer from './Slices/PlacesSlice';
 import preferencesReducer from './Slices/PreferencesSlice';
 import userReducer from './Slices/UserSlice';
 import eventsReducer from './Slices/EventsSlice';
-import reviewsReducer from './Slices/ReviewsSlice';
+import postsReducer from './Slices/PostsSlice';
 import photosReducer from './Slices/PhotosSlice';
 import followsReducer from './Slices/friendsSlice';
 import notificationsReducer from './Slices/NotificationsSlice';
-import checkInsReducer from './Slices/CheckInsSlice';
 import favoritesReducer from './Slices/FavoritesSlice';
 import promotionsReducer from './Slices/PromotionsSlice';
 import GooglePlacesReducer from './Slices/GooglePlacesSlice';
 import PaginationReducer from './Slices/PaginationSlice';
-import InvitesReducer from './Slices/InvitesSlice';
 import businessNotificationsReducer from './Slices/BusNotificationsSlice';
 import commentThreadReducer from './Slices/CommentThreadSlice';
 import modalReducer from './Slices/ModalSlice';
@@ -21,7 +19,6 @@ import recentSearchesReducer from './Slices/RecentSearchesSlice';
 import storiesReducer from './Slices/StoriesSlice';
 import directMessagesReducer from './Slices/DirectMessagingSlice';
 import engagementReducer from './Slices/EngagementSlice';
-import sharedPostReducer from './Slices/SharedPostsSlice';
 import insightsReducer from './Slices/InsightsSlice';
 import liveStreamReducer from './Slices/LiveStreamSlice';
 import commentsReducer from './Slices/CommentsSlice';
@@ -43,16 +40,14 @@ const store = configureStore({
         preferences: preferencesReducer,
         user: userReducer,
         events: eventsReducer,
-        reviews: reviewsReducer,
+        posts: postsReducer,
         photos: photosReducer,
         follows: followsReducer,
         notifications: notificationsReducer,
-        checkIns: checkInsReducer,
         favorites: favoritesReducer,
         promotions: promotionsReducer,
         GooglePlaces: GooglePlacesReducer,
         pagination: PaginationReducer,
-        invites: InvitesReducer,
         businessNotifications: businessNotificationsReducer,
         commentThread: commentThreadReducer,
         recentSearches: recentSearchesReducer,
@@ -60,7 +55,6 @@ const store = configureStore({
         stories: storiesReducer,
         directMessages: directMessagesReducer,
         engagement: engagementReducer,
-        sharedPosts: sharedPostReducer,
         insights: insightsReducer,
         live: liveStreamReducer,
         comments: commentsReducer,
