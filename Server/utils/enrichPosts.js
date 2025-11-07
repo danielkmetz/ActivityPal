@@ -1,6 +1,3 @@
-// utils/enrichPosts.js
-'use strict';
-
 const mongoose = require('mongoose');
 const { Types: { ObjectId } } = mongoose;
 const User = require('../models/User');                    // <- adjust path if needed
@@ -18,6 +15,31 @@ const dpost = (post, msg, extra) => {
 // ---------------- tiny utils ----------------
 const toStr = (v) => (v == null ? null : String(v));
 const fullNameOf = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(' ') || null;
+
+function deriveBusinessIdentity(p = {}) {
+  const placeId =
+    p.placeId ??
+    p.details?.placeId ??
+    p.details?.place?.placeId ??
+    p.refs?.business?.placeId ??
+    p.location?.placeId ??
+    p.shared?.snapshot?.placeId ??
+    p.shared?.snapshot?.refs?.business?.placeId ??   // NEW
+    null;
+
+  const businessName =
+    p.businessName ??
+    p.details?.businessName ??
+    p.details?.placeName ??
+    p.details?.place?.name ??
+    p.refs?.business?.name ??
+    p.location?.name ??
+    p.shared?.snapshot?.businessName ??
+    p.shared?.snapshot?.refs?.business?.name ??      // NEW
+    null;
+
+  return { placeId, businessName };
+}
 
 // ---------------- batch fetch user summaries ----------------
 async function fetchUserSummaries(userIds) {
@@ -206,6 +228,9 @@ async function enrichPostUniversal(post, userMap) {
   const likes = enrichLikes(post?.likes || [], userMap);
   const comments = enrichComments(post?.comments || [], userMap);
 
+  // derive business identity from multiple shapes
+  const { placeId, businessName } = deriveBusinessIdentity(post);
+
   let details = post?.details || null;
   if (post?.type === 'review' && details) {
     details = { ...details, fullName: owner?.fullName || null };
@@ -215,29 +240,32 @@ async function enrichPostUniversal(post, userMap) {
   }
 
   const enriched = {
-    ...post,
+    ...post,                // keep original fields if already present
     media,
     taggedUsers,
     likes,
     comments,
     details,
-    // RN conveniences: only for User owners
-    fullName: owner?.fullName || undefined,
-    profilePicUrl: owner?.profilePicUrl || undefined,
-    user: owner
+    placeId: placeId ?? post.placeId ?? null,
+    businessName: businessName ?? post.businessName ?? null,
+    owner: owner
       ? {
           id: owner.id,
           firstName: owner.firstName,
           lastName: owner.lastName,
+          fullName: `${owner.firstName} ${owner.lastName}`,
           profilePicUrl: owner.profilePicUrl,
         }
       : undefined,
   };
 
-  if (DEBUG) dpost(post, 'final owner summary (top-level)', {
-    fullName: enriched.fullName,
-    profilePicUrl: enriched.profilePicUrl ? 'yes' : 'no',
-  });
+  // fix debug to reference the owner convenience
+  if (DEBUG) {
+    dpost(post, 'final owner summary (top-level)', {
+      fullName: enriched.fullName,
+      profilePicUrl: enriched.owner?.profilePicUrl ? 'yes' : 'no',
+    });
+  }
 
   return enriched;
 }

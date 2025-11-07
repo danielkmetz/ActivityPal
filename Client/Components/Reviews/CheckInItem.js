@@ -38,6 +38,8 @@ export default function CheckInItem({
     const scrollX = useRef(new Animated.Value(0)).current;
     const postContent = item?.original ? item?.original : item
     const message = postContent?.message || postContent?.message;
+    const postMedia = postContent?.media || postContent?.photos || postContent?.details?.media || postContent?.details?.photos;
+    const hasNoMedia = !Array.isArray(postMedia) || postMedia.length === 0;
 
     return (
         <MaybeTWF enabled={!!embeddedInShared} onPress={() => { }}>
@@ -59,10 +61,10 @@ export default function CheckInItem({
                         includeAtWithBusiness
                         showAtWhenNoTags
                     />
-                    {message && (
+                    {!!message && (
                         <Text style={styles.message}>{message || null}</Text>
                     )}
-                    {postContent?.photos?.length === 0 && (
+                    {hasNoMedia && (
                         <Image
                             source={{
                                 uri: pinPic,
