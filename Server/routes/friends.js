@@ -9,6 +9,49 @@ const { Types } = require('mongoose');
 const oid = (v) => (Types.ObjectId.isValid(v) ? new Types.ObjectId(String(v)) : null);
 const sameId = (a, b) => String(a) === String(b);
 
+// Search Users
+router.get('/search', verifyToken, async (req, res) => {
+  try {
+    const { query } = req.query;
+
+    if (!query || query.trim() === '') {
+      return res.status(400).json({ message: 'Search query is required.' });
+    }
+
+    // Find matching users excluding the authenticated user
+    const users = await User.find({
+      $or: [
+        { firstName: { $regex: query, $options: 'i' } },
+        { lastName: { $regex: query, $options: 'i' } },
+      ],
+      _id: { $ne: req.user.id },
+    }).select('_id firstName lastName profilePic');
+
+    if (!users.length) {
+      return res.status(200).json([]); // No matches
+    }
+
+    // Map user IDs to enrich with profile pics
+    const userIds = users.map((user) => user._id);
+    const profilePicMap = await resolveUserProfilePics(userIds);
+
+    const enriched = users.map((user) => {
+      const picInfo = profilePicMap[user._id.toString()] || {};
+      return {
+        ...user.toObject(),
+        profilePic: picInfo.profilePic || null,
+        presignedProfileUrl: picInfo.profilePicUrl || null,
+      };
+    });
+
+    console.log(`🔍 Found ${enriched.length} users with profile pics`);
+    res.status(200).json(enriched);
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ message: 'Server error.' });
+  }
+});
+
 // Send Follow Request
 router.post('/follow-request', verifyToken, async (req, res) => {
   try {

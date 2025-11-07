@@ -31,7 +31,6 @@ export default function UserProfile() {
   const followers = useSelector(selectFollowers) || [];
   const [activeSection, setActiveSection] = useState("reviews");
   const [editModalVisible, setEditModalVisible] = useState(false);
-  const [shouldFetch, setShouldFetch] = useState(true);
   const [connectionsModalVisible, setConnectionsModalVisible] = useState(false);
   const [activeConnectionsTab, setActiveConnectionsTab] = useState("followers");
   const favorites = useSelector(selectFavorites);
@@ -55,7 +54,7 @@ export default function UserProfile() {
   } = useTaggedFeed(userId, activeSection, 15);
 
   useEffect(() => {
-    if (userId && shouldFetch) {
+    if (userId) {
       dispatch(fetchUserBanner(userId));
       dispatch(fetchFavorites(userId));
 
@@ -63,10 +62,9 @@ export default function UserProfile() {
         refresh();
       });
 
-      setShouldFetch(false);
       return () => task?.cancel?.();
     }
-  }, [userId, shouldFetch, dispatch, refresh]);
+  }, [userId, dispatch, refresh]);
 
   const photos = useMemo(() => {
     const pickUrl = (m) =>

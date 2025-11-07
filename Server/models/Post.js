@@ -13,6 +13,7 @@ const BasePostSchema = new Schema({
   // ✅ single field for post text shown in the feed/UI
   message: { type: String, default: '', maxlength: 4000, trim: true },
 
+  businessName: { type: String, default: null },
   placeId: { type: String, index: true, default: null },
   location: { type: { type: String, enum: ['Point'] }, coordinates: [Number] },
 
@@ -46,6 +47,7 @@ const BasePostSchema = new Schema({
   },
 }, { timestamps: true, discriminatorKey: 'type' });
 
+BasePostSchema.path('createdAt').immutable(true);
 BasePostSchema.index({ visibility: 1, sortDate: -1 });
 BasePostSchema.index({ ownerId: 1, sortDate: -1 });
 BasePostSchema.index({ type: 1, sortDate: -1 });

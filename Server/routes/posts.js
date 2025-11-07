@@ -5,7 +5,12 @@ const { isValidObjectId } = require('mongoose');
 const Business = require('../models/Business.js');
 const User = require('../models/User.js');
 const { Post } = require('../models/Post.js'); // unified model with discriminators
-const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
+const { deleteS3Objects } = require('../utils/deleteS3Objects.js');
+const {
+  fetchUserSummaries,
+  collectUserIdsFromPosts,
+  enrichPostUniversal,
+} = require('../utils/enrichPosts');
 const {
   resolveTaggedPhotoUsers,
   resolveTaggedUsers,
@@ -27,6 +32,7 @@ const ALLOWED_TYPES = new Set([
 const oid = (v) => (isValidObjectId(v) ? new mongoose.Types.ObjectId(v) : v);
 const nonEmpty = (v) => v !== undefined && v !== null && v !== '';
 const nowISO = () => new Date().toISOString();
+const getMediaKey = (m = {}) => m.photoKey || m.mediaKey || m.key || m.s3Key || m.Key || null;
 
 function normalizePoint(loc) {
   if (!loc) return null;
@@ -38,22 +44,12 @@ function normalizePoint(loc) {
 
   // support {coordinates: [lng, lat]}
   if (Array.isArray(loc.coordinates) &&
-      loc.coordinates.length === 2 &&
-      loc.coordinates.every(n => typeof n === 'number' && !Number.isNaN(n))) {
+    loc.coordinates.length === 2 &&
+    loc.coordinates.every(n => typeof n === 'number' && !Number.isNaN(n))) {
     return { type: 'Point', coordinates: loc.coordinates };
   }
 
   return null; // invalid
-}
-
-function buildFullName(u) {
-  return [u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() || null;
-}
-
-async function getProfilePicUrl(user) {
-  const key = user?.profilePic?.photoKey;
-  if (!key) return null;
-  return getPresignedUrl ? await getPresignedUrl(key) : key; // fall back to raw key if you don’t sign here
 }
 
 async function upsertBusinessIfNeeded(placeId, businessName, location) {
@@ -85,10 +81,10 @@ async function buildMediaFromPhotos(photos = [], uploadedBy) {
     photos.map(async (p) => {
       const formattedTagged = Array.isArray(p.taggedUsers)
         ? p.taggedUsers.map((tag) => ({
-            userId: oid(tag.userId),
-            x: tag.x,
-            y: tag.y,
-          }))
+          userId: oid(tag.userId),
+          x: tag.x,
+          y: tag.y,
+        }))
         : [];
       return {
         photoKey: p.photoKey,
@@ -128,58 +124,163 @@ function getSortDateForType(type, details) {
   }
 }
 
-function buildDetailsForType(type, body) {
+function nextSortDate({ type, prevSortDate, details, body, isPatch }) {
+  if (!isPatch) {
+    // CREATE behavior (same as today but explicit)
+    switch (type) {
+      case 'review': return new Date();
+      case 'check-in': return details?.date ? new Date(details.date) : new Date();
+      case 'invite': return details?.dateTime ? new Date(details.dateTime) : new Date();
+      case 'event': return details?.startsAt ? new Date(details.startsAt) : new Date();
+      case 'promotion': return details?.startsAt ? new Date(details.startsAt) : new Date();
+      case 'liveStream': return details?.startedAt ? new Date(details.startedAt) : new Date();
+      default: return new Date();
+    }
+  }
+
+  // PATCH behavior: only update if the time field was in the body
   switch (type) {
     case 'review':
+    case 'sharedPost':
+      return prevSortDate; // don’t bump reviews/shared posts on edit
+    case 'check-in':
+      return ('date' in body) ? new Date(details.date) : prevSortDate;
+    case 'invite':
+      return ('dateTime' in body) ? new Date(details.dateTime) : prevSortDate;
+    case 'event':
+      return ('startsAt' in body) ? new Date(details.startsAt) : prevSortDate;
+    case 'promotion':
+      return ('startsAt' in body) ? new Date(details.startsAt) : prevSortDate;
+    case 'liveStream':
+      return ('startedAt' in body) ? new Date(details.startedAt) : prevSortDate;
+    default:
+      return prevSortDate;
+  }
+}
+
+
+function buildDetailsForType(type, body, { isPatch = false } = {}) {
+  const has = (k) => Object.prototype.hasOwnProperty.call(body, k);
+
+  switch (type) {
+    /* ------------------------------ REVIEW ------------------------------ */
+    case 'review': {
+      if (isPatch) {
+        return {
+          ...(has('rating') ? { rating: body.rating } : {}),
+          ...(has('reviewText') ? { reviewText: body.reviewText } : {}),
+          ...(has('priceRating') ? { priceRating: body.priceRating } : {}),
+          ...(has('atmosphereRating') ? { atmosphereRating: body.atmosphereRating } : {}),
+          ...(has('serviceRating') ? { serviceRating: body.serviceRating } : {}),
+          ...(has('wouldRecommend') ? { wouldRecommend: body.wouldRecommend } : {}),
+          ...(has('fullName') ? { fullName: body.fullName } : {}),
+        };
+      }
+      // create
       return {
         rating: body.rating,
         reviewText: body.reviewText,
-        priceRating: body.priceRating,
-        atmosphereRating: body.atmosphereRating,
-        serviceRating: body.serviceRating,
-        wouldRecommend: body.wouldRecommend,
+        priceRating: body.priceRating ?? null,
+        atmosphereRating: body.atmosphereRating ?? null,
+        serviceRating: body.serviceRating ?? null,
+        wouldRecommend: body.wouldRecommend ?? null,
         fullName: body.fullName,
       };
+    }
+    /* ----------------------------- CHECK-IN ----------------------------- */
+    case 'check-in': {
+      if (isPatch) {
+        // Only change the date if the client sent it (prevents accidental "now" bumps).
+        return has('date') ? { date: body.date } : {};
+      }
+      // create: default to now if not provided
+      return { date: body.date || new Date() };
+    }
+    /* ------------------------------ INVITE ------------------------------ */
+    case 'invite': {
+      const mapRecipients = (arr = []) =>
+        arr.map((r) => ({
+          userId: r.userId ? oid(r.userId) : undefined,
+          status: r.status || 'pending',
+        }));
 
-    case 'check-in':
-      return {
-        date: body.date || new Date(),
-      };
+      const mapRequests = (arr = []) =>
+        arr.map((rq) => ({
+          userId: rq.userId ? oid(rq.userId) : undefined,
+          status: rq.status || 'pending',
+          requestedAt: rq.requestedAt ? new Date(rq.requestedAt) : new Date(),
+        }));
 
-    case 'invite':
+      if (isPatch) {
+        return {
+          ...(has('dateTime') ? { dateTime: body.dateTime } : {}),
+          ...(has('recipients') ? { recipients: mapRecipients(body.recipients) } : {}),
+          ...(has('requests') ? { requests: mapRequests(body.requests) } : {}),
+        };
+      }
+      // create
       return {
         dateTime: body.dateTime,
-        recipients: (body.recipients || []).map((r) => ({
-          userId: oid(r.userId),
-          status: r.status || 'pending',
-        })),
-        requests: (body.requests || []).map((r) => ({
-          userId: oid(r.userId),
-          status: r.status || 'pending',
-          requestedAt: r.requestedAt ? new Date(r.requestedAt) : new Date(),
-        })),
+        recipients: mapRecipients(body.recipients || []),
+        requests: mapRequests(body.requests || []),
       };
-
-    case 'event':
+    }
+    /* ------------------------------- EVENT ------------------------------ */
+    case 'event': {
+      if (isPatch) {
+        return {
+          ...(has('startsAt') ? { startsAt: body.startsAt } : {}),
+          ...(has('endsAt') ? { endsAt: body.endsAt } : {}),
+          ...(has('hostId') ? { hostId: body.hostId ? oid(body.hostId) : null } : {}),
+        };
+      }
+      // create
       return {
         startsAt: body.startsAt,
         endsAt: body.endsAt,
         hostId: body.hostId ? oid(body.hostId) : undefined,
       };
-
-    case 'promotion':
+    }
+    /* ----------------------------- PROMOTION ---------------------------- */
+    case 'promotion': {
+      if (isPatch) {
+        return {
+          ...(has('startsAt') ? { startsAt: body.startsAt } : {}),
+          ...(has('endsAt') ? { endsAt: body.endsAt } : {}),
+          ...(has('discountPct') ? { discountPct: body.discountPct } : {}),
+          ...(has('code') ? { code: body.code } : {}),
+        };
+      }
+      // create
       return {
         startsAt: body.startsAt,
         endsAt: body.endsAt,
         discountPct: body.discountPct,
         code: body.code,
       };
-
-    case 'sharedPost':
-      // shared.* lives outside details, but we may store auxiliary info in details if you want
+    }
+    /* ---------------------------- SHARED POST --------------------------- */
+    case 'sharedPost': {
+      // Shared post domain fields (if any) can live here. Keep behavior symmetric.
+      if (isPatch) {
+        return has('sharedDetails') ? (body.sharedDetails || {}) : {};
+      }
       return body.sharedDetails || {};
-
-    case 'liveStream':
+    }
+    /* ----------------------------- LIVE STREAM -------------------------- */
+    case 'liveStream': {
+      if (isPatch) {
+        return {
+          ...(has('title') ? { title: body.title } : {}),
+          ...(has('status') ? { status: body.status } : {}),
+          ...(has('coverKey') ? { coverKey: body.coverKey } : {}),
+          ...(has('durationSec') ? { durationSec: body.durationSec } : {}),
+          ...(has('viewerPeak') ? { viewerPeak: body.viewerPeak } : {}),
+          ...(has('startedAt') ? { startedAt: body.startedAt } : {}),
+          ...(has('endedAt') ? { endedAt: body.endedAt } : {}),
+        };
+      }
+      // create
       return {
         title: body.title || '',
         status: body.status || 'idle',
@@ -189,7 +290,8 @@ function buildDetailsForType(type, body) {
         startedAt: body.startedAt,
         endedAt: body.endedAt,
       };
-
+    }
+    /* ------------------------------ DEFAULT ----------------------------- */
     default:
       return {};
   }
@@ -270,6 +372,23 @@ async function diffAndNotifyTags({ post, prevTaggedUserIds, prevPhotos }) {
   );
 }
 
+/** Small helper to enrich one or many posts like the resolvers do */
+async function enrichPostForResponse(postOrPosts) {
+  const arr = Array.isArray(postOrPosts) ? postOrPosts : [postOrPosts];
+  const userIds = collectUserIdsFromPosts(arr);
+  const userMap = await fetchUserSummaries(userIds);
+  const enriched = await Promise.all(arr.map((p) => enrichPostUniversal(p, userMap)));
+  return Array.isArray(postOrPosts) ? enriched : enriched[0];
+}
+
+/** (optional) attach businessName like your GQL field resolver */
+async function attachBusinessNameIfMissing(post) {
+  if (post.businessName || !post.placeId) return post;
+  const biz = await Business.findOne({ placeId: post.placeId }).select('businessName').lean();
+  if (biz?.businessName) post.businessName = biz.businessName;
+  return post;
+}
+
 // ======================= ROUTES =======================
 
 /**
@@ -277,21 +396,26 @@ async function diffAndNotifyTags({ post, prevTaggedUserIds, prevPhotos }) {
  * Fetch a single post of a specific type
  */
 router.get('/:postId', async (req, res) => {
-  const TAG = '[GET /posts/:postType/:postId]';
   const { postId } = req.params;
-  const postType = req.body.type || req.body.postType;
+  const postType = req.query.type || req.params.postType || req.body?.type || req.body?.postType;
 
-  if (!ALLOWED_TYPES.has(postType)) return res.status(400).json({ message: 'Unsupported postType' });
   if (!isValidObjectId(postId)) return res.status(400).json({ message: 'Invalid postId' });
+  if (postType && !ALLOWED_TYPES.has(postType)) {
+    return res.status(400).json({ message: 'Unsupported postType' });
+  }
 
   try {
-    const post = await Post.findOne({ _id: postId, type: postType }).lean();
-    if (!post) return res.status(404).json({ message: 'Post not found' });
+    const match = { _id: postId };
+    if (postType) match.type = postType;
 
-    const enriched = await enrichPostForResponse(post);
+    const doc = await Post.findOne(match).lean();
+    if (!doc) return res.status(404).json({ message: 'Post not found' });
+
+    await attachBusinessNameIfMissing(doc);
+    const enriched = await enrichPostForResponse(doc);
     return res.status(200).json(enriched);
   } catch (err) {
-    console.error(`${TAG} ❌ 500`, { at: nowISO(), postType, postId, message: err?.message });
+    console.error('[GET /posts/:postId] ❌', err?.message);
     return res.status(500).json({ message: 'Server error', error: err?.message });
   }
 });
@@ -302,11 +426,17 @@ router.get('/:postId', async (req, res) => {
  */
 router.post('/', async (req, res) => {
   const postType = req.body.type || req.body.postType;
-  if (!ALLOWED_TYPES.has(postType)) return res.status(400).json({ message: 'Unsupported postType' });
-
-  const { userId, placeId, location: rawLoc, businessName, privacy, isPublic, message, photos, taggedUsers } = req.body;
+  if (!ALLOWED_TYPES.has(postType)) {
+    return res.status(400).json({ message: 'Unsupported postType' });
+  }
 
   try {
+    // (Your existing creation pipeline)
+    const {
+      userId, placeId, location: rawLoc, businessName, privacy, isPublic,
+      message, photos, taggedUsers,
+    } = req.body;
+
     const business = await upsertBusinessIfNeeded(placeId, businessName, req.body.location);
     const media = await buildMediaFromPhotos(photos || [], userId);
     const postLevelTags = extractTaggedUserIds(taggedUsers);
@@ -314,10 +444,11 @@ router.post('/', async (req, res) => {
 
     const post = await Post.create({
       type: postType,
-      ownerId: oid(userId),
+      ownerId: userId,               // mongoose will cast
       ownerModel: 'User',
+      businessName: businessName || '',
       placeId: placeId || null,
-      message: message || (req.body.reviewText || ''),
+      message: message || req.body.reviewText || '',
       ...(loc && { location: loc }),
       media,
       taggedUsers: postLevelTags,
@@ -328,29 +459,15 @@ router.post('/', async (req, res) => {
       refs: buildRefsSection(postType, req.body),
     });
 
-    // ✅ enrich for client: fullName + profilePicUrl
-    const [enriched, author] = await Promise.all([
-      enrichPostForResponse(post.toObject()),
-      User.findById(userId).select('firstName lastName profilePic').lean(),
-    ]);
+    const raw = post.toObject();
+    await attachBusinessNameIfMissing(raw);
+    const enriched = await enrichPostForResponse(raw);
 
-    const fullName = buildFullName(author);
-    const profilePicUrl = await getProfilePicUrl(author);
-
-    // keep both top-level and nested `user` for maximum compatibility with your UI
-    enriched.fullName = fullName;
-    enriched.profilePicUrl = profilePicUrl;
-    enriched.user = {
-      id: author?._id?.toString() || userId,
-      firstName: author?.firstName || null,
-      lastName: author?.lastName || null,
-      profilePicUrl,
-    };
-
+    // No need to manually set fullName/profilePicUrl — enrichPostUniversal does that
     return res.status(201).json(enriched);
-  } catch (error) {
-    console.error('❌ Error creating post:', error);
-    return res.status(500).json({ message: 'Server error' });
+  } catch (err) {
+    console.error('[POST /posts] ❌', err?.message);
+    return res.status(500).json({ message: 'Server error', error: err?.message });
   }
 });
 
@@ -364,33 +481,27 @@ router.patch('/:postId', async (req, res) => {
     return res.status(400).json({ message: 'Invalid postId' });
   }
 
+  ['createdAt','updatedAt','_id','__v'].forEach(k => delete req.body[k]);
+
   try {
     const post = await Post.findById(postId);
     if (!post) return res.status(404).json({ message: 'Post not found' });
 
-    // derive type from the stored post
     const postType = post.type;
     if (ALLOWED_TYPES && !ALLOWED_TYPES.has(postType)) {
       return res.status(400).json({ message: 'Unsupported post type on existing post' });
     }
 
-    // remember old state for diffing notifications
-    const prevTaggedUserIds = (post.taggedUsers || []).map((id) => id.toString());
+    // snapshots for diffs
+    const prevTaggedUserIds = (post.taggedUsers || []).map(String);
     const prevPhotos = post.media || [];
 
     // -------- generic fields --------
-    // placeId (allow explicit null) 
     if ('placeId' in req.body) post.placeId = req.body.placeId || null;
-
-    // privacy (accept provided value even if falsy like 'private')
     if ('privacy' in req.body) post.privacy = req.body.privacy;
-
-    // message: accept `message`, or fall back to `reviewText` if provided
     if ('message' in req.body || 'reviewText' in req.body) {
       post.message = ('message' in req.body) ? req.body.message : (req.body.reviewText || '');
     }
-
-    // upsert business if any location/business fields came in
     if (req.body.placeId || req.body.location || req.body.businessName) {
       await upsertBusinessIfNeeded(
         req.body.placeId ?? post.placeId,
@@ -398,50 +509,88 @@ router.patch('/:postId', async (req, res) => {
         req.body.location
       );
     }
-
-    // post-level tagged users (allow clearing via empty [])
     if ('taggedUsers' in req.body) {
       post.taggedUsers = extractTaggedUserIds(req.body.taggedUsers || []);
     }
 
-    // media/photos (allow clearing via empty [])
+    // Build next media (but don't delete from S3 yet)
+    let keysToDelete = [];
     if ('photos' in req.body) {
-      post.media = await buildMediaFromPhotos(req.body.photos || [], post.ownerId);
+      const nextMedia = await buildMediaFromPhotos(req.body.photos || [], post.ownerId);
+
+      // diff keys (prev − next)
+      const prevKeys = new Set(prevPhotos.map(getMediaKey).filter(Boolean));
+      const nextKeys = new Set(nextMedia.map(getMediaKey).filter(Boolean));
+      keysToDelete = [...prevKeys].filter(k => !nextKeys.has(k));
+
+      post.media = nextMedia;
     }
 
-    // -------- type-specific details --------
-    // build from incoming body, merge only defined keys
-    const detailsPatch = buildDetailsForType(postType, req.body) || {};
+    // -------- type-specific --------
+    const detailsPatch = buildDetailsForType(postType, req.body, { isPatch: true }) || {};
     if (detailsPatch && typeof detailsPatch === 'object') {
-      const definedEntries = Object.entries(detailsPatch).filter(([, v]) => v !== undefined);
-      post.details = { ...(post.details || {}), ...Object.fromEntries(definedEntries) };
+      const defined = Object.fromEntries(Object.entries(detailsPatch).filter(([, v]) => v !== undefined));
+      post.details = { ...(post.details || {}), ...defined };
     }
 
-    // shared / refs updates only if relevant and provided
     if (
       postType === 'sharedPost' &&
       (req.body.originalPostId || req.body.originalOwner || req.body.originalOwnerModel || req.body.snapshot)
     ) {
-      post.shared = {
-        ...(post.shared || {}),
-        ...buildSharedSection('sharedPost', req.body),
-      };
+      post.shared = { ...(post.shared || {}), ...buildSharedSection('sharedPost', req.body) };
     }
 
     const refsPatch = buildRefsSection(postType, req.body);
-    if (refsPatch) {
-      post.refs = { ...(post.refs || {}), ...refsPatch };
-    }
+    if (refsPatch) post.refs = { ...(post.refs || {}), ...refsPatch };
 
-    // refresh sortDate from updated details
-    post.sortDate = getSortDateForType(postType, post.details);
+    post.sortDate = nextSortDate({
+      type: postType,
+      prevSortDate: post.sortDate,
+      details: post.details,
+      body: req.body,
+      isPatch: true,
+    });
 
+    // persist first
     await post.save();
 
-    // run tag-diff notifications (added/removed tags, newly tagged in photos, etc.)
+    // tag add/remove notifications
     await diffAndNotifyTags({ post, prevTaggedUserIds, prevPhotos });
 
-    const enriched = await enrichPostForResponse(post.toObject());
+    // delete removed media from S3 (best-effort AFTER successful save)
+    if (keysToDelete.length) {
+      try {
+        await deleteS3Objects(keysToDelete);
+      } catch (e) {
+        console.error('⚠️ S3 delete (patch) failed for keys:', keysToDelete, e);
+      }
+    }
+
+    // -------- enrich using helpers --------
+    const raw = post.toObject();
+
+    // collect all posts we might need user summaries for (top-level + nested)
+    const toScan = [raw];
+    if (raw?.original) toScan.push(raw.original);
+    if (raw?.shared?.snapshot) toScan.push(raw.shared.snapshot);
+
+    const userIds = collectUserIdsFromPosts(toScan);
+    const userMap = await fetchUserSummaries(userIds);
+
+    // enrich top-level
+    const enriched = await enrichPostUniversal(raw, userMap);
+
+    // optionally enrich nested original (shared post) and/or shared.snapshot
+    if (raw?.original) {
+      enriched.original = await enrichPostUniversal(raw.original, userMap);
+    }
+    if (raw?.shared?.snapshot) {
+      enriched.shared = {
+        ...(enriched.shared || raw.shared || {}),
+        snapshot: await enrichPostUniversal(raw.shared.snapshot, userMap),
+      };
+    }
+
     return res.status(200).json(enriched);
   } catch (error) {
     console.error('🚨 Error updating post:', error);
@@ -452,7 +601,6 @@ router.patch('/:postId', async (req, res) => {
 /**
  Hard delete a post
  */
-// DELETE /posts/:postId  (unified)
 router.delete('/:postId', async (req, res) => {
   const { postId } = req.params;
   if (!isValidObjectId(postId)) return res.status(400).json({ message: 'Invalid postId' });
@@ -462,14 +610,16 @@ router.delete('/:postId', async (req, res) => {
     const post = await Post.findById(id);
     if (!post) return res.status(404).json({ message: 'Post not found' });
 
-    // remove tag notifications
+    // collect keys BEFORE removing the document
+    const keys = (post.media || []).map(getMediaKey).filter(Boolean);
+
+    // remove notifications
     if (post.taggedUsers?.length) {
       await User.updateMany(
         { _id: { $in: post.taggedUsers } },
         { $pull: { notifications: { targetId: id } } }
       );
     }
-    // remove business notifications
     if (post.placeId) {
       await Business.updateOne(
         { placeId: post.placeId },
@@ -478,6 +628,16 @@ router.delete('/:postId', async (req, res) => {
     }
 
     await Post.deleteOne({ _id: id });
+
+    // best-effort S3 cleanup
+    if (keys.length) {
+      try {
+        await deleteS3Objects(keys);
+      } catch (e) {
+        console.error('⚠️ S3 delete (hard delete) failed for keys:', keys, e);
+      }
+    }
+
     return res.status(200).json({ ok: true });
   } catch (error) {
     console.error('❌ Error deleting post:', error);

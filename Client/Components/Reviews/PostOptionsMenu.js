@@ -6,16 +6,18 @@ import { useSelector } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
 
 const getOwnerId = (p = {}) => {
-  // Try common fields across your models
   return (
-    p.userId ??
-    p.ownerId ??
-    p.authorId ??
-    p.user?.id ??
-    p.createdBy?.id ??
-    p.createdBy?._id ??
-    p.user?._id ??
-    p._userId ??
+    p?.owner?.id ??
+    p?.owner?._id ??
+    p?.owner?.userId ??
+    p?.userId ??
+    p?.ownerId ??
+    p?.authorId ??
+    p?.user?.id ??
+    p?.createdBy?.id ??
+    p?.createdBy?._id ??
+    p?.user?._id ??
+    p?._userId ??
     null
   );
 };

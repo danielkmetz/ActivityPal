@@ -1,6 +1,14 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useDispatch } from 'react-redux';
 
+// Toggle this to enable/disable logging
+const DEBUG = false;
+
+function log(...args) {
+  if (!DEBUG) return;
+  console.log('[usePaginatedFetch]', ...args);
+}
+
 export default function usePaginatedFetch({
   fetchThunk,
   appendAction,
@@ -13,12 +21,22 @@ export default function usePaginatedFetch({
 
   const [hasMore, setHasMore] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+
   const loadingRef = useRef(false);
   const allKeysRef = useRef(new Set());
   const lastCursorRef = useRef(null);
 
   const loadPage = useCallback(
     async (isRefresh = false) => {
+      log('loadPage called', {
+        isRefresh,
+        hasMore,
+        loading: loadingRef.current,
+        params,
+        limit,
+        after: isRefresh ? null : lastCursorRef.current,
+      });
+
       if (loadingRef.current || (!hasMore && !isRefresh)) return;
 
       loadingRef.current = true;
@@ -28,57 +46,65 @@ export default function usePaginatedFetch({
 
       try {
         const fetchArgs = { ...params, limit, after };
-        const actionResult = await dispatch(fetchThunk(fetchArgs));
-        const payload = actionResult.payload;
+        log('dispatching thunk with', fetchArgs);
+
+        // unwrap throws on rejectWithValue; easier error handling
+        const payload = await dispatch(fetchThunk(fetchArgs)).unwrap();
+
+        log('thunk resolved', {
+          type: typeof payload,
+          count: Array.isArray(payload) ? payload.length : 'non-array',
+        });
 
         if (!Array.isArray(payload)) {
-          throw new Error("Expected an array from thunk but got something else");
+          throw new Error('Expected an array from thunk but got: ' + typeof payload);
         }
 
-        if (!payload || payload.length === 0) {
+        if (payload.length === 0) {
           setHasMore(false);
           return;
         }
 
         const newItems = payload.filter((item) => {
-          const key = `${item.type}-${item._id}`;
+          const key = `${item?.type}-${item?._id}`;
           if (allKeysRef.current.has(key)) return false;
           allKeysRef.current.add(key);
           return true;
         });
 
-        const oldestItem = payload.reduce((latest, item) => {
-          return new Date(item.sortDate) < new Date(latest.sortDate) ? item : latest;
-        }, payload[0]);
-
-        const lastRealItem = [...newItems].reverse().find(item =>
-          ['review', 'check-in', 'invite'].includes(item.type)
-        );
+        // Cursor: prefer a “real” post; fallback to last payload item
+        const lastRealItem =
+          [...newItems]
+            .reverse()
+            .find((it) =>
+              ['review', 'check-in', 'invite', 'event', 'promotion', 'liveStream', 'sharedPost'].includes(it?.type)
+            ) || payload[payload.length - 1];
 
         if (lastRealItem?.sortDate && lastRealItem?._id) {
           lastCursorRef.current = {
             sortDate: lastRealItem.sortDate,
             id: lastRealItem._id,
           };
+          log('updated cursor', lastCursorRef.current);
+        } else {
+          log('no cursor candidate found');
         }
 
         if (isRefresh) {
-          if (newItems.length > 0) {
-            dispatch(resetAction(newItems));
-          }
-          allKeysRef.current = new Set(newItems.map(item => `${item.type}-${item._id}`));
-          setHasMore(payload.length >= limit);
+          dispatch(resetAction(newItems));
+          allKeysRef.current = new Set(newItems.map((it) => `${it?.type}-${it?._id}`));
+          setHasMore(payload.length >= (limit ?? Number.MAX_SAFE_INTEGER));
         } else {
           if (newItems.length > 0) {
             dispatch(appendAction(newItems));
           }
-
-          if (payload.length < limit || newItems.length === 0) {
+          if (payload.length < (limit ?? Number.MAX_SAFE_INTEGER) || newItems.length === 0) {
             setHasMore(false);
           }
         }
-      } catch {
-        // Handle error silently or implement custom error handling
+      } catch (err) {
+        log('ERROR in loadPage:', err?.message || err);
+        setHasMore(false);
       } finally {
         setIsLoading(false);
         loadingRef.current = false;
@@ -93,9 +119,10 @@ export default function usePaginatedFetch({
     }
   }, [loadPage, hasMore]);
 
-  const refreshRef = useRef(() => { });
+  const refreshRef = useRef(() => {});
   useEffect(() => {
     refreshRef.current = () => {
+      log('refresh invoked → reset state and load first page');
       setHasMore(true);
       lastCursorRef.current = null;
       allKeysRef.current = new Set();
@@ -103,15 +130,14 @@ export default function usePaginatedFetch({
     };
   }, [loadPage]);
 
-  // 👉 Only depend on refreshSignal here (not on `refresh`)
   useEffect(() => {
     if (refreshSignal == null) return;
+    log('refreshSignal changed → refreshing');
     refreshRef.current();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshSignal]);
 
   const refresh = useCallback(() => {
-    // expose a stable public refresh too
     refreshRef.current();
   }, []);
 

@@ -5,7 +5,6 @@ const HiddenPost = require('../../models/HiddenPosts');
 const { Post } = require('../../models/Post'); // unified model
 const { getAuthorExclusionSets } = require('../../services/blockService');
 const { getPresignedUrl } = require('../../utils/cachePresignedUrl');
-const { resolveTaggedPhotoUsers } = require('../../utils/userPosts'); // reuse your media tag enricher
 const {
   fetchUserSummaries,
   collectUserIdsFromPosts,
