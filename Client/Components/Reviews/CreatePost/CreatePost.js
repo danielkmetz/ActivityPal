@@ -59,25 +59,25 @@ export default function CreatePost() {
     ? route.params?.initialPost?.type
     : route.params?.postType;
   const [postType, setPostType] = useState(initialType);
-
+  
   useEffect(() => {
     if (isEditing && initialPost) {
       //setPostType(initialPost.type); // "review" or "check-in"
-      setReview(initialPost.reviewText || "");
+      setReview(initialPost.message || "");
       setCheckInMessage(initialPost.message || "");
       setTaggedUsers(initialPost.taggedUsers || []);
-      setSelectedPhotos(initialPost.photos || []);
-      setPhotoList(initialPost.photos || []);
-      setPriceRating(initialPost.priceRating || null);
-      setServiceRating(initialPost.serviceRating || 3);
-      setAtmosphereRating(initialPost.atmosphereRating || 3);
-      setWouldRecommend(initialPost.wouldRecommend || true);
+      setSelectedPhotos(initialPost.media || []);
+      setPhotoList(initialPost.media || []);
+      setPriceRating(initialPost.details?.priceRating || null);
+      setServiceRating(initialPost.details?.serviceRating || 3);
+      setAtmosphereRating(initialPost.details?.atmosphereRating || 3);
+      setWouldRecommend(initialPost.details?.wouldRecommend || true);
       setBusiness({
         place_id: initialPost.placeId,
         name: initialPost.businessName,
         formatted_address: initialPost.location || "",
       });
-      setRating(initialPost.rating || 3);
+      setRating(initialPost.details?.rating || 3);
 
       if (initialPost.businessName) {
         googlePlacesRef.current?.setAddressText(`${initialPost.businessName}`);
