@@ -26,10 +26,9 @@ import { fetchBusinessRatingSummaries, selectRatingByPlaceId } from "../../Slice
 import ModalBox from 'react-native-modal';
 import { selectConversations, chooseUserToMessage } from "../../Slices/DirectMessagingSlice";
 import { fetchBusinessId, selectBusinessId, resetBusinessId } from "../../Slices/UserSlice";
-import { fetchPromotions, selectPromotions, fetchPromotionById } from "../../Slices/PromotionsSlice";
-import { fetchEvents, selectEvents, fetchEventById } from "../../Slices/EventsSlice";
+import { fetchPromotions, selectPromotions } from "../../Slices/PromotionsSlice";
+import { fetchEvents, selectEvents } from "../../Slices/EventsSlice";
 import BusinessProfileHeader from "./BusinessProfileHeader";
-import { eventPromoLikeWithAnimation } from "../../utils/LikeHandlers/promoEventLikes";
 import BusinessNavTabs from "./BusinessNavTabs";
 import EventPromoFeed from "../BusinessEvents/EventPromoFeed";
 
@@ -58,15 +57,13 @@ export default function BusinessProfile() {
   const [favoriteModalVisible, setFavoriteModalVisible] = useState(false);
   const [activeSection, setActiveSection] = useState(conditionalSection);
   const [editModalVisible, setEditModalVisible] = useState(false);
-  const [likedAnimations, setLikedAnimations] = useState(null);
   const placeIds = [placeId];
   const ratingData = useSelector(selectRatingByPlaceId(placeId)) || {};
   const businessId = useSelector(selectBusinessId);
   const isEventsTab = activeSection === "events";
   const eventPromoData = isEventsTab ? events : promotions;
   const scrollX = useRef(new Animated.Value(0)).current;
-  const lastTapRef = useRef({});
-
+  
   const {
     loadMore,
     refresh,
@@ -170,27 +167,6 @@ export default function BusinessProfile() {
     });
   };
 
-  const handleEventPromoLike = (item, force = true) => {
-    eventPromoLikeWithAnimation({
-      type: item.kind.includes('promo') ? 'promo' : 'event',
-      postId: item._id,
-      item,
-      user: mainUser,
-      lastTapRef,
-      dispatch,
-      force,
-    });
-  };
-
-  const openPromoEventComments = (item) => {
-    if (item.kind.toLowerCase() === "event") {
-      dispatch(fetchEventById({ eventId: item._id }))
-    } else {
-      dispatch(fetchPromotionById({ promotionId: item._id }))
-    }
-    navigation.navigate('EventDetails', { activity: item });
-  };
-
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', (e) => {
       // Avoid resetting if going to MessageThread or another nested screen
@@ -251,11 +227,7 @@ export default function BusinessProfile() {
         <EventPromoFeed
           data={eventPromoData}
           scrollX={scrollX}
-          likedAnimations={likedAnimations}
-          lastTapRef={lastTapRef}
           activeSection={activeSection}
-          handleEventPromoLike={handleEventPromoLike}
-          openPromoEventComments={openPromoEventComments}
         />
         <View style={{ marginBottom: 40 }}/>
         </>

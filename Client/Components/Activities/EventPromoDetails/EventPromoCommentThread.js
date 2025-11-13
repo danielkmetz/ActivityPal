@@ -55,6 +55,7 @@ export default function EventPromoCommentThread({
   const [selectedEditMedia, setSelectedEditMedia] = useState(null);
   const commentRef = useRef(null);
   const commentRefs = useRef({});
+  const postType = type || post?.type || post?.kind;
   const apiPostType = toApiPostType(type || post?.type);
 
   const getTimeSincePosted = (dateString) => dayjs(dateString).fromNow(true);
@@ -232,8 +233,6 @@ export default function EventPromoCommentThread({
     );
     setOptionsVisible(false);
   };
-
-  console.log(item.likes)
 
   return (
     <>

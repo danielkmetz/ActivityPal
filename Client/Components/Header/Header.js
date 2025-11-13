@@ -17,7 +17,7 @@ import { clearGooglePlaces } from '../../Slices/GooglePlacesSlice';
 import { selectIsBusiness } from '../../Slices/UserSlice';
 import { selectCategoryFilter, selectIsMapView, toggleMapView, openPreferences } from '../../Slices/PlacesSlice';
 
-export default function Header({ currentRoute, notificationsSeen, setNotificationsSeen, newUnreadCount }) {
+export default function Header({ currentRoute, notificationsSeen, setNotificationsSeen, newUnreadCount, titleOverride }) {
     const dispatch = useDispatch();
     const navigation = useNavigation();
     const userToMessage = useSelector(selectUserToMessage);
@@ -57,18 +57,12 @@ export default function Header({ currentRoute, notificationsSeen, setNotificatio
                 return "Friends";
             case "Notifications":
                 return "Notifications";
-            case "My Events":
-                return "My Events";
             case "Reviews":
                 return "Reviews";
             case "Insights":
                 return "Insights";
             case "CreatePost":
                 return "Post";
-            case "CreateEvent":
-                return "Create Event";
-            case "CreatePromotion":
-                return "Create Promo";
             case "DirectMessages":
                 return "Messages";
             case "SearchFollowing":
@@ -86,7 +80,7 @@ export default function Header({ currentRoute, notificationsSeen, setNotificatio
         }
     };
 
-    const route = getTitle();
+    const route = titleOverride || getTitle();
 
     const handleOpenSearch = () => {
         dispatch(openSearchModal());
@@ -163,7 +157,7 @@ export default function Header({ currentRoute, notificationsSeen, setNotificatio
                             currentRoute === "MessageThread" ||
                             currentRoute === "FilterSort" ||
                             currentRoute === "EventDetails" ||
-                            currentRoute === "Settings" || 
+                            currentRoute === "Settings" ||
                             currentRoute === "HiddenPosts"
                         ) && (
                                 <TouchableOpacity onPress={goBack} style={{ marginLeft: -10 }}>

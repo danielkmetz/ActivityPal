@@ -7,8 +7,7 @@ import {
   Text,
 } from "react-native";
 import { deletePost } from "../../Slices/PostsSlice";
-import { useSelector, useDispatch } from "react-redux";
-import { selectUser } from "../../Slices/UserSlice";
+import { useDispatch } from "react-redux";
 import InviteCard from "./InviteCard";
 import ReviewItem from "./ReviewItem";
 import CheckInItem from "./CheckInItem";

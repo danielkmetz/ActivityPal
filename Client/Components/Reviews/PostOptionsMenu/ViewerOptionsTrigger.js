@@ -8,13 +8,14 @@ export default function ViewerOptionsTrigger({
   onPress,
   style,
   hitSlop,
+  embeddedInShared = false,
 }) {
   const user = useSelector(selectUser);
   const currentUserId = user?.id;
-  const isOwner = currentUserId === post?.userId
-  const isSharedPost = post?.type === 'sharedPost';
+  const postOwner = post?.owner?.id || post?.owner?._id || post?.owner?.userId;
+  const isOwner = currentUserId === postOwner;
 
-  if (!isOwner || !isSharedPost) return null;
+  if (isOwner || embeddedInShared) return null;
 
   return (
     <TouchableOpacity

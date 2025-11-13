@@ -10,18 +10,10 @@ import {
 } from "react-native";
 import { useSelector, useDispatch } from "react-redux";
 import { selectUser } from "../../Slices/UserSlice";
-import { fetchEvents, selectEvents, deleteEvent, fetchEventById } from "../../Slices/EventsSlice";
-import {
-  fetchPromotions,
-  selectPromotions,
-  deletePromotion,
-  fetchPromotionById,
-} from "../../Slices/PromotionsSlice";
+import { fetchEvents, selectEvents, deleteEvent } from "../../Slices/EventsSlice";
+import { fetchPromotions, selectPromotions, deletePromotion } from "../../Slices/PromotionsSlice";
 import { useNavigation } from "@react-navigation/native";
-import { pickPostId, typeFromKind } from '../../utils/posts/postIdentity';
-import { useLikeAnimations } from "../../utils/LikeHandlers/LikeAnimationContext";
 import EventPromoItem from './EventPromoItem/EventPromoItem';
-import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from "../../utils/LikeHandlers";
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
@@ -30,17 +22,13 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
   const navigation = useNavigation();
   const [selectedTab, setSelectedTab] = useState("events"); // Toggle state for Events & Promotions
   const [dropdownVisible, setDropdownVisible] = useState(null);
-  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(null);
-  const currentIndexRef = useRef(0);
+  const [photoTapped, setPhotoTapped] = useState(null);
   const user = useSelector(selectUser);
   const events = useSelector(selectEvents);
   const promotions = useSelector(selectPromotions) || [];
   const placeId = user?.businessDetails?.placeId;
   const scrollX = useRef(new Animated.Value(0)).current;
-  const { registerAnimation, getAnimation } = useLikeAnimations();
-  const lastTapRef = useRef({});
 
-  // Fetch data on component mount
   useEffect(() => {
     if (placeId) {
       dispatch(fetchEvents(placeId));
@@ -50,30 +38,34 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
 
   const handleEdit = (item) => {
     if (selectedTab === "events") {
-      navigation.navigate("CreateEvent", {
+     navigation.navigate("CreateEventOrPromo", {
+        mode: "event",
         businessId: placeId,
         event: item,
-        onEventCreated: () => dispatch(fetchEvents(placeId)),
+        onDone: () => {/* refresh */ },
       });
     } else {
-      navigation.navigate("CreatePromotion", {
-        placeId,
+      navigation.navigate("CreateEventOrPromo", {
+        mode: 'promotion',
+        businessId: placeId,
         promotion: item,
-        onPromotionCreated: () => dispatch(fetchPromotions(placeId)),
+        onDone: () => {/* refresh */ },
       });
     }
   };
 
   const handleCreateItem = () => {
     if (selectedTab === "events") {
-      navigation.navigate("CreateEvent", {
+      navigation.navigate("CreateEventOrPromo", {
+        mode: "event",
         businessId: placeId,
-        onEventCreated: () => dispatch(fetchEvents(placeId)),
+        onDone: () => {/* refresh */ },
       });
     } else {
-      navigation.navigate("CreatePromotion", {
-        placeId,
-        onPromotionCreated: () => dispatch(fetchPromotions(placeId)),
+      navigation.navigate("CreateEventOrPromo", {
+        mode: "promotion",
+        businessId: placeId,
+        onDone: () => {/* refresh */ },
       });
     }
   };
@@ -113,38 +105,6 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
     );
   };
 
-  const handleLikeWithAnimation = (item, force = true) => {
-    // Derive type from kind (e.g., "Event", "Promotion", "activeEvent", "upcomingPromo")
-    const derivedType =
-      (item?.type && String(item.type).toLowerCase()) ||
-      typeFromKind(item?.kind) ||
-      (item?.__typename && String(item.__typename).toLowerCase());
-
-    const postId = pickPostId(item);
-    const animation = getAnimation(postId);
-
-    return sharedHandleLikeWithAnimation({
-      postType: derivedType || 'suggestion', // or pass 'event'/'promotion' explicitly if you know it
-      kind: item.kind,
-      postId,
-      review: item,            // ✅ IMPORTANT: shared uses `review`, not `item`
-      user,
-      animation,
-      dispatch,
-      lastTapRef,
-      force,                   // ✅ we already confirmed double-tap in UI
-    });
-  };
-
-  const handleOpenComments = (item) => {
-    if (item.kind === "Event") {
-      dispatch(fetchEventById({ eventId: item._id }))
-    } else {
-      dispatch(fetchPromotionById({ promotionId: item._id }))
-    }
-    navigation.navigate('EventDetails', { activity: item });
-  };
-
   const isEventsTab = selectedTab === "events";
   const data = isEventsTab ? events : promotions;
 
@@ -161,7 +121,6 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
               Events
             </Text>
           </TouchableOpacity>
-
           <TouchableOpacity
             style={[styles.toggleButton, !isEventsTab && styles.activeButton]}
             onPress={() => setSelectedTab("promotions")}
@@ -188,7 +147,7 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
             : onScroll || undefined
         }
         ListHeaderComponent={<View style={styles.buffer} />}
-         renderItem={({ item }) => (
+        renderItem={({ item }) => (
           <EventPromoItem
             item={item}
             selectedTab={selectedTab}
@@ -196,14 +155,11 @@ const MyEventsPage = ({ scrollY, onScroll, customHeaderTranslateY }) => {
             onToggleDropdown={toggleDropdown}
             onEdit={handleEdit}
             onDelete={handleDelete}
-            onLikeWithAnimation={handleLikeWithAnimation}
-            onOpenComments={handleOpenComments}
             scrollX={scrollX}
-            currentIndexRef={currentIndexRef}
-            setCurrentPhotoIndex={setCurrentPhotoIndex}
-            lastTapRef={lastTapRef}
-            onActiveChange={() => {}}
+            onActiveChange={() => { }}
             styleOverrides={styles} // pass through if EventDetailsCard expects it
+            photoTapped={photoTapped}
+            setPhotoTapped={setPhotoTapped}
           />
         )}
       />

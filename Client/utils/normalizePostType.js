@@ -5,7 +5,7 @@ export const normalizePostType = (input) => {
   let raw =
     typeof input === 'string'
       ? input
-      : (input.type || input.kind || input.name || '');
+      : (input.type || input.kind || input.name || input.postType || '');
 
   raw = String(raw).trim().toLowerCase();
 

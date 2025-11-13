@@ -44,7 +44,7 @@ const RecurringDaysModal = ({ visible, onClose, selectedDays, onSave, }) => {
     }, []);
 
     return (
-        <Modal visible={visible} animationType="slide" transparent>
+        <Modal visible={visible} transparent>
             <View style={styles.modalOverlay} >
                 <TouchableWithoutFeedback onPress={animateOut} >
                     <View style={styles.overlayTouchable}>

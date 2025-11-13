@@ -10,29 +10,58 @@ const API = `${process.env.EXPO_PUBLIC_SERVER_URL}/comments-replies`;
 const postKey = (postType, postId) => `${postType}:${postId}`;
 
 export const toApiPostType = (t) => {
-    switch (t) {
-        case 'sharedPost': return 'sharedPosts';
-        case 'sharedPosts': return 'sharedPosts';
+    const v = String(t || '').trim().toLowerCase();
+    console.log('api post type', v);
+    switch (v) {
+        case 'sharedpost':
         case 'sharedposts': return 'sharedPosts';
-        case 'review': return 'reviews';
+
+        case 'review':
         case 'reviews': return 'reviews';
-        case 'liveStream': return 'liveStreams';
-        case 'liveStreams': return 'liveStreams';
-        case 'promotion': return 'promotions';
-        case 'promotions': return 'promotions';
-        case 'promos': return 'promotions';
-        case 'promo': return 'promotions';
-        case 'event': return 'events';
-        case 'events': return 'events';
-        case 'checkin': return 'checkins';
-        case 'check-in': return 'checkins';
-        case 'check-ins': return 'checkins';
-        case 'checkIn': return 'checkins';
+
+        case 'livestream':
+        case 'livestreams': return 'liveStreams';
+
+        case 'promotion':
+        case 'promotions':
+        case 'promo':
+        case 'promos': return 'promotion'; // singular because your backend expects this
+
+        case 'event':
+        case 'events': return 'event';     // singular because your backend expects this
+
+        case 'checkin':
+        case 'check-in':
+        case 'check-ins':
+        case 'checkin':
         case 'checkins': return 'checkins';
-        case 'invite': return 'invites';
+
+        case 'invite':
         case 'invites': return 'invites';
-        default: return `${t || 'reviews'}s`;
+
+        default: {
+            // fallback: if it already ends with 's', keep it; else pluralize
+            return v ? (v.endsWith('s') ? v : `${v}s`) : 'reviews';
+        }
     }
+};
+
+const kindFromType = (t) => {
+    const v = String(t || '').trim().toLowerCase();
+    if (v === 'event' || v === 'events') return 'event';
+    if (v === 'promotion' || v === 'promotions' || v === 'promo' || v === 'promos') return 'promotion';
+    return 'post';
+};
+
+const withKind = (auth, postType) => {
+    const kind = kindFromType(postType);
+    return {
+        ...auth,
+        params: {
+            ...(auth?.params || {}),
+            ...(kind ? { kind } : {}),
+        },
+    };
 };
 
 /* -------------------------------- Thunks -------------------------------- */
@@ -43,19 +72,32 @@ export const addComment = createAsyncThunk(
     async ({ postType, postId, commentText, media }, { rejectWithValue }) => {
         try {
             const auth = await getAuthHeaders();
-            const resolvedType = toApiPostType(postType);
+            const config = withKind(auth, postType);
+
+            const payload = {
+                commentText: commentText ?? '',
+                ...(media ? { media } : {}),
+            };
 
             const { data } = await axios.post(
-                `${API}/${resolvedType}/${postId}/comments`,
-                { commentText, media },
-                auth
+                `${API}/${postId}/comments`,
+                payload,
+                config
             );
-            return { postType, postId, comment: data?.comment };
+
+            // Keep the reducer-friendly shape you already use
+            return {
+                postType,
+                postId,
+                comment: data?.comment || null,
+            };
         } catch (err) {
-            return rejectWithValue(err.response?.data || { message: 'Failed to add comment' });
+            const fallback = { message: 'Failed to add comment' };
+            return rejectWithValue(err?.response?.data || fallback);
         }
     }
 );
+
 
 // Add nested reply (to comment or reply)
 export const addReply = createAsyncThunk(
@@ -63,10 +105,12 @@ export const addReply = createAsyncThunk(
     async ({ postType, postId, commentId, commentText, media }, { rejectWithValue }) => {
         try {
             const auth = await getAuthHeaders();
+            const config = withKind(auth, postType);
+
             const { data } = await axios.post(
-                `${API}/${postType}/${postId}/comments/${commentId}/replies`,
+                `${API}/${postId}/comments/${commentId}/replies`,
                 { commentText, media },
-                auth
+                config
             );
             return { postType, postId, commentId, reply: data?.reply };
         } catch (err) {
@@ -77,41 +121,43 @@ export const addReply = createAsyncThunk(
 
 // Toggle like on a comment or reply
 export const toggleLike = createAsyncThunk(
-  'comments/toggleLike',
-  async ({ postType, postId, commentId }, { rejectWithValue }) => {
-    try {
-      const auth = await getAuthHeaders();
-      const { data } = await axios.put(
-        `${API}/${postType}/${postId}/comments/${commentId}/like`,
-        {},
-        auth
-      );
+    'comments/toggleLike',
+    async ({ postType, postId, commentId }, { rejectWithValue }) => {
+        try {
+            const auth = await getAuthHeaders();
+            const config = withKind(auth, postType);
+            
+            const { data } = await axios.put(
+                `${API}/${postId}/comments/${commentId}/like`,
+                {},
+                config
+            );
 
-      return {
-        postType,
-        postId,
-        commentId: data?.commentId || commentId,
-        likes: data?.likes || [],
-        topLevelCommentId: data?.topLevelCommentId || null, // <-- now provided
-      };
-    } catch (err) {
-      return rejectWithValue(err.response?.data || { message: 'Failed to toggle like' });
+            return {
+                postType,
+                postId,
+                commentId: data?.commentId || commentId,
+                likes: data?.likes || [],
+                topLevelCommentId: data?.topLevelCommentId || null,
+            };
+        } catch (err) {
+            return rejectWithValue(err.response?.data || { message: 'Failed to toggle like' });
+        }
     }
-  }
 );
 
-// Edit comment or reply (author only)
+// Edit comment or reply (author or owner)
 export const editComment = createAsyncThunk(
     'comments/editComment',
     async ({ postType, postId, commentId, newText, media }, { rejectWithValue }) => {
         try {
             const auth = await getAuthHeaders();
-            const resolvedType = toApiPostType(postType);
+            const config = withKind(auth, postType);
 
             const { data } = await axios.patch(
-                `${API}/${resolvedType}/${postId}/comments/${commentId}`,
+                `${API}/${postId}/comments/${commentId}`,
                 { newText, media },
-                auth
+                config
             );
             return { postType, postId, updatedComment: data?.updatedComment };
         } catch (err) {
@@ -126,9 +172,9 @@ export const deleteComment = createAsyncThunk(
     async ({ postType, postId, commentId }, { rejectWithValue }) => {
         try {
             const auth = await getAuthHeaders();
-            const resolvedType = toApiPostType(postType);
+            const config = withKind(auth, postType);
 
-            await axios.delete(`${API}/${resolvedType}/${postId}/comments/${commentId}`, auth);
+            await axios.delete(`${API}/${postId}/comments/${commentId}`, config);
             return { postType, postId, commentId };
         } catch (err) {
             return rejectWithValue(err.response?.data || { message: 'Failed to delete comment' });

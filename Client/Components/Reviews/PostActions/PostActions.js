@@ -10,11 +10,11 @@ import ShareButton from './ShareButton';
 import { medium } from "../../../utils/Haptics/haptics";
 import { setSelectedReview } from "../../../Slices/PostsSlice";
 import { useLikeAnimations } from "../../../utils/LikeHandlers/LikeAnimationContext";
-import { pickPostId, typeFromKind as promoEventKind } from "../../../utils/posts/postIdentity";
-import { handleEventOrPromoLike } from "../../../utils/LikeHandlers/promoEventLikes";
+import { pickPostId } from "../../../utils/posts/postIdentity";
 import { getEngagementTarget, logEngagementIfNeeded } from "../../../Slices/EngagementSlice";
-import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from "../../../utils/LikeHandlers";
+import { handleLikeWithAnimation as likeWithAnim } from "../../../utils/LikeHandlers";
 import BottomCommentsModal from "../BottomCommentsModal";
+import { eventPromoDetector } from '../../../utils/EventsPromos/eventPromoDetector';
 
 function deriveLikeState(item, currentUserId) {
   // Normalize possible shapes:
@@ -47,7 +47,7 @@ export default function PostActions({
   onShare,
   isCommentScreen = false,
   orientation = "row",
-  embeddedInShared = false, 
+  embeddedInShared = false,
 }) {
   const dispatch = useDispatch();
   const navigation = useNavigation();
@@ -59,8 +59,8 @@ export default function PostActions({
   const { hasLiked, count } = deriveLikeState(post, currentUserId);
   const { getAnimation } = useLikeAnimations(); // ✅ use context
   const postType = post?.type || post?.postType;
-  const isEventPromoOrSuggestion = postType === 'suggestion' || postType === 'promo' || postType === 'promotion' || postType === 'event';
-  
+  const isEventPromoOrSuggestion = eventPromoDetector(post, postType);
+
   const handleSend = () => {
     medium();
     const kind = postContent?.kind?.toLowerCase();
@@ -77,38 +77,25 @@ export default function PostActions({
     });
   };
 
-  const handleLikeWithAnimation = (force = false) => {
-    const animation = getAnimation(postContent._id);
-    const resolvedPostId = pickPostId(post);
-    const promoEventType =
-      (postContent?.type && String(post.type).toLowerCase()) ||
-      promoEventKind(postContent?.kind) ||
-      (postContent?.__typename && String(postContent.__typename).toLowerCase());
+  const postTypeFor = (item) => {
+    const t = String(item?.type || '').toLowerCase();
+    if (t) return t;               // 'review','check-in','invite','sharedPost','liveStream','event','promotion'
+    // If it's a suggestions card (has kind/__typename but no type), let the helper route to events/promotions:
+    if (item?.kind || item?.__typename) return 'suggestion';
+    return undefined;              // helper will treat it as a unified Post ('posts')
+  };
 
-    if (promoEventType === 'promotion' || promoEventType === 'event') {
-      return handleEventOrPromoLike({
-        postType: promoEventType || 'suggestion', // or pass 'event'/'promotion' explicitly if you know it
-        kind: post.kind,
-        postId: resolvedPostId,
-        review: post,
-        user,
-        animation,
-        dispatch,
-        lastTapRef,
-        force,
-      })
-    } else {
-      return sharedHandleLikeWithAnimation({
-        postType: post.type,
-        postId: resolvedPostId,
-        review: post,
-        user,
-        animation,
-        dispatch,
-        lastTapRef,
-        force,
-      });
-    }
+  const handleLikeWithAnimation = (force = false) => {
+    likeWithAnim({
+      postType: postTypeFor(post),
+      postId: pickPostId(post),                 // optional; helper can infer from reviewItem
+      review: post,
+      user,
+      dispatch,
+      animation: getAnimation(post._id),
+      lastTapRef,
+      force,
+    });
   };
 
   const navigateToRegularCommentsScreen = (post) => {
@@ -139,6 +126,7 @@ export default function PostActions({
   }
 
   const navigateToFullSreenComments = (post) => {
+    console.log(post);
     if (isEventPromoOrSuggestion) {
       navigateToEventPromoComments(post);
     } else {
@@ -222,7 +210,7 @@ export default function PostActions({
       <BottomCommentsModal
         visible={bottomCommentsVisible}
         onClose={() => setBottomCommentsVisible(false)}
-        review={post}
+        post={post}
       />
     </View>
   );
