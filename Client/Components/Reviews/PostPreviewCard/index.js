@@ -1,5 +1,4 @@
 import React, { useMemo, useEffect } from 'react';
-import { Image, Text } from 'react-native';
 import { Avatar } from 'react-native-paper';
 import dayjs from 'dayjs';
 import { useDispatch, useSelector } from 'react-redux';
@@ -20,11 +19,11 @@ export default function PostPreviewCard({ post }) {
   if (!post) return null;
   const dispatch = useDispatch();
   const logo = useSelector(selectLogo);
+  const rating = post?.details?.rating;
   const {
     fullName,
     profilePicUrl,
-    rating,
-    photos,
+    media,
     reviewText,
     placeId,
     businessName,
@@ -141,7 +140,7 @@ export default function PostPreviewCard({ post }) {
     );
   }
   /** DEFAULT */
-  const firstMedia = firstOf(photos);
+  const firstMedia = firstOf(media);
   const firstMediaUrl = pickFirstUrl(firstMedia);
   const isVid = checkIsVideo(firstMedia);
   const player = useSmartVideoPlayer(firstMedia);

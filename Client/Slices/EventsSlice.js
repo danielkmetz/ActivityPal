@@ -126,6 +126,34 @@ export const deleteEvent = createAsyncThunk(
   }
 );
 
+export const toggleEventLike = createAsyncThunk(
+  "events/toggleEventLike",
+  async ({ placeId, id, userId, fullName }, { rejectWithValue, dispatch }) => {
+    try {
+      const response = await axios.post(
+        `${BASE_URL}/business/events/${placeId}/${id}/like`,
+        { userId, fullName }
+      );
+
+      const { likes } = response.data;
+
+      dispatch(updateNearbySuggestionLikes({
+        postId: id,
+        likes,
+      }));
+
+      return {
+        eventId: id,
+        likes: response.data.likes, // Updated likes array from the backend
+      };
+    } catch (error) {
+      const errorMessage =
+        error.response?.data?.message || error.message || "Failed to toggle like";
+      return rejectWithValue(errorMessage);
+    }
+  }
+);
+
 const eventsSlice = createSlice({
   name: 'events',
   initialState: {
@@ -213,6 +241,26 @@ const eventsSlice = createSlice({
         state.selectedEvent = action.payload;
       })
       .addCase(fetchEventById.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+       .addCase(toggleEventLike.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(toggleEventLike.fulfilled, (state, action) => {
+        state.loading = false;
+        const { eventId, likes } = action.payload;
+
+        const event = state.events.find(e => e._id === eventId);
+        if (event) {
+          event.likes = likes;
+        }
+        if (state.selectedEvent?._id === eventId) {
+          state.selectedEvent.likes = likes;
+        }
+      })
+      .addCase(toggleEventLike.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload;
       })

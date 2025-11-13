@@ -17,14 +17,20 @@ import { GestureDetector } from 'react-native-gesture-handler';
 import useSlideDownDismiss from '../../utils/useSlideDown';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import CommentThread from './CommentThread';
+import { setReplyingTo } from '../../Slices/CommentThreadSlice';
+import { toApiPostType, addComment as addCommentGeneric } from '../../Slices/CommentsSlice';
+import { uploadReviewPhotos } from '../../Slices/PhotosSlice';
+import { useDispatch } from 'react-redux';
 
 const { height } = Dimensions.get('window');
 
-const BottomCommentsModal = ({ visible, onClose, review }) => {
-    const [comment, setComment] = useState('');
+const BottomCommentsModal = ({ visible, onClose, post }) => {
+    const dispatch = useDispatch();
     const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
     const commentRefs = useRef({});
+    const flatListRef = useRef(null);
     const [commentText, setCommentText] = useState('');
+    const [selectedMedia, setSelectedMedia] = useState([]);
 
     useEffect(() => {
         if (visible) {
@@ -37,6 +43,113 @@ const BottomCommentsModal = ({ visible, onClose, review }) => {
             })();
         }
     }, [visible]);
+
+    const handleAddComment = async () => {
+        const TAG = '[addCommentGeneric]';
+        const t0 = Date.now();
+
+        try {
+            // --------- INPUT SUMMARY ---------
+            const hasText = !!commentText?.trim();
+            const hasMedia = (selectedMedia?.length || 0) > 0;
+
+            const apiPostType = post?.type || post?.kind;
+            // --------- GUARDS ---------
+            if (!post) {
+                console.warn(`${TAG} ABORT: post missing`);
+                return;
+            }
+            if (!apiPostType) {
+                console.warn(`${TAG} ABORT: toApiPostType returned falsy`, { sourceType: post?.type });
+                return;
+            }
+            if (!hasText && !hasMedia) {
+                console.warn(`${TAG} ABORT: neither text nor media present`);
+                return;
+            }
+
+            // --------- MEDIA UPLOAD (optional) ---------
+            let media = null;
+            if (hasMedia) {
+                const mediaFile = selectedMedia[0];
+                const mStart = Date.now();
+
+                let uploadAction;
+                try {
+                    uploadAction = await dispatch(
+                        uploadReviewPhotos({
+                            placeId: post.placeId, // ok if undefined for some post types
+                            files: [mediaFile],
+                        })
+                    );
+
+                    if (uploadReviewPhotos.fulfilled.match(uploadAction)) {
+                        const result = uploadAction.payload;
+                        if (Array.isArray(result) && result.length > 0) {
+                            media = {
+                                photoKey: result[0],
+                                mediaType: mediaFile?.type?.startsWith('video') ? 'video' : 'image',
+                            };
+                        }
+                    } else {
+                        console.warn(`${TAG} media: upload rejected`, {
+                            ms: Date.now() - mStart,
+                            error: uploadAction.error,
+                            payload: uploadAction.payload,
+                        });
+                    }
+                } catch (e) {
+                    console.error(`${TAG} media: upload threw`, {
+                        ms: Date.now() - mStart,
+                        message: e?.message,
+                        stack: e?.stack,
+                    });
+                }
+            }
+
+            // --------- BUILD PAYLOAD ---------
+            const payload = {
+                postType: apiPostType,
+                postId: post._id,
+                commentText: (commentText || '').trim(),
+                ...(media && { media }),
+            };
+
+            // --------- DISPATCH THUNK (NO unwrap) ---------
+            const action = await dispatch(addCommentGeneric(payload));
+
+            // Inspect result explicitly
+            if (addCommentGeneric.fulfilled.match(action)) {
+                // UI resets
+                dispatch(setReplyingTo(null));
+                setCommentText('');
+                setSelectedMedia([]);
+
+                setTimeout(() => {
+                    flatListRef.current?.scrollToEnd({ animated: true });
+                }, 100);
+
+                return; // success
+            }
+
+            // Rejected path
+            console.error(`${TAG} rejected`, {
+                ms: Date.now() - t0,
+                error: action.error,
+                payload: action.payload,
+                meta: action.meta,
+            });
+            // bubble up so caller sees failure (matches previous behavior with unwrap)
+            throw action.error || new Error('addCommentGeneric rejected');
+
+        } catch (error) {
+            console.error(`${TAG} THREW`, {
+                ms: Date.now() - t0,
+                message: error?.message,
+                stack: error?.stack,
+            });
+        }
+    };
 
     return (
         <Modal transparent visible={visible} animationType="slide">
@@ -52,12 +165,12 @@ const BottomCommentsModal = ({ visible, onClose, review }) => {
                                 <View style={styles.content}>
                                     <Text style={styles.title}>Comments</Text>
                                     <FlatList
-                                        data={review?.comments || []}
+                                        data={post?.comments || []}
                                         keyExtractor={(item) => item._id}
                                         renderItem={({ item }) => (
                                             <CommentThread
                                                 item={item}
-                                                review={review}
+                                                review={post}
                                                 styles={styles}
                                                 commentRefs={commentRefs}
                                                 commentText={commentText}
@@ -72,13 +185,13 @@ const BottomCommentsModal = ({ visible, onClose, review }) => {
                                     {/* Input */}
                                     <View style={styles.inputRow}>
                                         <TextInput
-                                            value={comment}
-                                            onChangeText={setComment}
+                                            value={commentText}
+                                            onChangeText={setCommentText}
                                             placeholder="Add a comment..."
                                             placeholderTextColor="#999"
                                             style={styles.input}
                                         />
-                                        <TouchableOpacity style={styles.sendButton}>
+                                        <TouchableOpacity style={styles.sendButton} onPress={handleAddComment}>
                                             <MaterialCommunityIcons name="send" size={22} color="white" />
                                         </TouchableOpacity>
                                     </View>

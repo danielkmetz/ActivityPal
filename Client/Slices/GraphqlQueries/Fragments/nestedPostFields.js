@@ -1,29 +1,25 @@
 import { gql } from '@apollo/client';
-import { COMMENTS_REPLIES_FRAGMENT } from './commentsRepliesFragment';
 import { TAGGED_USER_FRAGMENT } from './taggedUserFragment';
-import { NESTED_POST_FIELDS, SHARED_META_FIELDS } from './nestedPostFields';
 
-export const POST_FIELDS = gql`
-  ${COMMENTS_REPLIES_FRAGMENT}
+/**
+ * For nested posts (shared original, snapshotPost).
+ * IMPORTANT: Do NOT include `original` or `shared` here to avoid recursion.
+ * Keep it lightweight (no comments/likes) unless you truly need them.
+ */
+export const NESTED_POST_FIELDS = gql`
   ${TAGGED_USER_FRAGMENT}
-  ${NESTED_POST_FIELDS}
-  ${SHARED_META_FIELDS}
 
-  fragment PostFields on Post {
+  fragment NestedPostFields on Post {
     _id
     type
     message
     placeId
+    businessName
     privacy
     visibility
     sortDate
     createdAt
     updatedAt
-    businessName
-
-    taggedUsers {
-      ...TaggedUserFields
-    }
 
     owner {
       __typename
@@ -42,6 +38,10 @@ export const POST_FIELDS = gql`
       }
     }
 
+    taggedUsers {
+      ...TaggedUserFields
+    }
+
     media {
       _id
       photoKey
@@ -52,15 +52,6 @@ export const POST_FIELDS = gql`
       taggedUsers {
         ...TaggedUserFields
       }
-    }
-
-    likes {
-      userId
-      fullName
-    }
-
-    comments {
-      ...CommentsRepliesFields
     }
 
     details {
@@ -78,23 +69,6 @@ export const POST_FIELDS = gql`
       }
       ... on InviteDetails {
         dateTime
-        recipients {
-          user {
-            id
-            firstName
-            lastName
-            profilePicUrl
-          }
-          status
-        }
-        requests {
-          _id
-          userId
-          status
-          firstName
-          lastName
-          profilePicUrl
-        }
       }
       ... on EventDetails {
         startsAt
@@ -119,15 +93,44 @@ export const POST_FIELDS = gql`
         vodUrl
       }
     }
+  }
+`;
 
-    # ✅ NEW: shared metadata + typed snapshot
-    shared {
-      ...SharedMetaFields
+/**
+ * Shared meta gets its own fragment so we can reuse it anywhere.
+ * We expose both `snapshot` (deprecated) and the new typed `snapshotPost`.
+ */
+export const SHARED_META_FIELDS = gql`
+  ${NESTED_POST_FIELDS}
+
+  fragment SharedMetaFields on SharedMeta {
+    originalPostId
+    originalOwnerModel
+
+    originalOwner {
+      __typename
+      ... on User {
+        id
+        firstName
+        lastName
+        fullName
+        profilePicUrl
+      }
+      ... on Business {
+        id
+        businessName
+        logoUrl
+        placeId
+      }
     }
 
-    # ✅ NEW: hydrated live original for shared posts
-    original {
+    # New, fully-typed enriched snapshot
+    snapshotPost {
       ...NestedPostFields
     }
+
+    # Optional booleans your server may set
+    originalExists
+    originalAccessible
   }
 `;

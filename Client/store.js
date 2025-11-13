@@ -32,6 +32,7 @@ import removeTagsReducer from './Slices/RemoveTagsSlice';
 import taggedPostsReducer from './Slices/TaggedPostsSlice';
 import hiddenPostsReducer from './Slices/HiddenPostsSlice';
 import BlocksReducer from './Slices/BlocksSlice';
+import uiReducer from './Slices/uiSlice';
 
 const store = configureStore({
     reducer: combineReducers({
@@ -64,6 +65,7 @@ const store = configureStore({
         taggedPosts: taggedPostsReducer,
         hiddenPosts: hiddenPostsReducer,
         blocks: BlocksReducer,
+        ui: uiReducer,
     }),
     middleware: (getDefault) =>
         getDefault({ serializableCheck: false })

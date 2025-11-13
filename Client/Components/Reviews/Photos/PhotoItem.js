@@ -5,9 +5,8 @@ import { VideoView } from 'expo-video';
 import { useSmartVideoPlayer } from '../../../utils/useSmartVideoPlayer';
 import { isVideo } from '../../../utils/isVideo';
 import { useLikeAnimations } from '../../../utils/LikeHandlers/LikeAnimationContext';
-import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from '../../../utils/LikeHandlers';
-import { handleEventOrPromoLike } from '../../../utils/LikeHandlers/promoEventLikes';
-import { typeFromKind as promoEventKind, pickPostId } from '../../../utils/posts/postIdentity';
+import { handleLikeWithAnimation as likeWithAnim } from '../../../utils/LikeHandlers';
+import { pickPostId } from '../../../utils/posts/postIdentity';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser } from '../../../Slices/UserSlice';
 import TagUserModal from '../TagUserModal/TagUserModal';
@@ -48,38 +47,25 @@ const PhotoItem = ({
         }
     }, [reviewItem?._id]);
 
-    const handleLikeWithAnimation = (force = false) => {
-        const animation = getAnimation(reviewItem._id);
-        const resolvedPostId = pickPostId(reviewItem);
-        const promoEventType =
-            (reviewItem?.type && String(reviewItem.type).toLowerCase()) ||
-            promoEventKind(reviewItem?.kind) ||
-            (reviewItem?.__typename && String(reviewItem.__typename).toLowerCase());
+    const postTypeFor = (item) => {
+        const t = String(item?.type || '').toLowerCase();
+        if (t) return t;               // 'review','check-in','invite','sharedPost','liveStream','event','promotion'
+        // If it's a suggestions card (has kind/__typename but no type), let the helper route to events/promotions:
+        if (item?.kind || item?.__typename) return 'suggestion';
+        return undefined;              // helper will treat it as a unified Post ('posts')
+    };
 
-        if (promoEventType === 'promotion' || promoEventType === 'event') {
-            return handleEventOrPromoLike({
-                postType: promoEventType || 'suggestion', // or pass 'event'/'promotion' explicitly if you know it
-                kind: reviewItem.kind,
-                postId: resolvedPostId,
-                review: reviewItem,
-                user,
-                animation,
-                dispatch,
-                lastTapRef,
-                force,
-            })
-        } else {
-            return sharedHandleLikeWithAnimation({
-                postType: reviewItem.type,
-                postId: resolvedPostId,
-                review: reviewItem,
-                user,
-                animation,
-                dispatch,
-                lastTapRef,
-                force,
-            });
-        }
+    const handleLikeWithAnimation = (force = false) => {
+        likeWithAnim({
+            postType: postTypeFor(reviewItem),
+            postId: pickPostId(reviewItem),                 // optional; helper can infer from reviewItem
+            review: reviewItem,
+            user,
+            dispatch,
+            animation: getAnimation(reviewItem._id),
+            lastTapRef,
+            force,
+        });
     };
 
     const handleTap = () => {

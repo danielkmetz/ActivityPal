@@ -106,7 +106,9 @@ export const fetchPostById = createAsyncThunk(
   "posts/fetchPostById",
   async ({ postType, postId }, { rejectWithValue }) => {
     try {
-      const res = await axios.get(`${BASE_URL}/posts/${postType}/${postId}`);
+      const res = await axios.get(`${BASE_URL}/posts/${postId}`, {
+        params: { type: postType },
+      });
       // expecting the normalized post (or wrapped); normalize:
       return res.data?.post ?? res.data;
     } catch (err) {

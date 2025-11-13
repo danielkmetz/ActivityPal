@@ -3,19 +3,20 @@ const { Schema, Types } = mongoose;
 const { CommentSchema } = require('./Comment');
 const { LikeSchema } = require('./Likes');
 const { PhotoSchema } = require('./Photos');
+const { GeoPointSchema } = require('./GeoPoint');
 
 const BasePostSchema = new Schema({
-  type: { type: String, enum: ['review','check-in','invite','event','promotion','sharedPost','liveStream'], required: true },
+  type: { type: String, enum: ['review', 'check-in', 'invite', 'event', 'promotion', 'sharedPost', 'liveStream'], required: true },
 
-  ownerId:    { type: Types.ObjectId, refPath: 'ownerModel', required: true },
-  ownerModel: { type: String, enum: ['User','Business'], default: 'User' },
+  ownerId: { type: Types.ObjectId, refPath: 'ownerModel', required: true },
+  ownerModel: { type: String, enum: ['User', 'Business'], default: 'User' },
 
   // ✅ single field for post text shown in the feed/UI
   message: { type: String, default: '', maxlength: 4000, trim: true },
 
   businessName: { type: String, default: null },
   placeId: { type: String, index: true, default: null },
-  location: { type: { type: String, enum: ['Point'] }, coordinates: [Number] },
+  location: { type: GeoPointSchema, default: undefined },
 
   media: [PhotoSchema],
   taggedUsers: [{ type: Types.ObjectId, ref: 'User' }],
@@ -28,18 +29,18 @@ const BasePostSchema = new Schema({
     shareCount: { type: Number, default: 0 },
   },
 
-  privacy:    { type: String, enum: ['public','followers','private','unlisted'], default: 'public' },
-  visibility: { type: String, enum: ['visible','hidden','deleted'], default: 'visible' },
-  deletedAt:  { type: Date },
+  privacy: { type: String, enum: ['public', 'followers', 'private', 'unlisted'], default: 'public' },
+  visibility: { type: String, enum: ['visible', 'hidden', 'deleted'], default: 'visible' },
+  deletedAt: { type: Date },
 
   sortDate: { type: Date, default: () => new Date(), index: true },
   expireAt: { type: Date },
 
   shared: {
-    originalPostId:     { type: Types.ObjectId, ref: 'Post' },
-    originalOwner:      { type: Types.ObjectId, refPath: 'shared.originalOwnerModel' },
-    originalOwnerModel: { type: String, enum: ['User','Business'] },
-    snapshot:           Schema.Types.Mixed,
+    originalPostId: { type: Types.ObjectId, ref: 'Post' },
+    originalOwner: { type: Types.ObjectId, refPath: 'shared.originalOwnerModel' },
+    originalOwnerModel: { type: String, enum: ['User', 'Business'] },
+    snapshot: Schema.Types.Mixed,
   },
 
   refs: {
@@ -85,11 +86,11 @@ const InvitePost = Post.discriminator('invite', new Schema({
     dateTime: { type: Date, required: true },
     recipients: [{
       userId: { type: Types.ObjectId, ref: 'User', required: true },
-      status: { type: String, enum: ['pending','accepted','declined'], default: 'pending' },
+      status: { type: String, enum: ['pending', 'accepted', 'declined'], default: 'pending' },
     }],
     requests: [{
       userId: { type: Types.ObjectId, ref: 'User' },
-      status: { type: String, enum: ['pending','accepted','declined'], default: 'pending' },
+      status: { type: String, enum: ['pending', 'accepted', 'declined'], default: 'pending' },
       requestedAt: { type: Date, default: Date.now },
     }],
   },
@@ -106,7 +107,7 @@ const PromotionPost = Post.discriminator('promotion', new Schema({
 const SharedPost = Post.discriminator('sharedPost', new Schema({}));
 
 const LiveStreamPost = Post.discriminator('liveStream', new Schema({
-  details: { title: { type: String, default: '' }, status: { type: String, enum: ['idle','live','ended','error'], default: 'idle' }, coverKey: { type: String, default: null }, durationSec: { type: Number }, viewerPeak: { type: Number, default: 0 } },
+  details: { title: { type: String, default: '' }, status: { type: String, enum: ['idle', 'live', 'ended', 'error'], default: 'idle' }, coverKey: { type: String, default: null }, durationSec: { type: Number }, viewerPeak: { type: Number, default: 0 } },
 }));
 
 module.exports = { Post, ReviewPost, CheckInPost, InvitePost, EventPost, PromotionPost, SharedPost, LiveStreamPost };

@@ -2,6 +2,8 @@ const router = require('express').Router();
 const mongoose = require('mongoose');
 const verifyToken = require('../middleware/verifyToken');
 const { Post } = require('../models/Post'); // ✅ unified Post model
+const Event = require('../models/Events');
+const Promotion = require('../models/Promotions');
 const User = require('../models/User');
 const Business = require('../models/Business');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl');
@@ -183,24 +185,63 @@ async function removeNotificationsForDeletedNodes({ post, topLevelCommentId = nu
   } catch { /* best-effort */ }
 }
 
-/* ------------------------------ Middleware ------------------------------ */
+/* ------------------------------ Doc loader ------------------------------ */
 
-async function loadPost(req, res, next) {
+function kindFromReq(req) {
+  return (req.query?.kind || req.headers['x-doc-kind'] || '').toString().toLowerCase();
+}
+
+function modelForKind(kind) {
+  if (kind === 'post') return { Model: Post, fallbackType: 'post' };
+  if (kind === 'event') return { Model: Event, fallbackType: 'event' };
+  if (kind === 'promotion' || kind === 'promo') return { Model: Promotion, fallbackType: 'promotion' };
+  return null;
+}
+
+async function tryFindByIdAcrossModels(id) {
+  let doc = await Post.findById(id);
+  if (doc) return { doc, kind: 'post' };
+  doc = await Event.findById(id);
+  if (doc) return { doc, kind: 'event' };
+  doc = await Promotion.findById(id);
+  if (doc) return { doc, kind: 'promotion' };
+  return { doc: null, kind: null };
+}
+
+async function loadTarget(req, res, next) {
   const { postId } = req.params;
   if (!isOid(postId)) return res.status(400).json({ message: 'Invalid postId' });
 
-  const post = await Post.findById(postId);
-  if (!post) return res.status(404).json({ message: 'Post not found' });
+  // 1) If caller hints kind, use it
+  const hinted = kindFromReq(req);
+  if (hinted) {
+    const entry = modelForKind(hinted);
+    if (!entry) return res.status(400).json({ message: 'Unsupported kind' });
+    const found = await entry.Model.findById(postId);
+    if (!found) return res.status(404).json({ message: 'Target not found' });
 
-  req.post = post; // Mongoose doc
+    // Ensure a proper type field exists for notifications, etc.
+    if (!found.type) found.type = entry.fallbackType;
+    req.post = found;        // keep existing var name to minimize changes below
+    req.postKind = hinted;   // 'post' | 'event' | 'promotion'
+    return next();
+  }
+
+  // 2) Otherwise, auto-detect by probing collections
+  const { doc, kind } = await tryFindByIdAcrossModels(postId);
+  if (!doc) return res.status(404).json({ message: 'Target not found' });
+
+  if (!doc.type) doc.type = kind || 'post';
+  req.post = doc;
+  req.postKind = kind || 'post';
   next();
 }
 
 /* -------------------------------- Routes -------------------------------- */
 
 // Add comment
-router.post('/:postId/comments', verifyToken, loadPost, async (req, res) => {
-  const post = req.post;
+router.post('/:postId/comments', verifyToken, loadTarget, async (req, res) => {
+  const post = req.post; // could be Post | Event | Promotion
   const userId = req.user?.id;
   const fullName =
     req.user?.fullName ||
@@ -250,7 +291,7 @@ router.post('/:postId/comments', verifyToken, loadPost, async (req, res) => {
 });
 
 // Add nested reply
-router.post('/:postId/comments/:commentId/replies', verifyToken, loadPost, async (req, res) => {
+router.post('/:postId/comments/:commentId/replies', verifyToken, loadTarget, async (req, res) => {
   const post = req.post;
   const { commentId } = req.params;
   const userId = req.user?.id;
@@ -336,7 +377,7 @@ router.post('/:postId/comments/:commentId/replies', verifyToken, loadPost, async
 });
 
 // Like/unlike comment or reply
-router.put('/:postId/comments/:commentId/like', verifyToken, loadPost, async (req, res) => {
+router.put('/:postId/comments/:commentId/like', verifyToken, loadTarget, async (req, res) => {
   const post = req.post;
   const { commentId } = req.params;
   const userId = req.user?.id;
@@ -435,7 +476,7 @@ router.put('/:postId/comments/:commentId/like', verifyToken, loadPost, async (re
 });
 
 // Edit comment or reply (author OR post owner)
-router.patch('/:postId/comments/:commentId', verifyToken, loadPost, async (req, res) => {
+router.patch('/:postId/comments/:commentId', verifyToken, loadTarget, async (req, res) => {
   const post = req.post;
   const userId = req.user?.id;
   if (!userId) return res.status(401).json({ message: 'Unauthorized' });
@@ -507,7 +548,7 @@ router.patch('/:postId/comments/:commentId', verifyToken, loadPost, async (req, 
 });
 
 // Delete comment or reply (author OR post owner)
-router.delete('/:postId/comments/:commentId', verifyToken, loadPost, async (req, res) => {
+router.delete('/:postId/comments/:commentId', verifyToken, loadTarget, async (req, res) => {
   const post = req.post;
   const userId = req.user?.id;
   if (!userId) return res.status(401).json({ message: 'Unauthorized' });

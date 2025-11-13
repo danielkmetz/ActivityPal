@@ -41,7 +41,7 @@ export default function TaggedUsersLine({
   const authorName =
     owner?.fullName ||
     (owner?.user ? [postContent.user.firstName, postContent.user.lastName].filter(Boolean).join(' ') : undefined);
-  const authorId = postContent?.userId || postContent?.user?.id || postContent?.user?.userId || postContent?.user?._id;
+  const authorId = owner?.id || owner?._id || owner?.userId;
 
   const onPressBusiness = () => {
     logEngagementIfNeeded(dispatch, {

@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import PostActions from '../PostActions/PostActions';
 import PostOptionsMenu from '../PostOptionsMenu';
-import { useSelector } from 'react-redux';
-import { selectUser } from '../../../Slices/UserSlice';
 import SharedPostContent from './SharedPostContent';
 import NonOwnerOptions from '../PostOptionsMenu/NonOwnerPostOptions';
 import PostHeader from '../PostHeader/PostHeader';
+import ViewerOptionsTrigger from '../PostOptionsMenu/ViewerOptionsTrigger';
 
 export default function SharedPostItem({
     item,
@@ -19,9 +18,6 @@ export default function SharedPostItem({
     embeddedInShared = false,
     ...rest
 }) {
-    const user = useSelector(selectUser);
-    const postUserId = item?.user?.id || item?.user?._id;
-    const isSender = postUserId === user?.id;
     const [dropdownVisible, setDropdownVisible] = useState(false);
     const [viewerOptionsVisible, setViewerOptionsVisible] = useState(false);
 
@@ -35,20 +31,16 @@ export default function SharedPostItem({
                 postData={item}
             />
             {/* Shared By Header */}
-            <PostHeader 
+            <PostHeader
                 post={item}
                 includeAtWithBusiness={false}
                 showAtWhenNoTags={false}
             />
-            {!isSender && (
-                <TouchableOpacity
-                    onPress={() => setViewerOptionsVisible(true)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    style={{ position: 'absolute', top: 6, right: 6, padding: 6, zIndex: 5 }}
-                >
-                    <Text style={{ fontSize: 22, lineHeight: 22 }}>⋯</Text>
-                </TouchableOpacity>
-            )}
+            <ViewerOptionsTrigger
+                post={item}
+                embeddedInShared={embeddedInShared}
+                onPress={() => setViewerOptionsVisible(true)}
+            />
             {/* Render Shared Content */}
             <View style={{ marginTop: 10 }}>
                 <SharedPostContent

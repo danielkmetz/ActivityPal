@@ -8,7 +8,7 @@ export const fetchPromotionById = createAsyncThunk(
   'promotions/fetchPromotionById',
   async ({ promotionId }, { rejectWithValue }) => {
     try {
-      const res = await axios.get(`${BASE_URL}/promotion/${promotionId}`);
+      const res = await axios.get(`${API_URL}/promotion/${promotionId}`);
       // success shape stays the same: promotion object
       return res.data.promotion;
     } catch (err) {

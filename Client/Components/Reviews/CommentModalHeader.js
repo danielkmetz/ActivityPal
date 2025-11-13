@@ -7,7 +7,6 @@ import TaggedUsersLine from "./PostHeader/TaggedUsersLine";
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 import { useNavigation } from "@react-navigation/native";
 import PostActions from './PostActions/PostActions';
-import PostUserInfo from "./CommentScreen/PostUserInfo";
 import SharedPostContent from "./SharedPosts/SharedPostContent";
 import VideoThumbnail from "./VideoThumbnail";
 import PhotoFeed from "./Photos/PhotoFeed";

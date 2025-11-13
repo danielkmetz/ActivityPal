@@ -17,6 +17,7 @@ export default function PhotoFeed({
   onActiveChange, // ← optional callback to mirror your previous onTouchStart/onTouchEnd behavior
   currentIndexRef,
   isCommentScreen=false,
+  isMyEventsPromosPage=false,
 }) {
   const dispatch = useDispatch();
   const navigation = useNavigation();
@@ -34,6 +35,7 @@ export default function PhotoFeed({
         onOpenDetails: setDetailsVisible,
         photoTapped,
         isCommentScreen,
+        isMyEventsPromosPage,
       }),
     [
       postContent?._id,              // keep deps minimal & stable

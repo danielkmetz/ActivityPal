@@ -28,7 +28,7 @@ const typeDefs = gql`
 
   type Location {
     type: String!
-    coordinates: [Float!]   # [lng, lat]
+    coordinates: [Float!]       # [lng, lat]
     formattedAddress: String
   }
 
@@ -56,6 +56,10 @@ const typeDefs = gql`
     shared: SharedMeta            # present when type === 'sharedPost'
     refs: PostRefs                # cross-links (e.g., liveStream)
     businessName: String
+
+    # ✅ Hydrated live original (or omitted if not a sharedPost).
+    # Your controller attaches this for response; default resolver will expose it.
+    original: Post
   }
 
   type PostStats {
@@ -123,7 +127,16 @@ const typeDefs = gql`
     originalPostId: ID!
     originalOwner: OriginalOwner
     originalOwnerModel: String
-    snapshot: JSON              # frozen minimal view of original (optional)
+
+    # Old shape kept for backward compatibility; prefer snapshotPost below.
+    snapshot: JSON @deprecated(reason: "Use snapshotPost for a fully typed, enriched snapshot")
+
+    # ✅ Enriched snapshot in Post shape (what your controller builds now).
+    snapshotPost: Post
+
+    # Optional helpful flags your hydrate helper can set
+    originalExists: Boolean
+    originalAccessible: Boolean
   }
 
   type PostRefs {
@@ -247,7 +260,7 @@ const typeDefs = gql`
     profilePic: ProfilePic
     mutualConnections: [MutualUser!]!
     profileVisibility: String!
-    posts: [Post!]!            # replaced reviews/checkIns arrays
+    posts: [Post!]!
   }
 
   type Caption {
@@ -274,7 +287,7 @@ const typeDefs = gql`
     viewedBy: [User!]
     type: String
     postType: String @deprecated(reason: "Use originalPost.type")
-    originalPost: Post         # replaces SharedContent union
+    originalPost: Post
     isViewed: Boolean
   }
 
@@ -311,26 +324,15 @@ const typeDefs = gql`
   # -------- Queries (Post-centric) --------
   type Query {
     getPostById(id: ID!): Post
-
-    # generic lists (optionally filter by types: ['review','check-in',...])
     getUserPosts(userId: ID!, types: [String!], limit: Int, after: ActivityCursor): [Post!]
     getPostsByPlace(placeId: String!, types: [String!], limit: Int, after: ActivityCursor): [Post!]
     getUserActivity(types: [String!], limit: Int, after: ActivityCursor, userLat: Float, userLng: Float): [Post!]
     getUserTaggedPosts(userId: ID!, limit: Int, after: ActivityCursor): [Post!]
 
-    # suggestions, stories, ratings kept (rewired internally to Posts)
     getSuggestedFollows(userId: ID!): [SuggestedUser!]!
     userAndFollowingStories(userId: ID!): [StoryGroup]
     storiesByUser(userId: ID!): [StoryGroup]
     getBusinessRatingSummaries(placeIds: [String!]!): [BusinessRatingSummary!]!
-
-    # legacy-style queries removed in favor of Post-based ones:
-    # - getUserAndFollowingReviews
-    # - getBusinessReviews
-    # - getUserAndFollowingCheckIns
-    # - getUserAndFollowingInvites
-    # - getUserAndFollowingSharedPosts
-    # - getPostedLiveStreams
   }
 `
 

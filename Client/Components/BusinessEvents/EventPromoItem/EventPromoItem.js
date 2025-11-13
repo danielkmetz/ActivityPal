@@ -1,9 +1,8 @@
-import React from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import EventDetailsCard from "../EventDetailsCard";
 import PhotoFeed from '../../Reviews/Photos/PhotoFeed';
 import PostActions from "../../Reviews/PostActions/PostActions";
-import { useNavigation } from "@react-navigation/native";
 
 export default function EventPromoItem({
     item,
@@ -12,28 +11,25 @@ export default function EventPromoItem({
     onToggleDropdown,             // (id) => void
     onEdit,                       // (item) => void
     onDelete,                     // (item) => void
-    onLikeWithAnimation,          // (item) => void
-    onOpenComments,               // (item) => void
     scrollX,
-    currentIndexRef,
-    setCurrentPhotoIndex,
-    lastTapRef,
+    photoTapped,
+    setPhotoTapped,
     onActiveChange = () => { },
     styleOverrides = null,        // if EventDetailsCard expects styles (kept for compatibility)
 }) {
+    const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+    const currentIndexRef = useRef(0);
     const hasMedia = Array.isArray(item?.photos) && item.photos.length > 0;
-    const navigation = useNavigation();
-    const selectedType = item?.kind?.toLowerCase().includes('event') ? 'event' : 'promo'
 
-    const onOpenFullScreen = (photo, index) => {
-        navigation.navigate('FullScreenPhoto', {
-            reviewId: item?._id,
-            selectedType,
-            initialIndex: item.photos.findIndex(p => p._id === photo._id),
-            taggedUsersByPhotoKey: item.taggedUsersByPhotoKey || {},
-            isEventPromo: true,
-        })
-    };
+    useEffect(() => {
+        const interval = setInterval(() => {
+            if (currentPhotoIndex !== currentIndexRef.current) {
+                setCurrentPhotoIndex(currentIndexRef.current);
+            }
+        }, 100);
+
+        return () => clearInterval(interval);
+    }, [currentPhotoIndex]);
 
     return (
         <View style={styles.itemCard}>
@@ -63,23 +59,19 @@ export default function EventPromoItem({
                 <EventDetailsCard item={item} selectedTab={selectedTab} styles={styleOverrides} />
                 {hasMedia && (
                     <PhotoFeed
-                        media={item.photos}
+                        post={item}
                         scrollX={scrollX}
-                        currentIndexRef={currentIndexRef}
-                        setCurrentPhotoIndex={setCurrentPhotoIndex}
-                        reviewItem={item}
-                        photoTapped={null}
-                        handleLikeWithAnimation={() => onLikeWithAnimation(item)}
-                        lastTapRef={lastTapRef}
-                        onOpenFullScreen={onOpenFullScreen}
+                        photoTapped={photoTapped}
+                        setPhotoTapped={setPhotoTapped}
                         onActiveChange={onActiveChange}
+                        isMyEventsPromosPage={true}
+                        currentIndexRef={{ current: currentPhotoIndex, setCurrent: setCurrentPhotoIndex }}
                     />
                 )}
                 <View style={{ paddingLeft: 15 }}>
                     <PostActions
-                        item={item}
-                        handleLikeWithAnimation={onLikeWithAnimation}
-                        handleOpenComments={() => onOpenComments(item)}
+                        post={item}
+                        onShare={() => { }}
                     />
                 </View>
             </View>

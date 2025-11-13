@@ -1,9 +1,5 @@
 import { createListenerMiddleware, isAnyOf } from '@reduxjs/toolkit';
-
-// Reviews
 import { applyPostUpdates } from '../Slices/PostsSlice';
-
-// Comment thunks
 import {
   addComment,
   addReply,
@@ -11,26 +7,37 @@ import {
   editComment,
   deleteComment,
 } from '../Slices/CommentsSlice';
-
-// Nearby Suggestions (GooglePlaces)
 import { applyNearbyUpdates } from '../Slices/GooglePlacesSlice';
-
-// Events & Promotions unified updaters
-import { applyEventUpdates } from '../Slices/EventsSlice';          
-import { applyPromotionUpdates } from '../Slices/PromotionsSlice';  
+import { applyEventUpdates } from '../Slices/EventsSlice';
+import { applyPromotionUpdates } from '../Slices/PromotionsSlice';
 
 /* =========================
-   Small perf helpers
+   Small perf + identity helpers
 ========================= */
 
+const toStr = (v) => (v == null ? '' : String(v));
+const getId = (x) => toStr(x?._id ?? x?.id);
+const isSharedPost = (p) => {
+  const t = p?.type || p?.postType || p?.canonicalType;
+  return t === 'sharedPost' || t === 'sharedPosts';
+};
+const getOriginalId = (p) => (isSharedPost(p) ? getId(p.original) : '');
+
 // Cache: arrayRef -> Set(ids) for O(1) membership tests.
-// New arrays (Immer drafts) get new refs, so cache stays correct.
+// Now supports both _id and id.
 const idSetCache = new WeakMap();
 const getIdSet = (arr) => {
   if (!Array.isArray(arr)) return null;
   let set = idSetCache.get(arr);
   if (!set) {
-    set = new Set(arr.map((p) => String(p?._id)));
+    set = new Set(
+      arr.flatMap((p) => {
+        const out = [];
+        if (p?._id != null) out.push(String(p._id));
+        if (p?.id != null) out.push(String(p.id));
+        return out;
+      })
+    );
     idSetCache.set(arr, set);
   }
   return set;
@@ -41,35 +48,58 @@ const hasId = (arr, id) => {
   return set ? set.has(String(id)) : false;
 };
 
-const findById = (arr, id) => {
+// Does arr contain either the item id OR a sharedPost.original.id?
+// ---- replace containsIdOrOriginal ----
+const containsIdOrOriginal = (arr, id) => {
+  if (!Array.isArray(arr)) return false;
+  const s = toStr(id);
+  for (let i = 0; i < arr.length; i++) {
+    const p = arr[i];
+    if (getId(p) === s) return true;
+    if (isSharedPost(p)) {
+      if (getId(p.original) === s) return true;
+      const opid = toStr(p?.originalPostId);
+      if (opid && opid === s) return true;
+    }
+  }
+  return false;
+};
+
+// ---- replace findByIdOrOriginal ----
+const findByIdOrOriginal = (arr, id) => {
   if (!Array.isArray(arr)) return null;
-  const s = String(id);
-  // Quick path: many lists keep objects at shallow depth; findIndex is OK after set check
-  if (!hasId(arr, id)) return null;
-  const idx = arr.findIndex((p) => String(p?._id) === s);
-  return idx >= 0 ? arr[idx] : null;
+  const s = toStr(id);
+  for (let i = 0; i < arr.length; i++) {
+    const p = arr[i];
+    if (getId(p) === s) return p;
+    if (isSharedPost(p)) {
+      if (getId(p.original) === s) return p.original || null;
+      const opid = toStr(p?.originalPostId);
+      if (opid && opid === s) return p.original || null; // may be null if not hydrated yet
+    }
+  }
+  return null;
 };
 
 /* =========================
-   Reviews helpers
+   Post helpers
 ========================= */
 
 const ALL_COLLECTION_KEYS = [
-  'businessReviews',
-  'localReviews',
-  'profileReviews',
-  'otherUserReviews',
-  'userAndFriendsReviews',
+  'businessPosts',
+  'localPosts',
+  'profilePosts',
+  'otherUserPosts',
+  'userAndFriendsPosts',
   'suggestedPosts',
 ];
-const ALWAYS_KEYS = ['profileReviews', 'userAndFriendsReviews', 'suggestedPosts'];
+const ALWAYS_KEYS = ['profilePosts', 'userAndFriendsPosts', 'suggestedPosts'];
 
-function computePostKeys(state, postId) {
+function computePostKeysFromPosts(state, postId) {
   const keys = new Set(ALWAYS_KEYS);
-  const rs = state?.reviews || {};
+  const ps = state?.posts || {};
   for (const k of ALL_COLLECTION_KEYS) {
-    const arr = rs[k];
-    if (hasId(arr, postId)) keys.add(k);
+    if (containsIdOrOriginal(ps[k], postId)) keys.add(k);
   }
   return [...keys];
 }
@@ -92,83 +122,120 @@ function findTopLevelCommentIdInPost(post, targetId) {
 
 /**
  * Build { commentId, [replyId], likes } by scanning a specific source quickly.
- * We first locate the single post (O(#lists)), then do a local tree walk.
  */
 function buildLikesPayloadFromSource({ list, selected, postId, commentId, likes, topLevelCommentId }) {
-  // If backend provides, use it directly (zero scans).
+  // server-provided is best
   if (topLevelCommentId) {
     return String(topLevelCommentId) === String(commentId)
       ? { commentId: topLevelCommentId, likes: likes || [] }
       : { commentId: topLevelCommentId, replyId: commentId, likes: likes || [] };
   }
 
-  // 1) Get the post fast
-  let post = findById(list, postId);
-  if (!post && selected && String(selected._id) === String(postId)) post = selected;
+  // Try to locate the post in a list or the selected item (supports shared originals)
+  let post = findByIdOrOriginal(list, postId);
+  if (!post && selected) {
+    if (getId(selected) === toStr(postId)) post = selected;
+    else if (isSharedPost(selected) && getId(selected.original) === toStr(postId)) post = selected.original;
+  }
   if (!post) return { commentId, likes: likes || [] };
 
-  // 2) Is commentId a top-level comment?
+  // Top-level vs reply detection
   const sId = String(commentId);
   if ((post.comments || []).some((c) => String(c?._id) === sId)) {
     return { commentId, likes: likes || [] };
   }
-
-  // 3) Otherwise, find its top ancestor
   const top = findTopLevelCommentIdInPost(post, commentId);
-  return top ? { commentId: top, replyId: commentId, likes: likes || [] }
+  return top
+    ? { commentId: top, replyId: commentId, likes: likes || [] }
     : { commentId, likes: likes || [] };
 }
 
 /* =========================
-   Presence predicates (O(1) via idSet)
+   Presence predicates
 ========================= */
 
-const inReviews = (state, postId) => {
-  const rs = state?.reviews || {};
+const inPosts = (state, postId) => {
+  const ps = state?.posts || {};
   for (let i = 0; i < ALL_COLLECTION_KEYS.length; i++) {
-    if (hasId(rs[ALL_COLLECTION_KEYS[i]], postId)) return true;
+    const key = ALL_COLLECTION_KEYS[i];
+    if (containsIdOrOriginal(ps[key], postId)) return true;
   }
-  const sel = rs?.selectedReview;
-  return !!(sel && String(sel._id) === String(postId));
+  const sel = ps?.selectedPost;
+  if (!sel) return false;
+  return (
+    getId(sel) === toStr(postId) ||
+    (isSharedPost(sel) && getId(sel.original) === toStr(postId))
+  );
 };
 
 const inNearby = (state, postId) => {
   const list = state?.GooglePlaces?.nearbySuggestions || [];
-  return hasId(list, postId);
+  return hasId(list, postId); // nearby items typically aren't shared wrappers
 };
 
 const inEvents = (state, postId) => {
   const list = state?.events?.events || [];
-  if (hasId(list, postId)) return true;
+  if (containsIdOrOriginal(list, postId)) return true;
   const sel = state?.events?.selectedEvent;
-  return !!(sel && String(sel._id) === String(postId));
+  return !!(
+    sel &&
+    (getId(sel) === toStr(postId) ||
+      (isSharedPost(sel) && getId(sel.original) === toStr(postId)))
+  );
 };
 
 const inPromos = (state, postId) => {
   const list = state?.promotions?.promotions || [];
-  if (hasId(list, postId)) return true;
+  if (containsIdOrOriginal(list, postId)) return true;
   const sel = state?.promotions?.selectedPromotion;
-  return !!(sel && String(sel._id) === String(postId));
+  return !!(
+    sel &&
+    (getId(sel) === toStr(postId) ||
+      (isSharedPost(sel) && getId(sel.original) === toStr(postId)))
+  );
 };
 
 /* =========================
-   Common control-shape builders
+   Comment control-shape builders
 ========================= */
 
 const toControlShape = {
   addComment: ({ comment }) => ({ __appendComment: comment }),
   addReply: ({ commentId, reply }) => ({ __appendReply: { commentId, reply } }),
-  editComment: ({ updatedComment }) =>
-    ({ __updateComment: { commentId: updatedComment?._id, updatedComment } }),
+  editComment: ({ updatedComment }) => ({
+    __updateComment: { commentId: updatedComment?._id, updatedComment },
+  }),
   deleteComment: ({ commentId }) => ({ __deleteComment: commentId }),
 };
 
 export const commentsListener = createListenerMiddleware();
 
-function dispatchReviewUpdates(dispatch, state, { postId, updates }) {
-  const postKeys = computePostKeys(state, postId);
+function dispatchPostUpdates(dispatch, state, { postId, updates }) {
+  const postKeys = computePostKeysFromPosts(state, postId);
   dispatch(applyPostUpdates({ postId, postKeys, updates: updates || {} }));
 }
+
+// ---- replace preferOriginalIdForComments ----
+const preferOriginalIdForComments = (state, postId) => {
+  const sId = toStr(postId);
+  const ps = state?.posts || {};
+
+  for (const key of ALL_COLLECTION_KEYS) {
+    const arr = ps[key] || [];
+    for (const item of arr) {
+      if (getId(item) === sId && isSharedPost(item)) {
+        const oid = getId(item.original) || toStr(item.originalPostId);
+        if (oid) return oid;
+      }
+    }
+  }
+  const sel = ps.selectedPost;
+  if (sel && getId(sel) === sId && isSharedPost(sel)) {
+    const oid = getId(sel.original) || toStr(sel.originalPostId);
+    if (oid) return oid;
+  }
+  return postId;
+};
 
 commentsListener.startListening({
   matcher: isAnyOf(
@@ -187,6 +254,17 @@ commentsListener.startListening({
       const { postId } = payload;
       if (!postId) return;
 
+      const isCommentMutation =
+        action.type === addComment.fulfilled.type ||
+        action.type === addReply.fulfilled.type ||
+        action.type === editComment.fulfilled.type ||
+        action.type === deleteComment.fulfilled.type ||
+        action.type === toggleLike.fulfilled.type;
+
+      const targetPostId = isCommentMutation
+        ? preferOriginalIdForComments(state, postId)
+        : postId;
+
       /* ---------- Build REUSABLE updates by action ---------- */
       let baseUpdates = null;
       if (action.type === addComment.fulfilled.type) {
@@ -199,25 +277,22 @@ commentsListener.startListening({
         if (payload.commentId) baseUpdates = toControlShape.deleteComment(payload);
       }
 
-      /* ---------- Reviews (also handles likes with structure inference) ---------- */
-      if (inReviews(state, postId)) {
+      /* ---------- Posts (reviews/check-ins/shared) ---------- */
+      if (inPosts(state, targetPostId)) {
         if (action.type === toggleLike.fulfilled.type) {
           const { commentId, likes, topLevelCommentId } = payload;
           if (commentId) {
-            // Quick per-source likes payload for reviews
-            // We only need to identify which one review list actually contains the post.
-            // Iterate small fixed set of lists with O(1) membership checks.
-            const rs = state?.reviews || {};
+            const ps = state?.posts || {};
             let likesPayload = null;
 
             for (let i = 0; i < ALL_COLLECTION_KEYS.length; i++) {
               const key = ALL_COLLECTION_KEYS[i];
-              const arr = rs[key];
-              if (hasId(arr, postId)) {
+              const arr = ps[key];
+              if (containsIdOrOriginal(arr, targetPostId)) {
                 likesPayload = buildLikesPayloadFromSource({
                   list: arr,
-                  selected: rs.selectedReview,
-                  postId,
+                  selected: ps.selectedPost,
+                  postId: targetPostId,
                   commentId,
                   likes,
                   topLevelCommentId,
@@ -225,30 +300,31 @@ commentsListener.startListening({
                 break;
               }
             }
-            // fallback to selectedReview if not in any list
-            if (!likesPayload && rs?.selectedReview && String(rs.selectedReview._id) === String(postId)) {
+            if (!likesPayload) {
               likesPayload = buildLikesPayloadFromSource({
                 list: [],
-                selected: rs.selectedReview,
-                postId,
+                selected: ps.selectedPost,
+                postId: targetPostId,
                 commentId,
                 likes,
                 topLevelCommentId,
               });
             }
-            if (!likesPayload) {
-              // final fallback
-              likesPayload = { commentId, likes: likes || [] };
-            }
-            dispatchReviewUpdates(dispatch, state, { postId, updates: { __updateCommentLikes: likesPayload } });
+            dispatchPostUpdates(dispatch, state, {
+              postId: targetPostId,
+              updates: { __updateCommentLikes: likesPayload },
+            });
           }
         } else if (baseUpdates) {
-          dispatchReviewUpdates(dispatch, state, { postId, updates: baseUpdates });
+          dispatchPostUpdates(dispatch, state, {
+            postId: targetPostId,
+            updates: baseUpdates,
+          });
         }
       }
 
       /* ---------- Nearby Suggestions ---------- */
-      if (inNearby(state, postId)) {
+      if (inNearby(state, targetPostId)) {
         if (action.type === toggleLike.fulfilled.type) {
           const { commentId, likes, topLevelCommentId } = payload;
           if (commentId) {
@@ -256,20 +332,20 @@ commentsListener.startListening({
             const likesPayload = buildLikesPayloadFromSource({
               list,
               selected: null,
-              postId,
+              postId: targetPostId,
               commentId,
               likes,
               topLevelCommentId,
             });
-            dispatch(applyNearbyUpdates({ postId, updates: { __updateCommentLikes: likesPayload } }));
+            dispatch(applyNearbyUpdates({ postId: targetPostId, updates: { __updateCommentLikes: likesPayload } }));
           }
         } else if (baseUpdates) {
-          dispatch(applyNearbyUpdates({ postId, updates: baseUpdates }));
+          dispatch(applyNearbyUpdates({ postId: targetPostId, updates: baseUpdates }));
         }
       }
 
       /* ---------- Events ---------- */
-      if (inEvents(state, postId)) {
+      if (inEvents(state, targetPostId)) {
         if (action.type === toggleLike.fulfilled.type) {
           const { commentId, likes, topLevelCommentId } = payload;
           if (commentId) {
@@ -278,20 +354,20 @@ commentsListener.startListening({
             const likesPayload = buildLikesPayloadFromSource({
               list,
               selected,
-              postId,
+              postId: targetPostId,
               commentId,
               likes,
               topLevelCommentId,
             });
-            dispatch(applyEventUpdates({ postId, updates: { __updateCommentLikes: likesPayload } }));
+            dispatch(applyEventUpdates({ postId: targetPostId, updates: { __updateCommentLikes: likesPayload } }));
           }
         } else if (baseUpdates) {
-          dispatch(applyEventUpdates({ postId, updates: baseUpdates }));
+          dispatch(applyEventUpdates({ postId: targetPostId, updates: baseUpdates }));
         }
       }
 
       /* ---------- Promotions ---------- */
-      if (inPromos(state, postId)) {
+      if (inPromos(state, targetPostId)) {
         if (action.type === toggleLike.fulfilled.type) {
           const { commentId, likes, topLevelCommentId } = payload;
           if (commentId) {
@@ -300,19 +376,19 @@ commentsListener.startListening({
             const likesPayload = buildLikesPayloadFromSource({
               list,
               selected,
-              postId,
+              postId: targetPostId,
               commentId,
               likes,
               topLevelCommentId,
             });
-            dispatch(applyPromotionUpdates({ postId, updates: { __updateCommentLikes: likesPayload } }));
+            dispatch(applyPromotionUpdates({ postId: targetPostId, updates: { __updateCommentLikes: likesPayload } }));
           }
         } else if (baseUpdates) {
-          dispatch(applyPromotionUpdates({ postId, updates: baseUpdates }));
+          dispatch(applyPromotionUpdates({ postId: targetPostId, updates: baseUpdates }));
         }
       }
-    } catch {
-      // protect the thunk pipeline
+    } catch (err) {
+      if (__DEV__) console.error('[commentsListener] effect error:', err);
     }
   },
 });

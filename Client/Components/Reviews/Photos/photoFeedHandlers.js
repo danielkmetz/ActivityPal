@@ -1,4 +1,6 @@
 import { logEngagementIfNeeded, getEngagementTarget } from '../../../Slices/EngagementSlice';
+import { eventPromoDetector } from '../../../utils/EventsPromos/eventPromoDetector';
+import { normalizePostType } from '../../../utils/normalizePostType';
 
 /**
  * Factory to build PhotoFeed handlers with injected deps.
@@ -10,9 +12,10 @@ export function createPhotoFeedHandlers({
     onOpenDetails,     // e.g. setDetailsVisible
     photoTapped,       // optional callback from parent
     isCommentScreen=false,
+    isMyEventsPromosPage=false,
 }) {
-    const postType = postContent?.type || postContent?.postType;
-    const isEventPromoOrSuggestion = postType === 'event' || postType === 'promo' || postType === 'promotion' || postType === 'suggestion';
+    const postType = normalizePostType(postContent);
+    const isEventPromoOrSuggestion = eventPromoDetector(postContent, postType);
     const { isSuggestedFollowPost } = postContent;
     const media = postContent?.photos || postContent?.media;
 
@@ -27,6 +30,7 @@ export function createPhotoFeedHandlers({
         navigation.navigate('FullScreenPhoto', {
             reviewId: postContent?._id,
             initialIndex: index,
+            selectedType: postType,
             taggedUsersByPhotoKey: taggedUsersByPhotoKey || {},
             isSuggestedPost: isSuggestedFollowPost,
             isEventPromo: isEventPromoOrSuggestion,
@@ -45,7 +49,7 @@ export function createPhotoFeedHandlers({
     };
 
     const handlePhotoTap = (photo, index) => {
-        if (isEventPromoOrSuggestion && !isCommentScreen) {
+        if (isEventPromoOrSuggestion && !isCommentScreen && !isMyEventsPromosPage) {
             openSuggestionDetails();
         } else {
             onOpenFullScreen(photo, index);

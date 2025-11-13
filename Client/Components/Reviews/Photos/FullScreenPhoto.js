@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useMemo } from 'react';
 import {
   View, FlatList, Image, TouchableOpacity,
   StyleSheet, Dimensions, Text, Animated, TouchableWithoutFeedback,
@@ -9,18 +9,18 @@ import { selectUser } from '../../../Slices/UserSlice';
 import { isVideo } from '../../../utils/isVideo';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import VideoThumbnail from '../VideoThumbnail';
-import { handleLikeWithAnimation as sharedHandleLikeWithAnimation } from '../../../utils/LikeHandlers';
+import { handleLikeWithAnimation as likeWithAnim } from '../../../utils/LikeHandlers';
 import { useLikeAnimations } from '../../../utils/LikeHandlers/LikeAnimationContext';
 import { selectNearbySuggestionById } from '../../../Slices/GooglePlacesSlice';
 import StoryAvatar from '../../Stories/StoryAvatar';
 import ExpandableText from '../ExpandableText';
 import ShareOptionsModal from '../SharedPosts/ShareOptionsModal';
 import SharePostModal from '../SharedPosts/SharePostModal';
-import { typeFromKind, pickPostId } from '../../../utils/posts/postIdentity';
+import { pickPostId } from '../../../utils/posts/postIdentity';
 import { selectPromotionById } from '../../../Slices/PromotionsSlice';
 import { selectEventById } from '../../../Slices/EventsSlice';
-import PostActions from '../PostActions/PostActions';
 import { selectPostById } from '../../../Slices/PostsSlice';
+import PostActions from '../PostActions/PostActions';
 
 const { width, height } = Dimensions.get('window');
 
@@ -30,20 +30,33 @@ const FullScreenPhoto = () => {
   const navigation = useNavigation();
   const {
     reviewId,
-    selectedType,
+    selectedType,            // 'review' | 'check-in' | 'invite' | 'event' | 'promotion' | 'promo' | suggestion
     initialIndex = 0,
     taggedUsersByPhotoKey,
     isEventPromo = false,
-  } = route?.params;
+  } = route?.params ?? {};
   const user = useSelector(selectUser);
+
+  // ---- pick the source object from the store ----
   const review = useSelector((state) => {
     if (isEventPromo) {
       if (selectedType === 'event') return selectEventById(state, reviewId);
-      if (selectedType === 'promo') return selectPromotionById(state, reviewId);
+      if (selectedType === 'promo' || selectedType === 'promotion') return selectPromotionById(state, reviewId);
       return selectNearbySuggestionById(state, reviewId);
     }
-    return selectPostById(state, reviewId); // ← now correct, no factory
+    return selectPostById(state, reviewId);
   });
+
+  // ---- normalize files list (media/photos) ----
+  const files = useMemo(() => {
+    if (!review) return [];
+    if (Array.isArray(review.media) && review.media.length) return review.media;
+    if (Array.isArray(review.photos) && review.photos.length) return review.photos;
+    return [];
+  }, [review]);
+
+  console.log(selectedType)
+
   const flatListRef = useRef();
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [showTags, setShowTags] = useState(false);
@@ -52,52 +65,53 @@ const FullScreenPhoto = () => {
   const [selectedPostForShare, setSelectedPostForShare] = useState(null);
   const [shareOptionsVisible, setShareOptionsVisible] = useState(false);
   const [shareToFeedVisible, setShareToFeedVisible] = useState(false);
-  const photos = review?.photos || [];
-  const currentPhoto = photos[currentIndex];
+  const currentFile = files[currentIndex];
   const { getAnimation, registerAnimation } = useLikeAnimations();
   const animation = getAnimation(review?._id);
   const lastTapRef = useRef({});
-  const taggedUsers = taggedUsersByPhotoKey?.[currentPhoto?.photoKey] || [];
-  const ownerId = review?.userId || review?.placeId;
-  const ownerPic = review?.profilePicUrl || review?.businessLogoUrl || review?.logoUrl;
-  const ownerName = review?.fullName || review?.businessName;
+  const owner = review?.owner
+  const ownerId = owner?.id || owner?._id || owner?.userId;
+  const ownerPic = owner?.profilePicUrl || review?.businessLogoUrl || review?.logoUrl;
+  const ownerName = owner?.fullName || review?.businessName;
+  
+  const postTypeFor = (item) => {
+    const t = String(item?.type || '').toLowerCase();
+    if (t) return t; // review, check-in, invite, sharedPost, liveStream, event, promotion
+    if (item?.kind || item?.__typename) return 'suggestion';
+    return undefined;
+  };
 
-  const handleLikeWithAnimation = (review, force = true) => {
-    const derivedType =
-      (review?.type && String(review.type).toLowerCase()) ||
-      typeFromKind(review?.kind) ||
-      (review?.__typename && String(review.__typename).toLowerCase());
-
-    const postId = pickPostId(review);
-    const animation = getAnimation(postId);
-
-    return sharedHandleLikeWithAnimation({
-      postType: derivedType || 'suggestion', // or pass 'event'/'promotion' explicitly if you know it
-      kind: review.kind,
-      postId,
-      review,            // ✅ IMPORTANT: shared uses `review`, not `item`
+  // ---- fixed like handler (uses `review`, not `reviewItem`) ----
+  const likeWithOverlay = (force = false) => {
+    likeWithAnim({
+      postType: postTypeFor(review),
+      postId: pickPostId(review),
+      review,
       user,
-      animation,
       dispatch,
+      animation: getAnimation(review?._id),
       lastTapRef,
-      force,                   // ✅ we already confirmed double-tap in UI
+      force,
     });
   };
 
+  // ---- double/single tap ----
   const handleTap = () => {
     const now = Date.now();
-    const postId = review._id;
+    const postId = review?._id;
+    if (!postId) return;
 
-    if (!lastTapRef.current[postId]) lastTapRef.current[postId] = 0;
-
-    if (now - lastTapRef.current[postId] < 300) {
-      handleLikeWithAnimation(review);
+    const last = lastTapRef.current[postId] || 0;
+    if (now - last < 300) {
+      // double
       lastTapRef.current[postId] = 0;
+      likeWithOverlay(true);
     } else {
+      // single
       lastTapRef.current[postId] = now;
       setTimeout(() => {
         if (lastTapRef.current[postId] === now) {
-          setShowTags(prev => !prev);
+          setShowTags((prev) => !prev);
           lastTapRef.current[postId] = 0;
         }
       }, 200);
@@ -106,7 +120,7 @@ const FullScreenPhoto = () => {
 
   const openShareOptions = (post) => {
     setShareOptionsVisible(true);
-    setSelectedPostForShare(post)
+    setSelectedPostForShare(post);
   };
 
   const openShareToFeedModal = () => {
@@ -116,141 +130,135 @@ const FullScreenPhoto = () => {
 
   const handleShareToStory = () => {
     setShareOptionsVisible(false);
-
-    navigation.navigate('StoryPreview', {
-      post: selectedPostForShare,
-    })
+    navigation.navigate('StoryPreview', { post: selectedPostForShare });
   };
 
-  const closeShareOptions = () => {
-    setShareOptionsVisible(false);
-  };
-
+  const closeShareOptions = () => setShareOptionsVisible(false);
   const closeShareToFeed = () => {
     setShareToFeedVisible(false);
     setSelectedPostForShare(null);
   };
 
   useEffect(() => {
-    if (review?._id) {
-      registerAnimation(review._id);
-    }
-  }, [review?._id]);
+    if (review?._id) registerAnimation(review._id);
+  }, [review?._id, registerAnimation]);
 
-  if (!review || !Array.isArray(review.photos) || review.photos.length === 0) {
-    return null;
-  };
+  // ---- graceful fallback instead of returning null (prevents a blank screen) ----
+  if (!review) {
+    return (
+      <View style={[styles.overlay, { justifyContent: 'center', alignItems: 'center' }]}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.closeButton}>
+          <MaterialCommunityIcons name="close" size={30} color="white" />
+        </TouchableOpacity>
+        <Text style={{ color: '#fff' }}>Post not found.</Text>
+      </View>
+    );
+  }
+
+  if (!files.length) {
+    return (
+      <View style={[styles.overlay, { justifyContent: 'center', alignItems: 'center' }]}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.closeButton}>
+          <MaterialCommunityIcons name="close" size={30} color="white" />
+        </TouchableOpacity>
+        <Text style={{ color: '#fff' }}>No media to display.</Text>
+      </View>
+    );
+  }
+
+  const tagsForCurrent =
+    (taggedUsersByPhotoKey?.[currentFile?.photoKey] ?? currentFile?.taggedUsers ?? []) || [];
 
   return (
     <View style={{ flex: 1 }}>
       <View style={styles.overlay}>
-        {/* Close Button */}
+        {/* Close */}
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.closeButton}>
           <MaterialCommunityIcons name="close" size={30} color="white" />
         </TouchableOpacity>
-        {/* Photos */}
-        {photos.length > 0 && (
-          <FlatList
-            ref={flatListRef}
-            horizontal
-            pagingEnabled
-            scrollEnabled={photos.length > 1}
-            initialScrollIndex={initialIndex}
-            getItemLayout={(data, index) => ({
-              length: width,
-              offset: width * index,
-              index,
-            })}
-            onScrollToIndexFailed={({ index }) => {
-              setTimeout(() => {
-                flatListRef.current?.scrollToIndex({ index, animated: false });
-              }, 100);
-            }}
-            showsHorizontalScrollIndicator={false}
-            overScrollMode='never'
-            data={photos}
-            keyExtractor={(item, index) => index.toString()}
-            onMomentumScrollEnd={(e) => {
-              const index = Math.round(e.nativeEvent.contentOffset.x / width);
-              setCurrentIndex(index);
-            }}
-            renderItem={({ item }) => (
-              <View style={styles.imageWrapper}>
-                {isVideo(item) ? (
-                  <VideoThumbnail
-                    file={item}
-                    width={width}
-                    height={height}
+        {/* Media */}
+        <FlatList
+          ref={flatListRef}
+          horizontal
+          pagingEnabled
+          scrollEnabled={files.length > 1}
+          initialScrollIndex={Math.min(initialIndex, files.length - 1)}
+          getItemLayout={(data, index) => ({ length: width, offset: width * index, index })}
+          onScrollToIndexFailed={({ index }) => {
+            setTimeout(() => {
+              flatListRef.current?.scrollToIndex({ index, animated: false });
+            }, 100);
+          }}
+          showsHorizontalScrollIndicator={false}
+          overScrollMode="never"
+          data={files}
+          keyExtractor={(item, idx) => String(item?._id || item?.photoKey || idx)}
+          onMomentumScrollEnd={(e) => {
+            const idx = Math.round(e.nativeEvent.contentOffset.x / width);
+            setCurrentIndex(idx);
+          }}
+          renderItem={({ item }) => (
+            <View style={styles.imageWrapper}>
+              {isVideo(item) ? (
+                <VideoThumbnail file={item} width={width} height={height} />
+              ) : (
+                <TouchableWithoutFeedback onPress={handleTap}>
+                  <Image
+                    source={{ uri: item.url || item.uri }}
+                    style={styles.fullImage}
+                    onLayout={(e) => {
+                      const { width: rw, height: rh } = e.nativeEvent.layout;
+                      setRenderedSize({ width: rw, height: rh });
+                    }}
+                    onLoad={() => {
+                      const src = item.url || item.uri;
+                      if (src) Image.getSize(src, (w, h) => setOriginalSize({ width: w, height: h }));
+                    }}
                   />
-                ) : (
-                  <TouchableWithoutFeedback onPress={handleTap}>
-                    <Image
-                      source={{ uri: item.url || item.uri }}
-                      style={styles.fullImage}
-                      onLayout={(e) => {
-                        const { width: renderedWidth, height: renderedHeight } = e.nativeEvent.layout;
-                        setRenderedSize({ width: renderedWidth, height: renderedHeight });
-                      }}
-                      onLoad={() => {
-                        Image.getSize(item.url || item.uri, (w, h) => {
-                          setOriginalSize({ width: w, height: h });
-                        });
-                      }}
-                    />
-                  </TouchableWithoutFeedback>
-                )}
-                {showTags && taggedUsers.map((user, i) => (
-                  <View
-                    key={user.userId || i}
-                    style={[
-                      styles.tagBubble,
-                      {
-                        top: user.y * (renderedSize.height / originalSize.height),
-                        left: user.x * (renderedSize.width / originalSize.width),
-                      },
-                    ]}
-                  >
-                    <Text style={styles.tagText}>{user.fullName}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
-          />
-        )}
+                </TouchableWithoutFeedback>
+              )}
+
+              {showTags &&
+                tagsForCurrent.map((u, i) => {
+                  // Support absolute px or normalized coords
+                  const left = typeof u.x === 'number' && u.x <= 1 ? u.x * renderedSize.width : u.x;
+                  const top  = typeof u.y === 'number' && u.y <= 1 ? u.y * renderedSize.height : u.y;
+                  return (
+                    <View key={u.userId || i} style={[styles.tagBubble, { top, left }]}>
+                      <Text style={styles.tagText}>{u.fullName}</Text>
+                    </View>
+                  );
+                })}
+            </View>
+          )}
+        />
+
+        {/* Actions */}
         <View style={styles.actionsContainer}>
-          <PostActions
+          <PostActions 
             post={review}
             onShare={openShareOptions}
-            photo={currentPhoto}
-            isCommentScreen={false}
-            orientation="column"
+            orientation={"column"}
           />
         </View>
+        {/* Owner + text */}
         <View style={styles.bottomOverlay}>
           <View style={styles.postOwner}>
             <StoryAvatar userId={ownerId} profilePicUrl={ownerPic} />
             <Text style={styles.postOwnerName}>{ownerName}</Text>
           </View>
-          {review?.title && (
-            <Text style={styles.title}>{review?.title}</Text>
-          )}
-          <ExpandableText
-            post={review}
-            maxLines={3}
-            textStyle={styles.reviewText}
-            seeMoreStyle={styles.seeMoreLink}
-          />
+          {review?.title ? <Text style={styles.title}>{review.title}</Text> : null}
+          <ExpandableText post={review} maxLines={3} textStyle={styles.reviewText} seeMoreStyle={styles.seeMoreLink} />
         </View>
-        {/* Animated Like Bubble */}
-        <Animated.View style={[styles.likeOverlay, { opacity: animation }]}>
-          <MaterialCommunityIcons name="thumb-up" size={80} color="#80E6D2" />
-        </Animated.View>
+        {/* Animated Like Bubble (guarded) */}
+        {!!animation && (
+          <Animated.View style={[styles.likeOverlay, { opacity: animation }]}>
+            <MaterialCommunityIcons name="thumb-up" size={80} color="#80E6D2" />
+          </Animated.View>
+        )}
       </View>
-      <SharePostModal
-        visible={shareToFeedVisible}
-        onClose={closeShareToFeed}
-        post={selectedPostForShare}
-      />
+      {/* Share flows */}
+      <SharePostModal visible={shareToFeedVisible} onClose={closeShareToFeed} post={selectedPostForShare} />
       <ShareOptionsModal
         visible={shareOptionsVisible}
         onClose={closeShareOptions}
@@ -262,87 +270,19 @@ const FullScreenPhoto = () => {
 };
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'black',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  imageWrapper: {
-    width,
-    height,
-    position: 'relative',
-  },
-  fullImage: {
-    width,
-    height,
-    resizeMode: 'contain',
-  },
-  closeButton: {
-    position: 'absolute',
-    top: 60,
-    right: 30,
-    zIndex: 2,
-  },
-  actionsContainer: {
-    position: 'absolute',
-    right: 0,
-    top: height / 2 + 10,
-    zIndex: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  likeOverlay: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    transform: [{ translateX: -40 }, { translateY: -40 }],
-    opacity: 0,
-  },
-  tagBubble: {
-    position: 'absolute',
-    backgroundColor: 'rgba(255, 255, 255, 0.85)',
-    borderRadius: 15,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    zIndex: 15,
-    transform: [{ translateX: -20 }, { translateY: -20 }],
-  },
-  tagText: {
-    fontSize: 12,
-    color: '#000',
-    fontWeight: 'bold',
-  },
-  bottomOverlay: {
-    position: 'absolute',
-    height: '20%',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)', // see-through black overlay
-  },
-  postOwner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  postOwnerName: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 10,
-  },
-  title: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: '600',
-    marginVertical: 5,
-  },
-  reviewText: {
-    color: '#fff',
-    fontSize: 14,
-  }
+  overlay: { flex: 1, backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' },
+  imageWrapper: { width, height, position: 'relative' },
+  fullImage: { width, height, resizeMode: 'contain' },
+  closeButton: { position: 'absolute', top: 60, right: 30, zIndex: 2 },
+  actionsContainer: { position: 'absolute', right: -15, top: height / 2 + 10, zIndex: 10, justifyContent: 'center', alignItems: 'center' },
+  likeOverlay: { position: 'absolute', top: '50%', left: '50%', transform: [{ translateX: -40 }, { translateY: -40 }] },
+  tagBubble: { position: 'absolute', backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: 15, paddingHorizontal: 10, paddingVertical: 4, zIndex: 15, transform: [{ translateX: -20 }, { translateY: -20 }] },
+  tagText: { fontSize: 12, color: '#000', fontWeight: 'bold' },
+  bottomOverlay: { position: 'absolute', height: '20%', bottom: 0, left: 0, right: 0, padding: 16, backgroundColor: 'rgba(0,0,0,0.5)' },
+  postOwner: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  postOwnerName: { color: '#fff', fontSize: 16, fontWeight: '600', marginLeft: 10 },
+  title: { color: '#fff', fontSize: 16, fontWeight: '600', marginVertical: 5 },
+  reviewText: { color: '#fff', fontSize: 14 },
 });
 
 export default FullScreenPhoto;

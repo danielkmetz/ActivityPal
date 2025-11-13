@@ -33,6 +33,7 @@ import { BusinessReviewsProvider } from './Providers/BusinessReviewsContext';
 import { UserFeedProvider } from './Providers/UserFeedContext';
 import { HiddenTaggedProvider } from './Providers/HiddenTaggedContext';
 import { HiddenPostsProvider } from './Providers/HiddenPostsContext';
+import { selectHeaderTitle } from './Slices/uiSlice';
 
 const fetchFonts = async () => {
   return await Font.loadAsync({
@@ -52,6 +53,7 @@ function MainApp() {
   const hasFetchSuggested = useSelector(selectHasFetchedSuggestions)
   const placeId = user?.businessDetails?.placeId;
   const unreadCount = useSelector(selectUnreadCount);
+  const headerTitle = useSelector(selectHeaderTitle);
   const [isAtEnd, setIsAtEnd] = useState(false);
   const [notificationsSeen, setNotificationsSeen] = useState(null);
   const [loadingSeenState, setLoadingSeenState] = useState(true);
@@ -213,6 +215,7 @@ function MainApp() {
         (
           <Animated.View style={[styles.header, { transform: [{ translateY: headerTranslateY }] }]}>
             <Header
+              titleOverride={headerTitle}
               currentRoute={currentRoute}
               notificationsSeen={notificationsSeen}
               setNotificationsSeen={setNotificationsSeen}
