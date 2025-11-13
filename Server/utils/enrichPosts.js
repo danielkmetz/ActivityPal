@@ -4,7 +4,7 @@ const User = require('../models/User');                    // <- adjust path if 
 const { getPresignedUrl } = require('./cachePresignedUrl'); // <- adjust path if needed
 
 // ---------------- debug helpers ----------------
-const DEBUG = '1' === '1';
+const DEBUG = '2' === '1';
 const dlog = (...args) => { if (DEBUG) console.log('[enrich]', ...args); };
 const dpost = (post, msg, extra) => {
   if (!DEBUG) return;
@@ -15,6 +15,22 @@ const dpost = (post, msg, extra) => {
 // ---------------- tiny utils ----------------
 const toStr = (v) => (v == null ? null : String(v));
 const fullNameOf = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(' ') || null;
+
+function normalizeUserId(anyShape) {
+  const s = toStr(
+    anyShape?.userId ??
+    anyShape?.id ??
+    anyShape?._id ??
+    anyShape?.user?.id ??
+    anyShape?.user?._id ??
+    anyShape
+  );
+  return (s && ObjectId.isValid(s)) ? new ObjectId(s) : null;
+}
+
+function extractTaggedUserIds(list = []) {
+  return list.map(normalizeUserId).filter(Boolean);
+}
 
 function deriveBusinessIdentity(p = {}) {
   const placeId =
@@ -81,28 +97,63 @@ async function fetchUserSummaries(userIds) {
 function collectUserIdsFromPosts(posts) {
   const out = new Set();
 
+  const asId = (t) => {
+    // Accept ObjectId instance, 24-hex string, or tag objects with various shapes
+    if (t == null) return null;
+
+    // primitive or ObjectId
+    const prim = toStr(t);
+    if (prim && ObjectId.isValid(prim)) return prim;
+
+    // object shapes
+    const cand =
+      toStr(t.userId) ||
+      toStr(t.id) ||
+      toStr(t._id) ||
+      toStr(t?.user?.id) ||
+      toStr(t?.user?._id);
+
+    return cand && ObjectId.isValid(cand) ? cand : null;
+  };
+
   const collectFromCommentTree = (arr = []) => {
     for (const c of arr) {
-      if (c?.userId) out.add(String(c.userId));
-      for (const l of c?.likes || []) if (l?.userId) out.add(String(l.userId));
+      const uid = asId(c?.userId);
+      if (uid) out.add(uid);
+      for (const l of c?.likes || []) {
+        const lid = asId(l?.userId ?? l);
+        if (lid) out.add(lid);
+      }
       if (Array.isArray(c?.replies) && c.replies.length) collectFromCommentTree(c.replies);
     }
   };
 
   for (const p of posts) {
-    // only collect owner if it's a User
-    if (p?.ownerModel === 'User' && p?.ownerId) out.add(String(p.ownerId));
+    // owner (only Users)
+    if (p?.ownerModel === 'User' && p?.ownerId) {
+      const oid = asId(p.ownerId);
+      if (oid) out.add(oid);
+    }
 
-    // top-level tags
-    for (const t of p?.taggedUsers || []) if (t?.userId) out.add(String(t.userId));
+    // ✅ top-level tags (ObjectId[], string[], or objects)
+    for (const t of p?.taggedUsers || []) {
+      const uid = asId(t);
+      if (uid) out.add(uid);
+    }
 
-    // media-level tags
+    // media-level tags (array of objects or ids)
     for (const m of p?.media || []) {
-      for (const t of m?.taggedUsers || []) if (t?.userId) out.add(String(t.userId));
+      for (const t of m?.taggedUsers || []) {
+        const uid = asId(t);
+        if (uid) out.add(uid);
+      }
     }
 
     // likes
-    for (const l of p?.likes || []) if (l?.userId) out.add(String(l.userId));
+    for (const l of p?.likes || []) {
+      const lid = asId(l?.userId ?? l);
+      if (lid) out.add(lid);
+    }
 
     // comments/replies
     collectFromCommentTree(p?.comments || []);
@@ -110,10 +161,13 @@ function collectUserIdsFromPosts(posts) {
     // invite details
     const d = p?.details || {};
     for (const r of d.recipients || []) {
-      const uid = r?.userId || r?.user?.id || r?.user?._id;
-      if (uid) out.add(String(uid));
+      const uid = asId(r?.userId ?? r?.user);
+      if (uid) out.add(uid);
     }
-    for (const rq of d.requests || []) if (rq?.userId) out.add(String(rq.userId));
+    for (const rq of d.requests || []) {
+      const uid = asId(rq?.userId ?? rq?.user);
+      if (uid) out.add(uid);
+    }
   }
 
   const ids = [...out];
@@ -122,27 +176,57 @@ function collectUserIdsFromPosts(posts) {
 }
 
 // ---------------- media / tags / likes / comments enrichers ----------------
-async function enrichMedia(media = []) {
+async function enrichMedia(media = [], userMap) {
   const out = [];
-  for (const m of media) {
-    const url = m?.photoKey ? await getPresignedUrl(m.photoKey) : m?.url || null;
-    if (DEBUG && m?.photoKey) dlog('sign photoKey:', m.photoKey, '-> url?', !!url);
-    out.push({ ...m, url });
+  for (const m of (media || [])) {
+    const url = m?.photoKey ? await getPresignedUrl(m.photoKey) : (m?.url || null);
+    const taggedUsers = enrichTaggedUsers(m?.taggedUsers || [], userMap); // hydrate x/y + names
+    out.push({ ...m, url, taggedUsers });
   }
   return out;
 }
 
 function enrichTaggedUsers(list = [], userMap) {
+  const normalizeId = (t) => {
+    // primitive or ObjectId
+    const prim = toStr(t);
+    if (prim && ObjectId.isValid(prim)) return prim;
+
+    // object shapes
+    const cand =
+      toStr(t?.userId) ||
+      toStr(t?.id) ||
+      toStr(t?._id) ||
+      toStr(t?.user?.id) ||
+      toStr(t?.user?._id);
+
+    return cand && ObjectId.isValid(cand) ? cand : null;
+  };
+
   return (list || []).map((t, i) => {
-    const id = toStr(t?.userId || t?._id);
+    const id = normalizeId(t);
     const u = id ? userMap.get(id) : null;
+
     if (DEBUG && i < 3) dlog('taggedUser enrich:', { id, hit: !!u });
+
+    // Keep x/y if present (photo-level tags), otherwise null
+    const x = t?.x ?? null;
+    const y = t?.y ?? null;
+
+    // Prefer hydrated values; fall back to any name/pic present on the tag object
+    const firstName = u?.firstName ?? t?.firstName ?? null;
+    const lastName  = u?.lastName  ?? t?.lastName  ?? null;
+    const fullName  = u?.fullName  ?? t?.fullName  ?? (firstName || lastName ? [firstName, lastName].filter(Boolean).join(' ') : null);
+    const profilePicUrl = u?.profilePicUrl ?? t?.profilePicUrl ?? null;
+
     return {
-      userId: id,
-      fullName: u?.fullName || t?.fullName || null,
-      profilePicUrl: u?.profilePicUrl || t?.profilePicUrl || null,
-      x: t?.x,
-      y: t?.y,
+      userId: id,          // stable field used throughout your app
+      firstName,
+      lastName,
+      fullName,
+      profilePicUrl,
+      x,
+      y,
     };
   });
 }
@@ -223,7 +307,7 @@ async function enrichPostUniversal(post, userMap) {
 
   if (DEBUG) dpost(post, 'owner hit?', { found: !!owner, owner });
 
-  const media = await enrichMedia(post?.media || []);
+  const media = await enrichMedia(post?.media || [], userMap);
   const taggedUsers = enrichTaggedUsers(post?.taggedUsers || [], userMap);
   const likes = enrichLikes(post?.likes || [], userMap);
   const comments = enrichComments(post?.comments || [], userMap);
@@ -270,8 +354,19 @@ async function enrichPostUniversal(post, userMap) {
   return enriched;
 }
 
+async function enrichOneOrMany(postOrPosts) {
+  const arr = Array.isArray(postOrPosts) ? postOrPosts : [postOrPosts];
+  const userIds = collectUserIdsFromPosts(arr);
+  const userMap = await fetchUserSummaries(userIds);
+  const enriched = await Promise.all(arr.map((p) => enrichPostUniversal(p, userMap)));
+  return Array.isArray(postOrPosts) ? enriched : enriched[0];
+}
+
 module.exports = {
   fetchUserSummaries,
   collectUserIdsFromPosts,
+  enrichOneOrMany,
+  normalizeUserId,
+  extractTaggedUserIds,
   enrichPostUniversal,
 };

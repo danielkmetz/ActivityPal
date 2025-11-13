@@ -47,6 +47,7 @@ export default function EventDetailsScreen() {
   const [selectedMedia, setSelectedMedia] = useState([]);
   const apiPostType = toApiPostType(selectedType); // ensure this returns 'event' or 'promotion'
 
+  console.log(activity);
   // Fetch on mount if missing
   useEffect(() => {
     dlog('params', { selectedType, activityId, hasPost: !!post });

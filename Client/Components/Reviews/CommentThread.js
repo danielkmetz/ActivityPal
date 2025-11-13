@@ -46,14 +46,10 @@ export default function CommentThread({
   selectedMedia, setSelectedMedia,
 }) {
   const dispatch = useDispatch();
-
   const [isOptionsVisible, setOptionsVisible] = useState(false);
   const [selectedEditMedia, setSelectedEditMedia] = useState(null); // image/video object or null
-
   const user = useSelector(selectUser);
   const userId = user?.id;
-  const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim();
-
   const replyingTo = useSelector(selectReplyingTo);
   const selectedComment = useSelector(selectSelectedComment);
   const selectedReply = useSelector(selectSelectedReply);
@@ -62,8 +58,7 @@ export default function CommentThread({
   const expandedReplies = useSelector(selectExpandedReplies);
   const nestedExpandedReplies = useSelector(selectNestedExpandedReplies);
   const nestedReplyInput = useSelector(selectNestedReplyInput);
-
-  const postType = toApiPostType(review?.type);
+  const postType = review?.type || review?.postType || review?.kind;
   const postId = review?._id;
 
   const getTimeSincePosted = (dateString) => dayjs(dateString).fromNow(true);
@@ -355,7 +350,7 @@ export default function CommentThread({
                   isEditing={isEditing}
                   editedText={editedText}
                   selectedReply={selectedReply}
-                  postType={review?.type}
+                  postType={postType}
                   placeId={review?.placeId}
                   postId={postId}
                   review={review}

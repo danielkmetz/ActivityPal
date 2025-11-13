@@ -14,7 +14,6 @@ import NestedReply from './NestedReply';
 import {
   addReply as addReplyGeneric,
   toggleLike as toggleLikeGeneric,
-  toApiPostType,
 } from '../../../Slices/CommentsSlice';
 import { selection } from '../../../utils/Haptics/haptics';
 
@@ -49,8 +48,6 @@ const Reply = ({
   const [showReplyInput, setShowReplyInput] = useState(false);
   const user = useSelector(selectUser);
   const userId = user?.id;
-  const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim();
-  const apiPostType = toApiPostType(postType);
   const media = reply?.media;
   const mediaUrl = media?.mediaUrl || media?.url || null;
 
@@ -94,7 +91,7 @@ const Reply = ({
     // ✅ Use the generic nested reply endpoint.
     await dispatch(
       addReplyGeneric({
-        postType: apiPostType,
+        postType,
         postId,
         commentId: reply._id,             // parent is this reply -> deep nesting supported
         commentText: nestedReplyText.trim(),
@@ -114,7 +111,7 @@ const Reply = ({
   const handleToggleLike = async () => {
     await dispatch(
       toggleLikeGeneric({
-        postType: apiPostType,
+        postType,
         postId,
         commentId: reply._id,             // listener figures out if it’s nested and finds top-level id
       })
@@ -156,7 +153,7 @@ const Reply = ({
                   userId={userId}
                   onToggleLike={handleToggleLike}
                   // (Optional) keep legacy props for backward compat in LikeButton
-                  postType={apiPostType}
+                  postType={postType}
                   postId={postId}
                 />
               </View>

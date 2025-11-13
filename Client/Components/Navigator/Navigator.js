@@ -23,8 +23,6 @@ import { useSelector } from "react-redux";
 import CommentScreen from '../Reviews/CommentScreen';
 import StoryViewer from '../Stories/StoryViewer';
 import CreatePost from '../Reviews/CreatePost/CreatePost';
-import CreateEventPage from '../BusinessEvents/CreateEventPage';
-import CreatePromotionPage from '../BusinessEvents/CreatePromotionPage';
 import FullScreenPhoto from '../Reviews/Photos/FullScreenPhoto';
 import DirectMessagesScreen from '../DirectMessages/DirectMessagesScreen';
 import MessageThreadScreen from '../DirectMessages/MessageThreadScreen';
@@ -36,7 +34,8 @@ import SettingsScreen from '../Profile/Settings/SettingsScreen';
 import LiveSummary from '../LiveStream/Screens/LiveSummary';
 import LivePlayerScreen from '../LiveStream/LivePlayer/LivePlayerScreen';
 import GoLive from '../LiveStream/Screens/GoLive';
-import HiddenPostsScreen from '../Profile/Settings/HiddenPostsScreen'
+import HiddenPostsScreen from '../Profile/Settings/HiddenPostsScreen';
+import CreateEventOrPromoPage from '../BusinessEvents/CreateEventPromo/CreateEventOrPromoPage';
 
 enableScreens(true);
 const Tab = createBottomTabNavigator();
@@ -258,8 +257,7 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
             <Stack.Screen name="StoryViewer" component={StoryViewer} />
             <Stack.Screen name="Notifications" component={Notifications} />
             <Stack.Screen name="CreatePost" component={CreatePost} />
-            <Stack.Screen name="CreateEvent" component={CreateEventPage} />
-            <Stack.Screen name="CreatePromotion" component={CreatePromotionPage} />
+            <Stack.Screen name="CreateEventOrPromo" component={CreateEventOrPromoPage} />
             <Stack.Screen name="CommentScreen" component={CommentScreen} />
             <Stack.Screen name="FullScreenPhoto" component={FullScreenPhoto} />
             <Stack.Screen name="DirectMessages" component={DirectMessagesScreen} />

@@ -27,6 +27,7 @@ export default function PostOptionsMenu({
   setDropdownVisible,
   handleEdit,
   handleDelete,
+  embeddedInShared = false,
   postData, // pass the object you want to control (wrapper, original, review, etc.)
 }) {
   const user = useSelector(selectUser);
@@ -35,7 +36,7 @@ export default function PostOptionsMenu({
   const ownerId = String(getOwnerId(postData) || "");
   const isOwner = ownerId && ownerId === String(currentUserId || "");
 
-  if (!isOwner) return null;
+  if (!isOwner || embeddedInShared) return null;
 
   return (
     <View style={styles.menuWrapper}>

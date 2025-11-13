@@ -49,10 +49,12 @@ export default function CheckInItem({
                     setDropdownVisible={setDropdownVisible}
                     handleEdit={handleEdit}
                     handleDelete={handleDelete}
+                    embeddedInShared={embeddedInShared}
                     postData={item}
                 />
                 <ViewerOptionsTrigger
                     post={item}
+                    embeddedInShared={embeddedInShared}
                     onPress={() => setViewerOptionsVisible(true)}
                 />
                 <View style={styles.section}>

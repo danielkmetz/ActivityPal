@@ -9,10 +9,10 @@ const API = `${process.env.EXPO_PUBLIC_SERVER_URL}/likes`;
  */
 export const toggleLike = createAsyncThunk(
   'likes/toggleLike',
-  async ({ postId }, { rejectWithValue }) => {
+  async ({ postType = 'posts', postId }, { rejectWithValue }) => {
     try {
       const auth = await getAuthHeaders();
-      const url = `${API}/${postId}/like`;
+      const url = `${API}/${postType}/${postId}/like`;
       const { data } = await axios.post(url, {}, auth);
       // Expecting: { likes, likesCount, liked, postId? }
       return {

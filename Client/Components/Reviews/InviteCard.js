@@ -143,16 +143,15 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
   return (
     <>
       <View style={styles.card}>
-        {!embeddedInShared && (
           <PostOptionsMenu
             dropdownVisible={dropdownVisible}
             setDropdownVisible={setDropdownVisible}
             handleEdit={handleEdit}
             handleDelete={handleDelete}
             postData={invite}
+            embeddedInShared={embeddedInShared}
           />
-        )}
-        <ViewerOptionsTrigger post={invite} onPress={() => setViewerOptionsVisible(true)} />
+        <ViewerOptionsTrigger post={invite} onPress={() => setViewerOptionsVisible(true)} embeddedInShared={embeddedInShared} />
         <InviteHeader
           sender={postContent.sender}
           totalInvited={totalInvited}
