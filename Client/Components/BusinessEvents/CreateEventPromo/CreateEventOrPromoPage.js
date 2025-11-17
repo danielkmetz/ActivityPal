@@ -81,7 +81,7 @@ export default function CreateEventOrPromoPage() {
 
     // Pick incoming record based on mode
     const incoming = mode === "event" ? incomingEvent : incomingPromo;
-
+    
     // ---------- initial values ----------
     const initialTitle = incoming?.title || "";
     const initialDescription = incoming?.description || "";

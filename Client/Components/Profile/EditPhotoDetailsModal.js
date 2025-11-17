@@ -26,8 +26,6 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
   const getTagName = (t) => t?.username || t?.fullName || 'Unknown';
   const getTagPic = (t) => t?.profilePic || t?.profilePicUrl || t?.presignedProfileUrl || null;
 
-  console.log(taggedUsers);
-
   const handleRemoveTagById = (id) => {
     setTaggedUsers((prev) => prev.filter((t) => getTagId(t) !== String(id)));
   };

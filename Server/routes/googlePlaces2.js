@@ -1,7 +1,6 @@
 const express = require("express");
 const axios = require("axios");
 const router = express.Router();
-
 const Business = require('../models/Business');
 const { Post } = require('../models/Post');           // ✅ unified Post model
 const User = require('../models/User');
@@ -195,15 +194,15 @@ router.post("/events-and-promos-nearby", async (req, res) => {
       // ✅ Pull the user's activity from the unified Post collection
       const [reviews, checkIns, invites] = await Promise.all([
         Post.find(
-          { type: 'review', ownerId: userId, placeId: { $exists: true } },
-          { placeId: 1, 'details.rating': 1 }
+          { type: "review", ownerId: userId, placeId: { $exists: true } },
+          { placeId: 1, "details.rating": 1 }
         ).lean(),
         Post.find(
-          { type: 'check-in', ownerId: userId, placeId: { $exists: true } },
+          { type: "check-in", ownerId: userId, placeId: { $exists: true } },
           { placeId: 1 }
         ).lean(),
         Post.find(
-          { type: 'invite', ownerId: userId, placeId: { $exists: true } },
+          { type: "invite", ownerId: userId, placeId: { $exists: true } },
           { placeId: 1 }
         ).lean(),
       ]);
@@ -211,7 +210,7 @@ router.post("/events-and-promos-nearby", async (req, res) => {
       // Reviews → sentiment buckets
       for (const r of reviews) {
         const pid = String(r.placeId);
-        const rating = typeof r?.details?.rating === 'number' ? r.details.rating : null;
+        const rating = typeof r?.details?.rating === "number" ? r.details.rating : null;
         if (!reviewCounts[pid]) reviewCounts[pid] = { positive: 0, neutral: 0, negative: 0 };
         if (rating != null) {
           if (rating >= 4) reviewCounts[pid].positive += 1;
@@ -247,9 +246,11 @@ router.post("/events-and-promos-nearby", async (req, res) => {
 
     for (const biz of nearbyBusinesses) {
       try {
-        // assume this util now reads promos/events from the unified Post model internally
         const enrichedBiz = await enrichBusinessWithPromosAndEvents(biz, lat, lng);
-        if (!enrichedBiz) continue;
+
+        if (!enrichedBiz) {
+          continue;
+        }
 
         const {
           businessName,
@@ -258,14 +259,14 @@ router.post("/events-and-promos-nearby", async (req, res) => {
           logoUrl,
           bannerUrl,
           distance,
-          activePromo,
-          upcomingPromo,
-          activeEvent,
-          upcomingEvent,
+          activePromos = [],
+          upcomingPromos = [],
+          activeEvents = [],
+          upcomingEvents = [],
         } = enrichedBiz;
 
         const shared = {
-          type: 'suggestion',
+          type: "suggestion",
           businessName,
           placeId,
           location,
@@ -274,21 +275,25 @@ router.post("/events-and-promos-nearby", async (req, res) => {
           distance,
         };
 
-        const pushIfExists = (entry, kind) => {
-          if (entry) flattenedSuggestions.push({ ...shared, ...entry, kind });
+        const pushMany = (entries, kind) => {
+          if (!Array.isArray(entries) || !entries.length) return;
+          for (const entry of entries) {
+            flattenedSuggestions.push({ ...shared, ...entry, kind });
+          }
         };
 
-        pushIfExists(activePromo, 'activePromo');
-        pushIfExists(upcomingPromo, 'upcomingPromo');
-        pushIfExists(activeEvent, 'activeEvent');
-        pushIfExists(upcomingEvent, 'upcomingEvent');
-      } catch {
+        pushMany(activePromos, "activePromo");
+        pushMany(upcomingPromos, "upcomingPromo");
+        pushMany(activeEvents, "activeEvent");
+        pushMany(upcomingEvents, "upcomingEvent");
+      } catch (err) {
         // swallow per-biz errors to keep the rest flowing
       }
     }
 
     // Score + rank suggestions for the user
     const scoredSuggestions = [];
+    let skippedForNegatives = 0;
 
     for (const suggestion of flattenedSuggestions) {
       const pid = String(suggestion.placeId);
@@ -300,7 +305,10 @@ router.post("/events-and-promos-nearby", async (req, res) => {
       const invites = inviteCounts[pid] || 0;
 
       // skip obvious duds unless favorited
-      if (negReviews > 0 && posReviews === 0 && neutralReviews === 0 && !isFavorited) continue;
+      if (negReviews > 0 && posReviews === 0 && neutralReviews === 0 && !isFavorited) {
+        skippedForNegatives += 1;
+        continue;
+      }
 
       const weightedScore =
         posReviews * 2 +
@@ -314,10 +322,11 @@ router.post("/events-and-promos-nearby", async (req, res) => {
     }
 
     scoredSuggestions.sort((a, b) => b._score - a._score);
+
     const cleanSuggestions = scoredSuggestions.map(({ _score, ...rest }) => rest);
 
     res.json({ suggestions: cleanSuggestions });
-  } catch {
+  } catch (err) {
     res.status(500).json({ error: "Failed to fetch active promos/events nearby." });
   }
 });
