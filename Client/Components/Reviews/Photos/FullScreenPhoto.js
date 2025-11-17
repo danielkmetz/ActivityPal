@@ -55,8 +55,6 @@ const FullScreenPhoto = () => {
     return [];
   }, [review]);
 
-  console.log(selectedType)
-
   const flatListRef = useRef();
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [showTags, setShowTags] = useState(false);
@@ -73,7 +71,7 @@ const FullScreenPhoto = () => {
   const ownerId = owner?.id || owner?._id || owner?.userId;
   const ownerPic = owner?.profilePicUrl || review?.businessLogoUrl || review?.logoUrl;
   const ownerName = owner?.fullName || review?.businessName;
-  
+
   const postTypeFor = (item) => {
     const t = String(item?.type || '').toLowerCase();
     if (t) return t; // review, check-in, invite, sharedPost, liveStream, event, promotion
@@ -217,7 +215,6 @@ const FullScreenPhoto = () => {
                   />
                 </TouchableWithoutFeedback>
               )}
-
               {showTags &&
                 tagsForCurrent.map((u, i) => {
                   // Support absolute px or normalized coords

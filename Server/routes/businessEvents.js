@@ -183,12 +183,13 @@ router.post("/events/:placeId", async (req, res) => {
     if (!business) {
       return res.status(404).json({ message: "Business not found" });
     }
+    const uploaderId = business._id;
 
     const enrichedPhotos = await Promise.all(
       photos.map(async (photo) => ({
         photoKey: photo.photoKey,
         taggedUsers: photo.taggedUsers ?? [],
-        uploadedBy: placeId,
+        uploadedBy: uploaderId,
         url: await getPresignedUrl(photo.photoKey),
       }))
     );
@@ -240,6 +241,7 @@ router.put("/events/:placeId/:eventId", async (req, res) => {
   try {
     const business = await Business.findOne({ placeId });
     if (!business) return res.status(404).json({ message: "Business not found" });
+    const uploaderId = business._id;
 
     const event = await Event.findOne({ _id: eventId, placeId });
     if (!event) return res.status(404).json({ message: "Event not found" });
@@ -265,6 +267,7 @@ router.put("/events/:placeId/:eventId", async (req, res) => {
       event.photos = await Promise.all(
         photos.map(async (photo) => ({
           ...photo,
+          uploadedBy: uploaderId,
           url: await getPresignedUrl(photo.photoKey),
         }))
       );
