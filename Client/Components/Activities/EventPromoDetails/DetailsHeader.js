@@ -23,12 +23,12 @@ const DetailsHeader = ({ activity, getTimeSincePosted }) => {
     const currentIndexRef = useRef(0);
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
     const scrollX = useRef(new Animated.Value(0)).current;
-
+    
     useEffect(() => {
-        if (placeId) {
+        if (placeId && !logo) {
             dispatch(fetchLogo(placeId));
         }
-    }, [placeId]);
+    }, [placeId, logo]);
 
     useEffect(() => {
         if (logo) {
@@ -43,16 +43,6 @@ const DetailsHeader = ({ activity, getTimeSincePosted }) => {
         } else {
             dispatch(resetSelectedPromotion());
         }
-    };
-
-    const onOpenFullScreen = (photo, index) => {
-        navigation.navigate('FullScreenPhoto', {
-            reviewId: activity?._id,
-            selectedType,
-            initialIndex: activity.photos.findIndex(p => p._id === photo._id),
-            taggedUsersByPhotoKey: activity.taggedUsersByPhotoKey || {},
-            isEventPromo: true,
-        })
     };
 
     const navigateToBusiness = () => {
@@ -95,16 +85,14 @@ const DetailsHeader = ({ activity, getTimeSincePosted }) => {
                     <Text style={styles.time}>{getTimeLabel(activity)}</Text>
                     <Text style={styles.itemDescription}>{activity?.description}</Text>
                 </View>
-                {activity?.photos?.length > 0 && (
-                    <PhotoFeed
-                        post={activity}
-                        scrollX={scrollX}
-                        currentIndexRef={currentIndexRef}
-                        setCurrentPhotoIndex={setCurrentPhotoIndex}
-                        photoTapped={null} // hook up if you have a tap handler
-                        isCommentScreen={true}
-                    />
-                )}
+                <PhotoFeed
+                    post={activity}
+                    scrollX={scrollX}
+                    currentIndexRef={currentIndexRef}
+                    setCurrentPhotoIndex={setCurrentPhotoIndex}
+                    photoTapped={null} // hook up if you have a tap handler
+                    isCommentScreen={true}
+                />
             </View>
             <View style={{ paddingLeft: 15 }}>
                 <PostActions

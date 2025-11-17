@@ -21,6 +21,13 @@ export default function PhotosSection({
   const [photoDetailsEditing, setPhotoDetailsEditing] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState(null);
 
+  const matchPhoto = (a, b) => {
+    if (!a || !b) return false;
+    if (a.uri && b.uri) return a.uri === b.uri;
+    if (a.photoKey && b.photoKey) return a.photoKey === b.photoKey;
+    return false;
+  };
+
   // keep internal state in sync when parent hydrates with a new event’s photos
   useEffect(() => {
     setPhotoList(initialPhotos);
@@ -35,6 +42,21 @@ export default function PhotosSection({
   const handleSavePhotos = (updatedPhotos) => {
     setSelectedPhotos(updatedPhotos);
     setEditPhotosModalVisible(false);
+  };
+
+  const handleDeletePhoto = (photoToDelete) => {
+    if (!photoToDelete) return;
+
+    setPhotoList((prev) =>
+      Array.isArray(prev) ? prev.filter((p) => !matchPhoto(p, photoToDelete)) : []
+    );
+    setSelectedPhotos((prev) =>
+      Array.isArray(prev) ? prev.filter((p) => !matchPhoto(p, photoToDelete)) : []
+    );
+
+    // close details modal + clear preview
+    setPhotoDetailsEditing(false);
+    setPreviewPhoto(null);
   };
 
   const handlePhotoSave = (updatedPhoto) => {
@@ -102,6 +124,7 @@ export default function PhotosSection({
           onSave={handlePhotoSave}
           setPhotoList={setPhotoList}
           setSelectedPhotos={setSelectedPhotos}
+          onDelete={handleDeletePhoto}
           isPromotion={isPromotion}
         />
       )}

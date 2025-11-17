@@ -37,13 +37,31 @@ export const isValidUrl = (string) => {
   }
 };
 
-export const formatTimeTo12Hour = (timeStr) => {
-  if (!timeStr) return "";
-  const [hour, minute] = timeStr.split(":").map(Number);
+export const formatTimeTo12Hour = (value) => {
+  if (!value) return "";
 
-  const date = new Date();
-  date.setHours(hour);
-  date.setMinutes(minute);
+  let date;
+
+  if (value instanceof Date) {
+    date = value;
+  } else if (typeof value === "string") {
+    // If it's an ISO-like string, let Date parse it
+    if (value.includes("T")) {
+      date = new Date(value);
+    } else {
+      // Fallback for old "HH:mm" format
+      const [hourStr, minuteStr = "0"] = value.split(":");
+      const hour = parseInt(hourStr, 10);
+      const minute = parseInt(minuteStr, 10);
+      if (Number.isNaN(hour) || Number.isNaN(minute)) return "";
+      date = new Date();
+      date.setHours(hour, minute, 0, 0);
+    }
+  } else {
+    return "";
+  }
+
+  if (Number.isNaN(date.getTime())) return "";
 
   return date.toLocaleTimeString([], {
     hour: "numeric",
@@ -60,7 +78,6 @@ export const formatDate = (isoDate) => {
     day: "numeric",
   });
 };
-
 
 // Step 1: Correct MIME types
 export const getMimeType = (filename) => {

@@ -7,8 +7,8 @@ const EventDetailsCard = ({ item, selectedTab }) => {
     <>
       {!item.recurring && (
         <>
-          <Text style={styles.itemDate}>Starts: {formatDate(item.startDate)}</Text>
-          <Text style={styles.promoItem}>Ends: {formatDate(item.endDate)}</Text>
+          <Text style={styles.itemDate}>Starts: {formatTimeTo12Hour(item.startTime)}</Text>
+          <Text style={styles.promoItem}>Ends: {formatTimeTo12Hour(item.endTime)}</Text>
         </>
       )}
       {item.recurring && item.recurringDays.length > 0 && (

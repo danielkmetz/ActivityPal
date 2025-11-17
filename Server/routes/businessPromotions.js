@@ -6,7 +6,6 @@ const Business = require("../models/Business");
 const Promotion = require("../models/Promotions.js"); // ✅ singular to match your schema file
 const HiddenPost = require("../models/HiddenPosts.js");
 const { getPresignedUrl } = require("../utils/cachePresignedUrl.js");
-const { extractTimeOnly } = require("../utils/extractTimeOnly.js");
 const { enrichComments } = require("../utils/userPosts.js");
 const { isPromoActive, isPromoLaterToday } = require("../utils/enrichBusinesses.js");
 
@@ -174,19 +173,28 @@ router.post("/", async (req, res) => {
       endTime,
       recurring,
       recurringDays,
-      photos,
+      photos = [],
     } = req.body;
 
+    if (!title || !description) {
+      return res.status(400).json({ message: "Missing required fields: title, description" });
+    }
+
     const business = await Business.findOne({ placeId });
-    if (!business) return res.status(404).json({ message: "Business not found" });
+    if (!business) {
+      return res.status(404).json({ message: "Business not found" });
+    }
+
     const uploaderId = business._id;
 
-    // Only stable fields in DB
-    const photoObjects = (photos || []).map((p) => ({
+    // ✅ Only stable fields in DB
+    const photoObjects = photos.map((p) => ({
       photoKey: p.photoKey,
       description: p.description || null,
       uploadDate: new Date(),
       uploadedBy: uploaderId,
+      // If your PhotoSchema supports this and you want parity with events:
+      taggedUsers: Array.isArray(p.taggedUsers) ? p.taggedUsers : [],
     }));
 
     const doc = new Promotion({
@@ -196,8 +204,8 @@ router.post("/", async (req, res) => {
 
       date: date || null,
       allDay: allDay ?? true,
-      startTime: (allDay ?? true) ? null : extractTimeOnly(startTime),
-      endTime:   (allDay ?? true) ? null : extractTimeOnly(endTime),
+      startTime: (allDay ?? true) ? null : startTime,
+      endTime:   (allDay ?? true) ? null : endTime,
 
       recurring: recurring ?? false,
       recurringDays: (recurring ?? false) ? (recurringDays || []) : [],
@@ -209,12 +217,24 @@ router.post("/", async (req, res) => {
 
     const saved = await doc.save();
 
-    // Response-only decorations are fine
-    const promoWithKind = saved.toObject();
-    promoWithKind.kind = "Promo";
-    promoWithKind.ownerId = business._id;
+    // 🔥 Enrichment for response (mirrors event endpoint behavior)
+    const plain = saved.toObject();
 
-    res.status(201).json({ message: "Promotion created successfully", promotion: promoWithKind });
+    const enrichedPhotos = await Promise.all(
+      (plain.photos || []).map(async (photo) => ({
+        ...photo,
+        url: await getPresignedUrl(photo.photoKey), // <- same enrichment as events
+      }))
+    );
+
+    plain.photos = enrichedPhotos;
+    plain.kind = "Promo";
+    plain.ownerId = business._id;
+
+    res.status(201).json({
+      message: "Promotion created successfully",
+      promotion: plain,
+    });
   } catch (err) {
     console.error("Error creating promotion:", err);
     res.status(500).json({ message: "Internal Server Error" });
@@ -239,54 +259,110 @@ router.put("/:promotionId", async (req, res) => {
       photos,
     } = req.body;
 
-    const updateFields = { updatedAt: new Date() };
+    // 1) Load existing promotion so we can preserve uploadedBy, uploadDate, etc.
+    const promotion = await Promotion.findById(promotionId);
+    if (!promotion) {
+      return res.status(404).json({ message: "Promotion not found" });
+    }
+
+    promotion.updatedAt = new Date();
 
     // Simple fields
-    const simple = { title, description, date, allDay, recurring };
-    for (const [k, v] of Object.entries(simple)) {
-      if (v !== undefined) updateFields[k] = v;
-    }
+    if (title !== undefined) promotion.title = title;
+    if (description !== undefined) promotion.description = description;
+    if (date !== undefined) promotion.date = date;
+    if (allDay !== undefined) promotion.allDay = allDay;
+    if (recurring !== undefined) promotion.recurring = recurring;
 
     // Time normalization
     if (allDay !== undefined) {
       if (allDay) {
-        updateFields.startTime = null;
-        updateFields.endTime = null;
+        promotion.startTime = null;
+        promotion.endTime = null;
       } else {
-        if (startTime !== undefined) updateFields.startTime = extractTimeOnly(startTime);
-        if (endTime   !== undefined) updateFields.endTime   = extractTimeOnly(endTime);
+        if (startTime !== undefined) promotion.startTime = startTime;
+        if (endTime   !== undefined) promotion.endTime   = endTime;
       }
     } else {
-      if (startTime !== undefined) updateFields.startTime = extractTimeOnly(startTime);
-      if (endTime   !== undefined) updateFields.endTime   = extractTimeOnly(endTime);
+      if (startTime !== undefined) promotion.startTime = startTime;
+      if (endTime   !== undefined) promotion.endTime   = endTime;
     }
 
     // Recurring + days
     if (recurring !== undefined) {
-      updateFields.recurringDays = recurring ? (recurringDays || []) : [];
+      promotion.recurringDays = recurring ? (recurringDays || []) : [];
     } else if (recurringDays !== undefined) {
-      updateFields.recurringDays = recurringDays;
+      promotion.recurringDays = recurringDays;
     }
 
-    // Photos: store only stable fields (no presigned URLs)
+    // 3) Photos: preserve uploadedBy / uploadDate, set for new photos
     if (photos !== undefined) {
-      updateFields.photos = (photos || []).map((p) => ({
-        photoKey: p.photoKey,
-        description: p.description || null,
-        uploadDate: p.uploadDate ? new Date(p.uploadDate) : new Date(),
-      }));
+      const existingByKey = new Map(
+        (promotion.photos || []).map((p) => [p.photoKey, p])
+      );
+
+      // Try to reuse existing uploadedBy; if none, fall back to business for this placeId
+      let defaultUploaderId = null;
+      const existingWithUploader = (promotion.photos || []).find(
+        (p) => p.uploadedBy
+      );
+      if (existingWithUploader?.uploadedBy) {
+        defaultUploaderId = existingWithUploader.uploadedBy;
+      } else if (promotion.placeId) {
+        const biz = await Business.findOne({ placeId: promotion.placeId }, "_id");
+        defaultUploaderId = biz ? biz._id : null;
+      }
+
+      promotion.photos = (photos || []).map((p) => {
+        const prev = existingByKey.get(p.photoKey) || {};
+
+        return {
+          photoKey: p.photoKey,
+          description:
+            p.description !== undefined ? p.description : (prev.description || null),
+
+          // keep original uploadDate if present, otherwise use incoming or now
+          uploadDate: p.uploadDate
+            ? new Date(p.uploadDate)
+            : prev.uploadDate || new Date(),
+
+          // ✅ preserve or set uploadedBy
+          uploadedBy: p.uploadedBy || prev.uploadedBy || defaultUploaderId || null,
+
+          // if your PhotoSchema supports taggedUsers, preserve them too
+          taggedUsers: Array.isArray(p.taggedUsers)
+            ? p.taggedUsers
+            : prev.taggedUsers || [],
+        };
+      });
     }
 
-    const updated = await Promotion.findByIdAndUpdate(promotionId, updateFields, { new: true });
-    if (!updated) return res.status(404).json({ message: "Promotion not found" });
+    const saved = await promotion.save();
+
+    // 4) Enrich for response: presigned URLs + ownerId + kind (parity with Event endpoint)
+    const plain = saved.toObject();
+
+    const enrichedPhotos = await Promise.all(
+      (plain.photos || []).map(async (photo) => ({
+        ...photo,
+        url: await getPresignedUrl(photo.photoKey),
+      }))
+    );
+
+    plain.photos = enrichedPhotos;
+    plain.kind = "Promo";
+
+    // Resolve ownerId the same way as POST / (business via placeId)
+    let ownerId = null;
+    if (plain.placeId) {
+      const biz = await Business.findOne({ placeId: plain.placeId }, "_id");
+      if (biz) ownerId = biz._id;
+    }
+    plain.ownerId = ownerId;
 
     res.json({
       message: "Promotion updated successfully",
-      promotion: {
-        ...updated.toObject(),
-        kind: "Promo",
-        // If you want an owner reference in response, you can resolve from business by placeId if needed.
-      },
+      promotion: plain,
     });
   } catch (err) {
     console.error("Error updating promotion:", err);

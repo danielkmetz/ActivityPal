@@ -8,7 +8,6 @@ import PostActions from '../Reviews/PostActions/PostActions';
 export default function EventPromoFeed({
   data,
   scrollX,
-  likedAnimations,
   lastTapRef,
   activeSection,
   handleEventPromoLike,
@@ -36,12 +35,8 @@ export default function EventPromoFeed({
                   renderItem={({ item: photo }) => (
                     <PhotoItem
                       photo={photo}
-                      reviewItem={item}
-                      likedAnimations={likedAnimations}
+                      post={item}
                       photoTapped={lastTapRef}
-                      toggleTaggedUsers={() => {}}
-                      handleLikeWithAnimation={() => handleEventPromoLike(item)}
-                      lastTapRef={lastTapRef}
                     />
                   )}
                   style={{ width: Dimensions.get('window').width, marginTop: -10 }}
@@ -51,9 +46,7 @@ export default function EventPromoFeed({
             )}
             <View style={{ paddingLeft: 15 }}>
               <PostActions
-                item={item}
-                handleLikeWithAnimation={() => handleEventPromoLike(item)}
-                handleOpenComments={() => openPromoEventComments(item)}
+                post={item}
               />
             </View>
           </View>

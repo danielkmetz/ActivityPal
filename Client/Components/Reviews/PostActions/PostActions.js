@@ -126,7 +126,6 @@ export default function PostActions({
   }
 
   const navigateToFullSreenComments = (post) => {
-    console.log(post);
     if (isEventPromoOrSuggestion) {
       navigateToEventPromoComments(post);
     } else {

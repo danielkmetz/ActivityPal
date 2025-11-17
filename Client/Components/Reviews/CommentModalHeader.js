@@ -33,7 +33,7 @@ const CommentModalHeader = ({
     const currentIndexRef = useRef(0);
     const currentPhoto = renderItem?.photos?.[currentPhotoIndex];
     const isInvite = review?.type === "invite";
-    const likeAnim = useRef({});
+    const likeAnim = useRef({})
     const dateTime = renderItem?.dateTime || renderItem?.date;
     const postType = review?.type || review?.postType;
     const postText = review?.reviewText || review?.message || review?.caption;

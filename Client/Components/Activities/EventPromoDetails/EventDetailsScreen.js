@@ -47,17 +47,13 @@ export default function EventDetailsScreen() {
   const [selectedMedia, setSelectedMedia] = useState([]);
   const apiPostType = toApiPostType(selectedType); // ensure this returns 'event' or 'promotion'
 
-  console.log(activity);
   // Fetch on mount if missing
   useEffect(() => {
-    dlog('params', { selectedType, activityId, hasPost: !!post });
     if (!activityId || !selectedType) return;
     if (!post) {
       if (selectedType === 'event') {
-        dlog('fetchEventById', { eventId: activityId });
         dispatch(fetchEventById({ eventId: activityId }));
       } else {
-        dlog('fetchPromotionById', { promoId: activityId });
         dispatch(fetchPromotionById({ promoId: activityId }));
       }
     }

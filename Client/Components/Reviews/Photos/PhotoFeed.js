@@ -4,8 +4,9 @@ import PhotoItem from './PhotoItem';
 import PhotoPaginationDots from './PhotoPaginationDots';
 import SuggestionDetailsModal from '../../SuggestionDetails/SuggestionDetailsModal';
 import { createPhotoFeedHandlers } from './photoFeedHandlers';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { useNavigation } from '@react-navigation/native';
+import { selectBanner } from '../../../Slices/PhotosSlice';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -22,10 +23,11 @@ export default function PhotoFeed({
   const dispatch = useDispatch();
   const navigation = useNavigation();
   const postContent = post?.original ?? post ?? {};
-  const media = postContent?.photos || postContent?.media;
+  const banner = useSelector(selectBanner);
+  const media = postContent?.photos || postContent?.media || postContent?.bannerUrl || banner?.presignedUrl;
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [detailsVisible, setDetailsVisible] = useState(false);
-  
+
   const { handlePhotoTap } = useMemo(
     () =>
       createPhotoFeedHandlers({
