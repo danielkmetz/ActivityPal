@@ -25,17 +25,16 @@ const err = (...a) => { if (DEBUG) console.error(TAG, ...a); };
 
 export default function GoLive({ navigation }) {
   log('↩️ component render start');
-
   const dispatch = useDispatch();
   const live = useSelector(selectCurrentLive);
   const user = useSelector(selectUser);
-
   const liveRef = useRef(null);
-
+  const closingRef = useRef(false);
   const [viewerModalVisible, setViewerModalVisible] = useState(false);
   const [viewerLoading, setViewerLoading] = useState(false);
   const [viewerError, setViewerError] = useState(null);
   const [viewerList, setViewerList] = useState([]);
+  const [showLiveView, setShowLiveView] = useState(false);
 
   const hostId = user?.id || user?._id;
 
@@ -44,22 +43,35 @@ export default function GoLive({ navigation }) {
     liveFromStore: live,
   });
 
-  // Clear any stale live on mount
   useEffect(() => {
-    log('🟢 mount effect: checking for stale live', { live });
-    if (live?.liveId) {
-      log('→ clearing stale live from store', { liveId: live.liveId });
-      try {
-        dispatch(clearCurrentLive());
-      } catch (e) {
-        err('✖ error clearing live on mount', e);
-      }
-    }
+    log('⏳ scheduling delayed mount of ApiVideoLiveStreamView');
+    const timeout = setTimeout(() => {
+      log('⏳ enabling ApiVideoLiveStreamView after delay');
+      setShowLiveView(true);
+    }, 1500); // delay api live stream mount
+
     return () => {
-      log('🔴 unmount GoLive screen');
+      log('⏳ clearing delayed mount timeout');
+      clearTimeout(timeout);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Clear any stale live on mount
+  // useEffect(() => {
+  //   log('🟢 mount effect: checking for stale live', { live });
+  //   if (live?.liveId) {
+  //     log('→ clearing stale live from store', { liveId: live.liveId });
+  //     try {
+  //       dispatch(clearCurrentLive());
+  //     } catch (e) {
+  //       err('✖ error clearing live on mount', e);
+  //     }
+  //   }
+  //   return () => {
+  //     log('🔴 unmount GoLive screen');
+  //   };
+  //   // eslint-disable-next-line react-hooks/exhaustive-deps
+  // }, []);
 
   // Log before / after usePublisher to see if crash is inside hook
   log('before usePublisher call');
@@ -183,13 +195,12 @@ export default function GoLive({ navigation }) {
         accessible={false}
       >
         <View style={{ flex: 1 }}>
-          {ui.showCam && (
+          {ui.showCam && showLiveView && (
             <View style={S.previewContainer}>
               {log('rendering ApiVideoLiveStreamView', {
                 camera: ui.front ? 'front' : 'back',
                 isEnding: ui.isEnding,
               })}
-
               <ApiVideoLiveStreamView
                 ref={liveRef}
                 style={[
@@ -210,21 +221,40 @@ export default function GoLive({ navigation }) {
                   isStereo: true,
                 }}
                 isMuted={false}
-              // leave callbacks commented for now while we focus on layout
-              // onConnectionSuccess={(info) => {
-              //   log('✅ onConnectionSuccess', info);
-              //   actions.onConnectionSuccess(info);
-              // }}
-              // onConnectionFailed={(errInfo) => {
-              //   err('❌ onConnectionFailed', errInfo);
-              //   actions.onConnectionFailed(errInfo);
-              // }}
-              // onDisconnect={(info) => {
-              //   log('🔌 onDisconnect', info);
-              //   actions.onDisconnect(info);
-              // }}
+                onConnectionSuccess={(info) => {
+                  console.log('[ApiVideoLiveStreamView] onConnectionSuccess', info);
+                  try {
+                    actions.onConnectionSuccess(info);
+                  } catch (e) {
+                    console.warn('[GoLive] onConnectionSuccess handler threw', e);
+                  }
+                }}
+                onConnectionFailed={(errInfo) => {
+                  console.log('[ApiVideoLiveStreamView] onConnectionFailed', errInfo);
+                  try {
+                    actions.onConnectionFailed(errInfo);
+                  } catch (e) {
+                    console.warn('[GoLive] onConnectionFailed handler threw', e);
+                  }
+                }}
+                onDisconnect={(info) => {
+                  console.log('[ApiVideoLiveStreamView] onDisconnect', info);
+                  try {
+                    actions.onDisconnect(info);
+                  } catch (e) {
+                    console.warn('[GoLive] onDisconnect handler threw', e);
+                  }
+                }}
+                onError={(e) => {
+                  // nativeEvent is usually where error info lives
+                  console.log(
+                    '[ApiVideoLiveStreamView] onError raw',
+                    e,
+                    'nativeEvent:',
+                    e?.nativeEvent
+                  );
+                }}
               />
-
               {ui.isEnding && <View pointerEvents="none" style={S.blackout} />}
             </View>
           )}
@@ -236,6 +266,11 @@ export default function GoLive({ navigation }) {
             viewerCount={viewerCount}
             onClosePress={() => {
               log('⏹ onClosePress from LiveTopBar');
+              if (closingRef.current) {
+                log('⏹ onClosePress ignored: already closing');
+                return;
+              }
+              closingRef.current = true; // ⭐ NEW: only allow one close sequence
               actions.onClosePress();
             }}
             onBadgePress={openViewerModal}
@@ -284,7 +319,7 @@ export default function GoLive({ navigation }) {
         host={true}
       />
 
-      <ViewersModal
+      {/* <ViewersModal
         visible={viewerModalVisible}
         loading={viewerLoading}
         error={viewerError}
@@ -295,7 +330,7 @@ export default function GoLive({ navigation }) {
         }}
         onRefresh={openViewerModal}
         hostId={hostId}
-      />
+      /> */}
     </View>
   );
 }

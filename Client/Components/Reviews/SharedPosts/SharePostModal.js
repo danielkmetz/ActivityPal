@@ -29,6 +29,7 @@ export default function SharePostModal({
   post,
   isEditing = false,
   setIsEditing,
+  postingLiveReplay = false,
 }) {
   const dispatch = useDispatch();
   const user = useSelector(selectUser);
@@ -36,8 +37,24 @@ export default function SharePostModal({
   const profilePicUrl = profilePic?.url || null;
   const sharedPost = isEditing ? post?.original : post;
   const details = post?.details || {};
-  const replayUrl = details.vodUrl || details.playbackUrl || post?.playbackUrl || null;
-  const isReplay = !!replayUrl && (post?.type === 'liveStream' || post?.type === 'hls');
+  const replayUrl = details.playbackUrl || details.vodUrl || post?.playbackUrl || null;
+
+  const replayFile = useMemo(() => {
+    if (!replayUrl) return null;
+
+    return {
+      ...details,
+      uri: replayUrl,
+      // these flags help useSmartVideoPlayer classify it correctly
+      isVideo: true,
+      mediaType: 'video',
+      type: details?.type || 'video/hls',
+    };
+  }, [replayUrl, details]);
+
+  const isReplay = !!replayFile && (post?.type === 'liveStream' || post?.canonicalType === 'liveStream' ||
+      post?.type === 'hls' ||
+      post?.canonicalType === 'hls');
   
   // event / promotion from feed or from /events-and-promos-nearby
   const isEventOrPromotion = useMemo(() => {
@@ -116,18 +133,18 @@ export default function SharePostModal({
         // ---- CREATE NEW POST (unified) ----
 
         // 1) Share replay → create a liveStream post referencing the VOD/live session
-        if (isReplay) {
+        if (postingLiveReplay) {
           const originalType = post.type || post.postType;
 
           const payload = {
-            type: 'sharedPost',
-            originalType,
-            originalPostId: post._id,
+            type: 'liveStream',
             userId: currentUserId,
             message: caption,
-            // picked up by buildRefsSection('liveStream')
-            liveStreamId: post._id,
-            // optional niceties if present on your live object:
+
+            // live-specific fields
+            liveStreamId: post._id,                // underlying live session id
+            playbackUrl: replayUrl,
+            vodUrl: replayUrl,
             title: post.title,
             status: post.status || 'ended',
             coverKey: post.coverKey,
@@ -245,16 +262,16 @@ export default function SharePostModal({
                         multiline
                         underlineColorAndroid="transparent"
                       />
-                      {!isReplay ? (
-                        <PostPreviewCard post={sharedPost} />
-                      ) : (
+                      {isReplay && replayFile ? (
                         <View style={{ alignSelf: 'center' }}>
                           <VideoThumbnail
-                            file={details}
+                            file={replayFile}
                             width={200}
                             height={200}
                           />
                         </View>
+                      ) : (
+                        <PostPreviewCard post={sharedPost} />
                       )}
                     </View>
                   </View>

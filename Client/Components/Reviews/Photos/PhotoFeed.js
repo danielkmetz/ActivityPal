@@ -10,6 +10,35 @@ import { selectBanner } from '../../../Slices/PhotosSlice';
 
 const screenWidth = Dimensions.get('window').width;
 
+const pickRawMedia = (postContent, banner) => {
+  // 1) Photos array with items
+  if (Array.isArray(postContent?.photos) && postContent.photos.length > 0) {
+    return postContent.photos;
+  }
+
+  // 2) Generic media array with items
+  if (Array.isArray(postContent?.media) && postContent.media.length > 0) {
+    return postContent.media;
+  }
+
+  // 3) Single banner URL (string)
+  if (postContent?.bannerUrl) {
+    return postContent.bannerUrl;
+  }
+
+  // 4) Fallback banner from Redux
+  if (banner?.presignedUrl) {
+    return banner.presignedUrl;
+  }
+
+  // 5) Live stream playback URL (string)
+  if (postContent?.details?.playbackUrl) {
+    return postContent.details.playbackUrl;
+  }
+
+  return null;
+};
+
 export default function PhotoFeed({
   scrollX,
   post,
@@ -17,14 +46,23 @@ export default function PhotoFeed({
   setPhotoTapped,
   onActiveChange, // ← optional callback to mirror your previous onTouchStart/onTouchEnd behavior
   currentIndexRef,
-  isCommentScreen=false,
-  isMyEventsPromosPage=false,
+  isCommentScreen = false,
+  isMyEventsPromosPage = false,
+  isInView = true,
 }) {
   const dispatch = useDispatch();
   const navigation = useNavigation();
   const postContent = post?.original ?? post ?? {};
   const banner = useSelector(selectBanner);
-  const media = postContent?.photos || postContent?.media || postContent?.bannerUrl || banner?.presignedUrl;
+  const rawMedia = useMemo(
+    () => pickRawMedia(postContent, banner),
+    [postContent, banner]
+  );
+
+  const media = useMemo(
+    () => (Array.isArray(rawMedia) ? rawMedia : rawMedia ? [rawMedia] : []),
+    [rawMedia]
+  );
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [detailsVisible, setDetailsVisible] = useState(false);
 
@@ -44,7 +82,7 @@ export default function PhotoFeed({
       postContent?.placeId,
       photoTapped,
     ]
-  );
+  )
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -88,7 +126,10 @@ export default function PhotoFeed({
         scrollEventThrottle={16}
         onTouchStart={() => onActiveChange?.(true)}
         onTouchEnd={() => onActiveChange?.(false)}
-        renderItem={({ item, index }) => (
+        renderItem={({ item, index }) => {
+          const isActiveMedia = index === currentIndexRef.current;
+
+          return (
           <View style={{ width: screenWidth }}>
             <MediaItem
               media={item}
@@ -97,14 +138,16 @@ export default function PhotoFeed({
               photoTapped={photoTapped}
               setPhotoTapped={setPhotoTapped}
               onOpenFullScreen={handlePhotoTap}
+              shouldPlay={isInView && isActiveMedia}
             />
           </View>
-        )}
+          )
+        }}
       />
-      {media?.length > 1 && (
+      {Array.isArray(media) && media?.length > 1 && (
         <PhotoPaginationDots photos={media} scrollX={scrollX} />
       )}
-      <SuggestionDetailsModal 
+      <SuggestionDetailsModal
         visible={detailsVisible}
         onClose={() => setDetailsVisible(false)}
         suggestion={postContent}

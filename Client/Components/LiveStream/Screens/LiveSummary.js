@@ -166,6 +166,24 @@ export default function LiveSummary({ route, navigation }) {
     setPostToShare(null);
   };
 
+  const shareableReplay = useMemo(() => {
+    if (!replay) return null;
+
+    const details = replay.details || {};
+
+    return {
+      ...replay,
+      type: replay.type || 'liveStream', // keep it consistent for isReplay logic
+      details: {
+        ...details,
+        // ensure these are present for the preview
+        playbackUrl: details.playbackUrl || replay.playbackUrl || null,
+        vodUrl: details.vodUrl || replay.vodUrl || replay.playbackUrl || null,
+        thumbnailUrl: details.thumbnailUrl || replay.thumbnailUrl || null,
+      },
+    };
+  }, [replay]);
+
   return (
     <>
       <View style={S.wrap}>
@@ -243,7 +261,8 @@ export default function LiveSummary({ route, navigation }) {
       <SharePostModal
         visible={postToFeedModal}
         onClose={() => setPostToFeedModal(false)}
-        post={replay}
+        post={shareableReplay}
+        postingLiveReplay={true}
       />
     </>
   );

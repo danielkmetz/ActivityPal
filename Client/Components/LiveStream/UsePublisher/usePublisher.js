@@ -1,20 +1,15 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 import { AppState, Alert } from 'react-native';
 import { useDispatch } from 'react-redux';
-import inCallManager from 'react-native-incall-manager';
-import {
-  startLiveSession,
-  stopLiveSession,
-  clearCurrentLive,
-} from '../../../Slices/LiveStreamSlice';
-import {
-  deactivateExpoAudio,
-  tick, // kept in case you use it later
-  resetTick,
-} from '../../../utils/LiveStream/deactivateAudio';
+import { startLiveSession, stopLiveSession, clearCurrentLive } from '../../../Slices/LiveStreamSlice';
 import { useFocusEffect } from '@react-navigation/native';
 
 const TAG = '[usePublisher]';
+const DEBUG = true;
+
+const log  = (...a) => { if (DEBUG) console.log(TAG, ...a); };
+const warn = (...a) => { if (DEBUG) console.warn(TAG, ...a); };
+const err  = (...a) => { if (DEBUG) console.error(TAG, ...a); };
 
 const settleFrames = async (ms = 120) => {
   await new Promise((r) => requestAnimationFrame(r));
@@ -35,21 +30,42 @@ const initialUI = {
 };
 
 function uiReducer(state, action) {
+  if (DEBUG) {
+    log('🧮 uiReducer called', { actionType: action.type, patch: action.patch, prev: state });
+  }
+
   switch (action.type) {
-    case 'SET':
-      return { ...state, ...action.patch };
-    case 'INC_ELAPSED':
-      return { ...state, elapsed: state.elapsed + 1 };
-    case 'DEC_COUNTDOWN':
-      return { ...state, countdown: Math.max(0, state.countdown - 1) };
+    case 'SET': {
+      const next = { ...state, ...action.patch };
+      if (DEBUG) log('🧮 uiReducer SET → next state', next);
+      return next;
+    }
+    case 'INC_ELAPSED': {
+      const next = { ...state, elapsed: state.elapsed + 1 };
+      if (DEBUG) log('🧮 uiReducer INC_ELAPSED →', next.elapsed);
+      return next;
+    }
+    case 'DEC_COUNTDOWN': {
+      const next = { ...state, countdown: Math.max(0, state.countdown - 1) };
+      if (DEBUG) log('🧮 uiReducer DEC_COUNTDOWN →', next.countdown);
+      return next;
+    }
     default:
+      if (DEBUG) warn('🧮 uiReducer unknown action', action);
       return state;
   }
 }
 
 export function usePublisher({ liveRef, navigation, liveFromStore }) {
+  log('↩️ usePublisher init', {
+    liveFromStoreSnapshot: liveFromStore,
+  });
+
   const dispatch = useDispatch();
   const [ui, setUI] = useReducer(uiReducer, initialUI);
+
+  // Serialize operations on the SDK so we never call start/stop concurrently
+  const opQueueRef = useRef(Promise.resolve());
 
   // Imperative runtime flags
   const R = useRef({
@@ -59,33 +75,44 @@ export function usePublisher({ liveRef, navigation, liveFromStore }) {
     isFocused: false,
     retryTimer: null,
     unmounted: false,
-    opLock: false,
     liveId: null,
-    audioDisabled: false,
     bgPaused: false,
   }).current;
 
+  const dumpRuntimeFlags = (label) => {
+    if (!DEBUG) return;
+    log(label, {
+      ended: R.ended,
+      allowResume: R.allowResume,
+      wasPublishing: R.wasPublishing,
+      isFocused: R.isFocused,
+      retryTimerActive: !!R.retryTimer,
+      unmounted: R.unmounted,
+      liveId: R.liveId,
+      bgPaused: R.bgPaused,
+    });
+  };
+
   const safeSetUI = useCallback(
     (patch) => {
-      if (R.unmounted) return;
+      if (R.unmounted) {
+        warn('safeSetUI called after unmount, ignoring', patch);
+        return;
+      }
+      if (DEBUG) log('safeSetUI', patch);
       setUI({ type: 'SET', patch });
     },
     [R],
   );
 
-  const ensureAudioOff = useCallback(async () => {
-    if (R.audioDisabled) return;
-    try {
-      await deactivateExpoAudio();
-      R.audioDisabled = true;
-    } catch (e) {
-      console.warn(TAG, 'deactivateExpoAudio failed', e);
-    }
-  }, [R]);
-
   // Keep durable live id and chat id synced
   useEffect(() => {
     const id = liveFromStore?.liveId || liveFromStore?.id;
+    log('💾 liveFromStore id effect fired', {
+      liveFromStore,
+      resolvedId: id,
+    });
+
     if (id) {
       R.liveId = id;
       safeSetUI({ chatLiveId: id });
@@ -97,79 +124,141 @@ export function usePublisher({ liveRef, navigation, liveFromStore }) {
   useEffect(() => {
     let t;
     if (ui.publishing) {
+      log('⏱ starting elapsed timer', { publishing: ui.publishing });
       t = setInterval(() => {
         if (!R.unmounted) {
           setUI({ type: 'INC_ELAPSED' });
+        } else {
+          warn('elapsed timer tick after unmount, skipping');
         }
       }, 1000);
+    } else {
+      log('⏱ elapsed timer inactive (publishing=false)');
     }
+
     return () => {
-      if (t) clearInterval(t);
+      if (t) {
+        log('⏱ clearing elapsed timer');
+        clearInterval(t);
+      }
     };
   }, [ui.publishing, R]);
 
   // Countdown
   useEffect(() => {
     let t;
+    log('⏳ countdown effect fired', {
+      arming: ui.arming,
+      countdown: ui.countdown,
+    });
+
     if (ui.arming && ui.countdown > 0) {
+      log('⏳ starting countdown interval');
       t = setInterval(() => {
         if (!R.unmounted) {
           setUI({ type: 'DEC_COUNTDOWN' });
+        } else {
+          warn('countdown tick after unmount, skipping');
         }
       }, 1000);
     } else if (ui.arming && ui.countdown === 0) {
-      // guard startLive so it can't run after unmount
-      if (!R.unmounted) {
+      log('⏳ countdown reached zero → startLive guard check', {
+        ended: R.ended,
+        unmounted: R.unmounted,
+      });
+      // guard startLive so it can't run after unmount/end
+      if (!R.unmounted && !R.ended) {
+        log('⏳ calling startLive from countdown effect');
         startLive();
+      } else {
+        warn('⏳ startLive aborted due to ended/unmounted flags');
       }
+    } else {
+      log('⏳ countdown idle (either not arming or countdown==0 and already handled)');
     }
+
     return () => {
-      if (t) clearInterval(t);
+      if (t) {
+        log('⏳ clearing countdown interval');
+        clearInterval(t);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ui.arming, ui.countdown, R]);
 
   const withOpLock = useCallback(
-    async (fn) => {
-      if (R.opLock) return;
-      R.opLock = true;
-      try {
-        await fn();
-      } catch (e) {
-        console.warn(TAG, 'withOpLock fn threw', e);
-      } finally {
-        R.opLock = false;
-      }
+    (fn) => {
+      log('🔐 withOpLock scheduled fn');
+      const run = async () => {
+        try {
+          log('🔐 withOpLock run start');
+          await fn();
+          log('🔐 withOpLock run success');
+        } catch (e) {
+          warn('🔐 withOpLock fn threw', e);
+        }
+      };
+
+      opQueueRef.current = opQueueRef.current.then(run, run);
+      return opQueueRef.current;
     },
-    [R],
+    [],
   );
 
   const safeStart = useCallback(
     (key, url) =>
       withOpLock(async () => {
-        if (R.unmounted) return;
-        if (R.ended || !R.allowResume || !R.isFocused || !ui.showCam || !key) return;
+        dumpRuntimeFlags('🚀 safeStart entry');
+        log('🚀 safeStart called with', { key: !!key, url: !!url });
 
-        const inst = liveRef.current;
-        if (!inst || typeof inst.startStreaming !== 'function') {
-          console.warn(TAG, 'startStreaming not available yet', { inst });
+        if (R.unmounted || R.ended) {
+          warn('🚀 safeStart abort: unmounted or ended', {
+            unmounted: R.unmounted,
+            ended: R.ended,
+          });
+          return;
+        }
+        if (!R.allowResume || !R.isFocused || !ui.showCam || !key) {
+          warn('🚀 safeStart abort: guard failed', {
+            allowResume: R.allowResume,
+            isFocused: R.isFocused,
+            showCam: ui.showCam,
+            hasKey: !!key,
+          });
           return;
         }
 
-        // optional: if plugin ever exposes it as a function, handle that:
+        const inst = liveRef.current;
+        log('🚀 safeStart liveRef.current', {
+          hasInst: !!inst,
+          hasStartFn: !!(inst && typeof inst.startStreaming === 'function'),
+          hasIsStreaming: !!(inst && inst.isStreaming),
+        });
+
+        if (!inst || typeof inst.startStreaming !== 'function') {
+          warn('🚀 startStreaming not available yet', { inst });
+          return;
+        }
+
         const isStreamingFlag =
           typeof inst.isStreaming === 'function' ? inst.isStreaming() : inst.isStreaming;
 
-        if (isStreamingFlag) return;
+        log('🚀 safeStart isStreamingFlag', isStreamingFlag);
+
+        if (isStreamingFlag) {
+          log('🚀 safeStart early exit: already streaming');
+          return;
+        }
 
         try {
+          log('🚀 calling inst.startStreaming(...)');
           await inst.startStreaming(key, url);
+          log('🚀 inst.startStreaming resolved OK');
           safeSetUI({
             status: ui.status === 'reconnecting' ? 'reconnecting' : 'connecting',
           });
         } catch (e) {
-          console.warn(TAG, 'startStreaming threw', e);
-          // don't rethrow; keep JS from blowing up callbacks
+          warn('🚀 startStreaming threw', e);
         }
       }),
     [liveRef, R, ui.showCam, ui.status, withOpLock, safeSetUI],
@@ -178,18 +267,30 @@ export function usePublisher({ liveRef, navigation, liveFromStore }) {
   const safeStop = useCallback(
     () =>
       withOpLock(async () => {
-        if (R.unmounted) return;
+        dumpRuntimeFlags('🛑 safeStop entry');
         const inst = liveRef.current;
+        log('🛑 safeStop liveRef.current', {
+          hasInst: !!inst,
+          hasStopFn: !!(inst && typeof inst.stopStreaming === 'function'),
+        });
+
+        if (R.unmounted) {
+          warn('🛑 safeStop abort: unmounted');
+          return;
+        }
+
         if (!inst || typeof inst.stopStreaming !== 'function') {
-          console.warn(TAG, 'stopStreaming not available', { inst });
+          warn('🛑 stopStreaming not available', { inst });
           safeSetUI({ publishing: false, status: 'idle' });
           return;
         }
 
         try {
+          log('🛑 calling inst.stopStreaming()');
           await inst.stopStreaming();
+          log('🛑 inst.stopStreaming resolved OK');
         } catch (e) {
-          console.warn(TAG, 'stopStreaming threw', e);
+          warn('🛑 stopStreaming threw', e);
         }
         safeSetUI({ publishing: false, status: 'idle' });
       }),
@@ -198,295 +299,371 @@ export function usePublisher({ liveRef, navigation, liveFromStore }) {
 
   const scheduleRetry = useCallback(
     () => {
-      if (R.unmounted) return;
-      if (R.ended || !R.allowResume || R.retryTimer || !ui.showCam) return;
-      // don't retry if we're already live/connecting/publishing
-      if (ui.publishing || ui.status === 'live' || ui.status === 'connecting') return;
+      dumpRuntimeFlags('🔁 scheduleRetry entry');
+      log('🔁 scheduleRetry called with ui', {
+        status: ui.status,
+        publishing: ui.publishing,
+        showCam: ui.showCam,
+      });
 
+      if (R.unmounted || R.ended) {
+        warn('🔁 scheduleRetry abort: unmounted or ended');
+        return;
+      }
+      if (!R.allowResume || R.retryTimer || !ui.showCam) {
+        warn('🔁 scheduleRetry abort: guard failed', {
+          allowResume: R.allowResume,
+          hasRetryTimer: !!R.retryTimer,
+          showCam: ui.showCam,
+        });
+        return;
+      }
+      if (ui.publishing || ui.status === 'live' || ui.status === 'connecting') {
+        warn('🔁 scheduleRetry abort: already publishing/live/connecting');
+        return;
+      }
+
+      log('🔁 setting retryTimer...');
       R.retryTimer = setTimeout(() => {
-        if (R.unmounted) return;
+        dumpRuntimeFlags('🔁 retryTimer fired');
+        if (R.unmounted || R.ended) {
+          warn('🔁 retryTimer abort: unmounted or ended');
+          return;
+        }
         R.retryTimer = null;
         if (R.wasPublishing && liveFromStore?.streamKey && liveFromStore?.rtmpUrl) {
+          log('🔁 retryTimer → safeStart with stored creds');
           safeSetUI({ status: 'reconnecting' });
           safeStart(liveFromStore.streamKey, liveFromStore.rtmpUrl);
+        } else {
+          warn('🔁 retryTimer: no creds or wasPublishing=false, skipping');
         }
       }, 900);
     },
     [liveFromStore, safeStart, ui.publishing, ui.showCam, ui.status, R, safeSetUI],
   );
 
-  const stopPublisherSafe = useCallback(
-    async () => {
-      const timeout = new Promise((r) => setTimeout(r, 1500));
-      const stop = (async () => {
-        try {
-          const inst = liveRef.current;
-          if (inst && typeof inst.stopStreaming === 'function') {
-            await inst.stopStreaming();
-          }
-        } catch (e) {
-          console.warn(TAG, 'stopPublisherSafe stopStreaming threw', e);
-        }
-      })();
-      await Promise.race([timeout, stop]);
-    },
-    [liveRef],
-  );
-
-  const stopPreviewSafe = useCallback(async () => {
-    try {
-      const inst = liveRef.current;
-      if (inst && typeof inst.stopPreview === 'function') {
-        await inst.stopPreview();
-      }
-    } catch (e) {
-      console.warn(TAG, 'stopPreviewSafe threw', e);
-    }
-  }, [liveRef]);
-
-  const stopOSAudioSession = useCallback(() => {
-    try {
-      inCallManager.stop();
-      inCallManager.setSpeakerphoneOn?.(false);
-      inCallManager.setForceSpeakerphoneOn?.(false);
-      inCallManager.stopProximitySensor?.();
-    } catch (e) {
-      console.warn(TAG, 'stopOSAudioSession failed', e);
-    }
-  }, []);
-
-  const releaseHardware = useCallback(
-    async () => {
-      resetTick();
-      R.ended = true;
-      R.allowResume = false;
-      R.wasPublishing = false;
-      try {
-        if (R.retryTimer) {
-          clearTimeout(R.retryTimer);
-          R.retryTimer = null;
-        }
-      } catch (e) {
-        console.warn(TAG, 'clearTimeout retryTimer failed', e);
-      }
-
-      await stopPublisherSafe();
-      await stopPreviewSafe();
-      stopOSAudioSession();
-      await ensureAudioOff();
-
-      safeSetUI({ publishing: false, status: 'idle' });
-      await settleFrames(160);
-
-      try {
-        const inst = liveRef.current;
-        if (inst && typeof inst.destroy === 'function') {
-          await inst.destroy();
-        }
-      } catch (e) {
-        console.warn(TAG, 'destroy threw', e);
-      }
-      liveRef.current = null;
-    },
-    [ensureAudioOff, liveRef, stopOSAudioSession, stopPreviewSafe, stopPublisherSafe, safeSetUI, R],
-  );
-
   const resolveLiveId = useCallback(
-    () => R.liveId || liveFromStore?.liveId || liveFromStore?.id || null,
+    () => {
+      const id = R.liveId || liveFromStore?.liveId || liveFromStore?.id || null;
+      log('🆔 resolveLiveId', {
+        fromR: R.liveId,
+        fromStoreLiveId: liveFromStore?.liveId,
+        fromStoreId: liveFromStore?.id,
+        resolved: id,
+      });
+      return id;
+    },
     [liveFromStore, R],
   );
 
   const stopLiveHttpFallback = useCallback(async (id) => {
+    log('🌐 stopLiveHttpFallback called', { id });
     try {
       const res = await fetch('/api/liveStream/live/stop?forceStop=true', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),
       });
-      await res.json().catch(() => ({}));
+      const json = await res.json().catch(() => ({}));
+      log('🌐 stopLiveHttpFallback response', { ok: res.ok, status: res.status, json });
       return res.ok;
     } catch (e) {
-      console.warn(TAG, 'stopLiveHttpFallback failed', e);
+      warn('🌐 stopLiveHttpFallback failed', e);
       return false;
     }
   }, []);
 
   const endLiveCore = useCallback(
     async ({ navigate } = { navigate: true }) => {
+      dumpRuntimeFlags('🧨 endLiveCore entry');
+      log('🧨 endLiveCore called', { navigate, uiSnapshot: ui });
+
       try {
         safeSetUI({ isEnding: true, status: 'ending' });
         R.ended = true;
         R.allowResume = false;
         R.wasPublishing = false;
+
         try {
           if (R.retryTimer) {
+            log('🧨 clearing retryTimer in endLiveCore');
             clearTimeout(R.retryTimer);
             R.retryTimer = null;
           }
         } catch (e) {
-          console.warn(TAG, 'clearTimeout retryTimer in endLiveCore failed', e);
+          warn('🧨 clearTimeout retryTimer in endLiveCore failed', e);
         }
 
-        await releaseHardware();
-        if (ui.showCam) safeSetUI({ showCam: false });
+        // Minimal teardown: just stop the stream if we were publishing
+        if (ui.publishing) {
+          log('🧨 endLiveCore: ui.publishing=true → safeStop()');
+          await safeStop();
+        } else {
+          log('🧨 endLiveCore: not publishing, forcing idle state');
+          safeSetUI({ publishing: false, status: 'idle' });
+        }
+
+        if (ui.showCam) {
+          log('🧨 endLiveCore: hiding camera');
+          safeSetUI({ showCam: false });
+        }
 
         const targetId = resolveLiveId();
+        log('🧨 endLiveCore targetId resolved', targetId);
+
         if (targetId) {
           try {
+            log('🧨 dispatch stopLiveSession', { liveId: targetId });
             await dispatch(stopLiveSession({ liveId: targetId })).unwrap();
+            log('🧨 stopLiveSession thunk completed');
           } catch (e) {
-            console.warn(TAG, 'stopLiveSession thunk failed', e);
+            warn('🧨 stopLiveSession thunk failed', e);
           }
           try {
+            log('🧨 calling stopLiveHttpFallback (1st attempt)');
             const ok = await stopLiveHttpFallback(targetId);
-            if (!ok) await stopLiveHttpFallback(targetId);
+            if (!ok) {
+              log('🧨 stopLiveHttpFallback not ok, trying again');
+              await stopLiveHttpFallback(targetId);
+            }
           } catch (e) {
-            console.warn(TAG, 'stopLiveHttpFallback cycle failed', e);
+            warn('🧨 stopLiveHttpFallback cycle failed', e);
           }
+        } else {
+          warn('🧨 endLiveCore: no targetId, skipping backend stop calls');
         }
 
         try {
+          log('🧨 dispatch clearCurrentLive');
           dispatch(clearCurrentLive());
         } catch (e) {
-          console.warn(TAG, 'clearCurrentLive dispatch failed', e);
+          warn('🧨 clearCurrentLive dispatch failed', e);
         }
 
         const idForNav = resolveLiveId() || liveFromStore?.liveId || liveFromStore?.id;
+        log('🧨 endLiveCore idForNav', idForNav);
 
         if (navigate && !R.unmounted && idForNav) {
+          log('🧨 endLiveCore navigating to LiveSummary');
           await settleFrames(60);
           navigation.replace('LiveSummary', { liveId: idForNav, title: 'Live' });
+        } else {
+          log('🧨 endLiveCore: not navigating', {
+            navigate,
+            unmounted: R.unmounted,
+            idForNav,
+          });
         }
       } catch (e) {
+        err('🧨 endLiveCore outer catch', e);
         try {
           Alert.alert('Stop failed', e?.message || 'Failed to stop');
         } catch (alertErr) {
-          console.warn(TAG, 'Alert failed', alertErr);
+          warn('🧨 Alert failed', alertErr);
         }
       }
     },
     [
       dispatch,
       navigation,
-      releaseHardware,
       resolveLiveId,
       stopLiveHttpFallback,
+      ui.publishing,
       ui.showCam,
       liveFromStore,
       safeSetUI,
+      safeStop,
       R,
+      ui,
     ],
   );
 
-  const endLive = useCallback(() => endLiveCore({ navigate: true }), [endLiveCore]);
+  const endLive = useCallback(() => {
+    log('🧨 endLive wrapper called');
+    return endLiveCore({ navigate: true });
+  }, [endLiveCore]);
 
   // Arm + countdown
   const armAndCountdown = useCallback(() => {
-    if (ui.arming || ['connecting', 'live', 'reconnecting'].includes(ui.status)) return;
+    log('🎬 armAndCountdown called', {
+      status: ui.status,
+      arming: ui.arming,
+    });
+
+    if (ui.arming || ['connecting', 'live', 'reconnecting'].includes(ui.status)) {
+      warn('🎬 armAndCountdown aborted due to current state', {
+        status: ui.status,
+        arming: ui.arming,
+      });
+      return;
+    }
     safeSetUI({ arming: true, status: 'arming', countdown: 3 });
   }, [ui.arming, ui.status, safeSetUI]);
 
   async function startLive() {
-    // hard guards to avoid double-starts or zombie starts
+    dumpRuntimeFlags('🚦 startLive entry');
+    log('🚦 startLive called', {
+      status: ui.status,
+      publishing: ui.publishing,
+    });
+
     if (R.ended || R.unmounted || ui.publishing || ui.status === 'connecting' || ui.status === 'live') {
+      warn('🚦 startLive abort: invalid state', {
+        ended: R.ended,
+        unmounted: R.unmounted,
+        status: ui.status,
+        publishing: ui.publishing,
+      });
       return;
     }
 
     try {
-      // we intend to stream now
       R.ended = false;
       R.allowResume = true;
       R.isFocused = true;
       if (R.retryTimer) {
         try {
+          log('🚦 clearing retryTimer in startLive');
           clearTimeout(R.retryTimer);
         } catch (e) {
-          console.warn(TAG, 'clearTimeout retryTimer in startLive failed', e);
+          warn('🚦 clearTimeout retryTimer in startLive failed', e);
         }
         R.retryTimer = null;
       }
-      if (R.bgPaused) R.bgPaused = false;
+      if (R.bgPaused) {
+        log('🚦 startLive clearing bgPaused flag');
+        R.bgPaused = false;
+      }
 
+      log('🚦 dispatch startLiveSession thunk');
       const res = await dispatch(startLiveSession()).unwrap();
+      log('🚦 startLiveSession result', res);
 
-      // After awaiting, re-check that we still should proceed
-      if (R.ended || R.unmounted) return;
+      if (R.ended || R.unmounted) {
+        warn('🚦 startLive abort after thunk: ended or unmounted');
+        return;
+      }
 
       const url = res?.rtmpUrl || liveFromStore?.rtmpUrl;
       const key = res?.streamKey || liveFromStore?.streamKey;
       const startedId = res?.liveId || res?.id || liveFromStore?.liveId || liveFromStore?.id;
 
+      log('🚦 startLive credentials', { hasUrl: !!url, hasKey: !!key, startedId });
+
       if (!url || !key) throw new Error('Missing RTMP credentials');
 
-      // Track the durable id and wire chat before we actually start
       if (startedId) {
         R.liveId = startedId;
         if (ui.chatLiveId !== startedId) {
+          log('🚦 startLive setting chatLiveId', startedId);
           safeSetUI({ chatLiveId: startedId });
         }
       }
 
       safeSetUI({ elapsed: 0, status: 'connecting' });
 
-      // One more quick guard right before the SDK call
-      if (R.ended || R.unmounted) return;
+      if (R.ended || R.unmounted) {
+        warn('🚦 startLive early exit after setting status: ended/unmounted');
+        return;
+      }
 
-      // Avoid redundant start if SDK exposes a flag
       const inst = liveRef.current;
       const isStreamingFlag =
         inst && (typeof inst.isStreaming === 'function' ? inst.isStreaming() : inst?.isStreaming);
 
+      log('🚦 startLive liveRef.current before safeStart', {
+        hasInst: !!inst,
+        isStreamingFlag,
+      });
+
       if (isStreamingFlag) {
+        log('🚦 startLive: already streaming, setting live/publishing');
         safeSetUI({ status: 'live', publishing: true });
         return;
       }
 
+      log('🚦 startLive → safeStart(...)');
       await safeStart(key, url);
     } catch (e) {
+      err('🚦 startLive error', e);
       safeSetUI({ status: 'error', arming: false });
       try {
         Alert.alert('Start failed', e?.message || 'Unable to start live');
       } catch (alertErr) {
-        console.warn(TAG, 'Alert failed', alertErr);
+        warn('🚦 Alert failed', alertErr);
       }
     } finally {
+      log('🚦 startLive finally → arming=false');
       safeSetUI({ arming: false });
     }
   }
 
   // AppState & focus
   const pauseForBackground = useCallback(() => {
-    if (R.unmounted) return;
+    dumpRuntimeFlags('⏸ pauseForBackground entry');
+    if (R.unmounted) {
+      warn('⏸ pauseForBackground abort: unmounted');
+      return;
+    }
     R.wasPublishing = ui.publishing;
     if (ui.publishing) {
+      log('⏸ pauseForBackground: publishing=true → bgPaused + safeStop');
       R.bgPaused = true;
       safeSetUI({ status: 'reconnecting' });
       safeStop();
+    } else {
+      log('⏸ pauseForBackground: not publishing, no stop');
     }
   }, [safeStop, ui.publishing, safeSetUI, R]);
 
   const tryResume = useCallback(
     () => {
-      if (R.unmounted) return;
-      if (R.ended || !R.allowResume || !R.isFocused || !ui.showCam) return;
+      dumpRuntimeFlags('▶️ tryResume entry');
+      log('▶️ tryResume with ui', {
+        status: ui.status,
+        publishing: ui.publishing,
+        showCam: ui.showCam,
+      });
 
-      // hard guards: don't resume if already live/connecting/publishing
-      if (ui.publishing || ui.status === 'live' || ui.status === 'connecting') return;
+      if (R.unmounted || R.ended) {
+        warn('▶️ tryResume abort: unmounted or ended');
+        return;
+      }
+      if (!R.allowResume || !R.isFocused || !ui.showCam) {
+        warn('▶️ tryResume abort: guard failed', {
+          allowResume: R.allowResume,
+          isFocused: R.isFocused,
+          showCam: ui.showCam,
+        });
+        return;
+      }
 
-      // only resume if we had paused OR we're explicitly in a reconnectable state
+      if (ui.publishing || ui.status === 'live' || ui.status === 'connecting') {
+        warn('▶️ tryResume abort: already publishing/live/connecting');
+        return;
+      }
+
       const shouldResume = R.bgPaused || ui.status === 'reconnecting' || ui.status === 'error';
+      log('▶️ tryResume shouldResume?', shouldResume);
+
       if (!shouldResume) return;
 
       if (R.wasPublishing && liveFromStore?.streamKey && liveFromStore?.rtmpUrl) {
+        log('▶️ tryResume → safeStart with stored creds');
         safeSetUI({ status: 'reconnecting' });
         safeStart(liveFromStore.streamKey, liveFromStore.rtmpUrl);
+      } else {
+        warn('▶️ tryResume abort: no creds or wasPublishing=false');
       }
     },
     [liveFromStore, safeStart, ui.publishing, ui.showCam, ui.status, safeSetUI, R],
   );
 
   useEffect(() => {
+    log('📱 AppState subscription setup');
     const handler = (s) => {
+      log('📱 AppState change', s);
       if (s === 'active') tryResume();
       else if (s === 'background') pauseForBackground();
     };
@@ -494,6 +671,7 @@ export function usePublisher({ liveRef, navigation, liveFromStore }) {
     const sub = AppState.addEventListener('change', handler);
 
     return () => {
+      log('📱 AppState cleanup');
       try {
         if (sub && typeof sub.remove === 'function') {
           sub.remove();
@@ -501,145 +679,139 @@ export function usePublisher({ liveRef, navigation, liveFromStore }) {
           AppState.removeEventListener('change', handler);
         }
       } catch (e) {
-        console.warn(TAG, 'AppState cleanup failed', e);
+        warn('📱 AppState cleanup failed', e);
       }
     };
   }, [pauseForBackground, tryResume]);
 
   useFocusEffect(
     useCallback(() => {
+      log('🎯 useFocusEffect → focused');
+      dumpRuntimeFlags('🎯 before focus');
       R.isFocused = true;
       R.allowResume = true;
 
-      // only attempt resume if we actually paused or are reconnecting/error
       if (R.bgPaused || ui.status === 'reconnecting' || ui.status === 'error') {
+        log('🎯 useFocusEffect: trying resume due to bgPaused/reconnecting/error');
         tryResume();
       }
 
       return () => {
+        log('🎯 useFocusEffect cleanup → blurred');
+        dumpRuntimeFlags('🎯 before blur cleanup');
         R.isFocused = false;
         R.allowResume = false;
-        if (ui.publishing) safeStop();
+        if (ui.publishing) {
+          log('🎯 blur cleanup: publishing=true → safeStop()');
+          safeStop();
+        } else {
+          log('🎯 blur cleanup: not publishing, no stop');
+        }
       };
     }, [safeStop, tryResume, ui.publishing, ui.status, R]),
   );
 
-  // Transition cleanup
+  // Unmount cleanup – **no explicit destroy/stop here**, just flags + timers
   useEffect(() => {
-    const offEnd = navigation.addListener('transitionEnd', ({ data }) => {
-      if (data?.closing) {
-        (async () => {
-          try {
-            await stopPublisherSafe();
-          } catch (e) {
-            console.warn(TAG, 'stopPublisherSafe in transitionEnd failed', e);
-          }
-          try {
-            inCallManager.stop();
-          } catch (e) {
-            console.warn(TAG, 'inCallManager.stop in transitionEnd failed', e);
-          }
-          await ensureAudioOff();
-        })();
-      }
-    });
+    log('🧹 unmount cleanup effect registered');
     return () => {
-      try {
-        offEnd();
-      } catch (e) {
-        console.warn(TAG, 'transitionEnd cleanup failed', e);
-      }
-    };
-  }, [navigation, ensureAudioOff, stopPublisherSafe]);
-
-  // Unmount cleanup
-  useEffect(() => {
-    return () => {
+      log('🧹 unmount cleanup fired');
+      dumpRuntimeFlags('🧹 before unmount');
       R.unmounted = true;
       try {
         if (R.retryTimer) {
+          log('🧹 clearing retryTimer on unmount');
           clearTimeout(R.retryTimer);
           R.retryTimer = null;
         }
       } catch (e) {
-        console.warn(TAG, 'clearTimeout retryTimer in unmount failed', e);
+        warn('🧹 clearTimeout retryTimer in unmount failed', e);
       }
-
-      (async () => {
-        try {
-          const inst = liveRef.current;
-          if (inst && typeof inst.stopStreaming === 'function') {
-            await inst.stopStreaming();
-          }
-        } catch (e) {
-          console.warn(TAG, 'stopStreaming in unmount failed', e);
-        }
-        await ensureAudioOff();
-      })();
-
-      try {
-        inCallManager.stop();
-      } catch (e) {
-        console.warn(TAG, 'inCallManager.stop in unmount failed', e);
-      }
-      // No setUI here → avoid state updates after unmount
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [R]);
 
   // Public API
-  return {
+  const api = {
     ui,
-    setUI, // expose raw reducer for rare advanced usage if needed
+    setUI,
     actions: {
-      flip: () => safeSetUI({ front: !ui.front }),
+      flip: () => {
+        log('🔁 actions.flip called', { currentFront: ui.front });
+        safeSetUI({ front: !ui.front });
+      },
       armAndCountdown,
       endLive,
       retry: () => {
+        log('🔁 actions.retry called');
         safeSetUI({ status: 'idle' });
         armAndCountdown();
       },
       onClosePress: () => {
+        log('⏹ actions.onClosePress called', {
+          status: ui.status,
+          publishing: ui.publishing,
+        });
         if (ui.status === 'live' || ui.status === 'reconnecting' || ui.publishing) {
+          log('⏹ onClosePress → endLive() path');
           safeSetUI({ isEnding: true, status: 'ending' });
           endLive();
         } else {
+          log('⏹ onClosePress → lightweight goBack path');
           (async () => {
             safeSetUI({ isEnding: true, status: 'ending' });
-            await releaseHardware();
             try {
+              log('⏹ onClosePress → dispatch clearCurrentLive');
               dispatch(clearCurrentLive());
             } catch (e) {
-              console.warn(TAG, 'clearCurrentLive in onClosePress failed', e);
+              warn('⏹ clearCurrentLive in onClosePress failed', e);
             }
             await settleFrames(60);
             if (!R.unmounted) {
+              log('⏹ onClosePress → navigation.goBack()');
               navigation.goBack();
+            } else {
+              warn('⏹ onClosePress: unmounted before goBack, skipping');
             }
           })();
         }
       },
       onConnectionSuccess: () => {
-        if (R.unmounted) return;
+        log('✅ actions.onConnectionSuccess called');
+        dumpRuntimeFlags('✅ onConnectionSuccess');
+        if (R.unmounted || R.ended) {
+          warn('✅ onConnectionSuccess abort: unmounted or ended');
+          return;
+        }
         safeSetUI({ publishing: true, status: 'live' });
         R.wasPublishing = true;
         R.bgPaused = false;
         try {
           if (R.retryTimer) {
+            log('✅ clearing retryTimer on success');
             clearTimeout(R.retryTimer);
             R.retryTimer = null;
           }
         } catch (e) {
-          console.warn(TAG, 'clearTimeout retryTimer in onConnectionSuccess failed', e);
+          warn('✅ clearTimeout retryTimer in onConnectionSuccess failed', e);
         }
       },
       onConnectionFailed: () => {
-        if (R.unmounted || R.ended) return;
+        log('❌ actions.onConnectionFailed called');
+        dumpRuntimeFlags('❌ onConnectionFailed');
+        if (R.unmounted || R.ended) {
+          warn('❌ onConnectionFailed abort: unmounted or ended');
+          return;
+        }
         safeSetUI({ publishing: false, status: 'error' });
         scheduleRetry();
       },
       onDisconnect: () => {
-        if (R.unmounted || R.ended) return;
+        log('🔌 actions.onDisconnect called');
+        dumpRuntimeFlags('🔌 onDisconnect');
+        if (R.unmounted || R.ended) {
+          warn('🔌 onDisconnect abort: unmounted or ended');
+          return;
+        }
         safeSetUI({
           publishing: false,
           status: R.wasPublishing ? 'reconnecting' : 'error',
@@ -648,4 +820,11 @@ export function usePublisher({ liveRef, navigation, liveFromStore }) {
       },
     },
   };
+
+  log('🏁 usePublisher return snapshot', {
+    ui,
+    actionsKeys: Object.keys(api.actions),
+  });
+
+  return api;
 }

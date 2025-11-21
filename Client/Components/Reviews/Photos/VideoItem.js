@@ -8,6 +8,7 @@ import { handleLikeWithAnimation as likeWithAnim } from '../../../utils/LikeHand
 import { pickPostId } from '../../../utils/posts/postIdentity';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser } from '../../../Slices/UserSlice';
+import { useEventListener } from 'expo';
 import TagUserModal from '../TagUserModal/TagUserModal';
 import { medium } from '../../../utils/Haptics/haptics';
 
@@ -105,15 +106,17 @@ const VideoItem = ({
   index,
   isInteractive = true,
   onOpenFullScreen,
+  shouldPlay = true,
 }) => {
   const dispatch = useDispatch();
   const { getAnimation, registerAnimation } = useLikeAnimations();
   const [animation, setAnimation] = useState(null);
   const [tagModalVisible, setTagModalVisible] = useState(false);
+  const [hasEnded, setHasEnded] = useState(false);
   const lastTapRef = useRef({});
   const timersRef = useRef({});
   const user = useSelector(selectUser);
-  const player = useSmartVideoPlayer(media);
+  const player = useSmartVideoPlayer(media, shouldPlay && !hasEnded);
 
   const taggedUsers = Array.isArray(media?.taggedUsers) ? media.taggedUsers : [];
   const shouldRenderTagButton =
@@ -125,6 +128,33 @@ const VideoItem = ({
     const anim = getAnimation(post._id);
     if (anim) setAnimation(anim);
   }, [post?._id, getAnimation, registerAnimation]);
+
+  useEffect(() => {
+    if (!shouldPlay) {
+      setHasEnded(false);
+    }
+  }, [shouldPlay]);
+
+  // 🔹 Reset ended state when media / post changes
+  useEffect(() => {
+    setHasEnded(false);
+  }, [media, post?._id]);
+
+  // 🔹 Mark as ended when player plays to the end of the source
+  useEventListener(player, 'playToEnd', () => {
+    setHasEnded(true);
+  });
+
+  const handleReplay = () => {
+    if (!player) return;
+    try {
+      player.currentTime = 0;
+      setHasEnded(false);
+      player.play();
+    } catch (err) {
+      console.warn('[VideoItem] replay error', err);
+    }
+  };
 
   const handleLikeWithAnimation = buildHandleLikeWithAnimation({
     post,
@@ -215,6 +245,13 @@ const VideoItem = ({
               </View>
             </TouchableWithoutFeedback>
           )}
+          {hasEnded && (
+            <TouchableWithoutFeedback onPress={handleReplay}>
+              <View style={styles.replayOverlay}>
+                <MaterialCommunityIcons name="replay" size={48} color="#ffffff" />
+              </View>
+            </TouchableWithoutFeedback>
+          )}
         </View>
       </TouchableWithoutFeedback>
 
@@ -272,6 +309,12 @@ const styles = StyleSheet.create({
     padding: 6,
     borderRadius: 20,
     zIndex: 99,
+  },
+  replayOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.4)',  // gray-ish overlay
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

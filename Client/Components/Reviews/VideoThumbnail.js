@@ -20,8 +20,6 @@ export default function VideoThumbnail({
     return null;
   };
 
-  console.log(file);
-
   const { getAnimation, registerAnimation } = useLikeAnimations();
   const [fallbackAnim] = useState(() => new Animated.Value(0));
   const [overlayAnim, setOverlayAnim] = useState(fallbackAnim);
