@@ -277,6 +277,7 @@ export default function Reviews({ reviews, viewabilityConfig, onViewableItemsCha
                 onProfile={(userId) => navigation.navigate('OtherUserProfile', { userId })}
                 handleEdit={handleEditPost}
                 handleDelete={handleDeletePost}
+                onShare={openShareOptions}
               />
             )
           }

@@ -87,7 +87,7 @@ export function HiddenPostsProvider({ children }) {
 
       try {
         // Thunk should accept id-only now; if your API still allows postType, passing it is harmless
-        dispatch(hidePost({ postId: id }));
+        dispatch(hidePost({ postType: _postType, postId: id }));
         // Optimistic: remove from visible feeds immediately
         dispatch(removePostFromFeeds(id));
       } catch (e) {
@@ -107,7 +107,7 @@ export function HiddenPostsProvider({ children }) {
       if (!id) return;
 
       try {
-        dispatch(unhidePost({ postId: id }));
+        dispatch(unhidePost({ postType: _postType, postId: id }));
       } catch (e) {
         err('unhidePost dispatch failed', e);
       }

@@ -34,17 +34,19 @@ const CommentModalHeader = ({
     const currentPhoto = renderItem?.photos?.[currentPhotoIndex];
     const isInvite = review?.type === "invite";
     const likeAnim = useRef({})
-    const dateTime = renderItem?.dateTime || renderItem?.date;
+    const dateTime = renderItem?.dateTime || renderItem?.date || review?.details?.dateTime;
     const postType = review?.type || review?.postType;
     const postText = review?.reviewText || review?.message || review?.caption;
     const isShared = review?.type === 'sharedPost' || review?.postType === 'sharedPost' || !!review?.original;
     const { isLive, playbackUrl, vodUrl } = renderItem;
-    const totalInvited = Array.isArray(review?.recipients) ? review.recipients.length : 0;
+    const details = renderItem?.details;
+    const owner = renderItem?.owner || renderItem?.sender 
+    const totalInvited = Array.isArray(details?.recipients) ? details.recipients.length : 0;
 
     const authorPic = (() => {
-        if (isShared) return review?.user?.profilePicUrl || review?.profilePicUrl;
-        if (isInvite) return review?.sender?.profilePicUrl || review?.profilePicUrl;
-        return review?.owner?.profilePicUrl || review?.original?.profilePicUrl;
+        if (isShared) return owner?.profilePicUrl || review?.profilePicUrl;
+        if (isInvite) return owner?.profilePicUrl || review?.profilePicUrl;
+        return owner?.profilePicUrl || review?.profilePicUrl;
     })();
 
     const onPressUser = (userId) => {
@@ -114,7 +116,7 @@ const CommentModalHeader = ({
                         <BusinessLink post={renderItem} />
                     </View>
                 )}
-                {(review?.dateTime || review?.date) && isInvite && (
+                {dateTime && isInvite && (
                     <>
                         <Text style={styles.datetime}>On {formatEventDate(dateTime)}</Text>
                         <Text style={styles.note}>{renderItem.note}</Text>

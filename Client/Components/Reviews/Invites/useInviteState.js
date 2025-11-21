@@ -5,21 +5,24 @@ const toId = (v) => (v && v.toString ? v.toString() : v || '');
 const pickId = (obj) => toId(obj?.userId ?? obj?.user?.id ?? obj?.user?._id ?? obj?._id ?? obj?.id);
 
 export function useInviteState(invite, currentUserId) {
-  const [timeLeft, setTimeLeft] = useState(getTimeLeft(invite?.dateTime));
+  const dateTime = invite?.dateTime || invite?.details?.dateTime;
+  const owner = invite?.owner || invite?.sender;
+  const details = invite?.details;
+  const [timeLeft, setTimeLeft] = useState(getTimeLeft(dateTime));
 
   useEffect(() => {
-    const id = setInterval(() => setTimeLeft(getTimeLeft(invite?.dateTime)), 1000);
+    const id = setInterval(() => setTimeLeft(getTimeLeft(dateTime)), 1000);
     return () => clearInterval(id);
-  }, [invite?.dateTime]);
+  }, [dateTime]);
 
   const { isSender, isRecipient, isGoing } = useMemo(() => {
     const me = toId(currentUserId);
 
     // sender can be senderId or sender.id/_id
-    const senderId = toId(invite?.senderId ?? invite?.sender?.id ?? invite?.sender?._id);
+    const senderId = toId(owner?.senderId ?? owner?.id ?? owner?._id);
     const isSenderFlag = !!me && !!senderId && me === senderId;
 
-    const recips = Array.isArray(invite?.recipients) ? invite.recipients : [];
+    const recips = Array.isArray(details?.recipients) ? details.recipients : [];
 
     const isRecipientFlag = recips.some(r => pickId(r) === me);
 

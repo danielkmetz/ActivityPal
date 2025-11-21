@@ -13,6 +13,7 @@ const typeDefs = gql`
     fullName: String
     profilePicUrl: String
     profilePic: ProfilePic
+    privacySettings: UserPrivacySettings
   }
 
   type Business {
@@ -56,6 +57,7 @@ const typeDefs = gql`
     shared: SharedMeta            # present when type === 'sharedPost'
     refs: PostRefs                # cross-links (e.g., liveStream)
     businessName: String
+    businessLogoUrl: String
 
     # ✅ Hydrated live original (or omitted if not a sharedPost).
     # Your controller attaches this for response; default resolver will expose it.
@@ -251,6 +253,14 @@ const typeDefs = gql`
     profilePicUrl: String
   }
 
+  type UserPrivacySettings {
+    profileVisibility: String!
+    invites: String
+    contentVisibility: String
+    tagPermissions: String
+    messagePermissions: String
+  }
+
   type SuggestedUser {
     _id: ID!
     firstName: String
@@ -259,6 +269,7 @@ const typeDefs = gql`
     profilePicUrl: String
     profilePic: ProfilePic
     mutualConnections: [MutualUser!]!
+    privacySettings: UserPrivacySettings
     profileVisibility: String!
     posts: [Post!]!
   }

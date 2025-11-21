@@ -142,7 +142,8 @@ function collectUserIdsFromPosts(posts) {
     }
 
     // media-level tags (array of objects or ids)
-    for (const m of p?.media || []) {
+   const mediaOrPhotos = p?.media || p?.photos || [];
+    for (const m of mediaOrPhotos) {
       for (const t of m?.taggedUsers || []) {
         const uid = asId(t);
         if (uid) out.add(uid);
@@ -299,6 +300,20 @@ function enrichInviteDetails(details, userMap) {
 async function enrichPostUniversal(post, userMap) {
   dpost(post, 'owner check', { ownerModel: post?.ownerModel, ownerId: String(post?.ownerId || '') });
 
+  // ---------- normalize media/photos so promos/events also get URLs ----------
+  const hasMedia = Array.isArray(post?.media) && post.media.length > 0;
+  const hasPhotos = Array.isArray(post?.photos) && post.photos.length > 0;
+
+  // If media is missing but photos exist (Promotions/Events, or snapshots),
+  // treat photos as media for the purposes of signing + tags.
+  const rawMedia = hasMedia
+    ? post.media
+    : hasPhotos
+      ? post.photos
+      : [];
+
+  const media = await enrichMedia(rawMedia, userMap);
+
   // only derive owner summary for user-owned posts
   const owner =
     post?.ownerModel === 'User' && post?.ownerId
@@ -307,12 +322,12 @@ async function enrichPostUniversal(post, userMap) {
 
   if (DEBUG) dpost(post, 'owner hit?', { found: !!owner, owner });
 
-  const media = await enrichMedia(post?.media || [], userMap);
   const taggedUsers = enrichTaggedUsers(post?.taggedUsers || [], userMap);
   const likes = enrichLikes(post?.likes || [], userMap);
   const comments = enrichComments(post?.comments || [], userMap);
 
-  // derive business identity from multiple shapes
+  // derive business identity from multiple shapes,
+  // now also including normalized media if it ever carries business refs
   const { placeId, businessName } = deriveBusinessIdentity(post);
 
   let details = post?.details || null;
@@ -326,6 +341,8 @@ async function enrichPostUniversal(post, userMap) {
   const enriched = {
     ...post,                // keep original fields if already present
     media,
+    // Keep .photos in sync for things that only had photos before
+    ...(hasPhotos && !hasMedia ? { photos: media } : {}),
     taggedUsers,
     likes,
     comments,
@@ -343,7 +360,6 @@ async function enrichPostUniversal(post, userMap) {
       : undefined,
   };
 
-  // fix debug to reference the owner convenience
   if (DEBUG) {
     dpost(post, 'final owner summary (top-level)', {
       fullName: enriched.fullName,

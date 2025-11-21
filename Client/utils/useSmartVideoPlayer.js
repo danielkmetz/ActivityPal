@@ -1,38 +1,53 @@
-import { useVideoPlayer } from "expo-video";
+import { useVideoPlayer } from 'expo-video';
+import { isVideo as isVideoUtil } from './isVideo';
+
+const TAG = '[useSmartVideoPlayer]';
 
 export function useSmartVideoPlayer(file, shouldPlay = true) {
-  // Safely resolve a URI from multiple possible shapes
+  const details = file?.details || {};
+
   const uri =
     file?.uri ||
     file?.url ||
     file?.mediaUrl ||
     file?.mediaUploadUrl ||
-    file?.signedUrl || // optional: cover more cases
+    file?.signedUrl ||
     file?.vodUrl ||
-    file?.playbackUrl
-    "";
+    file?.playbackUrl ||
+    details?.playbackUrl ||
+    details?.url ||
+    details?.mediaUrl ||
+    '';
 
-  const isVideo =
-    !!file &&
-    (
-      file?.type?.startsWith?.("video/") ||
-      file?.type === "hls" ||
-      file?.photoKey?.toLowerCase?.().endsWith?.(".mov") ||
-      file?.photoKey?.toLowerCase?.().endsWith?.(".mp4") ||
-      uri?.toLowerCase?.().includes?.(".mov") ||
-      uri?.toLowerCase?.().includes?.(".mp4")
-    );
+  const isVid = !!file && isVideoUtil(file);
 
-  // Always call the hook; pass undefined when you have no source.
-  const player = useVideoPlayer(uri || undefined, (p) => {
-    if (isVideo && uri) {
-      p.loop = true;
-      p.muted = true;
-      p.volume = 0;
-      p.audioMixingMode = "mixWithOthers";
-      shouldPlay ? p.play() : p.pause();
+  // Only give expo-video a source if this is truly a video
+  const source = isVid && uri ? uri : undefined;
+
+  console.log(TAG, 'init', {
+    hasFile: !!file,
+    isVideo: isVid,
+    uri: source || uri,  // helpful to see what would have been used
+    shouldPlay,
+  });
+
+  const player = useVideoPlayer(source, (p) => {
+    try {
+      if (isVid && source) {
+        p.loop = true;
+        p.muted = true;
+        p.volume = 0;
+        p.audioMixingMode = 'mixWithOthers';
+        shouldPlay ? p.play() : p.pause();
+      } else {
+        // Non-video: make sure nothing is playing
+        p.pause();
+      }
+    } catch (err) {
+      console.error(TAG, 'error in init callback', err);
     }
   });
 
-  return player;
+  // For non-video callers, this tells them "no player"
+  return isVid ? player : null;
 }

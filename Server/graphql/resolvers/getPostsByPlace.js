@@ -1,12 +1,8 @@
 const mongoose = require('mongoose');
 const Business = require('../../models/Business');
-const HiddenPost = require('../../models/HiddenPosts');
 const User = require('../../models/User');
 const { Post } = require('../../models/Post'); // ✅ unified Post model
-const {
-  resolveTaggedPhotoUsers,
-  enrichComments,
-} = require('../../utils/userPosts');
+const { hydrateManyPostsForResponse } = require('../../utils/posts/hydrateAndEnrichForResponse');
 
 const getAuthUserId = (ctx) =>
   ctx?.user?._id?.toString?.() || ctx?.user?.id || ctx?.user?.userId || null;
@@ -41,7 +37,7 @@ async function privacyFilterForViewer(viewerId) {
 }
 
 /**
- * getBusinessReviews(placeId, limit, after) -> [Post!]
+ * getPostsByPlace(placeId, limit, after) -> [Post!]
  * Unified: returns canonical Post docs of type 'review' and 'check-in' for the place.
  */
 const getPostsByPlace = async (_, { placeId, limit = 15, after }, context) => {
@@ -52,18 +48,9 @@ const getPostsByPlace = async (_, { placeId, limit = 15, after }, context) => {
     const biz = await Business.findOne({ placeId }).lean();
     if (!biz) return [];
 
-    // viewer + hidden set
+    // viewer
     const viewerIdStr = getAuthUserId(context);
     const viewerId = viewerIdStr && isOid(viewerIdStr) ? oid(viewerIdStr) : null;
-
-    let hiddenSet = new Set();
-    if (viewerId) {
-      const rows = await HiddenPost.find(
-        { userId: viewerId, targetRef: 'Post' },
-        { targetId: 1, _id: 0 }
-      ).lean();
-      hiddenSet = new Set(rows.map((r) => String(r.targetId)));
-    }
 
     // privacy
     const privacyOr = await privacyFilterForViewer(viewerId);
@@ -77,26 +64,23 @@ const getPostsByPlace = async (_, { placeId, limit = 15, after }, context) => {
       ...buildCursorQuery(after),
     };
 
-    const posts = await Post.find(base)
+    const rawPosts = await Post.find(base)
       .sort({ sortDate: -1, _id: -1 })
       .limit(Math.min(Number(limit) || 15, 100))
       .lean();
 
-    // filter hidden for this viewer
-    const visible = posts.filter((p) => !hiddenSet.has(String(p._id)));
+    if (!rawPosts.length) return [];
 
-    // enrich media tag users + comment media as needed
-    const enriched = await Promise.all(
-      visible.map(async (p) => ({
-        ...p,
-        media: await resolveTaggedPhotoUsers(p.media || []),
-        comments: await enrichComments(p.comments || []),
-      }))
-    );
+    // ✅ hydrate + enrich + apply GLOBAL hidden filtering for viewer
+    const enriched = await hydrateManyPostsForResponse(rawPosts, {
+      viewerId: viewerIdStr || null,
+      // attachBusinessNameIfMissing if you have it:
+      // attachBusinessNameIfMissing,
+    });
 
     return enriched;
   } catch (error) {
-    console.error('❌ Error in getBusinessReviews:', error);
+    console.error('❌ Error in getPostsByPlace:', error);
     throw new Error('Failed to fetch business posts');
   }
 };

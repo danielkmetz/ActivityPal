@@ -6,6 +6,7 @@ import { applyNearbyUpdates } from '../Slices/GooglePlacesSlice';
 import { applyEventUpdates } from '../Slices/EventsSlice';
 import { applyPromotionUpdates } from '../Slices/PromotionsSlice';
 import { applyHiddenPostUpdates } from '../Slices/TaggedPostsSlice';
+import { applyTaggedPostUpdates } from '../Slices/TaggedPostsSlice';
 
 /* =========================
    Config
@@ -150,6 +151,16 @@ likesListener.startListening({
       if (inPromos(state, postId)) {
         dispatch(applyPromotionUpdates({ postId, updates: likeUpdates }));
       }
+
+      dispatch(
+        applyTaggedPostUpdates({
+          postId,
+          updates: likeUpdates,
+          alsoMatchSharedOriginal: true,
+          // we keep hidden handled separately below so we don't double-update
+          includeHidden: false,
+        })
+      );
 
       // Hidden/Tagged
       if (inHiddenTagged(state, postId)) {

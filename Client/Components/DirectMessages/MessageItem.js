@@ -17,7 +17,7 @@ const MessageItem = ({ item, onLongPress }) => {
   const userId = user?.id;
   const profilePicObject = useSelector(selectProfilePic);
   const currentUserProfilePic = profilePicObject?.url;
-  
+
   if (item.type === 'date') {
     return (
       <View style={styles.dateHeader}>
@@ -64,10 +64,11 @@ const MessageItem = ({ item, onLongPress }) => {
     try {
       const pp = item.postPreview || {};
       const topType = normalize(pp.canonicalType || pp.postType || pp.type);
-      const sharedId = pp.postId || item.post?.postId; // SharedPost _id
+      const sharedId = pp.postId || item.post?.postId || pp._id;
       const originalTypePlural = pp.shared ? normalize(pp.shared.originalType) : undefined;
       const originalType = toSingular(originalTypePlural);
       const originalId = pp.shared?.originalId;
+      console.log(pp);
 
       // 1) Shared posts → ALWAYS CommentScreen (by sharedId)
       if (topType === 'sharedPosts' && sharedId) {
@@ -89,23 +90,38 @@ const MessageItem = ({ item, onLongPress }) => {
 
       // 2) Live streams
       if (topType === 'liveStreams') {
-        const status = pp?.live?.status;
-        const playbackUrl = pp?.live?.playbackUrl;
-        const vodUrl = pp?.live?.vodUrl;
+        // pull from details, not live
+        const status = pp?.details?.status || pp?.status;
+        const playbackUrl = pp?.details?.playbackUrl || pp?.playbackUrl;
+        const vodUrl = pp?.details?.vodUrl || pp?.vodUrl;
 
+        // this is what CommentScreen expects as the post id
+        const liveStreamPostId = sharedId || pp._id || pp?.refs?.liveStreamId;
+
+        // if currently live → go to live player
         if (status === 'live' && playbackUrl) {
           navigation.navigate('LiveStreamPlayer', {
-            liveStreamId: pp.postId,
+            liveStreamId: liveStreamPostId,
             playbackUrl,
-            title: pp?.live?.title || '',
+            title: pp?.details?.title || pp?.title || '',
           });
           return;
         }
-        if (vodUrl) {
-          navigation.navigate('LiveReplayPlayer', {
-            liveStreamId: pp.postId,
-            vodUrl,
-            title: pp?.live?.title || '',
+
+        // ended / VOD → go to CommentScreen
+        if (playbackUrl || vodUrl) {
+          navigation.navigate('CommentScreen', {
+            reviewId: liveStreamPostId,
+            initialIndex: 0,
+            taggedUsersByPhotoKey: pp.taggedUsersByPhotoKey || {},
+          });
+          return;
+        }
+
+        // final fallback if for some reason we have no URLs but still want comments
+        if (liveStreamPostId) {
+          navigation.navigate('CommentScreen', {
+            reviewId: liveStreamPostId,
           });
         }
         return;
@@ -130,7 +146,7 @@ const MessageItem = ({ item, onLongPress }) => {
 
       // 4) Reviews / Check-ins / Invites → CommentScreen
       if (topType === 'reviews' || topType === 'checkins' || topType === 'invites') {
-        const id = pp.postId;
+        const id = pp._id;
         if (!id) return;
         navigation.navigate('CommentScreen', {
           reviewId: id,
@@ -178,7 +194,6 @@ const MessageItem = ({ item, onLongPress }) => {
               )}
             </View>
           )}
-
           {item.messageType === 'post' && item.postPreview ? (
             <TouchableOpacity onPress={handleNavigation} onLongPress={handleLongPress}>
               <PostPreview postPreview={item.postPreview} />

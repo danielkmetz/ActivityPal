@@ -4,6 +4,7 @@ import { GET_USER_TAGGED_POSTS_QUERY } from './GraphqlQueries/Queries/getUserTag
 import axios from 'axios';
 import { getUserToken } from '../functions';
 import { removeSelfFromPost, removeSelfFromPhoto } from './RemoveTagsSlice';
+import { updateTaggedPostCollections } from '../utils/posts/updateTaggedPostCollections';
 
 const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
 
@@ -22,7 +23,7 @@ const EMPTY_FEED = Object.freeze({
 
 // ---------- Helpers ----------
 const toStr = (v) => (v == null ? '' : String(v));
-const typeOf = (item) => (item?.__typename || item?.type || '').toLowerCase();
+const typeOf = (item) => (item?.type || item?.__typename || '').toLowerCase();
 const idOf = (item) => toStr(item?._id || item?.id);
 const idOnly = (v) => String(v ?? '').trim().split(':').pop();
 const getCompositeKey = (item) => {
@@ -172,11 +173,11 @@ export const refreshTaggedPosts = createAsyncThunk(
  */
 export const hideTaggedPost = createAsyncThunk(
     'taggedPosts/hideTaggedPost',
-    async ({ postId }, { rejectWithValue }) => {
+    async ({ postType, postId }, { rejectWithValue }) => {
         try {
             const token = await getUserToken();
             const { data } = await axios.post(
-                `${BASE_URL}/hidden-tags/${idOnly(postId)}`,
+                `${BASE_URL}/hidden-tags/${postType}/${idOnly(postId)}`,
                 null,
                 { headers: { Authorization: token ? `Bearer ${token}` : '' } }
             );
@@ -284,6 +285,26 @@ const taggedPostsSlice = createSlice({
     name: 'taggedPosts',
     initialState,
     reducers: {
+        applyTaggedPostUpdates: (state, action) => {
+            const {
+                postId,
+                updates = {},
+                alsoMatchSharedOriginal = true,
+                includeHidden = true,
+                limitToUserIds = null,
+            } = action.payload || {};
+
+            if (!postId || !updates || typeof updates !== 'object') return;
+
+            updateTaggedPostCollections({
+                state,                  // <-- taggedPosts slice state
+                postId,
+                updates,
+                alsoMatchSharedOriginal,
+                includeHidden,
+                limitToUserIds,
+            });
+        },
         setTaggedUser(state, action) {
             const uid = toStr(action.payload);
             state.activeUserId = uid;
@@ -484,22 +505,30 @@ const taggedPostsSlice = createSlice({
             if (!uid) return;
 
             const feed = ensureFeed(state, uid);
+            if (!feed) return;
 
             const pid = toStr(postId);
             const ptype = normalizePostTypeForCompare(postType);
             if (!pid || !ptype) return;
 
             const next = [];
+
             for (const it of feed.items || []) {
-                const sameId = idOf(it) === pid;
-                const t = normalizePostTypeForCompare(typeOf(it)); // typeOf already lowercases
-                const sameType = t === ptype || (ptype === 'check-in' && t === 'checkin');
+                const itemId = idOf(it);
+                const itemTypeRaw = typeOf(it);              // already lowercased
+                const itemTypeNorm = normalizePostTypeForCompare(itemTypeRaw);
+
+                const sameId = itemId === pid;
+                const sameType =
+                    itemTypeNorm === ptype ||
+                    (ptype === 'check-in' && itemTypeNorm === 'checkin');
 
                 if (sameId && sameType) {
                     const key = getCompositeKey(it);
-                    if (feed.keys && key) delete feed.keys[key]; // drop from dedupe map
-                    continue; // skip (i.e., filter it out)
+                    if (feed.keys && key) delete feed.keys[key];
+                    continue; // skip (filtered out)
                 }
+
                 next.push(it);
             }
 
@@ -509,7 +538,8 @@ const taggedPostsSlice = createSlice({
             const last = feed.items[feed.items.length - 1] || null;
             const lastId = toStr(last?._id || last?.id);
             const lastSortDate = getSortDate(last);
-            feed.cursor = (lastId && lastSortDate) ? { id: lastId, sortDate: lastSortDate } : null;
+            feed.cursor =
+                lastId && lastSortDate ? { id: lastId, sortDate: lastSortDate } : null;
         }
     },
     extraReducers: (builder) => {
@@ -738,6 +768,7 @@ export const {
     applyHiddenPostUpdates,
     restoreUnhiddenTaggedToFeed,
     filterTaggedPost,
+    applyTaggedPostUpdates,
 } = taggedPostsSlice.actions;
 
 // ---------- Selectors ----------

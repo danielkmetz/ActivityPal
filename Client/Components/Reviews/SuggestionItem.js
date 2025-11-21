@@ -17,9 +17,8 @@ export default function SuggestionItem({ suggestion, onShare, embeddedInShared =
     const [inviteModalVisible, setInviteModalVisible] = useState(false);
     const tapTimeoutRef = useRef(null);
     const scrollX = useRef(new Animated.Value(0)).current;
-    const { photos, placeId } = suggestionContent || {};
-    const dotsExist = photos?.length > 1;
-
+    const { placeId } = suggestionContent || {};
+    
     const handleOpenComments = () => {
         const { targetType, targetId } = getEngagementTarget(suggestion);
         medium();

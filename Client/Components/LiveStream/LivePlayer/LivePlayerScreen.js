@@ -61,14 +61,21 @@ export default function LivePlayerScreen() {
   );
 
   useEffect(() => {
-    if (live) hasSeenLiveRef.current = true;
-  }, [liveId, !!live]);
+    if (live?.isActive) {
+      hasSeenLiveRef.current = true;
+    }
+  }, [live?.isActive, liveId]);
 
   useEffect(() => {
     if (!hasSeenLiveRef.current) return;
-    const ended = !live || live?.isActive === false || live?.status === 'ended';
+
+    const ended =
+      !live ||
+      live?.isActive === false ||   // only runs after we've seen isActive === true
+      live?.status === 'ended';
+
     if (ended) handleEndedOnce();
-  }, [live?.isActive, live?.status, live, handleEndedOnce]);
+  }, [live, live?.isActive, live?.status, handleEndedOnce]);
 
   useLiveChatSession(liveId, {
     onEnded: handleEndedOnce,

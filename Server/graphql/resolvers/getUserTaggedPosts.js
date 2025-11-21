@@ -1,12 +1,11 @@
 const mongoose = require('mongoose');
 const User = require('../../models/User');
-const HiddenPost = require('../../models/HiddenPosts');
 const { Post } = require('../../models/Post');              // ✅ unified Post model
-const { resolveTaggedPhotoUsers } = require('../../utils/userPosts');
-const { getHiddenPostIdsForUser } = require('../../utils/hiddenTags'); // update your util to return Post ids
+const { getHiddenIdsForUser } = require('../../utils/hiddenTags'); // -> Post ids
+const { hydrateManyPostsForResponse } = require('../../utils/posts/hydrateAndEnrichForResponse'); // ⬅️ adjust path if needed
 
 const isOid = (v) => mongoose.Types.ObjectId.isValid(String(v));
-const oid   = (v) => new mongoose.Types.ObjectId(String(v));
+const oid = (v) => new mongoose.Types.ObjectId(String(v));
 
 const getAuthUserId = (ctx) =>
   ctx?.user?._id?.toString?.() || ctx?.user?.id || ctx?.user?.userId || null;
@@ -25,54 +24,42 @@ function buildCursorQuery(after) {
 /**
  * getUserTaggedPosts(userId, limit, after) -> [Post!]
  * Lists posts authored by others where `userId` is tagged (post-level or media-level),
- * filtered by viewer privacy and hidden settings.
+ * filtered by viewer privacy and hidden settings, then hydrated via postHydration helpers.
  */
 const getUserTaggedPosts = async (_, { userId, limit = 15, after }, context) => {
+  const startedAt = Date.now(); // keep if you want, or remove if unused
+
   try {
-    if (!isOid(userId)) throw new Error('Invalid userId');
+    const viewerIdStr = getAuthUserId(context); // who is looking (string or null)
 
-    const taggedUserId = oid(userId);                  // the profile we're viewing
-    const viewerIdStr  = getAuthUserId(context);       // who is looking
-    const viewerId     = viewerIdStr && isOid(viewerIdStr) ? oid(viewerIdStr) : null;
+    if (!isOid(userId)) {
+      throw new Error('Invalid userId');
+    }
 
-    // ensure target user exists (optional but nice)
+    const taggedUserId = oid(userId); // the profile we're viewing
+    const viewerId = viewerIdStr && isOid(viewerIdStr) ? oid(viewerIdStr) : null;
+
+    // ensure target user exists
     const exists = await User.exists({ _id: taggedUserId });
     if (!exists) throw new Error('User not found');
 
     // viewer privacy scope
-    // self -> sees everything; follower -> public|followers; anon/other -> public only
-    let allowedPrivacy = ['public'];
     let viewerFollowingOids = [];
-    if (viewerId) {
-      if (viewerId.equals(taggedUserId)) {
-        allowedPrivacy = ['public', 'followers', 'private', 'unlisted'];
-      } else {
-        const viewer = await User.findById(viewerId).select('following').lean();
-        viewerFollowingOids = (viewer?.following || []).map((id) => oid(id));
-        if (viewerFollowingOids.length) {
-          allowedPrivacy = ['public', 'followers'];
-        }
-      }
+    if (viewerId && !viewerId.equals(taggedUserId)) {
+      const viewer = await User.findById(viewerId).select('following').lean();
+      viewerFollowingOids = (viewer?.following || []).map((id) => oid(id));
     }
 
     // posts this profile owner hid from their tagged tab
-    const ownerHiddenIds = await getHiddenPostIdsForUser(taggedUserId); // -> [ObjectId|string]
+    const ownerHiddenIds = await getHiddenIdsForUser(taggedUserId); // -> [ObjectId|string]
     const ownerHiddenOidSet = new Set((ownerHiddenIds || []).map((x) => String(x)));
 
-    // global hidden for the viewer (never show anywhere)
-    let viewerHiddenIdSet = new Set();
-    if (viewerId) {
-      const rows = await HiddenPost.find(
-        { userId: viewerId, targetRef: 'Post' },
-        { targetId: 1, _id: 0 }
-      ).lean();
-      viewerHiddenIdSet = new Set(rows.map((r) => String(r.targetId)));
-    }
+    // Global hidden is handled inside hydrateManyPostsForResponse via filterHiddenPostsForViewer.
 
     // build privacy filter
     const privacyOr = viewerId
       ? [
-          { ownerId: viewerId },                          // viewer always sees their own posts
+          { ownerId: viewerId }, // viewer always sees their own posts (though ownerId != taggedUserId below)
           { privacy: 'public' },
           ...(viewerFollowingOids.length
             ? [{ $and: [{ privacy: 'followers' }, { ownerId: { $in: viewerFollowingOids } }] }]
@@ -80,41 +67,36 @@ const getUserTaggedPosts = async (_, { userId, limit = 15, after }, context) => 
         ]
       : [{ privacy: 'public' }];
 
+    // cursor
+    const cursorQuery = buildCursorQuery(after);
+
     // query: posts by others where target user is tagged (post-level or media-level)
     const base = {
-      ownerId: { $ne: taggedUserId },
+      ownerId: { $ne: taggedUserId }, // only posts by *others*
       visibility: { $in: ['visible'] },
       $or: [
         { taggedUsers: taggedUserId },
         { 'media.taggedUsers.userId': taggedUserId },
       ],
-      $and: [
-        { $or: privacyOr },
-      ],
-      ...buildCursorQuery(after),
+      $and: [{ $or: privacyOr }],
+      ...cursorQuery,
     };
 
-    // fetch
+    const safeLimit = Math.min(Number(limit) || 15, 100);
+
+    // fetch raw posts
     const items = await Post.find(base)
       .sort({ sortDate: -1, _id: -1 })
-      .limit(Math.min(Number(limit) || 15, 100))
+      .limit(safeLimit)
       .lean();
 
-    // filter out hidden (owner-tagged-tab + viewer-global)
-    const visible = items.filter((p) => {
-      const id = String(p._id);
-      if (ownerHiddenOidSet.has(id)) return false;
-      if (viewerHiddenIdSet.has(id)) return false;
-      return true;
-    });
+    // filter out posts the *profile owner* hid from their tagged tab
+    const visible = items.filter((p) => !ownerHiddenOidSet.has(String(p._id)));
 
-    // enrich media tags for the UI
-    const enriched = await Promise.all(
-      visible.map(async (p) => ({
-        ...p,
-        media: await resolveTaggedPhotoUsers(p.media || []),
-      }))
-    );
+    // hydrate/enrich via shared pipeline (global hidden handled there)
+    const enriched = await hydrateManyPostsForResponse(visible, {
+      viewerId: viewerIdStr || null,
+    });
 
     return enriched;
   } catch (error) {
