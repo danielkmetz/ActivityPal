@@ -5,6 +5,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import VideoThumbnail from '../Reviews/VideoThumbnail';
 import PostOptionsMenu from '../Reviews/PostOptionsMenu';
 import PostActions from '../Reviews/PostActions/PostActions';
+import PhotoFeed from '../Reviews/Photos/PhotoFeed';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser } from '../../Slices/UserSlice';
 
@@ -19,6 +20,8 @@ export default function LiveStreamCard({
   handleDelete,
   sharedPost,
   handleLikeWithAnimation,
+  photoTapped,
+  setPhotoTapped,
   embeddedInShared,
 }) {
   if (!live) return null;
@@ -45,6 +48,7 @@ export default function LiveStreamCard({
   const user = useSelector(selectUser);
   const isSender = userId && user?.id && String(userId) === String(user?.id);
   const likeAnim = useRef(new Animated.Value(0)).current;
+  const currentIndexRef = useRef(0);
   const [dropdownVisible, setDropdownVisible] = useState(false);
 
   const timeAgo = useMemo(() => {
@@ -106,28 +110,34 @@ export default function LiveStreamCard({
       {/* Media thumb */}
       <Pressable onPress={handleOpen} style={styles.mediaWrap}>
         {fileForThumb ? (
-          <View style={styles.thumbBox}>
-            <VideoThumbnail
-              file={fileForThumb}
-              postItem={live}
-              width={200}
-              height={200}
-              likeAnim={likeAnim}
-              reviewItem={live}
-              onDoubleTap={() =>
-                handleLikeWithAnimation({
-                  postType: 'liveStream',
-                  postId: _id,
-                  review: live,
-                  user,
-                  animation: likeAnim,
-                  lastTapRef,
-                  dispatch,
-                  force: true,
-                })
-              }
-            />
-          </View>
+          // <View style={styles.thumbBox}>
+          //   <VideoThumbnail
+          //     file={fileForThumb}
+          //     postItem={live}
+          //     width={200}
+          //     height={200}
+          //     likeAnim={likeAnim}
+          //     reviewItem={live}
+          //     onDoubleTap={() =>
+          //       handleLikeWithAnimation({
+          //         postType: 'liveStream',
+          //         postId: _id,
+          //         review: live,
+          //         user,
+          //         animation: likeAnim,
+          //         lastTapRef,
+          //         dispatch,
+          //         force: true,
+          //       })
+          //     }
+          //   />
+          // </View>
+          <PhotoFeed 
+            post={live}
+            photoTapped={photoTapped}
+            setPhotoTapped={setPhotoTapped}
+            currentIndexRef={currentIndexRef}
+          />
         ) : previewThumbUrl ? (
           <ImageBackground
             source={{ uri: previewThumbUrl }}

@@ -10,6 +10,8 @@ export const isVideo = (file) => {
   if (typeof file === 'string') {
     uri = file;
   } else if (typeof file === 'object') {
+    const details = file.details || {};
+
     uri =
       file?.uri ||
       file?.url ||
@@ -18,6 +20,7 @@ export const isVideo = (file) => {
       file?.media?.url ||
       file?.vodUrl ||
       file?.playbackUrl ||
+      details?.playbackUrl ||
       '';
     mime =
       file?.type ||
