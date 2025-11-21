@@ -61,10 +61,10 @@ export const fetchHiddenPostIds = createAsyncThunk(
 // POST /hidden-posts/:postId  (server should be updated to id-only)
 export const hidePost = createAsyncThunk(
   'hiddenPosts/hidePost',
-  async ({ postId }, { rejectWithValue }) => {
+  async ({ postType, postId }, { rejectWithValue }) => {
     try {
       const token = await getUserToken();
-      const { data } = await axios.post(`${BASE_URL}/hidden-posts/${postId}`, null, {
+      const { data } = await axios.post(`${BASE_URL}/hidden-posts/${postType}/${postId}`, null, {
         headers: { Authorization: `Bearer ${token}` },
       });
       // server may return "type:id" or "id"; normalize to id
@@ -79,10 +79,10 @@ export const hidePost = createAsyncThunk(
 // DELETE /hidden-posts/:postId
 export const unhidePost = createAsyncThunk(
   'hiddenPosts/unhidePost',
-  async ({ postId }, { rejectWithValue }) => {
+  async ({ postId, postType }, { rejectWithValue }) => {
     try {
       const token = await getUserToken();
-      const { data } = await axios.delete(`${BASE_URL}/hidden-posts/${postId}`, {
+      const { data } = await axios.delete(`${BASE_URL}/hidden-posts/${postType}/${postId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       return toIdOnly(data?.key ?? postId);

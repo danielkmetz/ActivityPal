@@ -192,6 +192,7 @@ const StoryPreview = () => {
       // Shared post (no upload)
       if (isSharedPost) {
         const derivedPostType = getValidPostType(post);
+        console.log('derived post type', derivedPostType);
         const sharedPayload = {
           postType: derivedPostType,
           originalPostId,

@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, FlatList, Dimensions, Animated, StyleSheet } from 'react-native';
 import EventDetailsCard from './EventDetailsCard';
-import PhotoItem from '../Reviews/Photos/PhotoItem';
+import PhotoItem from '../Reviews/Photos/MediaItem';
 import PhotoPaginationDots from '../Reviews/Photos/PhotoPaginationDots';
 import PostActions from '../Reviews/PostActions/PostActions';
 

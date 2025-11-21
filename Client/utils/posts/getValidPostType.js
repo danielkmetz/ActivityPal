@@ -1,5 +1,5 @@
 export const getValidPostType = (post) => {
-  if (['review', 'check-in', 'invite', 'activityInvite', 'checkIn'].includes(post?.type)) {
+  if (['review', 'check-in', 'invite', 'activityInvite', 'checkIn', 'liveStream'].includes(post?.type)) {
     return post.type;
   }
 

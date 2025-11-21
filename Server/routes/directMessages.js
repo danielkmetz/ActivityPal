@@ -3,6 +3,7 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
+const { Post } = require('../models/Post');
 const User = require('../models/User');
 const Business = require('../models/Business');
 const verifyToken = require('../middleware/verifyToken'); // Import your middleware
@@ -10,6 +11,7 @@ const { resolveUserProfilePics } = require('../utils/userPosts');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl');
 const deleteS3Objects = require('../utils/deleteS3Objects');
 const getPostPreviews = require('../utils/getPostPreviews');
+const { hydratePostForResponse, hydrateManyPostsForResponse } = require('../utils/posts/hydrateAndEnrichForResponse');
 
 // 🧑‍🤝‍🧑 Create or get a conversation between two users
 router.post('/conversation', verifyToken, async (req, res) => {
@@ -46,9 +48,6 @@ router.post('/conversation', verifyToken, async (req, res) => {
 router.post('/message', verifyToken, async (req, res) => {
   const senderId = req.user.id;
   let { conversationId, recipientIds = [], content, messageType, media } = req.body;
-
-  console.log('media', media);
-  console.log('content', content);
 
   try {
     let conversation;
@@ -113,18 +112,41 @@ router.post('/message', verifyToken, async (req, res) => {
     // Convert to plain object
     let enrichedMessage = message.toObject();
 
-    // Enrich post preview if applicable
+    // Enrich post preview if applicable (using hydratePostForResponse)
     if (
       message.messageType === 'post' &&
-      message.post?.postId &&
-      message.post?.postType
+      message.post?.postId
     ) {
       try {
-        const previews = await getPostPreviews([
-          { postType: message.post.postType, postId: message.post.postId }
-        ]);
-        enrichedMessage.postPreview = previews?.[0] || null;
+        const { postId, postType } = message.post;
+        let preview = null;
+
+        // 1) First, assume postId is a unified Post _id
+        let rawPost = await Post.findById(postId).lean();
+
+        // 2) If we didn't find a Post (or if this is clearly an event/promo),
+        //    use the same sharedPost-stub trick as the stories route so the
+        //    helper can load from Post/Promotion/Event under the hood.
+        if (!rawPost && (postType === 'event' || postType === 'promotion' || postType === 'promo')) {
+          const sharedStub = {
+            type: 'sharedPost',
+            shared: { originalPostId: postId },
+          };
+
+          const hydratedStub = await hydratePostForResponse(sharedStub);
+          // Prefer the original if present, otherwise just use the stub
+          preview = hydratedStub?.original || hydratedStub || null;
+        } else if (rawPost) {
+          // Normal unified Post case (reviews, check-ins, invites, sharedPost, liveStream, etc.)
+          preview = await hydratePostForResponse(rawPost);
+        }
+
+        enrichedMessage.postPreview = preview || null;
       } catch (err) {
+        console.error('[DM /message] Failed to hydrate post preview', {
+          post: message.post,
+          error: err?.message,
+        });
         enrichedMessage.postPreview = null;
       }
     }
@@ -300,34 +322,55 @@ router.get('/messages/:conversationId', verifyToken, async (req, res) => {
   try {
     const messages = await Message.find({ conversationId }).sort('sentAt').lean();
 
-    // 1️⃣ Gather post references
-    const postRefs = messages
-      .filter(msg => msg.messageType === 'post' && msg.post?.postId && msg.post?.postType)
-      .map(msg => ({
-        postId: msg.post.postId,
-        postType: msg.post.postType,
-      }));
-
-    // 2️⃣ Batch fetch post previews
-    const postPreviews = await getPostPreviews(postRefs);
-
-    // 3️⃣ Create a lookup map
-    const previewMap = new Map(
-      postPreviews.map(p => [`${p.postType}-${p.postId}`, p])
+    // 1️⃣ Collect all messages that reference a post
+    const postMessages = messages.filter(
+      (msg) =>
+        msg.messageType === 'post' &&
+        msg.post?.postId &&
+        msg.post?.postType
     );
 
-    // 4️⃣ Collect unique sender IDs that are not the current user
-    const otherSenderIds = [...new Set(
-      messages
-        .filter(msg => msg.senderId !== currentUserId)
-        .map(msg => msg.senderId)
-    )];
+    // 2️⃣ Build sharedPost stubs so hydrateManyPostsForResponse can:
+    //    - load original from Post/Promotion/Event
+    //    - enrich via enrichOneOrMany
+    let previewByMessageId = new Map();
 
-    // 5️⃣ Resolve profile picture URLs for these sender IDs
+    if (postMessages.length > 0) {
+      const stubs = postMessages.map((msg) => ({
+        type: 'sharedPost',
+        shared: {
+          originalPostId: msg.post.postId,
+        },
+      }));
+
+      // Hydrate all stubs in one shot
+      const hydratedStubs = await hydrateManyPostsForResponse(stubs);
+
+      // Map hydrated preview back to each message by its _id
+      previewByMessageId = new Map();
+      postMessages.forEach((msg, idx) => {
+        const hydrated = hydratedStubs[idx];
+        // Prefer the hydrated original (real post/promo/event),
+        // fall back to the stub itself if original missing.
+        const preview = hydrated?.original || hydrated || null;
+        previewByMessageId.set(String(msg._id), preview);
+      });
+    }
+
+    // 3️⃣ Collect unique sender IDs that are not the current user
+    const otherSenderIds = [
+      ...new Set(
+        messages
+          .filter((msg) => String(msg.senderId) !== String(currentUserId))
+          .map((msg) => String(msg.senderId))
+      ),
+    ];
+
+    // 4️⃣ Resolve profile picture URLs for these sender IDs
     const profilePicMap = await resolveUserProfilePics(otherSenderIds);
     // Should return: { userId1: url1, userId2: url2, ... }
 
-    // 6️⃣ Enrich messages with media URL, post preview, and profile pic
+    // 5️⃣ Enrich messages with media URL, post preview, and profile pic
     const enrichedMessages = await Promise.all(
       messages.map(async (msg) => {
         // 🖼️ Media presigned URL
@@ -335,19 +378,22 @@ router.get('/messages/:conversationId', verifyToken, async (req, res) => {
           try {
             msg.media.url = await getPresignedUrl(msg.media.photoKey);
           } catch (err) {
-            console.warn(`⚠️ Failed to get presigned URL for ${msg.media.photoKey}:`, err.message);
+            console.warn(
+              `⚠️ Failed to get presigned URL for ${msg.media.photoKey}:`,
+              err.message
+            );
           }
         }
 
-        // 🧩 Post preview
+        // 🧩 Post preview using hydrated posts
         if (msg.messageType === 'post') {
-          const key = `${msg.post.postType}-${msg.post.postId}`;
-          msg.postPreview = previewMap.get(key) || null;
+          const preview = previewByMessageId.get(String(msg._id)) || null;
+          msg.postPreview = preview;
         }
 
         // 🧑 Profile picture if sender ≠ current user
-        if (msg.senderId !== currentUserId) {
-          msg.senderProfilePic = profilePicMap[msg.senderId] || null;
+        if (String(msg.senderId) !== String(currentUserId)) {
+          msg.senderProfilePic = profilePicMap[String(msg.senderId)] || null;
         }
 
         return msg;
@@ -378,7 +424,7 @@ router.delete('/message/:messageId', verifyToken, async (req, res) => {
 
     // delete media if any
     if (message.media?.photoKey) {
-      await deleteS3Objects([message.media.photoKey]).catch(() => {});
+      await deleteS3Objects([message.media.photoKey]).catch(() => { });
     }
 
     await Message.findByIdAndDelete(messageId);
@@ -419,12 +465,12 @@ router.put('/message/:messageId', verifyToken, async (req, res) => {
 
     // Case 1: remove media
     if (!media && oldKey) {
-      await deleteS3Objects([oldKey]).catch(() => {});
+      await deleteS3Objects([oldKey]).catch(() => { });
       message.media = null;
     }
     // Case 2: swap media
     else if (media && oldKey && oldKey !== newKey) {
-      await deleteS3Objects([oldKey]).catch(() => {});
+      await deleteS3Objects([oldKey]).catch(() => { });
       message.media = media;
     }
     // Case 3: add new media
@@ -442,7 +488,7 @@ router.put('/message/:messageId', verifyToken, async (req, res) => {
     if (edited.media?.photoKey) {
       try {
         edited.media.url = await getPresignedUrl(edited.media.photoKey);
-      } catch {}
+      } catch { }
     }
 
     // 🔔 emit to /dm namespace

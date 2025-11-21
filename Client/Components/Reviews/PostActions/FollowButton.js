@@ -18,9 +18,9 @@ export default function FollowButton({
   const dispatch = useDispatch();
   const user = useSelector(selectUser);
   const postContent = post?.original ?? post ?? {};
-  const { isSuggestedFollowPost } = postContent;
-  const postOwnerId = postContent?.userId;
-  const postIsPrivate = postContent?.privacySettings?.public !== "public";
+  const { isSuggestedFollowPost, owner } = postContent;
+  const postOwnerId = owner?.id;
+  const profileNotPublic = owner?.privacySettings?.profileVisibility !== 'public';
 
   // Use targetIdProp when provided (e.g., modal rows), else fall back to post owner
   const targetId = useMemo(
@@ -52,7 +52,7 @@ export default function FollowButton({
 
   const onFollow = () =>
     handleFollowUser({
-      isPrivate: targetIsPrivate ?? postIsPrivate, // prefer explicit, fall back to post privacy
+      isPrivate: targetIsPrivate ?? profileNotPublic, // prefer explicit, fall back to post privacy
       userId: targetId,                             // IMPORTANT: follow the tagged user
       mainUser: user,
       dispatch,

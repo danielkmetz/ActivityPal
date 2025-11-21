@@ -1,12 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableWithoutFeedback,
-  Modal,
-  Dimensions,
-} from 'react-native';
+import { View, Text, StyleSheet, TouchableWithoutFeedback, Modal, Dimensions } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { acceptInviteRequest, rejectInviteRequest, acceptInvite, rejectInvite } from '../../../Slices/PostsSlice';

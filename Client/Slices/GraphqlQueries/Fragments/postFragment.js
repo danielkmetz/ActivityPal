@@ -2,12 +2,14 @@ import { gql } from '@apollo/client';
 import { COMMENTS_REPLIES_FRAGMENT } from './commentsRepliesFragment';
 import { TAGGED_USER_FRAGMENT } from './taggedUserFragment';
 import { NESTED_POST_FIELDS, SHARED_META_FIELDS } from './nestedPostFields';
+import { USER_CORE_FIELDS } from './userFragment';
 
 export const POST_FIELDS = gql`
   ${COMMENTS_REPLIES_FRAGMENT}
   ${TAGGED_USER_FRAGMENT}
   ${NESTED_POST_FIELDS}
   ${SHARED_META_FIELDS}
+  ${USER_CORE_FIELDS}
 
   fragment PostFields on Post {
     _id
@@ -20,6 +22,7 @@ export const POST_FIELDS = gql`
     createdAt
     updatedAt
     businessName
+    businessLogoUrl
 
     taggedUsers {
       ...TaggedUserFields
@@ -28,11 +31,7 @@ export const POST_FIELDS = gql`
     owner {
       __typename
       ... on User {
-        id
-        firstName
-        lastName
-        fullName
-        profilePicUrl
+        ...UserCoreFields
       }
       ... on Business {
         id

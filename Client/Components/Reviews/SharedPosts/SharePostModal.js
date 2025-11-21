@@ -16,20 +16,40 @@ import Animated from 'react-native-reanimated';
 import Notch from '../../Notch/Notch';
 import useSlideDownDismiss from '../../../utils/useSlideDown';
 import { GestureDetector } from 'react-native-gesture-handler';
-import PostPreviewCard from '../PostPreviewCard/index';
+import PostPreviewCard from '../PostPreviewCard';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser } from '../../../Slices/UserSlice';
 import { selectProfilePic } from '../../../Slices/PhotosSlice';
 import { createPost, updatePost } from '../../../Slices/PostsSlice';
 import VideoThumbnail from '../VideoThumbnail';
 
-export default function SharePostModal({ visible, onClose, post, isEditing = false, setIsEditing }) {
+export default function SharePostModal({
+  visible,
+  onClose,
+  post,
+  isEditing = false,
+  setIsEditing,
+}) {
   const dispatch = useDispatch();
   const user = useSelector(selectUser);
   const profilePic = useSelector(selectProfilePic);
   const profilePicUrl = profilePic?.url || null;
-  const sharedPost = isEditing ? post?.original : post
-  const isReplay = (post?.type === 'hls' || post?.type === 'liveStream') && (post?.vodUrl || post?.playbackUrl);
+  const sharedPost = isEditing ? post?.original : post;
+  const details = post?.details || {};
+  const replayUrl = details.vodUrl || details.playbackUrl || post?.playbackUrl || null;
+  const isReplay = !!replayUrl && (post?.type === 'liveStream' || post?.type === 'hls');
+  
+  // event / promotion from feed or from /events-and-promos-nearby
+  const isEventOrPromotion = useMemo(() => {
+    const t = post?.type;
+    const k = post?.kind;
+    return (
+      t === 'event' ||
+      t === 'promotion' ||
+      k === 'event' ||
+      k === 'promotion'
+    );
+  }, [post]);
 
   const fullName = useMemo(() => {
     const first = user?.firstName ?? '';
@@ -38,7 +58,8 @@ export default function SharePostModal({ visible, onClose, post, isEditing = fal
   }, [user?.firstName, user?.lastName]);
 
   const [comment, setComment] = useState('');
-  const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
+  const { gesture, animateIn, animateOut, animatedStyle } =
+    useSlideDownDismiss(onClose);
 
   useEffect(() => {
     if (visible) {
@@ -51,6 +72,16 @@ export default function SharePostModal({ visible, onClose, post, isEditing = fal
     }
   }, [visible]);
 
+  useEffect(() => {
+    if (isEditing && post?.message) {
+      setComment(post.message);
+    } else if (isEditing && post?.caption) {
+      setComment(post.caption);
+    } else if (!isEditing) {
+      setComment('');
+    }
+  }, [isEditing, post]);
+
   const handleSubmit = async () => {
     if (!post?._id) return;
 
@@ -60,8 +91,10 @@ export default function SharePostModal({ visible, onClose, post, isEditing = fal
 
     try {
       if (isEditing) {
-        const isShared = post?.type === 'sharedPost' || post?.canonicalType === 'sharedPost';
-        const isLivePost = post?.type === 'liveStream' || post?.canonicalType === 'liveStream';
+        const isShared =
+          post?.type === 'sharedPost' || post?.canonicalType === 'sharedPost';
+        const isLivePost =
+          post?.type === 'liveStream' || post?.canonicalType === 'liveStream';
 
         if (isShared || isLivePost) {
           await dispatch(
@@ -71,17 +104,25 @@ export default function SharePostModal({ visible, onClose, post, isEditing = fal
             })
           ).unwrap();
         } else {
-          console.warn('[SharePostModal] Unsupported type in edit mode:', post?.type);
+          console.warn(
+            '[SharePostModal] Unsupported type in edit mode:',
+            post?.type
+          );
           return;
         }
 
         setIsEditing(false);
       } else {
         // ---- CREATE NEW POST (unified) ----
+
+        // 1) Share replay → create a liveStream post referencing the VOD/live session
         if (isReplay) {
-          // Create a liveStream post referencing the VOD/live session
+          const originalType = post.type || post.postType;
+
           const payload = {
-            type: 'liveStream',
+            type: 'sharedPost',
+            originalType,
+            originalPostId: post._id,
             userId: currentUserId,
             message: caption,
             // picked up by buildRefsSection('liveStream')
@@ -97,15 +138,55 @@ export default function SharePostModal({ visible, onClose, post, isEditing = fal
           };
 
           await dispatch(createPost(payload)).unwrap();
-        } else {
-          // Share any post → create a sharedPost with a caption
+
+          // 2) Share promotions / events (from feed OR nearby suggestions)
+        } else if (isEventOrPromotion) {
+          const originalType = post.type || post.kind || 'promotion';
+
           const payload = {
             type: 'sharedPost',
             userId: currentUserId,
-            message: trimmed,
-            originalPostId: post._id, // required; server infers original type
-            // you can also pass snapshot if you want immutable preview:
-            // snapshot: { ...post },  // keep small if you do this
+            message: caption,
+            // Can be a Promotion._id or Event._id; backend hydrator
+            // now knows how to load from Promotion/Event/Post.
+            originalPostId: post._id,
+            originalType,
+            originalKind: post.kind || post.type || originalType,
+
+            // let backend attach business/location to the shared wrapper
+            placeId: post.placeId,
+            businessName: post.businessName,
+            location: post.location,
+
+            // optional snapshot so preview is stable even if original changes
+            snapshot: {
+              _id: post._id,
+              type: originalType,
+              kind: post.kind || originalType,
+              title: post.title,
+              description: post.description,
+              date: post.date,
+              allDay: post.allDay,
+              startTime: post.startTime,
+              endTime: post.endTime,
+              recurring: post.recurring,
+              recurringDays: post.recurringDays,
+              photos: post.photos || post.media || [],
+              placeId: post.placeId,
+              businessName: post.businessName,
+              location: post.location,
+            },
+          };
+
+          await dispatch(createPost(payload)).unwrap();
+
+          // 3) Default: share any "normal" post
+        } else {
+          const payload = {
+            type: 'sharedPost',
+            userId: currentUserId,
+            message: caption,
+            originalPostId: post._id, // unified Post._id
           };
 
           await dispatch(createPost(payload)).unwrap();
@@ -118,14 +199,6 @@ export default function SharePostModal({ visible, onClose, post, isEditing = fal
       console.error('[SharePostModal] ERROR in handleSubmit:', err);
     }
   };
-
- useEffect(() => {
-    if (isEditing && post?.message) {
-      setComment(post.message);
-    } else if (isEditing && post?.caption) {
-      setComment(post.caption);
-    }
-  }, [isEditing, post]);
 
   return (
     <Modal visible={visible} transparent onRequestClose={onClose}>
@@ -144,11 +217,21 @@ export default function SharePostModal({ visible, onClose, post, isEditing = fal
                     <View style={styles.textInputColumn}>
                       <View style={styles.userInfo}>
                         {profilePicUrl ? (
-                          <Image source={{ uri: profilePicUrl }} style={styles.avatar} />
+                          <Image
+                            source={{ uri: profilePicUrl }}
+                            style={styles.avatar}
+                          />
                         ) : (
-                          <View style={[styles.avatar, { backgroundColor: '#e5e7eb' }]} />
+                          <View
+                            style={[
+                              styles.avatar,
+                              { backgroundColor: '#e5e7eb' },
+                            ]}
+                          />
                         )}
-                        <Text style={styles.nameText}>{fullName || 'You'}</Text>
+                        <Text style={styles.nameText}>
+                          {fullName || 'You'}
+                        </Text>
                       </View>
                       <TextInput
                         value={comment}
@@ -166,12 +249,19 @@ export default function SharePostModal({ visible, onClose, post, isEditing = fal
                         <PostPreviewCard post={sharedPost} />
                       ) : (
                         <View style={{ alignSelf: 'center' }}>
-                          <VideoThumbnail file={post} width={200} height={200} />
+                          <VideoThumbnail
+                            file={details}
+                            width={200}
+                            height={200}
+                          />
                         </View>
                       )}
                     </View>
                   </View>
-                  <TouchableOpacity onPress={handleSubmit} style={styles.shareButton}>
+                  <TouchableOpacity
+                    onPress={handleSubmit}
+                    style={styles.shareButton}
+                  >
                     <Text style={styles.shareButtonText}>
                       {isEditing ? 'Save Changes' : 'Share'}
                     </Text>

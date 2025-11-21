@@ -1,9 +1,17 @@
+const TAG = '[updateTaggedPostCollections]';
+const DEBUG = false;
+const dlog = (...args) => {
+  if (DEBUG) console.log(TAG, ...args);
+};
+
 const toStr = (v) => (v == null ? '' : String(v));
 const getId = (x) => toStr(x?._id ?? x?.id);
+
 const isSharedPost = (p) => {
   const t = p?.type || p?.postType || p?.canonicalType;
   return t === 'sharedPost' || t === 'sharedPosts';
 };
+
 const getOriginalId = (p) => (isSharedPost(p) ? getId(p.original) : '');
 
 function removeUserFromTagArray(arr, userId) {
@@ -24,7 +32,16 @@ function removeUserFromPhotoTags(photo, userId) {
   return removed;
 }
 
-// Keep wrapper in sync when we mutate its original (helps UIs that read wrapper.comments)
+// Hidden-tag wrapper -> inner post
+const getInnerPost = (wrapper) =>
+  wrapper?.post ||
+  wrapper?.review ||
+  wrapper?.checkIn ||
+  wrapper?.sharedPost ||
+  wrapper?.live ||
+  null;
+
+// Keep wrapper in sync when we mutate its original
 const mirrorOriginalToWrapper = (wrapper) => {
   if (!wrapper || !wrapper.original) return;
   if (Array.isArray(wrapper.original.comments)) {
@@ -38,30 +55,62 @@ const mirrorOriginalToWrapper = (wrapper) => {
   }
 };
 
-export const updatePostCollections = ({
+/**
+ * Apply post-level updates to the taggedPosts slice state.
+ *
+ * Mirrors updatePostCollections, but walks:
+ *   - state.byUser[uid].items
+ *   - optionally state.hidden.items (hidden tagged posts)
+ *
+ * @param {Object} params
+ * @param {Object} params.state   - taggedPosts slice state (NOT root state)
+ * @param {string|Object} params.postId - post id or something coercible to string
+ * @param {Object} params.updates - update descriptor (__updatePostLikes, __appendComment, etc.)
+ * @param {boolean} [params.alsoMatchSharedOriginal=true] - also match shared wrappers whose original is postId
+ * @param {boolean} [params.includeHidden=true] - whether to update hidden.items as well
+ * @param {string[]|null} [params.limitToUserIds=null] - optional list of userIds to limit byUser iteration
+ */
+export const updateTaggedPostCollections = ({
   state,
   postId,
   updates = {},
-  postKeys = [],
   alsoMatchSharedOriginal = true,
+  includeHidden = true,
+  limitToUserIds = null,
 }) => {
+  if (!state) return;
+
   const postIdStr = toStr(postId);
+  if (!postIdStr) return;
+
+  const u = updates || {};
 
   // ----- core mutator for a single node (original or standalone post) -----
   const applyCustomUpdateToNode = (node) => {
     if (!node) return false;
-    const u = updates || {};
+
     let mutated = false;
     const mark = () => { mutated = true; };
 
     // A) post likes
     if (u.__updatePostLikes) {
       const val = u.__updatePostLikes;
-      if (Array.isArray(val)) { node.likes = val; mark(); }
-      else if (val && typeof val === 'object') {
-        if (Array.isArray(val.likes)) { node.likes = val.likes; mark(); }
-        if (typeof val.likesCount === 'number') { node.likesCount = val.likesCount; mark(); }
-        if (typeof val.liked === 'boolean') { node.liked = val.liked; mark(); }
+      if (Array.isArray(val)) {
+        node.likes = val;
+        mark();
+      } else if (val && typeof val === 'object') {
+        if (Array.isArray(val.likes)) {
+          node.likes = val.likes;
+          mark();
+        }
+        if (typeof val.likesCount === 'number') {
+          node.likesCount = val.likesCount;
+          mark();
+        }
+        if (typeof val.liked === 'boolean') {
+          node.liked = val.liked;
+          mark();
+        }
       }
     }
 
@@ -156,18 +205,28 @@ export const updatePostCollections = ({
             const { next: newReplies, changed } = updateReplyLikesDeep(top?.replies || []);
             if (changed) {
               const newTop = { ...top, replies: newReplies };
-              node.comments = [...node.comments.slice(0, idx), newTop, ...node.comments.slice(idx + 1)];
+              node.comments = [
+                ...node.comments.slice(0, idx),
+                newTop,
+                ...node.comments.slice(idx + 1),
+              ];
               mark();
             }
           } else {
             const { next: newComments, changed } = updateReplyLikesDeep(node.comments || []);
-            if (changed) { node.comments = newComments; mark(); }
+            if (changed) {
+              node.comments = newComments;
+              mark();
+            }
           }
         } else {
           const mapped = (node.comments || []).map((c) =>
             toStr(c._id) === toStr(topId) ? { ...c, likes } : c
           );
-          if (mapped !== node.comments) { node.comments = mapped; mark(); }
+          if (mapped !== node.comments) {
+            node.comments = mapped;
+            mark();
+          }
         }
       }
     }
@@ -178,9 +237,14 @@ export const updatePostCollections = ({
       const maybeStrip = (field) => {
         if (!Array.isArray(node[field])) return;
         const { next, removed } = removeUserFromTagArray(node[field], userId);
-        if (removed > 0) { node[field] = next; mark(); }
+        if (removed > 0) {
+          node[field] = next;
+          mark();
+        }
       };
-      maybeStrip('taggedUsers'); maybeStrip('tags'); maybeStrip('peopleTagged');
+      maybeStrip('taggedUsers');
+      maybeStrip('tags');
+      maybeStrip('peopleTagged');
     }
 
     // H) remove self from all photos
@@ -189,7 +253,9 @@ export const updatePostCollections = ({
       const media = node.media || node.photos;
       if (Array.isArray(media)) {
         let removedAny = 0;
-        media.forEach((p) => { removedAny += removeUserFromPhotoTags(p, userId); });
+        media.forEach((p) => {
+          removedAny += removeUserFromPhotoTags(p, userId);
+        });
         if (removedAny > 0) mark();
       }
     }
@@ -220,55 +286,146 @@ export const updatePostCollections = ({
     return mutated;
   };
 
-  // -------- two-pass list update (1) exact ids, then (2) shared-originals --------
-  const isCommentOp = Object.keys(updates || {}).some((k) =>
-    k === '__appendComment' ||
-    k === '__appendReply' ||
-    k === '__updateComment' ||
-    k === '__deleteComment' ||
-    k === '__updateCommentLikes'
+  const isCommentOp = Object.keys(u).some(
+    (k) =>
+      k === '__appendComment' ||
+      k === '__appendReply' ||
+      k === '__updateComment' ||
+      k === '__deleteComment' ||
+      k === '__updateCommentLikes'
   );
 
-  for (const key of postKeys || []) {
-    const list = state?.[key];
-    if (!Array.isArray(list)) continue;
+  // ------------ build list descriptors from taggedPosts slice ------------
+  const lists = [];
+
+  // All user-tagged feeds
+  const byUser = state.byUser || {};
+  const limitSet =
+    Array.isArray(limitToUserIds) && limitToUserIds.length
+      ? new Set(limitToUserIds.map(toStr))
+      : null;
+
+  for (const [uid, feed] of Object.entries(byUser)) {
+    if (limitSet && !limitSet.has(toStr(uid))) continue;
+    if (!feed || !Array.isArray(feed.items) || feed.items.length === 0) continue;
+
+    lists.push({
+      kind: 'feed',
+      uid,
+      list: feed.items,
+    });
+  }
+
+  // Hidden tagged posts, if requested
+  if (includeHidden && state.hidden && Array.isArray(state.hidden.items) && state.hidden.items.length) {
+    lists.push({
+      kind: 'hidden',
+      list: state.hidden.items,
+    });
+  }
+
+  if (!lists.length) {
+    dlog('No tagged lists to update for postId', postIdStr);
+    return;
+  }
+
+  // ---------------------- apply updates to each list ----------------------
+  for (const src of lists) {
+    const { kind, list } = src;
+    if (!Array.isArray(list) || list.length === 0) continue;
 
     const changedIdx = new Set();
 
-    // Pass 1: exact id matches
-    for (let i = 0; i < list.length; i++) {
-      const item = list[i];
-      if (!item) continue;
+    if (kind === 'hidden') {
+      // Hidden-tag wrappers: update inner post
+      for (let i = 0; i < list.length; i++) {
+        const wrapper = list[i];
+        if (!wrapper) continue;
 
-      if (getId(item) === postIdStr) {
-        if (isSharedPost(item) && item.original && isCommentOp) {
-          const changed = applyCustomUpdateToNode(item.original);
-          if (changed) {
-            item.original = { ...item.original };
-            mirrorOriginalToWrapper(item);
-            changedIdx.add(i);
+        const postNode = getInnerPost(wrapper) || wrapper;
+
+        if (getId(postNode) === postIdStr) {
+          let changed = false;
+          if (isSharedPost(postNode) && postNode.original && isCommentOp) {
+            changed = applyCustomUpdateToNode(postNode.original);
+            if (changed) {
+              postNode.original = { ...postNode.original };
+            }
+          } else {
+            changed = applyCustomUpdateToNode(postNode);
           }
-        } else {
-          const changed = applyCustomUpdateToNode(item);
           if (changed) changedIdx.add(i);
         }
       }
-    }
 
-    // Pass 2: shared wrappers whose original matches
-    if (alsoMatchSharedOriginal) {
+      if (alsoMatchSharedOriginal) {
+        for (let i = 0; i < list.length; i++) {
+          const wrapper = list[i];
+          if (!wrapper) continue;
+
+          const postNode = getInnerPost(wrapper) || wrapper;
+          if (!isSharedPost(postNode)) continue;
+
+          const matchesOriginal =
+            getOriginalId(postNode) === postIdStr ||
+            toStr(postNode.originalPostId) === postIdStr;
+
+          if (!matchesOriginal) continue;
+
+          if (!postNode.original) {
+            postNode.original = { _id: postIdStr, comments: [] };
+          }
+
+          const changed = applyCustomUpdateToNode(postNode.original);
+          if (changed) {
+            postNode.original = { ...postNode.original };
+            changedIdx.add(i);
+          }
+        }
+      }
+
+      // bump wrapper identity for changed items
+      for (const i of changedIdx) {
+        list[i] = { ...list[i] };
+      }
+    } else {
+      // Normal tagged feeds: items are posts (including sharedPost wrappers)
       for (let i = 0; i < list.length; i++) {
         const item = list[i];
-        if (!item || !isSharedPost(item)) continue;
+        if (!item) continue;
 
-        const matchesOriginal =
-          getOriginalId(item) === postIdStr ||
-          toStr(item.originalPostId) === postIdStr;
+        if (getId(item) === postIdStr) {
+          let changed = false;
 
-        if (matchesOriginal) {
+          if (isSharedPost(item) && item.original && isCommentOp) {
+            changed = applyCustomUpdateToNode(item.original);
+            if (changed) {
+              item.original = { ...item.original };
+              mirrorOriginalToWrapper(item);
+            }
+          } else {
+            changed = applyCustomUpdateToNode(item);
+          }
+
+          if (changed) changedIdx.add(i);
+        }
+      }
+
+      if (alsoMatchSharedOriginal) {
+        for (let i = 0; i < list.length; i++) {
+          const item = list[i];
+          if (!item || !isSharedPost(item)) continue;
+
+          const matchesOriginal =
+            getOriginalId(item) === postIdStr ||
+            toStr(item.originalPostId) === postIdStr;
+
+          if (!matchesOriginal) continue;
+
           if (!item.original) {
             item.original = { _id: postIdStr, comments: [] };
           }
+
           const changed = applyCustomUpdateToNode(item.original);
           if (changed) {
             item.original = { ...item.original };
@@ -277,40 +434,11 @@ export const updatePostCollections = ({
           }
         }
       }
-    }
 
-    // bump identity for all changed indices
-    for (const i of changedIdx) {
-      state[key][i] = { ...state[key][i] };
-    }
-  }
-
-  // ---- selectedPost: prefer exact id, then shared-original ----
-  if (state?.selectedPost) {
-    const sel = state.selectedPost;
-    let did = false;
-
-    if (getId(sel) === postIdStr) {
-      if (isSharedPost(sel) && sel.original && isCommentOp) {
-        did = applyCustomUpdateToNode(sel.original);
-        if (did) { sel.original = { ...sel.original }; mirrorOriginalToWrapper(sel); }
-      } else {
-        did = applyCustomUpdateToNode(sel);
-      }
-    } else if (alsoMatchSharedOriginal && isSharedPost(sel)) {
-      const matchesOriginal =
-        getOriginalId(sel) === postIdStr ||
-        toStr(sel.originalPostId) === postIdStr;
-
-      if (matchesOriginal) {
-        if (!sel.original) {
-          sel.original = { _id: postIdStr, comments: [] };
-        }
-        did = applyCustomUpdateToNode(sel.original);
-        if (did) { sel.original = { ...sel.original }; mirrorOriginalToWrapper(sel); }
+      // bump identity for changed items
+      for (const i of changedIdx) {
+        list[i] = { ...list[i] };
       }
     }
-
-    if (did) state.selectedPost = { ...state.selectedPost };
   }
 };

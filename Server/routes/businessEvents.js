@@ -7,6 +7,7 @@ const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 const deleteS3Objects = require('../utils/deleteS3Objects.js');
 const { enrichComments } = require('../utils/userPosts.js');
 const { isEventLaterToday, isEventActive } = require('../utils/enrichBusinesses.js');
+const { filterHiddenEvents } = require('../utils/posts/filterHiddenPosts.js');
 const { DateTime } = require("luxon");
 
 router.get("/event/:eventId", async (req, res) => {
@@ -96,33 +97,16 @@ router.get("/events/:placeId", async (req, res) => {
       ? await safePresign(business.logoKey)
       : null;
 
-    // ---- Exclude hidden events for the current viewer (if authenticated) ----
-    const viewerId = req.user?.id; // assumes upstream auth middleware sets req.user when available
-    let hiddenEventIds = [];
-    if (viewerId && mongoose.Types.ObjectId.isValid(viewerId)) {
-      try {
-        const rows = await HiddenPost.find(
-          { userId: new mongoose.Types.ObjectId(viewerId), targetRef: 'Event' },
-          { targetId: 1, _id: 0 }
-        ).lean();
+    // 🔹 Get all events for this placeId
+    const allEvents = await Event.find({ placeId }).lean();
 
-        hiddenEventIds = (rows || [])
-          .map(r => r?.targetId)
-          .filter(Boolean)
-          .map(id => new mongoose.Types.ObjectId(String(id)));
-      } catch (e) {
-        console.warn("[GET /events/:placeId] hidden fetch failed:", e?.message);
-      }
-    }
+    // 🔹 Filter out hidden events for the current viewer (if authenticated)
+    const viewerId = req.user?.id || null; // assumes upstream auth middleware
 
-    // Build the query with DB-level exclusion for best perf
-    const eventQuery = { placeId };
-    if (hiddenEventIds.length) {
-      eventQuery._id = { $nin: hiddenEventIds };
-    }
-
-    // Lean event fetch for lightweight objects
-    const events = await Event.find(eventQuery).lean();
+    const events = await filterHiddenEvents(allEvents, viewerId, {
+      debugTag: '[/events/:placeId]',
+      // log: true, // uncomment for debug logging
+    });
 
     const enhancedEvents = await Promise.all(
       events.map(async (event) => {

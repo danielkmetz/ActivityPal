@@ -3,8 +3,10 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const verifyToken = require('../middleware/verifyToken');
 const HiddenPost = require('../models/HiddenPosts');
-const { Post } = require('../models/Post'); // ✅ unified Post (with discriminators)
-const { getPostPayloadById } = require('../utils/normalizePostStructure'); // ✅ assumes updated to 1-arg (postId)
+const { Post } = require('../models/Post');       // unified Post
+const Event = require('../models/Events');         // separate model
+const Promotion = require('../models/Promotions'); // separate model
+const { hydrateManyPostsForResponse } = require('../utils/posts/hydrateAndEnrichForResponse');
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(String(id));
 
@@ -19,46 +21,68 @@ const CANON_TYPES = new Set([
   'liveStream',
 ]);
 
-/** Map legacy model names -> unified type (for backward compatibility of HiddenPost.targetRef) */
-const LEGACY_TO_TYPE = {
-  Review: 'review',
-  CheckIn: 'check-in',
-  ActivityInvite: 'invite',
-  Event: 'event',
-  Promotion: 'promotion',
-  SharedPost: 'sharedPost',
-  LiveStream: 'liveStream',
-};
-
-/** For filtering by query param: type -> [aliases accepted in HiddenPost.targetRef] */
-const TYPE_ALIASES = {
-  review: ['review', 'Review'],
-  'check-in': ['check-in', 'CheckIn'],
-  invite: ['invite', 'ActivityInvite'],
-  event: ['event', 'Event'],
-  promotion: ['promotion', 'Promotion'],
-  sharedPost: ['sharedPost', 'SharedPost'],
-  liveStream: ['liveStream', 'LiveStream'],
-};
-
 /** Normalize any user-provided type string to our canonical unified type */
 function normalizeUnifiedType(t = '') {
-  const s = String(t).trim().toLowerCase();
   if (!t) return null;
+  const s = String(t).trim().toLowerCase();
+
+  // reviews
   if (s === 'review' || s === 'reviews') return 'review';
-  if (s === 'check-in' || s === 'checkin' || s === 'checkins') return 'check-in';
-  if (s === 'invite' || s === 'invites' || s === 'activityinvite') return 'invite';
-  if (s === 'event' || s === 'events') return 'event';
-  if (s === 'promotion' || s === 'promotions' || s === 'promo' || s === 'promos') return 'promotion';
-  if (s === 'sharedpost' || s === 'sharedposts' || s === 'shared') return 'sharedPost';
-  if (s === 'livestream' || s === 'live' || s === 'live_stream') return 'liveStream';
+
+  // check-ins
+  if (s === 'check-in' || s === 'checkin' || s === 'check-ins' || s === 'checkins') {
+    return 'check-in';
+  }
+
+  // invites
+  if (s === 'invite' || s === 'invites' || s === 'activityinvite' || s === 'activity_invite') {
+    return 'invite';
+  }
+
+  // promotions
+  if (s === 'promotion' || s === 'promotions' || s === 'promo' || s === 'promos') {
+    return 'promotion';
+  }
+
+  // events
+  if (s === 'event' || s === 'events') {
+    return 'event';
+  }
+
+  // shared posts
+  if (
+    s === 'sharedpost' ||
+    s === 'sharedposts' ||
+    s === 'shared_post' ||
+    s === 'shared_posts' ||
+    s === 'shared'
+  ) {
+    return 'sharedPost';
+  }
+
+  // live streams
+  if (
+    s === 'livestream' ||
+    s === 'live_stream' ||
+    s === 'live-stream' ||
+    s === 'live'
+  ) {
+    return 'liveStream';
+  }
+
   return null;
 }
 
-/** Convert any HiddenPost.targetRef (legacy or unified) to canonical type */
-function refToType(ref = '') {
-  if (CANON_TYPES.has(ref)) return ref;
-  return LEGACY_TO_TYPE[ref] || null;
+/** Helper: fetch a doc by canonical type + id just to verify existence/type */
+async function findDocByTypeAndId(type, id) {
+  if (type === 'event') {
+    return Event.findById(id).select('_id').lean();
+  }
+  if (type === 'promotion') {
+    return Promotion.findById(id).select('_id').lean();
+  }
+  // Everything else is a Post-based type
+  return Post.findById(id).select('_id type').lean();
 }
 
 /**
@@ -84,18 +108,22 @@ router.get('/', verifyToken, async (req, res) => {
   const qpType = normalizeUnifiedType(req.query.postType);
   const match = { userId: new mongoose.Types.ObjectId(String(userId)) };
   if (qpType) {
-    const aliases = TYPE_ALIASES[qpType] || [qpType];
-    match.targetRef = { $in: aliases };
+    match.targetRef = qpType; // canonical only
   }
 
   try {
     const projection = { targetRef: 1, targetId: 1, createdAt: 1 };
 
     const [rows, total] = await Promise.all([
-      HiddenPost.find(match, projection).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      HiddenPost.find(match, projection)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
       HiddenPost.countDocuments(match),
     ]);
 
+    // If the caller only wants ids, keep behavior identical
     if (include === 'ids') {
       return res.status(200).json({
         success: true,
@@ -104,53 +132,137 @@ router.get('/', verifyToken, async (req, res) => {
         total,
         items: rows.map((r) => ({
           hiddenId: r._id,
-          // Return the canonical type for client consistency
-          targetRef: refToType(r.targetRef) || r.targetRef,
+          targetRef: r.targetRef, // canonical
           targetId: r.targetId,
           createdAt: r.createdAt,
         })),
       });
     }
 
-    // Batch-load posts to minimize roundtrips
-    const ids = rows.map((r) => r.targetId).filter(Boolean);
-    const posts = ids.length
-      ? await Post.find({ _id: { $in: ids } }).lean()
-      : [];
-    const postMap = new Map(posts.map((p) => [p._id.toString(), p]));
+    // ---- include = 'docs' path: use new hydrator helpers ----
 
-    const items = await Promise.all(
-      rows.map(async (r) => {
-        const canonicalType = refToType(r.targetRef) || r.targetRef;
-        let postPayload = null;
+    // Canonical types that live in the unified Post collection
+    const POST_CANON_TYPES = new Set([
+      'review',
+      'check-in',
+      'invite',
+      'sharedPost',
+      'liveStream',
+    ]);
 
-        try {
-          // Prefer the already-fetched doc if available, else let the utility fetch it
-          const doc = postMap.get(String(r.targetId));
-          if (doc) {
-            // If your getPostPayloadById can accept a doc, use that; otherwise call by id.
-            postPayload = await getPostPayloadById(doc._id); // 1-arg version (unified)
-          } else {
-            postPayload = await getPostPayloadById(r.targetId);
-          }
-        } catch (e) {
-          console.error(`${TAG} warn: failed to build payload`, {
-            at: now(),
-            userId,
-            targetId: String(r.targetId),
-            message: e?.message,
-          });
-        }
+    const idsByType = {
+      post: [],
+      promotion: [],
+      event: [],
+    };
 
-        return {
-          hiddenId: r._id,
-          targetRef: canonicalType,
-          targetId: r.targetId,
-          createdAt: r.createdAt,
-          post: postPayload,
-        };
-      })
-    );
+    for (const r of rows) {
+      const t = r.targetRef;          // canonical type
+      const id = String(r.targetId);  // ObjectId -> string
+
+      if (!id) continue;
+
+      if (POST_CANON_TYPES.has(t)) {
+        idsByType.post.push(id);
+      } else if (t === 'promotion') {
+        idsByType.promotion.push(id);
+      } else if (t === 'event') {
+        idsByType.event.push(id);
+      } else {
+        console.warn(`${TAG} warn: unknown targetRef on HiddenPost`, {
+          at: now(),
+          userId,
+          targetRef: t,
+          targetId: id,
+        });
+      }
+    }
+
+    // Batch-load raw docs
+    const [postDocs, promoDocs, eventDocs] = await Promise.all([
+      idsByType.post.length
+        ? Post.find({ _id: { $in: idsByType.post } }).lean()
+        : [],
+      idsByType.promotion.length
+        ? Promotion.find({ _id: { $in: idsByType.promotion } }).lean()
+        : [],
+      idsByType.event.length
+        ? Event.find({ _id: { $in: idsByType.event } }).lean()
+        : [],
+    ]);
+
+    // Flatten into a single array while tracking which canonical type
+    const rawPosts = [];
+    const typeMeta = []; // parallel array of canonical type strings
+
+    for (const p of postDocs) {
+      rawPosts.push(p);
+      // p.type should already be 'review' | 'check-in' | 'invite' | 'liveStream' | 'sharedPost'
+      typeMeta.push(normalizeUnifiedType(p.type));
+    }
+
+    for (const p of promoDocs) {
+      rawPosts.push(p);
+      typeMeta.push('promotion');
+    }
+
+    for (const p of eventDocs) {
+      rawPosts.push(p);
+      typeMeta.push('event');
+    }
+
+    let hydrated = [];
+    if (rawPosts.length) {
+      try {
+        hydrated = await hydrateManyPostsForResponse(rawPosts, {
+          viewerId: userId,
+        });
+      } catch (e) {
+        console.error(`${TAG} warn: hydrateManyPostsForResponse failed`, {
+          at: now(),
+          userId,
+          error: e?.message,
+        });
+        hydrated = [];
+      }
+    }
+
+    // Build a map <"type:id", hydratedPost> so we can attach per HiddenPost row
+    const enrichedByKey = new Map();
+
+    for (let i = 0; i < rawPosts.length; i++) {
+      const raw = rawPosts[i];
+      const enriched = hydrated[i] || raw; // fallback: raw if hydration failed
+      if (!raw) continue;
+
+      const canonType =
+        typeMeta[i] || normalizeUnifiedType(enriched.type || raw.type);
+
+      const key = `${canonType}:${String(raw._id)}`;
+      enrichedByKey.set(key, enriched);
+    }
+
+    const items = rows.map((r) => {
+      const key = `${r.targetRef}:${String(r.targetId)}`;
+      const postPayload = enrichedByKey.get(key) || null;
+
+      if (!postPayload) {
+        console.warn(`${TAG} warn: no hydrated post found for HiddenPost`, {
+          at: now(),
+          userId,
+          targetRef: r.targetRef,
+          targetId: String(r.targetId),
+        });
+      }
+
+      return {
+        hiddenId: r._id,
+        targetRef: r.targetRef,
+        targetId: r.targetId,
+        createdAt: r.createdAt,
+        post: postPayload,
+      };
+    });
 
     return res.status(200).json({ success: true, page, limit, total, items });
   } catch (err) {
@@ -162,7 +274,7 @@ router.get('/', verifyToken, async (req, res) => {
 /**
  * POST /api/hidden/:postType/:postId
  * Hide a post globally for the current user
- * With unified Post, we always store targetRef as the canonical type string.
+ * We store targetRef as the canonical type string.
  */
 router.post('/:postType/:postId', verifyToken, async (req, res) => {
   const TAG = '[POST /hidden/:postType/:postId]';
@@ -172,22 +284,32 @@ router.post('/:postType/:postId', verifyToken, async (req, res) => {
 
   if (!userId) return res.status(401).json({ message: 'Unauthorized' });
   if (!isValidObjectId(postId)) return res.status(400).json({ message: 'Invalid postId' });
-  if (!reqType) return res.status(400).json({ message: 'Invalid postType' });
+  if (!reqType || !CANON_TYPES.has(reqType)) {
+    return res.status(400).json({ message: 'Invalid postType' });
+  }
 
   try {
-    const doc = await Post.findById(postId).select('_id type').lean();
+    const doc = await findDocByTypeAndId(reqType, postId);
     if (!doc) return res.status(404).json({ message: 'Post not found' });
 
-    // Ensure requested type matches actual type (or at least don't store a wrong ref)
-    const canonicalType = CANON_TYPES.has(doc.type) ? doc.type : reqType;
+    // For Post-based types, sanity-check the Post.type if present
+    if (reqType !== 'event' && reqType !== 'promotion' && doc.type && doc.type !== reqType) {
+      return res
+        .status(400)
+        .json({ message: `Type mismatch: expected ${doc.type}, got ${reqType}` });
+    }
 
     await HiddenPost.findOneAndUpdate(
-      { userId, targetRef: canonicalType, targetId: postId },
+      { userId, targetRef: reqType, targetId: postId },
       { $setOnInsert: { createdAt: new Date() } },
       { upsert: true, new: true }
     );
 
-    return res.status(200).json({ ok: true, key: `${canonicalType}:${postId}`, hidden: true });
+    return res.status(200).json({
+      ok: true,
+      key: `${reqType}:${postId}`,
+      hidden: true,
+    });
   } catch (err) {
     console.error(`${TAG} ❌`, { rawType, postId, userId, err: err?.message });
     return res.status(500).json({ message: 'Server error' });
@@ -197,7 +319,6 @@ router.post('/:postType/:postId', verifyToken, async (req, res) => {
 /**
  * DELETE /api/hidden/:postType/:postId
  * Unhide a post
- * We delete by (userId, targetId) and either canonical type or any legacy alias that could have been stored.
  */
 router.delete('/:postType/:postId', verifyToken, async (req, res) => {
   const TAG = '[DELETE /hidden/:postType/:postId]';
@@ -207,19 +328,22 @@ router.delete('/:postType/:postId', verifyToken, async (req, res) => {
 
   if (!userId) return res.status(401).json({ message: 'Unauthorized' });
   if (!isValidObjectId(postId)) return res.status(400).json({ message: 'Invalid postId' });
-  if (!reqType) return res.status(400).json({ message: 'Invalid postType' });
+  if (!reqType || !CANON_TYPES.has(reqType)) {
+    return res.status(400).json({ message: 'Invalid postType' });
+  }
 
   try {
-    // Accept both canonical and legacy ref values in case of old rows
-    const aliases = TYPE_ALIASES[reqType] || [reqType];
-
     await HiddenPost.deleteOne({
       userId,
       targetId: postId,
-      targetRef: { $in: aliases },
+      targetRef: reqType,
     });
 
-    return res.status(200).json({ ok: true, key: `${reqType}:${postId}`, hidden: false });
+    return res.status(200).json({
+      ok: true,
+      key: `${reqType}:${postId}`,
+      hidden: false,
+    });
   } catch (err) {
     console.error(`${TAG} ❌`, { rawType, postId, userId, err: err?.message });
     return res.status(500).json({ message: 'Server error' });
@@ -228,8 +352,7 @@ router.delete('/:postType/:postId', verifyToken, async (req, res) => {
 
 /**
  * GET /api/hidden/keys
- * List all hidden keys for the current user (for boot-time hydration)
- * Keys are `${canonicalType}:${id}` — we canonicalize legacy targetRef values too.
+ * Boot-time hydration: keys are `${targetRef}:${id}`
  */
 router.get('/keys', verifyToken, async (req, res) => {
   const TAG = '[GET /hidden/keys]';
@@ -242,10 +365,7 @@ router.get('/keys', verifyToken, async (req, res) => {
       { targetRef: 1, targetId: 1, _id: 0 }
     ).lean();
 
-    const keys = rows.map((r) => {
-      const type = refToType(r.targetRef) || r.targetRef;
-      return `${type}:${String(r.targetId)}`;
-    });
+    const keys = rows.map((r) => `${r.targetRef}:${String(r.targetId)}`);
 
     return res.status(200).json({ ok: true, keys });
   } catch (err) {

@@ -25,12 +25,7 @@ import { addPostBackToProfileByCreatedAt, addPostBackToUserAndFriendsByCreatedAt
 const toStr = (v) => (v == null ? '' : String(v));
 const getTagId = (t) => toStr(t?.userId ?? t?._id ?? t?.id ?? t);
 
-const NonOwnerOptions = ({
-  post,
-  visible,
-  onClose,
-  title = 'Post options',
-}) => {
+const NonOwnerOptions = ({ post, visible, onClose, title = 'Post options' }) => {
   const dispatch = useDispatch();
   const postContent = post?.original ? post?.original : post;
   const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
@@ -40,8 +35,8 @@ const NonOwnerOptions = ({
   const rawType = postContent?.type || postContent?.postType || postContent?.__typename;
   const postType = normalizeHideType(rawType);
   const postId = postContent?._id || postContent?.id || postContent?.postId;
-  const ownerName = postContent?.fullName || `${postContent?.user?.firstName} ${postContent?.user?.lastName}`;
-  const ownerId = postContent?.userId || postContent?.user?.id;
+  const ownerName = postContent?.owner?.fullName || `${postContent?.user?.firstName} ${postContent?.user?.lastName}` || `${postContent?.owner?.firstName} ${postContent?.owner?.lastName}`;
+  const ownerId = postContent?.owner?.id || postContent?.user?.id;
   const status = useSelector((s) => selectSelfTagStatus(s, postType, postId));
   const isPostOwner = ownerId === currentUserId;
   const isBusy = status === 'pending';

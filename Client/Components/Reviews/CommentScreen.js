@@ -40,9 +40,9 @@ export default function CommentScreen() {
     const nestedExpandedReplies = useSelector(selectNestedExpandedReplies);
     const isEditing = useSelector(selectIsEditing);
     const nestedReplyInput = useSelector(selectNestedReplyInput);
-    const dateTime = review?.dateTime || review?.date;
+    const dateTime = review?.dateTime || review?.date || review?.details?.dateTime;
     const isInvite = review?.type === 'invite';
-    const sharedPost = review?.type === 'sharedPost' || review?.postType === 'sharedPost' || review?.original;
+    const sharedPost = review?.type === 'sharedPost' || review?.postType === 'sharedPost' || !!review?.original;
 
     const [commentText, setCommentText] = useState('');
     const [keyboardHeight, setKeyboardHeight] = useState(null);

@@ -4,27 +4,31 @@ import { ApolloProvider } from '@apollo/client';
 import React, { useEffect, useRef, useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, View, Animated } from 'react-native';
+import { StyleSheet, View, Animated, Text } from 'react-native';
 import AppNavigator from './Components/Navigator/Navigator';
 import { NavigationContainer, useNavigationState } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { Provider } from 'react-redux';
+import { Provider, useDispatch, useSelector } from 'react-redux';
 import Header from './Components/Header/Header';
 import store from './store';
 import * as Font from 'expo-font';
-import { useDispatch, useSelector } from 'react-redux';
-import { getCurrentCoordinates, selectCoordinates, getCityStateCountry } from './Slices/LocationSlice';
-import { loadToken } from './Slices/UserSlice';
+import {
+  getCurrentCoordinates,
+  selectCoordinates,
+  getCityStateCountry,
+} from './Slices/LocationSlice';
+import { loadToken, selectUser, selectIsBusiness } from './Slices/UserSlice';
 import { PaperProvider } from 'react-native-paper';
-import { selectGooglePlaces } from './Slices/GooglePlacesSlice';
+import { selectGooglePlaces, fetchNearbyPromosAndEvents } from './Slices/GooglePlacesSlice';
 import { fetchNotifications, selectUnreadCount } from './Slices/NotificationsSlice';
-import { selectUser } from './Slices/UserSlice';
-import useScrollTracking from './utils/useScrollTracking';
-import { selectIsBusiness } from './Slices/UserSlice';
 import { fetchBusinessNotifications } from './Slices/BusNotificationsSlice';
+import useScrollTracking from './utils/useScrollTracking';
 import { navigationRef } from './utils/NavigationService';
-import { fetchNearbyPromosAndEvents } from './Slices/GooglePlacesSlice';
-import { fetchSuggestedFriends, setHasFetchedSuggestions, selectHasFetchedSuggestions } from './Slices/friendsSlice';
+import {
+  fetchSuggestedFriends,
+  setHasFetchedSuggestions,
+  selectHasFetchedSuggestions,
+} from './Slices/friendsSlice';
 import { fetchProfilePic } from './Slices/PhotosSlice';
 import client from './apolloClient';
 import { LikeAnimationsProvider } from './utils/LikeHandlers/LikeAnimationContext';
@@ -37,12 +41,32 @@ import { selectHeaderTitle } from './Slices/uiSlice';
 
 const fetchFonts = async () => {
   return await Font.loadAsync({
-    'Poppins': require('./assets/fonts/Poppins-Medium.ttf'),
+    Poppins: require('./assets/fonts/Poppins-Medium.ttf'),
     'Poppins Bold': require('./assets/fonts/Poppins-SemiBold.ttf'),
   });
 };
 
 const BASE_URL = process.env.EXPO_PUBLIC_BASE_URL;
+
+/* ----------------------- NAV STATE HELPER ---------------------- */
+
+function getActiveRouteName(state) {
+  try {
+    if (!state || !state.routes || typeof state.index !== 'number') return null;
+    let route = state.routes[state.index];
+
+    // drill down into nested navigators
+    while (route.state && route.state.routes && typeof route.state.index === 'number') {
+      route = route.state.routes[route.state.index];
+    }
+
+    return route.name;
+  } catch (e) {
+    return null;
+  }
+}
+
+/* ----------------------------- MAIN APP TREE ----------------------------- */
 
 function MainApp() {
   const dispatch = useDispatch();
@@ -50,10 +74,11 @@ function MainApp() {
   const coordinates = useSelector(selectCoordinates);
   const isBusiness = useSelector(selectIsBusiness);
   const user = useSelector(selectUser);
-  const hasFetchSuggested = useSelector(selectHasFetchedSuggestions)
+  const hasFetchSuggested = useSelector(selectHasFetchedSuggestions);
   const placeId = user?.businessDetails?.placeId;
   const unreadCount = useSelector(selectUnreadCount);
   const headerTitle = useSelector(selectHeaderTitle);
+
   const [isAtEnd, setIsAtEnd] = useState(false);
   const [notificationsSeen, setNotificationsSeen] = useState(null);
   const [loadingSeenState, setLoadingSeenState] = useState(true);
@@ -61,10 +86,12 @@ function MainApp() {
   const [shouldFetch, setShouldFetch] = useState(true);
   const [newUnreadCount, setNewUnreadCount] = useState(0);
   const previousUnreadCount = useRef(null);
+
   const userId = user?.id;
   const lat = coordinates?.lat;
   const lng = coordinates?.lng;
 
+  // Live socket bootstrap
   useLiveSocketBootstrap(BASE_URL);
 
   const {
@@ -74,7 +101,7 @@ function MainApp() {
     customNavTranslateY,
     customHeaderTranslateY,
     resetHeaderAndTab,
-    handleScroll
+    handleScroll,
   } = useScrollTracking();
 
   useEffect(() => {
@@ -86,20 +113,20 @@ function MainApp() {
     if (userId) {
       dispatch(fetchProfilePic(userId));
     }
-  }, [userId]);
+  }, [userId, dispatch]);
 
-  //fetch suggested follows
+  // fetch suggested follows
   useEffect(() => {
     if (userId && !hasFetchSuggested) {
       dispatch(fetchSuggestedFriends(userId));
       dispatch(setHasFetchedSuggestions(true));
     }
-  }, [userId]);
+  }, [userId, hasFetchSuggested, dispatch]);
 
+  // notifications init
   useEffect(() => {
     const initNotifications = async () => {
       try {
-        // Step 1: Load AsyncStorage values FIRST
         const seenVal = await AsyncStorage.getItem('@hasSeenNotifications');
         const lastSeenCountVal = await AsyncStorage.getItem('@lastSeenUnreadCount');
 
@@ -109,14 +136,12 @@ function MainApp() {
         setNotificationsSeen(seen);
         previousUnreadCount.current = lastSeenCount;
 
-        // Step 2: Fetch notifications AFTER that
         if (!isBusiness) {
-          await dispatch(fetchNotifications(user.id)); // wait for unreadCount to be updated
+          await dispatch(fetchNotifications(user.id));
         } else {
           await dispatch(fetchBusinessNotifications(placeId));
         }
 
-        // Step 3: Now safe to trigger the comparison effect
         setNotificationsInitialized(true);
       } catch (e) {
         setNotificationsSeen(true);
@@ -130,8 +155,9 @@ function MainApp() {
     if (user?.id) {
       initNotifications();
     }
-  }, [user, isBusiness, placeId]);
+  }, [user, isBusiness, placeId, dispatch]);
 
+  // Compare unread counts once initialized
   useEffect(() => {
     if (
       notificationsInitialized &&
@@ -144,7 +170,7 @@ function MainApp() {
         setNewUnreadCount(diff);
         setNotificationsSeen(false);
       } else {
-        setNewUnreadCount(0); // no new notifications
+        setNewUnreadCount(0);
       }
 
       previousUnreadCount.current = unreadCount;
@@ -154,66 +180,59 @@ function MainApp() {
 
   // Get current route name using navigation state
   const currentRoute = useNavigationState((state) => {
-    if (!state || !state.routes || typeof state.index !== 'number') return null;
-
-    let route = state.routes[state.index];
-
-    // Recursively drill down into nested navigators
-    while (route.state && route.state.routes && typeof route.state.index === 'number') {
-      route = route.state.routes[route.state.index];
-    }
-
-    return route.name;
+    const name = getActiveRouteName(state);
+    return name;
   });
 
-  //fetch suggested promos and events
+  // fetch nearby promos and events
   useEffect(() => {
     if (lat && lng && !isBusiness && userId) {
       dispatch(fetchNearbyPromosAndEvents({ lat, lng, userId }));
     }
-  }, [lat, lng, userId]);
+  }, [lat, lng, userId, isBusiness, dispatch]);
 
-  //header and tab bar management during navigation
+  // header and tab bar management during navigation
   useEffect(() => {
     const excludedRoutes = [
-      "Profile",
-      "OtherUserProfile",
-      "BusinessProfile",
-      "CameraScreen",
-      "StoryPreview",
-      "StoryViewer",
-      "CommentScreen",
-      "FullScreenPhoto",
+      'Profile',
+      'OtherUserProfile',
+      'BusinessProfile',
+      'CameraScreen',
+      'StoryPreview',
+      'StoryViewer',
+      'CommentScreen',
+      'FullScreenPhoto',
     ];
 
-    const shouldResetHeader = !excludedRoutes.includes(currentRoute) &&
-      !(currentRoute === "Activities" && activities.length > 0);
+    const shouldResetHeader =
+      !excludedRoutes.includes(currentRoute) &&
+      !(currentRoute === 'Activities' && activities.length > 0);
 
     if (shouldResetHeader) {
-      resetHeaderAndTab(); // ✅ Reset visibility
+      resetHeaderAndTab();
     }
-  }, [currentRoute, activities]);
+  }, [currentRoute, activities, resetHeaderAndTab]);
 
   return (
     <View style={styles.container}>
       {/* Conditionally render Header based on the current route */}
-      {
-        currentRoute !== "Profile" &&
-        currentRoute !== "OtherUserProfile" &&
-        currentRoute !== "OtherUserProfile" &&
-        currentRoute !== "BusinessProfile" &&
-        currentRoute !== "CameraScreen" &&
-        currentRoute !== "StoryPreview" &&
-        currentRoute !== "StoryViewer" &&
-        currentRoute !== "CommentScreen" &&
-        currentRoute !== "FullScreenPhoto" &&
-        currentRoute !== "EventDetails" &&
-        currentRoute !== "GoLive" &&
-        currentRoute !== "LivePlayer" &&
-        currentRoute !== "GoLiveTest" &&
-        currentRoute !== "LiveSummary" &&
-        (
-          <Animated.View style={[styles.header, { transform: [{ translateY: headerTranslateY }] }]}>
+      {currentRoute !== 'Profile' &&
+        currentRoute !== 'OtherUserProfile' &&
+        currentRoute !== 'OtherUserProfile' &&
+        currentRoute !== 'BusinessProfile' &&
+        currentRoute !== 'CameraScreen' &&
+        currentRoute !== 'StoryPreview' &&
+        currentRoute !== 'StoryViewer' &&
+        currentRoute !== 'CommentScreen' &&
+        currentRoute !== 'FullScreenPhoto' &&
+        currentRoute !== 'EventDetails' &&
+        currentRoute !== 'GoLive' &&
+        currentRoute !== 'LivePlayer' &&
+        currentRoute !== 'GoLiveTest' &&
+        currentRoute !== 'LiveSummary' && (
+          <Animated.View
+            style={[styles.header, { transform: [{ translateY: headerTranslateY }] }]}
+          >
             <Header
               titleOverride={headerTitle}
               currentRoute={currentRoute}
@@ -223,6 +242,7 @@ function MainApp() {
             />
           </Animated.View>
         )}
+
       <AppNavigator
         scrollY={scrollY}
         onScroll={(e) => handleScroll(e, setIsAtEnd)}
@@ -240,9 +260,43 @@ function MainApp() {
   );
 }
 
+/* ------------------------------ ERROR BOUNDARY ------------------------------ */
+
+class RootErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    // Optionally report error to an external service
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+          <Text style={{ color: 'white', padding: 16, textAlign: 'center' }}>
+            Something went wrong. Check console logs for details.
+          </Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/* --------------------------------- APP --------------------------------- */
+
 export default function App() {
   useEffect(() => {
-    fetchFonts();
+    fetchFonts().catch(() => {
+      // Silently ignore font load errors here
+    });
   }, []);
 
   return (
@@ -256,10 +310,14 @@ export default function App() {
                   <HiddenPostsProvider>
                     <HiddenTaggedProvider>
                       <UserFeedProvider>
-                        <NavigationContainer ref={(ref) => {
-                          navigationRef.current = ref;
-                        }}>
-                          <MainApp />
+                        <NavigationContainer
+                          ref={(ref) => {
+                            navigationRef.current = ref;
+                          }}
+                        >
+                          <RootErrorBoundary>
+                            <MainApp />
+                          </RootErrorBoundary>
                         </NavigationContainer>
                       </UserFeedProvider>
                     </HiddenTaggedProvider>

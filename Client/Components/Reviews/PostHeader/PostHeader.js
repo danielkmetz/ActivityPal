@@ -24,12 +24,12 @@ export default function PostHeader({
   const currentUserId = useSelector(selectUser)?.id;
   const {
     isSuggestedFollowPost = false,
-    userId,
     photos,
     owner,
     media: mediaRaw
-  } = postContent;
+  } = postContent || {};
   const profilePicUrl = owner?.profilePicUrl;
+  const ownerId = owner?.id || owner?.userId || owner?._id;
 
   // ✅ ensure media is an array
   const media = Array.isArray(photos) ? photos : (Array.isArray(mediaRaw) ? mediaRaw : []);
@@ -47,7 +47,7 @@ export default function PostHeader({
   return (
     <View style={[styles.header, containerStyle]}>
       <View style={[styles.userPicAndName, leftContainerStyle]}>
-        <StoryAvatar userId={userId} profilePicUrl={profilePicUrl} />
+        <StoryAvatar userId={ownerId} profilePicUrl={profilePicUrl} />
         <View >
           <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
             <TaggedUsersLine
@@ -69,7 +69,9 @@ export default function PostHeader({
       </View>
       <FollowButton
         post={post}
-        onPressFollowing={() => onViewProfile(userId)}
+        onPressFollowing={() => onViewProfile(ownerId)}
+        targetId={ownerId}
+        forceVisible={isSuggestedFollowPost}
       />
     </View>
   );

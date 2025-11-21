@@ -10,6 +10,7 @@ import {
 import { applyNearbyUpdates } from '../Slices/GooglePlacesSlice';
 import { applyEventUpdates } from '../Slices/EventsSlice';
 import { applyPromotionUpdates } from '../Slices/PromotionsSlice';
+import { applyTaggedPostUpdates } from '../Slices/TaggedPostsSlice';
 
 /* =========================
    Small perf + identity helpers
@@ -337,7 +338,12 @@ commentsListener.startListening({
               likes,
               topLevelCommentId,
             });
-            dispatch(applyNearbyUpdates({ postId: targetPostId, updates: { __updateCommentLikes: likesPayload } }));
+            dispatch(
+              applyNearbyUpdates({
+                postId: targetPostId,
+                updates: { __updateCommentLikes: likesPayload },
+              })
+            );
           }
         } else if (baseUpdates) {
           dispatch(applyNearbyUpdates({ postId: targetPostId, updates: baseUpdates }));
@@ -359,7 +365,12 @@ commentsListener.startListening({
               likes,
               topLevelCommentId,
             });
-            dispatch(applyEventUpdates({ postId: targetPostId, updates: { __updateCommentLikes: likesPayload } }));
+            dispatch(
+              applyEventUpdates({
+                postId: targetPostId,
+                updates: { __updateCommentLikes: likesPayload },
+              })
+            );
           }
         } else if (baseUpdates) {
           dispatch(applyEventUpdates({ postId: targetPostId, updates: baseUpdates }));
@@ -381,11 +392,52 @@ commentsListener.startListening({
               likes,
               topLevelCommentId,
             });
-            dispatch(applyPromotionUpdates({ postId: targetPostId, updates: { __updateCommentLikes: likesPayload } }));
+            dispatch(
+              applyPromotionUpdates({
+                postId: targetPostId,
+                updates: { __updateCommentLikes: likesPayload },
+              })
+            );
           }
         } else if (baseUpdates) {
           dispatch(applyPromotionUpdates({ postId: targetPostId, updates: baseUpdates }));
         }
+      }
+
+      /* ---------- Tagged Posts (taggedPosts.byUser[uid].items) ---------- */
+      // We always let the helper scan tagged feeds; it no-ops if the post isn’t present.
+      if (action.type === toggleLike.fulfilled.type) {
+        const { commentId, likes, topLevelCommentId } = payload;
+        if (commentId) {
+          // This uses topLevelCommentId when present, otherwise falls back to treating
+          // commentId as the top-level id.
+          const likesPayloadForTagged = buildLikesPayloadFromSource({
+            list: [],
+            selected: null,
+            postId: targetPostId,
+            commentId,
+            likes,
+            topLevelCommentId,
+          });
+
+          dispatch(
+            applyTaggedPostUpdates({
+              postId: targetPostId,
+              updates: { __updateCommentLikes: likesPayloadForTagged },
+              alsoMatchSharedOriginal: true,
+              includeHidden: false, // hidden wrappers handled separately if desired
+            })
+          );
+        }
+      } else if (baseUpdates) {
+        dispatch(
+          applyTaggedPostUpdates({
+            postId: targetPostId,
+            updates: baseUpdates,
+            alsoMatchSharedOriginal: true,
+            includeHidden: false,
+          })
+        );
       }
     } catch (err) {
       if (__DEV__) console.error('[commentsListener] effect error:', err);

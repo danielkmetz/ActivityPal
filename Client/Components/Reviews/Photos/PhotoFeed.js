@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { View, FlatList, Animated, Dimensions } from 'react-native';
-import PhotoItem from './PhotoItem';
+import MediaItem from './MediaItem';
 import PhotoPaginationDots from './PhotoPaginationDots';
 import SuggestionDetailsModal from '../../SuggestionDetails/SuggestionDetailsModal';
 import { createPhotoFeedHandlers } from './photoFeedHandlers';
@@ -90,9 +90,9 @@ export default function PhotoFeed({
         onTouchEnd={() => onActiveChange?.(false)}
         renderItem={({ item, index }) => (
           <View style={{ width: screenWidth }}>
-            <PhotoItem
-              photo={item}
-              reviewItem={post}
+            <MediaItem
+              media={item}
+              post={post}
               index={index}
               photoTapped={photoTapped}
               setPhotoTapped={setPhotoTapped}

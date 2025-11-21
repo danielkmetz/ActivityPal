@@ -1,4 +1,10 @@
-import React, { createContext, useContext, useEffect, useMemo, useCallback } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useCallback,
+} from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { selectUser, selectIsBusiness } from '../Slices/UserSlice';
 import {
@@ -12,6 +18,14 @@ import {
 
 const HiddenTaggedContext = createContext(null);
 
+// Match the slice behavior: strip any "type:" prefix and return just the id
+const idOnly = (v) => {
+  const s = String(v ?? '').trim();
+  if (!s) return '';
+  const parts = s.split(':');
+  return parts.length > 1 ? parts[1] : parts[0];
+};
+
 export function HiddenTaggedProvider({ children }) {
   const dispatch = useDispatch();
 
@@ -22,7 +36,7 @@ export function HiddenTaggedProvider({ children }) {
   const enabled = Boolean(userId && !isBusiness);
 
   // slice state
-  const map = useSelector(selectHiddenTaggedIdsMap);         // { "review:123": true, ... }
+  const map = useSelector(selectHiddenTaggedIdsMap);         // { [postId]: true }
   const status = useSelector(selectHiddenTaggedIdsStatus);   // 'idle' | 'loading' | 'succeeded' | 'failed'
   const error = useSelector(selectHiddenTaggedIdsError);     // string | null
 
@@ -39,14 +53,19 @@ export function HiddenTaggedProvider({ children }) {
 
   // helpers
   const isHidden = useCallback(
-    (postType, postId) => Boolean(map[`${String(postType).toLowerCase()}:${String(postId)}`]),
+    // keep signature (postType, postId) for backwards compatibility, but only use the id
+    (_postType, postId) => {
+      const id = idOnly(postId);
+      return Boolean(id && map[id]);
+    },
     [map]
   );
 
   const hide = useCallback(
     (postType, postId) => {
       if (!enabled) return;
-      dispatch(hideTaggedPost({ postType, postId }));
+      // thunk only needs postId; extra field is harmless but we can skip it
+      dispatch(hideTaggedPost({ postType, postId: idOnly(postId) }));
     },
     [enabled, dispatch]
   );
@@ -54,19 +73,21 @@ export function HiddenTaggedProvider({ children }) {
   const unhide = useCallback(
     (postType, postId) => {
       if (!enabled) return;
-      dispatch(unhideTaggedPost({ postType, postId }));
+      dispatch(unhideTaggedPost({ postType, postId: idOnly(postId) }));
     },
     [enabled, dispatch]
   );
 
-  // optional: annotate a list of posts with __hidden (pure helper)
+  // annotate a list of posts with __hidden = true/false
   const withHiddenFlags = useCallback(
     (items) =>
       Array.isArray(items)
         ? items.map((it) => {
-            const typ = (it?.__typename || it?.type || '').toLowerCase();
-            const id = String(it?._id || it?.id || '');
-            return { ...it, __hidden: Boolean(map[`${typ}:${id}`]) };
+            const id = idOnly(it?._id || it?.id);
+            return {
+              ...it,
+              __hidden: Boolean(id && map[id]),
+            };
           })
         : items,
     [map]
@@ -82,12 +103,16 @@ export function HiddenTaggedProvider({ children }) {
       unhide,
       refresh,
       withHiddenFlags,
-      hiddenMap: map, // expose raw map if needed
+      hiddenMap: map, // keys are postId strings
     }),
     [enabled, status, error, isHidden, hide, unhide, refresh, withHiddenFlags, map]
   );
 
-  return <HiddenTaggedContext.Provider value={value}>{children}</HiddenTaggedContext.Provider>;
+  return (
+    <HiddenTaggedContext.Provider value={value}>
+      {children}
+    </HiddenTaggedContext.Provider>
+  );
 }
 
 export function useHiddenTagged() {

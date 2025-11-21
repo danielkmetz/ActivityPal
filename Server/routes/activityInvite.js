@@ -7,7 +7,7 @@ const timezone = require('dayjs/plugin/timezone');
 
 const User = require('../models/User');
 const Business = require('../models/Business');
-const Post = require('../models/Post');                 // ⬅️ unified model
+const { Post, InvitePost } = require('../models/Post');   // ⬅️ use InvitePost
 const { getPresignedUrl } = require('../utils/cachePresignedUrl');
 
 dayjs.extend(utc);
@@ -16,6 +16,13 @@ dayjs.extend(timezone);
 const DISPLAY_TZ = 'America/Chicago';
 const fmtWhen = (iso) =>
   iso ? dayjs.utc(iso).tz(DISPLAY_TZ).format('MMMM D [at] h:mm A') : '';
+
+const ensureInviteDetails = (post) => {
+  if (!post.details) post.details = {};
+  if (!Array.isArray(post.details.recipients)) post.details.recipients = [];
+  if (!Array.isArray(post.details.requests)) post.details.requests = [];
+  return post.details;
+};
 
 /* -------------------------- small helpers -------------------------- */
 
@@ -76,66 +83,122 @@ function mapRequest(r, usersMap) {
 }
 
 /**
- * Serialize a Post (type: 'invite') into your existing client shape.
- * (You can remove this once GraphQL exclusively serves invites.)
+ * Serialize a Post (type: 'invite') into the GraphQL Post shape.
  */
 async function serializeInvitePost(postDoc) {
   const post = postDoc.toObject ? postDoc.toObject() : postDoc;
+  const details = post.details || {};
 
-  // Business snapshot
-  let businessName = null;
-  let businessLogoUrl = null;
+  // --- Business snapshot ---
+  let businessName = post.businessName || null;
+  let businessLogoUrl = post.businessLogoUrl || null;
   let business = null;
 
   if (post.placeId) {
     business = await Business.findOne({ placeId: post.placeId }).lean();
     if (business) {
-      businessName = business.businessName || 'Unknown Business';
-      if (business.logoKey) {
+      if (!businessName) {
+        businessName = business.businessName || 'Unknown Business';
+      }
+      if (business.logoKey && !businessLogoUrl) {
         businessLogoUrl = await getPresignedUrl(business.logoKey);
       }
     }
   }
 
-  // Resolve users (sender + recipients + requests)
+  // --- Resolve all users involved (owner + recipients + requests) ---
+  const ownerId = post.ownerId ? String(post.ownerId) : null;
   const allUserIds = [
-    post.userId,
-    ...(post.recipients || []).map((r) => r.userId),
-    ...(post.requests || []).map((r) => r.userId),
+    ownerId,
+    ...(details.recipients || []).map((r) => r.userId),
+    ...(details.requests || []).map((r) => r.userId),
   ].filter(Boolean);
 
   const usersMap = await loadUsersMap(allUserIds);
 
-  const senderUser = usersMap.get(String(post.userId));
-  const sender = senderUser || {
-    id: String(post.userId || ''),
-    firstName: '',
-    lastName: '',
-    profilePicUrl: null,
-  };
+  // Owner = sender (User)
+  const senderUser = ownerId ? usersMap.get(ownerId) : null;
+  const owner =
+    senderUser && ownerId
+      ? {
+        __typename: 'User',
+        id: ownerId,
+        firstName: senderUser.firstName || '',
+        lastName: senderUser.lastName || '',
+        fullName: `${senderUser.firstName || ''} ${senderUser.lastName || ''}`.trim(),
+        profilePicUrl: senderUser.profilePicUrl || null,
+      }
+      : null;
 
-  const recipients = (post.recipients || []).map((r) => mapRecipient(r, usersMap));
-  const requests = (post.requests || []).map((r) => mapRequest(r, usersMap));
+  // --- InviteDetails.recipients ---
+  const recipients = (details.recipients || []).map((r) => {
+    const u = usersMap.get(String(r.userId));
+    return {
+      __typename: 'InviteRecipient',
+      status: r.status || 'pending',
+      user: {
+        __typename: 'InviteUser',
+        id: String(r.userId),
+        firstName: u?.firstName || '',
+        lastName: u?.lastName || '',
+        profilePicUrl: u?.profilePicUrl || null,
+      },
+    };
+  });
+
+  // --- InviteDetails.requests ---
+  const requests = (details.requests || []).map((r) => mapRequest(r, usersMap));
+
+  // --- Likes / comments / stats ---
+  const likes = Array.isArray(post.likes) ? post.likes : [];
+  const comments = Array.isArray(post.comments) ? post.comments : [];
+
+  const nowIso = new Date().toISOString();
+  const createdAtIso = post.createdAt ? String(post.createdAt) : nowIso;
+  const updatedAtIso = post.updatedAt ? String(post.updatedAt) : createdAtIso;
 
   return {
-    __typename: 'ActivityInvite',
+    __typename: 'Post',
     _id: String(post._id),
     type: 'invite',
-    sender,
-    recipients,
-    requests,
+
+    owner,
+    ownerId,
+    ownerModel: 'User',
+
+    message: post.message || null,
     placeId: post.placeId ? String(post.placeId) : null,
+    location: post.location || null,
+    media: post.media || [],
+    taggedUsers: post.taggedUsers || [],
+
+    likes,
+    comments,
+    stats: {
+      likeCount: likes.length,
+      commentCount: comments.length,
+      shareCount: post.stats?.shareCount ?? 0,
+    },
+
+    privacy: post.privacy || 'public',
+    visibility: post.visibility || 'visible',
+    sortDate: post.sortDate || post.createdAt || post.date || nowIso,
+    createdAt: createdAtIso,
+    updatedAt: updatedAtIso,
+
+    details: {
+      __typename: 'InviteDetails',
+      dateTime: details.dateTime || null,
+      recipients,
+      requests,
+    },
+
+    shared: post.shared || null,
+    refs: post.refs || null,
+
     businessName,
     businessLogoUrl,
-    note: post.note || null,
-    dateTime: post.dateTime ? String(post.dateTime) : '',
-    message: post.message || null,
-    isPublic: Boolean(post.isPublic),
-    status: post.status || 'pending',
-    createdAt: post.createdAt ? String(post.createdAt) : new Date().toISOString(),
-    sortDate: post.sortDate || post.createdAt || post.dateTime || new Date().toISOString(),
-    likes: post.likes || [],
-    comments: post.comments || [],
+    original: null,
   };
 }
 
@@ -162,15 +225,15 @@ router.post('/send', async (req, res) => {
     message,
     isPublic,
     note,
-    businessName, // used only if we need to create the business
-    location,     // optional
+    businessName,
+    location,
   } = req.body;
 
   try {
     const sender = await User.findById(senderId);
     if (!sender) return res.status(404).json({ error: 'Sender not found' });
 
-    // Ensure business exists (same behavior as before)
+    // Ensure business exists
     let business = await Business.findOne({ placeId }).lean();
     if (!business) {
       const created = await Business.create({
@@ -191,25 +254,30 @@ router.post('/send', async (req, res) => {
       business = created.toObject();
     }
 
-    // Create unified post
-    const post = await Post.create({
+    const createdAt = new Date();
+    const when = dateTime ? new Date(dateTime) : new Date();
+    const text = message ?? note ?? '';
+    const privacy = isPublic ? 'public' : 'followers';
+
+    const post = await InvitePost.create({
+      ownerId: senderId,
+      ownerModel: 'User',
       type: 'invite',
-      userId: senderId, // sender
+      message: text,
       placeId,
-      dateTime,
-      message,
-      isPublic: !!isPublic,
-      note,
-      recipients: recipientIds.map((id) => ({ userId: id, status: 'pending' })),
-      requests: [],
-      status: 'pending',
-      likes: [],
-      comments: [],
-      sortDate: dateTime || new Date(),
+      businessName: business.businessName,
+      location: business.location || location,
+      privacy,
+      details: {
+        dateTime: when,
+        recipients: recipientIds.map((id) => ({ userId: id, status: 'pending' })),
+        requests: [],
+      },
+      sortDate: createdAt,
     });
 
     // Notifications
-    const formattedDateTime = fmtWhen(dateTime);
+    const formattedDateTime = fmtWhen(when.toISOString());
     const baseNotif = {
       type: 'activityInvite',
       message: `${sender.firstName} invited you to ${business.businessName} on ${formattedDateTime}`,
@@ -223,7 +291,7 @@ router.post('/send', async (req, res) => {
 
     const recipientOps = recipientIds.map((uid) =>
       User.findByIdAndUpdate(uid, {
-        $addToSet: { activityInvites: post._id }, // keep legacy pointer if you still use it
+        $addToSet: { activityInvites: post._id },
         $push: { notifications: baseNotif },
       })
     );
@@ -251,25 +319,35 @@ router.post('/accept', async (req, res) => {
     const recipient = await User.findById(recipientId);
     if (!recipient) return res.status(404).json({ error: 'Recipient not found' });
 
-    const post = await Post.findOne({ _id: inviteId, type: 'invite' });
+    const post = await InvitePost.findOne({ _id: inviteId, type: 'invite' });
     if (!post) return res.status(404).json({ error: 'Invite not found' });
 
-    const row = (post.recipients || []).find((r) => String(r.userId) === String(recipientId));
+    const details = ensureInviteDetails(post);
+
+    const row = (details.recipients || []).find(
+      (r) => String(r.userId) === String(recipientId)
+    );
     if (row) row.status = 'accepted';
 
-    post.status = computeInviteStatus(post.recipients);
     await post.save();
 
-    // Remove original "activityInvite" notif for this recipient
+    // Remove original invite notification just for THIS invite
     recipient.notifications = (recipient.notifications || []).filter(
-      (n) => !(n.type === 'activityInvite' && String(n.relatedId) === String(post.userId))
+      (n) =>
+        !(
+          n.type === 'activityInvite' &&
+          String(n.relatedId) === String(post.ownerId) &&
+          String(n.targetId) === String(post._id) &&
+          n.postType === 'invite'
+        )
     );
     await recipient.save();
 
-    // Notify sender
     const business = await Business.findOne({ placeId: post.placeId }).lean();
-    const formattedDate = fmtWhen(post.dateTime);
-    const acceptedCount = (post.recipients || []).filter((r) => r.status === 'accepted').length;
+    const formattedDate = fmtWhen(details.dateTime);
+    const acceptedCount = (details.recipients || []).filter(
+      (r) => r.status === 'accepted'
+    ).length;
 
     const senderNotification = {
       type: 'activityInviteAccepted',
@@ -298,11 +376,10 @@ router.post('/accept', async (req, res) => {
     };
 
     await Promise.all([
-      User.findByIdAndUpdate(post.userId, { $push: { notifications: senderNotification } }),
+      User.findByIdAndUpdate(post.ownerId, { $push: { notifications: senderNotification } }),
       User.findByIdAndUpdate(recipientId, { $push: { notifications: recipientConfirmation } }),
     ]);
 
-    // Optional: business threshold notif
     if (acceptedCount >= 5 && business?._id) {
       await Business.findByIdAndUpdate(business._id, {
         $push: {
@@ -337,23 +414,30 @@ router.post('/reject', async (req, res) => {
     const recipient = await User.findById(recipientId);
     if (!recipient) return res.status(404).json({ error: 'Recipient not found' });
 
-    const post = await Post.findOne({ _id: inviteId, type: 'invite' });
+    const post = await InvitePost.findOne({ _id: inviteId, type: 'invite' });
     if (!post) return res.status(404).json({ error: 'Invite not found' });
 
-    const row = (post.recipients || []).find((r) => String(r.userId) === String(recipientId));
+    const details = ensureInviteDetails(post);
+    const row = (details.recipients || []).find(
+      (r) => String(r.userId) === String(recipientId)
+    );
     if (row) row.status = 'declined';
 
-    post.status = computeInviteStatus(post.recipients);
     await post.save();
 
-    // Remove original notif
     recipient.notifications = (recipient.notifications || []).filter(
-      (n) => !(n.type === 'activityInvite' && String(n.relatedId) === String(post.userId))
+      (n) =>
+        !(
+          n.type === 'activityInvite' &&
+          String(n.relatedId) === String(post.ownerId) &&
+          String(n.targetId) === String(post._id) &&
+          n.postType === 'invite'
+        )
     );
     await recipient.save();
 
     const business = await Business.findOne({ placeId: post.placeId }).lean();
-    const formattedDate = fmtWhen(post.dateTime);
+    const formattedDate = fmtWhen(details.dateTime);
 
     const senderNotification = {
       type: 'activityInviteDeclined',
@@ -382,7 +466,7 @@ router.post('/reject', async (req, res) => {
     };
 
     await Promise.all([
-      User.findByIdAndUpdate(post.userId, { $push: { notifications: senderNotification } }),
+      User.findByIdAndUpdate(post.ownerId, { $push: { notifications: senderNotification } }),
       User.findByIdAndUpdate(recipientId, { $push: { notifications: recipientConfirmation } }),
     ]);
 
@@ -400,45 +484,52 @@ router.put('/edit', async (req, res) => {
   const { recipientId: senderId, inviteId, updates = {}, recipientIds = [] } = req.body;
 
   try {
-    const post = await Post.findOne({ _id: inviteId, type: 'invite' });
+    const post = await InvitePost.findOne({ _id: inviteId, type: 'invite' });
     if (!post) return res.status(404).json({ error: 'Invite not found' });
 
-    if (String(post.userId) !== String(senderId)) {
+    if (String(post.ownerId) !== String(senderId)) {
       return res.status(400).json({ error: 'Only the sender can edit this invite' });
     }
 
     const sender = await User.findById(senderId);
     if (!sender) return res.status(404).json({ error: 'Sender not found' });
 
-    const prevRecipients = Array.isArray(post.recipients) ? post.recipients : [];
-    const prevRequests = Array.isArray(post.requests) ? post.requests : [];
+    const details = ensureInviteDetails(post);
 
-    const prevById = new Map(prevRecipients.map((r) => [String(r.userId), { userId: r.userId, status: r.status }]));
+    const prevRecipients = Array.isArray(details.recipients) ? details.recipients : [];
+    const prevRequests = Array.isArray(details.requests) ? details.requests : [];
+
+    const prevById = new Map(
+      prevRecipients.map((r) => [String(r.userId), { userId: r.userId, status: r.status }])
+    );
     const nextIds = (recipientIds || []).map(String);
     const nextSet = new Set(nextIds);
     const prevSet = new Set(prevRecipients.map((r) => String(r.userId)));
 
-    // merge recipients
     const mergedRecipients = nextIds.map((id) => {
       const prev = prevById.get(id);
       return prev ? { userId: prev.userId, status: prev.status } : { userId: id, status: 'pending' };
     });
 
-    Object.assign(post, {
-      message: updates.message ?? post.message,
-      dateTime: updates.dateTime ?? post.dateTime,
-      isPublic: typeof updates.isPublic === 'boolean' ? updates.isPublic : post.isPublic,
-      note: updates.note ?? post.note,
-      placeId: updates.placeId ?? post.placeId,
-      recipients: mergedRecipients,
-      requests: prevRequests.filter((r) => !nextSet.has(String(r.userId))),
-    });
+    // Core post fields
+    post.message = updates.message ?? post.message;
+    post.placeId = updates.placeId ?? post.placeId;
+    if (updates.dateTime !== undefined) {
+      const newWhen = updates.dateTime ? new Date(updates.dateTime) : null;
+      if (newWhen) {
+        details.dateTime = newWhen;   // ✅ only event time moves
+      }
+    }
 
-    post.status = computeInviteStatus(post.recipients);
+    // Invite-specific
+    details.recipients = mergedRecipients;
+    details.requests = prevRequests.filter((r) => !nextSet.has(String(r.userId)));
+    post.details = details;
+
     await post.save();
 
     const business = await Business.findOne({ placeId: post.placeId }).lean();
-    const formattedDateTime = fmtWhen(post.dateTime);
+    const formattedDateTime = fmtWhen(details.dateTime);
     const updatedMessage = `${sender.firstName} invited you to ${business?.businessName || 'a place'} on ${formattedDateTime}`;
 
     // Upsert/update recipient notifications
@@ -508,19 +599,25 @@ router.put('/edit', async (req, res) => {
 /* --------------------------- /delete --------------------------- */
 
 router.delete('/delete', async (req, res) => {
-  const { senderId, inviteId, recipientIds = [] } = req.body;
+  const { senderId, inviteId } = req.body;
 
   try {
-    const post = await Post.findOne({ _id: inviteId, type: 'invite' });
+    const post = await InvitePost.findOne({ _id: inviteId, type: 'invite' });
     if (!post) return res.status(404).json({ error: 'Invite not found' });
-    if (String(post.userId) !== String(senderId)) {
+
+    if (String(post.ownerId) !== String(senderId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
+    const details = ensureInviteDetails(post);
+    const recipientIds = [
+      ...(details.recipients || []).map((r) => r.userId),
+      ...(details.requests || []).map((r) => r.userId),
+    ].map(String);
+
     await Post.deleteOne({ _id: inviteId });
 
-    // Remove notifications/pointers for all involved users
-    const allIds = [senderId, ...recipientIds];
+    const allIds = [String(senderId), ...recipientIds];
     await Promise.all(
       allIds.map((uid) =>
         User.findByIdAndUpdate(uid, {
@@ -548,17 +645,23 @@ router.post('/request', async (req, res) => {
   const { userId, inviteId } = req.body;
 
   try {
-    const post = await Post.findOne({ _id: inviteId, type: 'invite' });
+    const post = await InvitePost.findOne({ _id: inviteId, type: 'invite' });
     if (!post) return res.status(404).json({ error: 'Invite not found' });
 
-    const alreadyRequested = (post.requests || []).some((r) => String(r.userId) === String(userId));
-    const alreadyInvited = (post.recipients || []).some((r) => String(r.userId) === String(userId));
+    const details = ensureInviteDetails(post);
+
+    const alreadyRequested = (details.requests || []).some(
+      (r) => String(r.userId) === String(userId)
+    );
+    const alreadyInvited = (details.recipients || []).some(
+      (r) => String(r.userId) === String(userId)
+    );
     if (alreadyRequested || alreadyInvited) {
       return res.status(400).json({ error: 'You have already requested or been invited' });
     }
 
-    post.requests = post.requests || [];
-    post.requests.push({ userId, status: 'pending' });
+    details.requests.push({ userId, status: 'pending' });
+    post.details = details;
     await post.save();
 
     const out = await serializeInvitePost(post);
@@ -575,24 +678,26 @@ router.post('/accept-user-request', async (req, res) => {
   const { inviteId, userId } = req.body;
 
   try {
-    const post = await Post.findOne({ _id: inviteId, type: 'invite' });
+    const post = await InvitePost.findOne({ _id: inviteId, type: 'invite' });
     if (!post) return res.status(404).json({ error: 'Invite not found' });
 
-    const idx = (post.requests || []).findIndex((r) => String(r.userId) === String(userId));
+    const details = ensureInviteDetails(post);
+
+    const idx = (details.requests || []).findIndex(
+      (r) => String(r.userId) === String(userId)
+    );
     if (idx === -1) return res.status(400).json({ error: 'Request not found' });
 
-    post.requests.splice(idx, 1);
-    post.recipients = post.recipients || [];
-    post.recipients.push({ userId, status: 'accepted' });
+    details.requests.splice(idx, 1);
+    details.recipients.push({ userId, status: 'accepted' });
+    post.details = details;
 
-    post.status = computeInviteStatus(post.recipients);
     await post.save();
 
     await User.updateOne({ _id: userId }, { $addToSet: { activityInvites: post._id } });
 
-    // Clean request notification from sender, if any
     await User.updateOne(
-      { _id: post.userId },
+      { _id: post.ownerId },
       {
         $pull: {
           notifications: {
@@ -620,19 +725,25 @@ router.post('/reject-user-request', async (req, res) => {
   const { inviteId, userId } = req.body;
 
   try {
-    const post = await Post.findOne({ _id: inviteId, type: 'invite' });
+    const post = await InvitePost.findOne({ _id: inviteId, type: 'invite' });
     if (!post) return res.status(404).json({ error: 'Invite not found' });
 
-    const before = (post.requests || []).length;
-    post.requests = (post.requests || []).filter((r) => String(r.userId) !== String(userId));
-    if (post.requests.length === before) {
+    const details = ensureInviteDetails(post);
+    const before = (details.requests || []).length;
+
+    details.requests = (details.requests || []).filter(
+      (r) => String(r.userId) !== String(userId)
+    );
+    post.details = details;
+
+    if ((details.requests || []).length === before) {
       return res.status(400).json({ error: 'Request not found' });
     }
 
     await post.save();
 
     await User.updateOne(
-      { _id: post.userId },
+      { _id: post.ownerId },
       {
         $pull: {
           notifications: {

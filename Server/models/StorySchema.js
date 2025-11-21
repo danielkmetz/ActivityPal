@@ -41,7 +41,7 @@ const StorySchema = new mongoose.Schema({
   originalPostId: { type: mongoose.Schema.Types.ObjectId },
   postType: {
     type: String,
-    enum: ['review', 'check-in', 'invite', 'promotion', 'event'],
+    enum: ['review', 'check-in', 'invite', 'promotion', 'event', 'liveStream'],
   },
   originalOwner: {
     type: mongoose.Schema.Types.ObjectId,

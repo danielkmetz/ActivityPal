@@ -1,4 +1,4 @@
-const Post = require('../models/Post');                        // ✅ unified model
+const { Post } = require('../models/Post');                        // ✅ unified model
 const User = require('../models/User');
 const Business = require('../models/Business');
 const { getPresignedUrl } = require('./cachePresignedUrl');

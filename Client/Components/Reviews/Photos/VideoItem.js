@@ -1,14 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
-import {
-  View,
-  Image,
-  Text,
-  Animated,
-  TouchableWithoutFeedback,
-  Dimensions,
-  StyleSheet,
-} from 'react-native';
+import { View, Text, Animated, TouchableWithoutFeedback, Dimensions, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { VideoView } from 'expo-video';
+import { useSmartVideoPlayer } from '../../../utils/useSmartVideoPlayer';
 import { useLikeAnimations } from '../../../utils/LikeHandlers/LikeAnimationContext';
 import { handleLikeWithAnimation as likeWithAnim } from '../../../utils/LikeHandlers';
 import { pickPostId } from '../../../utils/posts/postIdentity';
@@ -21,11 +15,11 @@ const screenWidth = Dimensions.get('window').width;
 const DOUBLE_TAP_MS = 300;
 const SINGLE_TAP_MS = 330;
 
-/* ---------- Shared helpers (duplicated with video component) ---------- */
+/* ---------- Shared helpers (duplicated with image component) ---------- */
 
 const postTypeFor = (item) => {
   const t = String(item?.type || '').toLowerCase();
-  if (t) return t; // 'review','check-in','invite','sharedPost','liveStream','event','promotion'
+  if (t) return t;
   if (item?.kind || item?.__typename) return 'suggestion';
   return undefined;
 };
@@ -101,9 +95,9 @@ const buildTapHandler = ({
   };
 };
 
-/* ------------------ Image-only variant (NO player) ------------------ */
+/* ------------------ Video variant (uses player) ------------------ */
 
-const PhotoItemImage = ({
+const VideoItem = ({
   media,
   post,
   photoTapped,
@@ -119,6 +113,7 @@ const PhotoItemImage = ({
   const lastTapRef = useRef({});
   const timersRef = useRef({});
   const user = useSelector(selectUser);
+  const player = useSmartVideoPlayer(media);
 
   const taggedUsers = Array.isArray(media?.taggedUsers) ? media.taggedUsers : [];
   const shouldRenderTagButton =
@@ -173,10 +168,25 @@ const PhotoItemImage = ({
     >
       <TouchableWithoutFeedback onPress={handleTap}>
         <View style={styles.videoWrapper}>
-          <Image
-            source={{ uri: media.url || media.uri || media.bannerUrl }}
-            style={styles.photo}
-          />
+          {player ? (
+            <VideoView
+              player={player}
+              style={styles.photo}
+              allowsPictureInPicture
+              nativeControls={false}
+              contentFit="cover"
+            />
+          ) : (
+            // Fallback in case player fails (bad URL, etc.)
+            <View
+              style={[
+                styles.photo,
+                { justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
+              ]}
+            >
+              <MaterialCommunityIcons name="video-off" size={40} color="#fff" />
+            </View>
+          )}
 
           {isInteractive && animation && (
             <Animated.View style={[styles.likeOverlay, { opacity: animation }]}>
@@ -265,4 +275,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default PhotoItemImage;
+export default VideoItem;

@@ -10,34 +10,48 @@ import { selectUser } from '../../Slices/UserSlice';
 
 dayjs.extend(relativeTime);
 
-export default function LiveStreamCard({ live, onOpen, onProfile, handleEdit, handleDelete, sharedPost, handleLikeWithAnimation, handleOpenComments }) {
+export default function LiveStreamCard({
+  live,
+  onOpen,
+  onShare,
+  onProfile,
+  handleEdit,
+  handleDelete,
+  sharedPost,
+  handleLikeWithAnimation,
+  embeddedInShared,
+}) {
   if (!live) return null;
   const dispatch = useDispatch();
   const lastTapRef = useRef({});
-
-  const {
-    _id,
-    fullName,
-    profilePicUrl,
-    caption,
-    date,
-    isLive,
-    playbackUrl,
-    previewThumbUrl,
-    durationSecs,
-    userId,
-    vodUrl,
-  } = live;
-
+  const postContent =
+    embeddedInShared && live && live?.original
+      ? live?.original
+      : live;
+  const owner = postContent?.owner || {};
+  const details = postContent?.details || {};
+  const _id = postContent?._id;
+  const userId = owner?.id || owner?._id;
+  const profilePicUrl = owner?.profilePicUrl || null;
+  const fullName = owner?.fullName || [owner?.firstName, owner?.lastName].filter(Boolean).join(' ') || 'Someone';
+  const caption = postContent?.message || '';
+  const status = details?.status || 'idle';
+  const isLive = status === 'live';
+  const playbackUrl = details?.playbackUrl || null;
+  const vodUrl = details?.vodUrl || null;
+  const durationSecs = typeof details?.durationSec === 'number' ? details?.durationSec : null;
+  const previewThumbUrl = details?.coverUrl || null;
+  const timestamp = details?.startedAt || live?.sortDate || live?.createdAt;
   const user = useSelector(selectUser);
-  const isSender = userId === user?.id;
+  const isSender = userId && user?.id && String(userId) === String(user?.id);
   const likeAnim = useRef(new Animated.Value(0)).current;
   const [dropdownVisible, setDropdownVisible] = useState(false);
 
   const timeAgo = useMemo(() => {
-    if (!date) return '';
-    return dayjs(date).fromNow();
-  }, [date]);
+    if (!timestamp) return '';
+    const d = dayjs(timestamp);
+    return d.isValid() ? d.fromNow() : '';
+  }, [timestamp]);
 
   const fileForThumb = useMemo(() => {
     const src = isLive ? playbackUrl : (vodUrl || playbackUrl);
@@ -61,7 +75,7 @@ export default function LiveStreamCard({ live, onOpen, onProfile, handleEdit, ha
           )}
           <View style={styles.nameCol}>
             <Text numberOfLines={1} style={styles.name}>
-              {fullName || 'Someone'}
+              {fullName}
             </Text>
             <View style={styles.metaRow}>
               {isLive && <LiveBadge />}
@@ -72,9 +86,9 @@ export default function LiveStreamCard({ live, onOpen, onProfile, handleEdit, ha
             </View>
           </View>
         </Pressable>
-        {!sharedPost && (
+        {!embeddedInShared && (
           <PostOptionsMenu
-            isSender={isSender}
+            isSender={!!isSender}
             dropdownVisible={dropdownVisible}
             setDropdownVisible={setDropdownVisible}
             handleEdit={handleEdit}
@@ -100,16 +114,18 @@ export default function LiveStreamCard({ live, onOpen, onProfile, handleEdit, ha
               height={200}
               likeAnim={likeAnim}
               reviewItem={live}
-              onDoubleTap={() => handleLikeWithAnimation({
-                postType: 'liveStream',
-                postId: _id,
-                review: live,
-                user,
-                animation: likeAnim,     // 👈 drives the overlay
-                lastTapRef,
-                dispatch,
-                force: true,             // optional if you want immediate burst on any tap here
-              })}
+              onDoubleTap={() =>
+                handleLikeWithAnimation({
+                  postType: 'liveStream',
+                  postId: _id,
+                  review: live,
+                  user,
+                  animation: likeAnim,
+                  lastTapRef,
+                  dispatch,
+                  force: true,
+                })
+              }
             />
           </View>
         ) : previewThumbUrl ? (
@@ -130,10 +146,10 @@ export default function LiveStreamCard({ live, onOpen, onProfile, handleEdit, ha
       {!sharedPost && (
         <View style={{ marginTop: 15 }}>
           <PostActions
-            item={live}
-            photo={vodUrl}
-            handleLikeWithAnimation={handleLikeWithAnimation}
-            handleOpenComments={handleOpenComments}
+            post={live}
+            photo={vodUrl || playbackUrl || null}
+            onShare={onShare}
+            embeddedInShared={embeddedInShared}
           />
         </View>
       )}
@@ -281,7 +297,10 @@ const styles = StyleSheet.create({
   },
   overlay: {
     position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
   },

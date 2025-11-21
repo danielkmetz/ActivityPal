@@ -106,8 +106,41 @@ const PromotionPost = Post.discriminator('promotion', new Schema({
 
 const SharedPost = Post.discriminator('sharedPost', new Schema({}));
 
-const LiveStreamPost = Post.discriminator('liveStream', new Schema({
-  details: { title: { type: String, default: '' }, status: { type: String, enum: ['idle', 'live', 'ended', 'error'], default: 'idle' }, coverKey: { type: String, default: null }, durationSec: { type: Number }, viewerPeak: { type: Number, default: 0 } },
-}));
+const LiveStreamPost = Post.discriminator(
+  'liveStream',
+  new Schema(
+    {
+      details: {
+        title: { type: String, default: '' },
+
+        // live status of the stream
+        status: {
+          type: String,
+          enum: ['idle', 'live', 'ended', 'error'],
+          default: 'idle',
+        },
+
+        // thumbnail image key in S3 (optional)
+        coverKey: { type: String, default: null },
+
+        // duration in *seconds* for the VOD
+        durationSec: { type: Number, default: 0 },
+
+        viewerPeak: { type: Number, default: 0 },
+
+        // timing fields – when the stream actually started/ended
+        startedAt: { type: Date },
+        endedAt: { type: Date },
+
+        // URLs to play the live stream / replay (if you persist them here)
+        playbackUrl: { type: String, default: null },
+        vodUrl: { type: String, default: null },
+      },
+    },
+    {
+      _id: false, // "details" is a nested object, no separate _id
+    }
+  )
+);
 
 module.exports = { Post, ReviewPost, CheckInPost, InvitePost, EventPost, PromotionPost, SharedPost, LiveStreamPost };

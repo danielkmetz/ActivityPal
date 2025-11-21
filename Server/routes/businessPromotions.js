@@ -8,6 +8,7 @@ const HiddenPost = require("../models/HiddenPosts.js");
 const { getPresignedUrl } = require("../utils/cachePresignedUrl.js");
 const { enrichComments } = require("../utils/userPosts.js");
 const { isPromoActive, isPromoLaterToday } = require("../utils/enrichBusinesses.js");
+const { filterHiddenPromotions } = require('../utils/posts/filterHiddenPosts.js');
 
 /* ----------------------------------------------------------------------------
  * GET /promotion/:promotionId  -> single promotion (enriched)
@@ -82,30 +83,11 @@ router.get("/:placeId", async (req, res) => {
       }
     };
 
-    // Fetch business + hidden ids in parallel
-    const [business, hiddenPromotionObjIds] = await Promise.all([
-      Business.findOne(
-        { placeId },
-        { _id: 1, businessName: 1, placeId: 1, logoKey: 1 }
-      ).lean(),
-      (async () => {
-        const viewerId = req.user?.id;
-        if (!viewerId || !mongoose.Types.ObjectId.isValid(viewerId)) return [];
-        try {
-          const rows = await HiddenPost.find(
-            { userId: new mongoose.Types.ObjectId(viewerId), targetRef: "Promotion" },
-            { targetId: 1, _id: 0 }
-          ).lean();
-          return (rows || [])
-            .map((r) => r?.targetId)
-            .filter(Boolean)
-            .map((id) => new mongoose.Types.ObjectId(String(id)));
-        } catch (e) {
-          console.warn("[GET /promotions/:placeId] hidden fetch failed:", e?.message);
-          return [];
-        }
-      })(),
-    ]);
+    // Fetch business
+    const business = await Business.findOne(
+      { placeId },
+      { _id: 1, businessName: 1, placeId: 1, logoKey: 1 }
+    ).lean();
 
     if (!business) {
       console.warn(`⚠️ Business not found for placeId: ${placeId}`);
@@ -114,12 +96,16 @@ router.get("/:placeId", async (req, res) => {
 
     const businessLogoUrl = business.logoKey ? await safePresign(business.logoKey) : null;
 
-    const promoQuery = { placeId };
-    if (hiddenPromotionObjIds.length) {
-      promoQuery._id = { $nin: hiddenPromotionObjIds };
-    }
+    // Get ALL promotions for this business
+    let promotions = await Promotion.find({ placeId }).lean();
 
-    const promotions = await Promotion.find(promoQuery).lean();
+    // Filter out hidden promotions for the current viewer (if authenticated)
+    const viewerId = req.user?.id || null; // assumes auth middleware sets req.user
+
+    promotions = await filterHiddenPromotions(promotions, viewerId, {
+      debugTag: "[GET /promotions/:placeId]",
+      // log: true, // uncomment if you want debug logs
+    });
 
     const enhanced = await Promise.all(
       promotions.map(async (promo) => {

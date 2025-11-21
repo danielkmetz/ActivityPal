@@ -3,10 +3,9 @@ const VIDEO_EXTS = ['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi', '.m3u8'];
 export const isVideo = (file) => {
   if (!file) return false;
 
-  // Normalize possible shapes: object or string
   let uri = '';
   let mime = '';
-  let key = '';
+  let key  = '';
 
   if (typeof file === 'string') {
     uri = file;
@@ -17,8 +16,14 @@ export const isVideo = (file) => {
       file?.mediaUrl ||
       file?.mediaUploadUrl ||
       file?.media?.url ||
+      file?.vodUrl ||
+      file?.playbackUrl ||
       '';
-    mime = file?.type || file?.mimeType || file?.contentType || '';
+    mime =
+      file?.type ||
+      file?.mimeType ||
+      file?.contentType ||
+      '';
     key =
       file?.photoKey ||
       file?.media?.photoKey ||
@@ -26,17 +31,18 @@ export const isVideo = (file) => {
       '';
   }
 
-  const cleanUri = (uri || '').split(/[?#]/)[0].toLowerCase();
-  const lowerKey = (key || '').toLowerCase();
-  const lowerMime = (mime || '').toLowerCase();
+  const cleanUri   = (uri || '').split(/[?#]/)[0].toLowerCase();
+  const lowerKey   = (key || '').toLowerCase();
+  const lowerMime  = (mime || '').toLowerCase();
 
-  // MIME says it's a video (covers cases with no extension)
+  // MIME flags
   if (lowerMime.startsWith('video/')) return true;
-  // Some iOS cameras report QuickTime containers
+  if (lowerMime === 'hls') return true;
   if (lowerMime.includes('quicktime')) return true;
-  // HLS sometimes reported as application/x-mpegURL
   if (lowerMime.includes('mpegurl') || lowerMime.includes('x-mpegurl')) return true;
 
-  // Check known video extensions on either key or uri
-  return VIDEO_EXTS.some(ext => lowerKey.endsWith(ext) || cleanUri.endsWith(ext));
+  // Extensions on either key or uri
+  return VIDEO_EXTS.some(
+    (ext) => lowerKey.endsWith(ext) || cleanUri.endsWith(ext)
+  );
 };

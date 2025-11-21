@@ -31,20 +31,15 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
   const [viewerOptionsVisible, setViewerOptionsVisible] = useState(false);
   const user = useSelector(selectUser);
   const userId = user?.id || user?._id;
-  const businessName =
-    postContent.businessName ||
-    postContent.business?.businessName ||
-    'Unnamed Location';
-  const totalInvited = Array.isArray(postContent.recipients) ? postContent.recipients.length : 0;
-  const senderId =
-    postContent?.sender?.id ||
-    postContent?.sender?._id ||
-    postContent?.sender?.userId ||
-    null;
+  const owner = postContent?.owner;
+  const details = postContent?.details;
+  const dateTime = details?.dateTime;
+  const message = postContent?.message;
+  const businessName = postContent.businessName || postContent.business?.businessName || 'Unnamed Location';
+  const totalInvited = Array.isArray(details?.recipients) ? details.recipients.length : 0;
+  const senderId = owner?.id || owner?._id || owner?.userId || null;
   const [requested, setRequested] = useState(false);
-  const hasRequested =
-    requested || (postContent.requests || []).some((r) => String(r.userId) === String(userId));
-
+  const hasRequested = requested || (details.requests || []).some((r) => String(r.userId) === String(userId));
   const { timeLeft, isSender } = useInviteState(postContent, userId);
 
   const handleEdit = () => {
@@ -68,7 +63,7 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
           style: 'destructive',
           onPress: async () => {
             try {
-              const recipientIds = (inviteToDelete.recipients || []).map((r) => r.userId);
+              const recipientIds = (inviteToDelete.details.recipients || []).map((r) => r.userId);
               await dispatch(
                 deleteInvite({
                   senderId: userId,
@@ -135,7 +130,7 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
   };
 
   useEffect(() => {
-    if ((postContent.requests || []).some((r) => String(r.userId) === String(userId))) {
+    if ((details?.requests || []).some((r) => String(r.userId) === String(userId))) {
       setRequested(true);
     }
   }, [invite, userId]);
@@ -153,15 +148,15 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
           />
         <ViewerOptionsTrigger post={invite} onPress={() => setViewerOptionsVisible(true)} embeddedInShared={embeddedInShared} />
         <InviteHeader
-          sender={postContent.sender}
+          sender={owner}
           totalInvited={totalInvited}
           onPressName={() => navigateToOtherUserProfile(senderId)}
         />
         <BusinessLink post={invite} />
-        {postContent.dateTime ? (
-          <Text style={styles.datetime}>On {formatEventDate(postContent.dateTime)}</Text>
+        {dateTime ? (
+          <Text style={styles.datetime}>On {formatEventDate(dateTime)}</Text>
         ) : null}
-        {postContent.note ? <Text style={styles.note}>{postContent.note}</Text> : null}
+        {message ? <Text style={styles.note}>{message}</Text> : null}
         <CountdownPill value={timeLeft} />
         <AttendanceRow
           hasRequested={hasRequested}
@@ -179,8 +174,8 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
       <InviteeModal
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
-        recipients={postContent.recipients}
-        requests={postContent.requests}
+        recipients={details?.recipients}
+        requests={details?.requests}
         isSender={isSender}
         invite={invite}
       />

@@ -7,6 +7,7 @@ const User = require('../models/User.js');
 const { Post } = require('../models/Post.js'); // unified model with discriminators
 const { deleteS3Objects } = require('../utils/deleteS3Objects.js');
 const { normalizePoint } = require('../utils/posts/normalizePoint.js');
+const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 const { hydratePostForResponse } = require('../utils/posts/hydrateAndEnrichForResponse.js');
 const {
   enrichOneOrMany,
@@ -81,60 +82,15 @@ async function buildMediaFromPhotos(photos = [], uploadedBy) {
   );
 }
 
-function getSortDateForType(type, details) {
-  switch (type) {
-    case 'review':
-      return new Date(); // or details?.date if you store one
-    case 'check-in':
-      return details?.date ? new Date(details.date) : new Date();
-    case 'invite':
-      return details?.dateTime ? new Date(details.dateTime) : new Date();
-    case 'event':
-      return details?.startsAt ? new Date(details.startsAt) : new Date();
-    case 'promotion':
-      return details?.startsAt ? new Date(details.startsAt) : new Date();
-    case 'liveStream':
-      return details?.startedAt ? new Date(details.startedAt) : new Date();
-    case 'sharedPost':
-    default:
-      return new Date();
-  }
+function getSortDateForType(/* type, details */) {
+  // Always sort by creation-time; for a new post, that's "now".
+  return new Date();
 }
 
-function nextSortDate({ type, prevSortDate, details, body, isPatch }) {
-  if (!isPatch) {
-    // CREATE behavior (same as today but explicit)
-    switch (type) {
-      case 'review': return new Date();
-      case 'check-in': return details?.date ? new Date(details.date) : new Date();
-      case 'invite': return details?.dateTime ? new Date(details.dateTime) : new Date();
-      case 'event': return details?.startsAt ? new Date(details.startsAt) : new Date();
-      case 'promotion': return details?.startsAt ? new Date(details.startsAt) : new Date();
-      case 'liveStream': return details?.startedAt ? new Date(details.startedAt) : new Date();
-      default: return new Date();
-    }
-  }
-
-  // PATCH behavior: only update if the time field was in the body
-  switch (type) {
-    case 'review':
-    case 'sharedPost':
-      return prevSortDate; // don’t bump reviews/shared posts on edit
-    case 'check-in':
-      return ('date' in body) ? new Date(details.date) : prevSortDate;
-    case 'invite':
-      return ('dateTime' in body) ? new Date(details.dateTime) : prevSortDate;
-    case 'event':
-      return ('startsAt' in body) ? new Date(details.startsAt) : prevSortDate;
-    case 'promotion':
-      return ('startsAt' in body) ? new Date(details.startsAt) : prevSortDate;
-    case 'liveStream':
-      return ('startedAt' in body) ? new Date(details.startedAt) : prevSortDate;
-    default:
-      return prevSortDate;
-  }
+function nextSortDate({ prevSortDate }) {
+  // Never change sortDate on edit – keep original creation-time ordering.
+  return prevSortDate || new Date();
 }
-
 
 function buildDetailsForType(type, body, { isPatch = false } = {}) {
   const has = (k) => Object.prototype.hasOwnProperty.call(body, k);
@@ -246,26 +202,43 @@ function buildDetailsForType(type, body, { isPatch = false } = {}) {
     }
     /* ----------------------------- LIVE STREAM -------------------------- */
     case 'liveStream': {
+      // normalize status coming from callbacks (e.g. 'succeeded' -> 'ended')
+      let status = body.status;
+      if (status === 'succeeded') {
+        status = 'ended';
+      }
+
+      // support either "durationSec" (new) or "durationSecs" (old) in request
+      const durationSec =
+        body.durationSec ??
+        body.durationSecs ??
+        undefined;
+
       if (isPatch) {
         return {
           ...(has('title') ? { title: body.title } : {}),
-          ...(has('status') ? { status: body.status } : {}),
+          ...(has('status') ? { status } : {}),
           ...(has('coverKey') ? { coverKey: body.coverKey } : {}),
-          ...(has('durationSec') ? { durationSec: body.durationSec } : {}),
+          ...(durationSec !== undefined ? { durationSec } : {}),
           ...(has('viewerPeak') ? { viewerPeak: body.viewerPeak } : {}),
           ...(has('startedAt') ? { startedAt: body.startedAt } : {}),
           ...(has('endedAt') ? { endedAt: body.endedAt } : {}),
+          ...(has('playbackUrl') ? { playbackUrl: body.playbackUrl } : {}),
+          ...(has('vodUrl') ? { vodUrl: body.vodUrl } : {}),
         };
       }
-      // create
+
+      // CREATE – build full details block
       return {
         title: body.title || '',
-        status: body.status || 'idle',
+        status: status || 'idle',
         coverKey: body.coverKey || null,
-        durationSec: body.durationSec,
-        viewerPeak: body.viewerPeak || 0,
-        startedAt: body.startedAt,
-        endedAt: body.endedAt,
+        durationSec: durationSec ?? 0,
+        viewerPeak: body.viewerPeak ?? 0,
+        startedAt: body.startedAt || null,
+        endedAt: body.endedAt || null,
+        playbackUrl: body.playbackUrl || null,
+        vodUrl: body.vodUrl || null,
       };
     }
     /* ------------------------------ DEFAULT ----------------------------- */
@@ -276,12 +249,24 @@ function buildDetailsForType(type, body, { isPatch = false } = {}) {
 
 function buildSharedSection(type, body) {
   if (type !== 'sharedPost') return undefined;
-  if (!body.originalPostId) throw new Error('originalPostId is required for sharedPost');
+
+  const hasOriginalId = !!body.originalPostId;
+  const hasSnapshot = !!body.snapshot;
+
+  // You can tweak this rule, but this is a sane default:
+  if (!hasOriginalId && !hasSnapshot) {
+    throw new Error('sharedPost requires originalPostId or snapshot');
+  }
+
   return {
-    originalPostId: oid(body.originalPostId),
+    ...(hasOriginalId ? { originalPostId: oid(body.originalPostId) } : {}),
     originalOwner: body.originalOwner ? oid(body.originalOwner) : undefined,
     originalOwnerModel: body.originalOwnerModel || 'User',
-    snapshot: body.snapshot || undefined,
+    snapshot: hasSnapshot ? body.snapshot : undefined,
+
+    // optional: track original type/kind if you send it from the client
+    originalType: body.originalType || undefined,   // e.g. 'promotion' | 'event'
+    originalKind: body.originalKind || undefined,   // e.g. 'promotion' | 'event' | 'review'
   };
 }
 
@@ -342,11 +327,59 @@ async function diffAndNotifyTags({ post, prevTaggedUserIds, prevPhotos }) {
   );
 }
 
-/** (optional) attach businessName like your GQL field resolver */
+/** Attach businessName + businessLogoUrl for posts/promos/events/snapshots */
+/** Attach businessName + businessLogoUrl for posts/promos/events/snapshots */
 async function attachBusinessNameIfMissing(post) {
-  if (post.businessName || !post.placeId) return post;
-  const biz = await Business.findOne({ placeId: post.placeId }).select('businessName').lean();
-  if (biz?.businessName) post.businessName = biz.businessName;
+  if (!post) return post;
+
+  // Try to derive a placeId from multiple shapes (top-level, original, snapshot, details)
+  const placeId =
+    post.placeId ||
+    post.details?.placeId ||
+    post.details?.place?.placeId ||
+    post.shared?.snapshot?.placeId ||
+    post.original?.placeId ||
+    post.original?.details?.placeId ||
+    null;
+
+  if (!placeId) return post;
+
+  const needsName = !post.businessName;
+  const needsLogo = !post.businessLogoUrl;
+
+  // If nothing is missing, skip DB hit
+  if (!needsName && !needsLogo) return post;
+
+  // Pull fields we care about – adjust to match your Business schema
+  const biz = await Business.findOne({ placeId })
+    .select('businessName businessLogo logo profilePic')
+    .lean();
+
+  if (!biz) return post;
+
+  if (needsName && biz.businessName) {
+    post.businessName = biz.businessName;
+  }
+
+  if (needsLogo) {
+    const logoKey =
+      biz.businessLogo?.photoKey ||
+      biz.logo?.photoKey ||
+      biz.profilePic?.photoKey ||
+      null;
+
+    if (logoKey) {
+      try {
+        post.businessLogoUrl = await getPresignedUrl(logoKey);
+      } catch (e) {
+        console.error('[attachBusinessNameIfMissing] Failed to sign logo key', {
+          placeId,
+          error: e?.message,
+        });
+      }
+    }
+  }
+
   return post;
 }
 
@@ -400,33 +433,107 @@ router.get('/:postId', async (req, res) => {
  */
 router.post('/', async (req, res) => {
   const TAG = '[POST /posts]';
+
+  // ---- raw incoming ----
+  console.log(`${TAG} ▶ Incoming request`, {
+    bodyKeys: Object.keys(req.body || {}),
+    rawType: req.body?.type,
+    rawPostType: req.body?.postType,
+  });
+
+  // Try to surface any "share" hints from the payload
+  console.log(`${TAG} ▶ Share-ish hints`, {
+    isShare: req.body?.isShare,
+    shareType: req.body?.shareType,
+    originalPostId: req.body?.originalPostId,
+    originalPostType: req.body?.originalPostType,
+    fromPostId: req.body?.fromPostId,
+    sharedPostId: req.body?.sharedPostId,
+    liveStreamId: req.body?.liveStreamId,
+    sharedLiveStreamId: req.body?.sharedLiveStreamId,
+  });
+
   const postType = req.body.type || req.body.postType;
+  console.log(`${TAG} ▶ Resolved postType`, postType);
+
   if (!ALLOWED_TYPES.has(postType)) {
+    console.warn(`${TAG} ❌ Unsupported postType`, {
+      postType,
+      allowedTypes: Array.from(ALLOWED_TYPES),
+    });
     return res.status(400).json({ message: 'Unsupported postType' });
   }
 
   try {
     const {
-      userId, placeId, location: rawLoc, businessName,
-      privacy, isPublic, message, photos, taggedUsers
+      userId,
+      placeId,
+      location: rawLoc,
+      businessName,
+      privacy,
+      isPublic,
+      message,
+      photos,
+      taggedUsers,
     } = req.body;
+
+    console.log(`${TAG} ▶ Basic fields`, {
+      userId,
+      placeId,
+      businessName,
+      privacy,
+      isPublic,
+      photosCount: Array.isArray(photos) ? photos.length : null,
+      taggedUsersCount: Array.isArray(taggedUsers) ? taggedUsers.length : null,
+    });
 
     // ---- location sources ----
     const locFromBody = normalizePoint(rawLoc);
+    console.log(`${TAG} ▶ locFromBody`, locFromBody);
 
     // Upsert/lookup business (may give us a location fallback)
     const business = placeId
       ? await upsertBusinessIfNeeded(placeId, businessName, req.body.location)
       : null;
 
+    console.log(`${TAG} ▶ Business lookup / upsert result`, {
+      hasBusiness: !!business,
+      businessId: business?._id,
+      businessName: business?.businessName,
+      businessPlaceId: business?.placeId,
+      businessLocation: business?.location,
+    });
+
     const locFromBusiness = normalizePoint(business?.location);
+    console.log(`${TAG} ▶ locFromBusiness`, locFromBusiness);
+
     const locCandidate = locFromBody || (placeId ? locFromBusiness : null);
+    console.log(`${TAG} ▶ locCandidate`, locCandidate);
 
     // ---- media, tags, details, sort date ----
     const media = await buildMediaFromPhotos(photos || [], userId);
+    console.log(`${TAG} ▶ buildMediaFromPhotos result`, {
+      mediaCount: Array.isArray(media) ? media.length : null,
+      firstMedia: media?.[0],
+    });
+
     const postLevelTags = extractTaggedUserIds(taggedUsers);
+    console.log(`${TAG} ▶ postLevelTags`, postLevelTags);
+
     const details = buildDetailsForType(postType, req.body);
+    console.log(`${TAG} ▶ details from buildDetailsForType`, {
+      kind: details?.kind || details?.type,
+      details,
+    });
+
     const sortDate = getSortDateForType(postType, details);
+    console.log(`${TAG} ▶ sortDate from getSortDateForType`, sortDate);
+
+    const sharedSection = buildSharedSection(postType, req.body);
+    const refsSection = buildRefsSection(postType, req.body);
+
+    console.log(`${TAG} ▶ sharedSection from buildSharedSection`, sharedSection);
+    console.log(`${TAG} ▶ refsSection from buildRefsSection`, refsSection);
 
     // ---- doc to create ----
     const doc = {
@@ -441,8 +548,8 @@ router.post('/', async (req, res) => {
       privacy: privacy || (isPublic === true ? 'public' : undefined),
       sortDate,
       details,
-      shared: buildSharedSection(postType, req.body),
-      refs: buildRefsSection(postType, req.body),
+      shared: sharedSection,
+      refs: refsSection,
     };
 
     // attach location only if strictly valid (and not [0,0] if you choose to skip it)
@@ -450,17 +557,55 @@ router.post('/', async (req, res) => {
       doc.location = locCandidate;
     }
 
+    console.log(`${TAG} ▶ Final doc before Post.create`, {
+      type: doc.type,
+      ownerId: doc.ownerId,
+      hasLocation: !!doc.location,
+      location: doc.location,
+      privacy: doc.privacy,
+      sortDate: doc.sortDate,
+      shared: doc.shared,
+      refs: doc.refs,
+      detailsKind: doc.details?.kind || doc.details?.type,
+    });
+
+    // Extra targeted log for livestream-related posts
+    if (postType === 'liveStream' || postType === 'sharedPost') {
+      console.log(`${TAG} 🔍 LiveStream / SharedPost debug`, {
+        type: doc.type,
+        shared: doc.shared,
+        refs: doc.refs,
+        details,
+      });
+    }
+
     // ---- create post ----
     const post = await Post.create(doc);
+    console.log(`${TAG} ✅ Created Post document`, {
+      postId: post?._id,
+      type: post?.type,
+      detailsKind: post?.details?.kind || post?.details?.type,
+      shared: post?.shared,
+      refs: post?.refs,
+    });
+
     const raw = post.toObject();
 
     const enriched = await hydratePostForResponse(raw, {
       viewerId: userId,
-      attachBusinessNameIfMissing, // same attach you already have
+      attachBusinessNameIfMissing,
     });
+
+    console.log(`${TAG} ▶ hydratePostForResponse output`, {
+      postId: enriched?._id,
+      type: enriched?.type,
+      isShared: !!enriched?.shared,
+      sharedMeta: enriched?.shared,
+    });
+
     return res.status(201).json(enriched);
   } catch (err) {
-    console.error('[POST /posts] ❌', {
+    console.error(`${TAG} ❌ Error creating post`, {
       message: err?.message,
       name: err?.name,
       code: err?.code,
