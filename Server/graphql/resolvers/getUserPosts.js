@@ -1,6 +1,5 @@
 const mongoose = require('mongoose');
 const User = require('../../models/User');
-const HiddenPost = require('../../models/HiddenPosts');
 const Business = require('../../models/Business');
 const { Post } = require('../../models/Post');
 const { hydrateManyPostsForResponse } = require('../../utils/posts/hydrateAndEnrichForResponse');
@@ -55,6 +54,7 @@ const getUserPosts = async (_, { userId, types, limit = 15, after }, context) =>
     // privacy scope
     let allowedPrivacy = ['public'];
     if (viewerId && viewerId.equals(targetId)) {
+      // self: see everything
       allowedPrivacy = ['public', 'followers', 'private', 'unlisted'];
     } else if (viewerId) {
       const viewer = await User.findById(viewerId).select('following').lean();
@@ -64,17 +64,6 @@ const getUserPosts = async (_, { userId, types, limit = 15, after }, context) =>
       allowedPrivacy = followsTarget ? ['public', 'followers'] : ['public'];
     }
 
-    // hidden posts for this viewer
-    let hiddenIds = new Set();
-    if (viewerId) {
-      const rows = await HiddenPost.find(
-        { userId: viewerId, targetRef: 'Post' },
-        { targetId: 1, _id: 0 }
-      ).lean();
-      hiddenIds = new Set(rows.map((r) => String(r.targetId)));
-    }
-
-    // type filter (optional)
     const typeList = normalizeTypesArg(types);
     const typeFilter = typeList ? { type: { $in: typeList } } : {};
 
@@ -95,13 +84,10 @@ const getUserPosts = async (_, { userId, types, limit = 15, after }, context) =>
       .limit(Math.min(Number(limit) || 15, 100))
       .lean();
 
-    // apply hidden filter
-    const visible = items.filter((p) => !hiddenIds.has(String(p._id)));
-    if (!visible.length) return [];
+    if (!items.length) return [];
 
-    // hydrate + enrich (batch), attach businessName on top/original/snapshot
-    const enriched = await hydrateManyPostsForResponse(visible, {
-      viewerId: viewerId ? String(viewerId) : null,
+    const enriched = await hydrateManyPostsForResponse(items, {
+      viewerId: viewerIdStr || null,        // used by filterHiddenPostsForViewer
       attachBusinessNameIfMissing,
     });
 

@@ -1,20 +1,50 @@
 const mongoose = require('mongoose');
 
+const TAGGABLE_TYPES = [
+  'review',
+  'check-in',
+  'invite',
+  'event',
+  'promotion',
+  'sharedPost',
+  'liveStream',
+];
+
 const HiddenTagSchema = new mongoose.Schema(
   {
-    userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    targetRef: { type: String, enum: ['Review', 'CheckIn'], required: true }, // match Model.modelName
-    targetId:  { type: mongoose.Schema.Types.ObjectId, required: true },
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+      index: true,
+    },
+
+    // Canonical logical type (NOT model name)
+    targetRef: {
+      type: String,
+      enum: TAGGABLE_TYPES,
+      required: true,
+    },
+
+    // ID of the thing they’re tagged in
+    targetId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true,
+    },
   },
   {
-    timestamps: { createdAt: true, updatedAt: false }, // cleaner than manual createdAt
+    timestamps: { createdAt: true, updatedAt: false },
   }
 );
 
-// One row per (user, postType, postId)
-HiddenTagSchema.index({ userId: 1, targetRef: 1, targetId: 1 }, { unique: true });
+// One row per (user, type, target)
+HiddenTagSchema.index(
+  { userId: 1, targetRef: 1, targetId: 1 },
+  { unique: true }
+);
 
 // Helpful for "list hidden" UIs / admin tools
 HiddenTagSchema.index({ userId: 1, createdAt: -1 });
 
-module.exports = mongoose.model('HiddenTag', HiddenTagSchema);
+const HiddenTag = mongoose.model('HiddenTag', HiddenTagSchema);
+module.exports = HiddenTag;

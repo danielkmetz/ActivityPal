@@ -19,14 +19,17 @@ const SharedPostStoryContent = ({
   const navigation = useNavigation();
   const [showBubble, setShowBubble] = useState(false);
   const timeoutRef = useRef(null);
-
-  const videoCheck = isVideo(post);
+  const postContent = post?.original ?? post ?? {};
+  const details = postContent?.details || {};
+  const mediaToCheck = details?.playbackUrl ?? postContent ?? {}; 
+  const videoCheck = isVideo(mediaToCheck);
   const mediaType = videoCheck ? 'video' : 'image';
   const mediaUrl =
-    post?.media?.[0]?.url ||
-    post?.photos?.[0]?.url ||
-    post?.mediaUrl;
-  const postType = post?.type;
+    postContent?.media?.[0]?.url ||
+    postContent?.photos?.[0]?.url ||
+    postContent?.mediaUrl ||
+    details?.playbackUrl || details?.mediaUrl;
+  const postType = postContent?.type;
 
   const handlePress = () => {
     if (!showBubble && !isPreview) {
@@ -58,13 +61,14 @@ const SharedPostStoryContent = ({
     return () => clearTimeout(timeoutRef.current);
   }, []);
 
+
   if (isPreview) {
     return (
       <View style={styles.wrapper}>
         <View style={styles.previewContainer}>
           <PostPreview
             postPreview={{
-              ...post,
+              ...postContent,
               mediaType,
               mediaUrl,
               postType,

@@ -152,7 +152,7 @@ export const fetchPostsByUserId = createAsyncThunk(
     try {
       const variables = {
         userId,
-        types: ["review", "check-in"], // filter explicitly
+        types: ["review", "check-in", "liveStream", "sharedPost"], // filter explicitly
         limit,
         after,
       };
