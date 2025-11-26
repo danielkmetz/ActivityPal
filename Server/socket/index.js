@@ -1,7 +1,6 @@
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const nsDirectMessaging = require('./messagingSocket');
-const setupLiveNamespace = require('./liveChatSocket');
 
 // OPTIONAL: Redis for multi-node presence + (optionally) socket adapter
 // const { createAdapter } = require('@socket.io/redis-adapter');
@@ -76,16 +75,13 @@ module.exports = async function attachSocketServer(httpServer, app) {
   // const redis = process.env.REDIS_URL ? new Redis(process.env.REDIS_URL) : null;
   // const liveBus = setupLiveNamespace(live, { redis });
 
-  const liveBus = setupLiveNamespace(live, { redis: null });
-
   // (Optional) root namespace
   io.on('connection', () => { /* no-op */ });
 
   // Make them available to the rest of the app (handy in routes/webhooks)
   if (app) {
     app.set('io', io);
-    app.set('liveBus', liveBus);
   }
 
-  return { io, liveBus };
+  return { io };
 };

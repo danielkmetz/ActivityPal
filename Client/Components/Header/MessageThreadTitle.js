@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, Image, StyleSheet } from 'react-native';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
-import StoryAvatar from '../Stories/StoryAvatar';
+import ProfilePic from '../Reviews/PostHeader/ProfilePic';
 
 const MessageThreadTitle = ({ users = [] }) => {
     if (!Array.isArray(users) || users.length === 0) return null;
@@ -11,7 +11,7 @@ const MessageThreadTitle = ({ users = [] }) => {
         const fullName = `${user?.firstName} ${user?.lastName}`;
         return (
             <View style={styles.singleContainer}>
-                <StoryAvatar userId={user._id} profilePicUrl={user.profilePicUrl} />
+                <ProfilePic userId={user._id} profilePicUrl={user.profilePicUrl} />
                 <Text style={styles.userText}>{fullName}</Text>
             </View>
         );

@@ -1,11 +1,11 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import StoryAvatar from '../../Stories/StoryAvatar';
+import ProfilePic from '../PostHeader/ProfilePic';
 
 export default function InviteHeader({ sender, totalInvited, onPressName }) {
   return (
     <View style={styles.header}>
-      <StoryAvatar userId={sender?.id} profilePicUrl={sender?.profilePicUrl} />
+      <ProfilePic userId={sender?.id} profilePicUrl={sender?.profilePicUrl} />
       <View style={styles.headerText}>
         <Text style={styles.senderName}>
           <Text onPress={onPressName} style={styles.senderName}>
@@ -21,5 +21,5 @@ export default function InviteHeader({ sender, totalInvited, onPressName }) {
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   headerText: { flexDirection: 'column', flexShrink: 1 },
-  senderName: { fontWeight: 'bold', fontSize: 16 },
+  senderName: { fontWeight: 'bold', fontSize: 16, marginLeft: 10 },
 });

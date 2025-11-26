@@ -37,7 +37,7 @@ export default function SharePostModal({
   const profilePicUrl = profilePic?.url || null;
   const sharedPost = isEditing ? post?.original : post;
   const details = post?.details || {};
-  const replayUrl = details.playbackUrl || details.vodUrl || post?.playbackUrl || null;
+  const replayUrl = details?.playbackUrl || details?.vodUrl || post?.playbackUrl || null;
 
   const replayFile = useMemo(() => {
     if (!replayUrl) return null;

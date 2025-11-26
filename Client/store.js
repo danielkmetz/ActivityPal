@@ -16,17 +16,14 @@ import businessNotificationsReducer from './Slices/BusNotificationsSlice';
 import commentThreadReducer from './Slices/CommentThreadSlice';
 import modalReducer from './Slices/ModalSlice';
 import recentSearchesReducer from './Slices/RecentSearchesSlice';
-import storiesReducer from './Slices/StoriesSlice';
 import directMessagesReducer from './Slices/DirectMessagingSlice';
 import engagementReducer from './Slices/EngagementSlice';
 import insightsReducer from './Slices/InsightsSlice';
-import liveStreamReducer from './Slices/LiveStreamSlice';
 import commentsReducer from './Slices/CommentsSlice';
 import { commentsListener } from './Listeners/comments';
 import { likesListener } from './Listeners/likes';
 import { tagRemovalListener } from './Listeners/tagRemoval';
 import { crashLoggerMiddleware } from './crashLoggerMiddleware';
-import LiveChatReducer from './Slices/LiveChatSlice';
 import likesReducer from './Slices/LikesSlice';
 import removeTagsReducer from './Slices/RemoveTagsSlice';
 import taggedPostsReducer from './Slices/TaggedPostsSlice';
@@ -53,13 +50,10 @@ const store = configureStore({
         commentThread: commentThreadReducer,
         recentSearches: recentSearchesReducer,
         modals: modalReducer,
-        stories: storiesReducer,
         directMessages: directMessagesReducer,
         engagement: engagementReducer,
         insights: insightsReducer,
-        live: liveStreamReducer,
         comments: commentsReducer,
-        liveChat: LiveChatReducer,
         likes: likesReducer,
         removeTags: removeTagsReducer,
         taggedPosts: taggedPostsReducer,
