@@ -73,8 +73,20 @@ export const NESTED_POST_FIELDS = gql`
         startsAt
         endsAt
         hostId
+        allDay
+        recurring
+        recurringDays
+        address
+        title
+        description
       }
       ... on PromotionDetails {
+        allDay
+        recurring
+        recurringDays
+        address
+        title
+        description
         startsAt
         endsAt
         discountPct

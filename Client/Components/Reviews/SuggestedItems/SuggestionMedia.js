@@ -14,8 +14,8 @@ const screenWidth = Dimensions.get("window").width;
 
 export default function SuggestionMedia({
   suggestion,
-  scrollX,              
-  currentIndexRef,      
+  scrollX,
+  currentIndexRef,
   setInviteModalVisible,
 }) {
   const navigation = useNavigation();
@@ -176,13 +176,14 @@ export default function SuggestionMedia({
               <Text style={[styles.overlayText, { fontSize: overlayTextSize }]} numberOfLines={1}>
                 {businessName}
               </Text>
-              <Text style={styles.overlaySubText}>
-                {distance ? `${(distance / 1609).toFixed(1)} mi away` : null}
-              </Text>
+              {distance && (
+                <Text style={styles.overlaySubText}>
+                  {`${(distance / 1609).toFixed(1)} mi away`}
+                </Text>
+              )}
             </View>
           </View>
         </TouchableWithoutFeedback>
-
         <TouchableOpacity style={styles.inviteButton} onPress={onInvitePress}>
           <Text style={styles.inviteText}>{existingInvite ? "Edit Invite" : "Invite"}</Text>
         </TouchableOpacity>

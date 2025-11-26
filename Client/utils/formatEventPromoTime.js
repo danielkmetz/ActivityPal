@@ -33,7 +33,7 @@ const toDate = (value, { timeOnly = false } = {}) => {
 };
 
 /* ------------------------------------------------------------------ */
-/* Your existing helper, rewritten to use toDate (same behavior)      */
+/* Existing helpers                                                   */
 /* ------------------------------------------------------------------ */
 
 export const formatTimeTo12Hour = (value) => {
@@ -47,12 +47,7 @@ export const formatTimeTo12Hour = (value) => {
   });
 };
 
-/* ------------------------------------------------------------------ */
-/* Updated helpers to mirror formatTimeTo12Hour                       */
-/* ------------------------------------------------------------------ */
-
 export const formatTime = (value) => {
-  // Just reuse the robust helper
   return formatTimeTo12Hour(value);
 };
 
@@ -80,41 +75,86 @@ const getShortDay = (day) => {
   return map[day] || day;
 };
 
+/* ------------------------------------------------------------------ */
+/* NEW: normalize fields from top-level OR details                    */
+/* ------------------------------------------------------------------ */
+
+const resolveRecurringMeta = (item = {}) => {
+  const d = item.details || {};
+
+  const recurring =
+    typeof item.recurring === "boolean"
+      ? item.recurring
+      : (typeof d.recurring === "boolean" ? d.recurring : false);
+
+  const recurringDays = Array.isArray(item.recurringDays)
+    ? item.recurringDays
+    : (Array.isArray(d.recurringDays) ? d.recurringDays : []);
+
+  const allDay =
+    typeof item.allDay === "boolean"
+      ? item.allDay
+      : (typeof d.allDay === "boolean" ? d.allDay : false);
+
+  // Prefer explicit startTime/endTime first, then startsAt/endsAt, then details.*
+  const startTime =
+    item.startTime ??
+    item.startsAt ??
+    d.startTime ??
+    d.startsAt ??
+    null;
+
+  const endTime =
+    item.endTime ??
+    item.endsAt ??
+    d.endTime ??
+    d.endsAt ??
+    null;
+
+  const kind = (item.kind || "").toLowerCase();
+
+  return { recurring, recurringDays, allDay, startTime, endTime, kind };
+};
+
+/* ------------------------------------------------------------------ */
+/* Updated getTimeLabel                                               */
+/* ------------------------------------------------------------------ */
+
 export const getTimeLabel = (item) => {
   if (!item) return null;
-  if (item.allDay) return "Happening All Day";
 
-  const kind = item.kind?.toLowerCase() || "";
+  const { recurring, recurringDays, allDay, startTime, endTime, kind } =
+    resolveRecurringMeta(item);
+
+  if (allDay) return "Happening All Day";
 
   // 🌀 Recurring with days
   if (
-    item.recurring &&
-    Array.isArray(item.recurringDays) &&
-    item.startTime &&
-    item.endTime
+    recurring &&
+    Array.isArray(recurringDays) &&
+    recurringDays.length &&
+    startTime &&
+    endTime
   ) {
-    const shortDays = item.recurringDays.map(getShortDay).join(", ");
-    const start = formatTimeTo12Hour(item.startTime);
-    const end = formatTimeTo12Hour(item.endTime);
+    const shortDays = recurringDays.map(getShortDay).join(", ");
+    const start = formatTimeTo12Hour(startTime);
+    const end = formatTimeTo12Hour(endTime);
     return `${shortDays} from ${start} - ${end}`;
   }
 
   // 🔵 Active
-  if (kind.includes("active") && item.endTime) {
-    return `Ends at ${formatTimeTo12Hour(item.endTime)}`;
+  if (kind.includes("active") && endTime) {
+    return `Ends at ${formatTimeTo12Hour(endTime)}`;
   }
 
   // 🟡 Upcoming
-  if (kind.includes("upcoming") && item.startTime) {
-    return `Starts at ${formatTimeTo12Hour(item.startTime)}`;
+  if (kind.includes("upcoming") && startTime) {
+    return `Starts at ${formatTimeTo12Hour(startTime)}`;
   }
 
   // 🔴 Inactive
-  if (kind.includes("inactive") && item.endTime) {
-    // Assuming endTime is a real date/ISO here
-    return `Ended on ${formatDate(item.endTime)} at ${formatTimeTo12Hour(
-      item.endTime
-    )}`;
+  if (kind.includes("inactive") && endTime) {
+    return `Ended on ${formatDate(endTime)} at ${formatTimeTo12Hour(endTime)}`;
   }
 
   return null;

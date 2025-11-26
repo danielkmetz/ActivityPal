@@ -36,63 +36,67 @@ export default function CheckInItem({
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
     const [viewerOptionsVisible, setViewerOptionsVisible] = useState(false);
     const scrollX = useRef(new Animated.Value(0)).current;
-    const postContent = item?.original ? item?.original : item
+    const postContent = item?.original ?? item ?? {};
     const message = postContent?.message || postContent?.message;
     const postMedia = postContent?.media || postContent?.photos || postContent?.details?.media || postContent?.details?.photos;
     const hasNoMedia = !Array.isArray(postMedia) || postMedia.length === 0;
 
     return (
-        <MaybeTWF enabled={!!embeddedInShared} onPress={() => { }}>
-            <View style={[styles.reviewCard, embeddedInShared && styles.sharedHeader]}>
-                <PostOptionsMenu
-                    dropdownVisible={dropdownVisible}
-                    setDropdownVisible={setDropdownVisible}
-                    handleEdit={handleEdit}
-                    handleDelete={handleDelete}
-                    embeddedInShared={embeddedInShared}
-                    postData={item}
-                />
-                <ViewerOptionsTrigger
-                    post={item}
-                    embeddedInShared={embeddedInShared}
-                    onPress={() => setViewerOptionsVisible(true)}
-                />
-                <View style={styles.section}>
-                    <PostHeader
-                        post={item}
-                        includeAtWithBusiness
-                        showAtWhenNoTags
+        <View>
+            <MaybeTWF enabled={!!embeddedInShared} onPress={() => { }}>
+                <View style={[styles.reviewCard, embeddedInShared && styles.sharedHeader]}>
+                    <PostOptionsMenu
+                        dropdownVisible={dropdownVisible}
+                        setDropdownVisible={setDropdownVisible}
+                        handleEdit={handleEdit}
+                        handleDelete={handleDelete}
+                        embeddedInShared={embeddedInShared}
+                        postData={item}
                     />
-                    {!!message && (
-                        <Text style={styles.message}>{message || null}</Text>
-                    )}
-                    {hasNoMedia && (
-                        <Image
-                            source={{
-                                uri: pinPic,
-                            }}
-                            style={styles.pinIcon}
+                    <ViewerOptionsTrigger
+                        post={item}
+                        embeddedInShared={embeddedInShared}
+                        onPress={() => setViewerOptionsVisible(true)}
+                    />
+                    <View style={styles.section}>
+                        <PostHeader
+                            post={item}
+                            includeAtWithBusiness
+                            showAtWhenNoTags
+                            embeddedInShared={embeddedInShared}
                         />
-                    )}
+                        {!!message && (
+                            <Text style={styles.message}>{message || null}</Text>
+                        )}
+                        {hasNoMedia && (
+                            <Image
+                                source={{
+                                    uri: pinPic,
+                                }}
+                                style={styles.pinIcon}
+                            />
+                        )}
+                    </View>
+                    <PhotoFeed
+                        post={item}
+                        scrollX={scrollX}
+                        currentIndexRef={{ current: currentPhotoIndex, setCurrent: setCurrentPhotoIndex }}
+                        photoTapped={photoTapped}
+                        setPhotoTapped={setPhotoTapped}
+                    />
+                    <PostActions
+                        post={item}
+                        onShare={onShare}
+                        embeddedInShared={embeddedInShared}
+                    />
                 </View>
-                <PhotoFeed
-                    post={item}
-                    scrollX={scrollX}
-                    currentIndexRef={{ current: currentPhotoIndex, setCurrent: setCurrentPhotoIndex }}
-                    photoTapped={photoTapped}
-                    setPhotoTapped={setPhotoTapped}
-                />
-                <PostActions
-                    post={item}
-                    onShare={onShare}
-                />
-            </View>
+            </MaybeTWF>
             <NonOwnerOptions
                 visible={viewerOptionsVisible}
                 post={item}
                 onClose={() => setViewerOptionsVisible(false)}
             />
-        </MaybeTWF>
+        </View>
     );
 }
 
