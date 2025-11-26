@@ -12,9 +12,8 @@ import VideoThumbnail from '../VideoThumbnail';
 import { handleLikeWithAnimation as likeWithAnim } from '../../../utils/LikeHandlers';
 import { useLikeAnimations } from '../../../utils/LikeHandlers/LikeAnimationContext';
 import { selectNearbySuggestionById } from '../../../Slices/GooglePlacesSlice';
-import StoryAvatar from '../../Stories/StoryAvatar';
+import ProfilePic from '../PostHeader/ProfilePic';
 import ExpandableText from '../ExpandableText';
-import ShareOptionsModal from '../SharedPosts/ShareOptionsModal';
 import SharePostModal from '../SharedPosts/SharePostModal';
 import { pickPostId } from '../../../utils/posts/postIdentity';
 import { selectPromotionById } from '../../../Slices/PromotionsSlice';
@@ -61,7 +60,6 @@ const FullScreenPhoto = () => {
   const [originalSize, setOriginalSize] = useState({ width: 1, height: 1 });
   const [renderedSize, setRenderedSize] = useState({ width, height });
   const [selectedPostForShare, setSelectedPostForShare] = useState(null);
-  const [shareOptionsVisible, setShareOptionsVisible] = useState(false);
   const [shareToFeedVisible, setShareToFeedVisible] = useState(false);
   const currentFile = files[currentIndex];
   const { getAnimation, registerAnimation } = useLikeAnimations();
@@ -116,22 +114,12 @@ const FullScreenPhoto = () => {
     }
   };
 
-  const openShareOptions = (post) => {
-    setShareOptionsVisible(true);
-    setSelectedPostForShare(post);
-  };
-
-  const openShareToFeedModal = () => {
-    setShareOptionsVisible(false);
+  const openShareToFeedModal = (post) => {
     setShareToFeedVisible(true);
+    setSelectedPostForShare(post);
+    medium();
   };
 
-  const handleShareToStory = () => {
-    setShareOptionsVisible(false);
-    navigation.navigate('StoryPreview', { post: selectedPostForShare });
-  };
-
-  const closeShareOptions = () => setShareOptionsVisible(false);
   const closeShareToFeed = () => {
     setShareToFeedVisible(false);
     setSelectedPostForShare(null);
@@ -229,19 +217,18 @@ const FullScreenPhoto = () => {
             </View>
           )}
         />
-
         {/* Actions */}
         <View style={styles.actionsContainer}>
           <PostActions 
             post={review}
-            onShare={openShareOptions}
+            onShare={openShareToFeedModal}
             orientation={"column"}
           />
         </View>
         {/* Owner + text */}
         <View style={styles.bottomOverlay}>
           <View style={styles.postOwner}>
-            <StoryAvatar userId={ownerId} profilePicUrl={ownerPic} />
+            <ProfilePic userId={ownerId} profilePicUrl={ownerPic} />
             <Text style={styles.postOwnerName}>{ownerName}</Text>
           </View>
           {review?.title ? <Text style={styles.title}>{review.title}</Text> : null}
@@ -256,12 +243,6 @@ const FullScreenPhoto = () => {
       </View>
       {/* Share flows */}
       <SharePostModal visible={shareToFeedVisible} onClose={closeShareToFeed} post={selectedPostForShare} />
-      <ShareOptionsModal
-        visible={shareOptionsVisible}
-        onClose={closeShareOptions}
-        onShareToFeed={openShareToFeedModal}
-        onShareToStory={handleShareToStory}
-      />
     </View>
   );
 };

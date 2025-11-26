@@ -21,10 +21,8 @@ import { uploadReviewPhotos } from '../../Slices/PhotosSlice';
 import { useLikeAnimations } from '../../utils/LikeHandlers/LikeAnimationContext';
 import { addComment as addCommentGeneric, toApiPostType } from '../../Slices/CommentsSlice';
 import { selectPostById, selectSelectedPost } from '../../Slices/PostsSlice';
-import ShareOptionsModal from './SharedPosts/ShareOptionsModal';
 import SharePostModal from './SharedPosts/SharePostModal';
 import { medium } from '../../utils/Haptics/haptics';
-import { useNavigation } from '@react-navigation/native';
 
 dayjs.extend(relativeTime);
 
@@ -32,7 +30,6 @@ export default function CommentScreen() {
     const route = useRoute();
     const { reviewId, targetId } = route.params || {};
     const dispatch = useDispatch();
-    const navigation = useNavigation();
     const selectedReview = useSelector(selectSelectedPost);
     const reviewFromFeed = useSelector((state) => selectPostById(state, reviewId));
     const review = reviewFromFeed || selectedReview;
@@ -53,7 +50,6 @@ export default function CommentScreen() {
     const [inputHeight, setInputHeight] = useState(40);
     const [contentHeight, setContentHeight] = useState(40);
     const [selectedMedia, setSelectedMedia] = useState([]);
-    const [shareOptions, setShareOptions] = useState(false);
     const [shareToFeedVisible, setShareToFeedVisible] = useState(false);
     const [selectedPostForShare, setSelectedPostForShare] = useState(null);
     const [editingSharedPost, setEditingSharedPost] = useState(false);
@@ -104,28 +100,15 @@ export default function CommentScreen() {
         setInputHeight(Math.min(Math.max(40, contentHeight), 150));
     }, [contentHeight]);
 
-    const openShareOptions = (post) => {
-        setSelectedPostForShare(post);
-        setShareOptions(true);
-        medium();
-    };
-
-    const openShareToFeedModal = () => {
-        setShareOptions(false);
+    const openShareToFeedModal = (post) => {
         setShareToFeedVisible(true);
+        setSelectedPostForShare(post);
+        medium();
     };
 
     const closeShareToFeed = () => {
         setShareToFeedVisible(false);
         setSelectedPostForShare(null);
-    };
-
-    const handleShareToStory = () => {
-        setShareOptions(false);
-
-        navigation.navigate('StoryPreview', {
-            post: selectedPostForShare,
-        })
     };
 
     // ✅ Centralized "add comment" with deep logging
@@ -345,7 +328,7 @@ export default function CommentScreen() {
                         photoTapped={photoTapped}
                         setPhotoTapped={setPhotoTapped}
                         setIsPhotoListActive={setIsPhotoListActive}
-                        onShare={openShareOptions}
+                        onShare={openShareToFeedModal}
                     />
                 }
                 renderItem={({ item }) => (
@@ -380,12 +363,6 @@ export default function CommentScreen() {
                 post={selectedPostForShare}
                 isEditing={editingSharedPost}
                 setIsEditing={setEditingSharedPost}
-            />
-            <ShareOptionsModal
-                visible={shareOptions}
-                onClose={() => setShareOptions(false)}
-                onShareToFeed={openShareToFeedModal}
-                onShareToStory={handleShareToStory}
             />
         </Animated.View>
     );

@@ -32,7 +32,6 @@ import {
 import { fetchProfilePic } from './Slices/PhotosSlice';
 import client from './apolloClient';
 import { LikeAnimationsProvider } from './utils/LikeHandlers/LikeAnimationContext';
-import { useLiveSocketBootstrap } from './useLiveSocketBootstrap';
 import { BusinessReviewsProvider } from './Providers/BusinessReviewsContext';
 import { UserFeedProvider } from './Providers/UserFeedContext';
 import { HiddenTaggedProvider } from './Providers/HiddenTaggedContext';
@@ -90,9 +89,6 @@ function MainApp() {
   const userId = user?.id;
   const lat = coordinates?.lat;
   const lng = coordinates?.lng;
-
-  // Live socket bootstrap
-  useLiveSocketBootstrap(BASE_URL);
 
   const {
     scrollY,
@@ -198,8 +194,6 @@ function MainApp() {
       'OtherUserProfile',
       'BusinessProfile',
       'CameraScreen',
-      'StoryPreview',
-      'StoryViewer',
       'CommentScreen',
       'FullScreenPhoto',
     ];
@@ -221,15 +215,9 @@ function MainApp() {
         currentRoute !== 'OtherUserProfile' &&
         currentRoute !== 'BusinessProfile' &&
         currentRoute !== 'CameraScreen' &&
-        currentRoute !== 'StoryPreview' &&
-        currentRoute !== 'StoryViewer' &&
         currentRoute !== 'CommentScreen' &&
         currentRoute !== 'FullScreenPhoto' &&
-        currentRoute !== 'EventDetails' &&
-        currentRoute !== 'GoLive' &&
-        currentRoute !== 'LivePlayer' &&
-        currentRoute !== 'GoLiveTest' &&
-        currentRoute !== 'LiveSummary' && (
+        currentRoute !== 'EventDetails' && (
           <Animated.View
             style={[styles.header, { transform: [{ translateY: headerTranslateY }] }]}
           >

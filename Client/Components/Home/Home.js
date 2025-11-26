@@ -7,8 +7,6 @@ import { selectUser } from '../../Slices/UserSlice';
 import { fetchFavorites } from '../../Slices/FavoritesSlice';
 import Reviews from '../Reviews/Reviews';
 import InviteModal from '../ActivityInvites/InviteModal';
-import { selectStories, fetchStories } from '../../Slices/StoriesSlice';
-import Stories from '../Stories/Stories';
 import { closeInviteModal, inviteModalStatus } from '../../Slices/ModalSlice';
 import { selectNearbySuggestions } from '../../Slices/GooglePlacesSlice';
 import { fetchConversations } from '../../Slices/DirectMessagingSlice';
@@ -23,7 +21,6 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
   const suggestedFollows = useSelector(selectSuggestedUsers);
   const nearbySuggestions = useSelector(selectNearbySuggestions);
   const inviteModal = useSelector(inviteModalStatus);
-  const stories = useSelector(selectStories);
   const suggestedPosts = useSelector(selectSuggestedPosts);
   const [updatedFeed, setUpdatedFeed] = useState([]);
   const userId = user?.id;
@@ -33,7 +30,6 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
     if (!userId) return;
 
     dispatch(fetchFavorites(userId));
-    dispatch(fetchStories(userId));
     dispatch(fetchFollowRequests(userId));
     dispatch(fetchMutualFriends(userId));
     dispatch(fetchFollowersAndFollowing(userId));
@@ -107,9 +103,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
         hasMore={hasMore}
         reviews={updatedFeed} // unified posts
         ListHeaderComponent={
-          <View style={styles.storiesWrapper}>
-            <Stories stories={stories} />
-          </View>
+          <View style={{ paddingTop: 120}} />
         }
       />
       {isAtEnd && <View style={styles.bottom} />}
@@ -126,12 +120,11 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
 export default Home;
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5', marginTop: -70 },
+  container: { flex: 1, backgroundColor: '#f5f5f5', },
   input: {
     backgroundColor: '#009999',
     paddingVertical: 10,
     alignItems: 'center',
   },
-  storiesWrapper: { backgroundColor: '#008080', paddingTop: 190 },
   bottom: { marginBottom: 30 },
 });

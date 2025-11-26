@@ -9,15 +9,12 @@ const { getUserActivity } = require('./resolvers/getUserActivity.js');
 const { getUserPosts } = require('./resolvers/getUserPosts.js');
 const { getPostsByPlace } = require('./resolvers/getPostsByPlace.js'); // reused as getPostsByPlace
 const { getSuggestedFollows } = require('./resolvers/getSuggestedFollows.js');
-const { userAndFollowingStories } = require('./resolvers/userAndFollowingStories.js');
-const { storiesByUser } = require('./resolvers/storiesByUser.js');
 const { getBusinessRatingSummaries } = require('./resolvers/getBusinessRatingSummaries.js');
 const { getUserTaggedPosts } = require('./resolvers/getUserTaggedPosts.js');
 
 // Models used in field resolvers
 const User = require('../models/User');
 const Business = require('../models/Business');
-const LiveStream = require('../models/LiveStream'); // if you keep a separate LS model
 const { getUserFromToken } = require('../utils/auth.js');
 
 // ---------------- Scalars ----------------
@@ -81,8 +78,6 @@ const resolvers = {
 
     // Other queries you already have
     getSuggestedFollows,
-    userAndFollowingStories,
-    storiesByUser,
     getBusinessRatingSummaries,
   },
 
@@ -135,12 +130,6 @@ const resolvers = {
     },
   },
 
-  // If you expose refs.liveStream → hydrate it here
-  PostRefs: {
-    liveStream: (refs) =>
-      refs?.liveStreamId ? LiveStream.findById(refs.liveStreamId).lean() : null,
-  },
-
   // Discriminate the Post.details union based on present fields
   PostDetails: {
     __resolveType(obj) {
@@ -149,7 +138,6 @@ const resolvers = {
       if ('dateTime' in obj || 'recipients' in obj) return 'InviteDetails';
       if ('startsAt' in obj || 'endsAt' in obj || 'hostId' in obj) return 'EventDetails';
       if ('discountPct' in obj || 'code' in obj) return 'PromotionDetails';
-      if ('title' in obj || 'status' in obj || 'viewerPeak' in obj) return 'LiveStreamDetails';
       if ('date' in obj) return 'CheckInDetails';
       return null;
     },

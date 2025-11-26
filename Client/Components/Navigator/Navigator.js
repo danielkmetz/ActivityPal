@@ -17,11 +17,9 @@ import Insights from '../Insights/Insights';
 import Friends from '../Friends/Friends';
 import OtherUserProfile from '../Profile/OtherUserProfile';
 import CameraScreen from '../CameraScreen/CameraScreen';
-import StoryPreview from '../Stories/StoriesPreview';
 import { selectIsBusiness, selectUser } from '../../Slices/UserSlice';
 import { useSelector } from "react-redux";
 import CommentScreen from '../Reviews/CommentScreen';
-import StoryViewer from '../Stories/StoryViewer';
 import CreatePost from '../Reviews/CreatePost/CreatePost';
 import FullScreenPhoto from '../Reviews/Photos/FullScreenPhoto';
 import DirectMessagesScreen from '../DirectMessages/DirectMessagesScreen';
@@ -31,9 +29,6 @@ import FilterSortScreen from '../Activities/FilterSortScreen';
 import EventDetailsScreen from '../Activities/EventPromoDetails/EventDetailsScreen';
 import { selectProfilePic } from '../../Slices/PhotosSlice';
 import SettingsScreen from '../Profile/Settings/SettingsScreen';
-import LiveSummary from '../LiveStream/Screens/LiveSummary';
-import LivePlayerScreen from '../LiveStream/LivePlayer/LivePlayerScreen';
-import GoLive from '../LiveStream/Screens/GoLive';
 import HiddenPostsScreen from '../Profile/Settings/HiddenPostsScreen';
 import CreateEventOrPromoPage from '../BusinessEvents/CreateEventPromo/CreateEventOrPromoPage';
 
@@ -253,8 +248,6 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
             </Stack.Screen>
             <Stack.Screen name="BusinessProfile" component={BusinessProfile} />
             <Stack.Screen name="CameraScreen" component={CameraScreen} />
-            <Stack.Screen name="StoryPreview" component={StoryPreview} />
-            <Stack.Screen name="StoryViewer" component={StoryViewer} />
             <Stack.Screen name="Notifications" component={Notifications} />
             <Stack.Screen name="CreatePost" component={CreatePost} />
             <Stack.Screen name="CreateEventOrPromo" component={CreateEventOrPromoPage} />
@@ -267,18 +260,6 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
             <Stack.Screen name="EventDetails" component={EventDetailsScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
             <Stack.Screen name="HiddenPosts" component={HiddenPostsScreen} scrollY={scrollY} onScroll={onScroll} isAtEnd={isAtEnd} />
-            <Stack.Screen name="LiveSummary" component={LiveSummary} options={{ title: 'Live summary' }} />
-            <Stack.Screen
-                name="LivePlayer"
-                component={LivePlayerScreen}
-                options={{
-                    headerShown: false,
-                    contentStyle: { backgroundColor: 'black' },
-                    // 👇 this is the key: let it draw edge-to-edge
-                    safeAreaInsets: { top: 0, bottom: 0 },
-                }}
-            />
-            <Stack.Screen name="GoLive" component={GoLive} />
         </Stack.Navigator>
     )
 }
