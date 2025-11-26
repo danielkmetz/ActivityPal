@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Image } from 'react-native'; // ✅ add Image
-import StoryAvatar from '../../Stories/StoryAvatar';
+import ProfilePic from './ProfilePic';
 import TaggedUsersLine from './TaggedUsersLine';
 import FollowButton from '../PostActions/FollowButton';
 import { useSelector } from 'react-redux';           // ✅ useSelector
@@ -47,7 +47,7 @@ export default function PostHeader({
   return (
     <View style={[styles.header, containerStyle]}>
       <View style={[styles.userPicAndName, leftContainerStyle]}>
-        <StoryAvatar userId={ownerId} profilePicUrl={profilePicUrl} />
+        <ProfilePic userId={ownerId} profilePicUrl={profilePicUrl} />
         <View >
           <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
             <TaggedUsersLine

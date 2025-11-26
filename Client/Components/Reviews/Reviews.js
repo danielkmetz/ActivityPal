@@ -10,8 +10,6 @@ import CheckInItem from './CheckInItem';
 import SuggestionItem from './SuggestionItem';
 import SharedPostItem from './SharedPosts/SharedPostItem';
 import SharePostModal from './SharedPosts/SharePostModal';
-import ShareOptionsModal from './SharedPosts/ShareOptionsModal';
-import LiveStreamCard from '../LiveStream/LiveStreamCard';
 import { medium } from '../../utils/Haptics/haptics';
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
@@ -28,7 +26,6 @@ export default function Reviews({
   const dispatch = useDispatch();
   const navigation = useNavigation();
   const [photoTapped, setPhotoTapped] = useState(null);
-  const [shareOptionsVisible, setShareOptionsVisible] = useState(false);
   const [shareToFeedVisible, setShareToFeedVisible] = useState(false);
   const [selectedPostForShare, setSelectedPostForShare] = useState(null);
   const [editingSharedPost, setEditingSharedPost] = useState(false);
@@ -233,26 +230,10 @@ export default function Reviews({
     }
   };
 
-  const openShareOptions = (post) => {
-    setShareOptionsVisible(true);
+  const openShareToFeedModal = (post) => {
+    setShareToFeedVisible(true);
     setSelectedPostForShare(post);
     medium();
-  };
-
-  const openShareToFeedModal = () => {
-    setShareOptionsVisible(false);
-    setShareToFeedVisible(true);
-  };
-
-  const handleShareToStory = () => {
-    setShareOptionsVisible(false);
-    navigation.navigate('StoryPreview', {
-      post: selectedPostForShare,
-    });
-  };
-
-  const closeShareOptions = () => {
-    setShareOptionsVisible(false);
   };
 
   const closeShareToFeed = () => {
@@ -324,7 +305,7 @@ export default function Reviews({
             return (
               <InviteCard
                 invite={item}
-                onShare={openShareOptions}
+                onShare={openShareToFeedModal}
                 // if invites ever get video, you can pass isInView here too
               />
             );
@@ -336,7 +317,7 @@ export default function Reviews({
                 photoTapped={photoTapped}
                 handleDelete={handleDeletePost}
                 handleEdit={handleEditPost}
-                onShare={openShareOptions}
+                onShare={openShareToFeedModal}
                 setPhotoTapped={setPhotoTapped}
                 isInView={isInView} // 👉 for PhotoFeed / VideoItem
               />
@@ -346,7 +327,7 @@ export default function Reviews({
             return (
               <SuggestionItem
                 suggestion={item}
-                onShare={openShareOptions}
+                onShare={openShareToFeedModal}
                 isInView={isInView}
               />
             );
@@ -359,24 +340,8 @@ export default function Reviews({
                 setPhotoTapped={setPhotoTapped}
                 handleDelete={handleDeletePost}
                 handleEdit={handleEditPost}
-                onShare={openShareOptions}
+                onShare={openShareToFeedModal}
                 isInView={isInView}
-              />
-            );
-          }
-          if (item.type === 'liveStream') {
-            return (
-              <LiveStreamCard
-                live={item}
-                onProfile={(userId) =>
-                  navigation.navigate('OtherUserProfile', { userId })
-                }
-                handleEdit={handleEditPost}
-                handleDelete={handleDeletePost}
-                onShare={openShareOptions}
-                photoTapped={photoTapped}
-                setPhotoTapped={setPhotoTapped}
-                isInView={isInView} // 👉 drives auto-play for live VOD
               />
             );
           }
@@ -387,7 +352,7 @@ export default function Reviews({
               setPhotoTapped={setPhotoTapped}
               handleDelete={handleDeletePost}
               handleEdit={handleEditPost}
-              onShare={openShareOptions}
+              onShare={openShareToFeedModal}
               isInView={isInView}
             />
           );
@@ -399,12 +364,6 @@ export default function Reviews({
         post={selectedPostForShare}
         isEditing={editingSharedPost}
         setIsEditing={setEditingSharedPost}
-      />
-      <ShareOptionsModal
-        visible={shareOptionsVisible}
-        onClose={closeShareOptions}
-        onShareToFeed={openShareToFeedModal}
-        onShareToStory={handleShareToStory}
       />
     </>
   );

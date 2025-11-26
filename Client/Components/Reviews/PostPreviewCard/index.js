@@ -24,6 +24,7 @@ export default function PostPreviewCard({ post }) {
     fullName,
     profilePicUrl,
     media,
+    photos,
     reviewText,
     placeId,
     businessName,
@@ -31,6 +32,7 @@ export default function PostPreviewCard({ post }) {
     title,
     type,
   } = post || {};
+  const rawMedia = media || photos;
 
   // fetch logo for business posts and shared originals
   useEffect(() => {
@@ -140,7 +142,7 @@ export default function PostPreviewCard({ post }) {
     );
   }
   /** DEFAULT */
-  const firstMedia = firstOf(media);
+  const firstMedia = firstOf(rawMedia);
   const firstMediaUrl = pickFirstUrl(firstMedia);
   const isVid = checkIsVideo(firstMedia);
   const player = useSmartVideoPlayer(firstMedia);

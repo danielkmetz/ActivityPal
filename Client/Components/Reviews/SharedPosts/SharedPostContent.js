@@ -4,7 +4,6 @@ import CheckInItem from '../CheckInItem';
 import ReviewItem from '../ReviewItem';
 import SuggestionItem from '../SuggestionItem';
 import InviteCard from '../InviteCard';
-import LiveStreamCard from '../../LiveStream/LiveStreamCard';
 import { useNavigation } from '@react-navigation/native';
 
 export default function SharedPostContent({
@@ -67,18 +66,6 @@ export default function SharedPostContent({
             embeddedInShared={true}
           />
         );
-
-      case 'liveStream':
-        return (
-          <LiveStreamCard
-            live={sharedItem}
-            onProfile={(userId) => navigation.navigate('OtherUserProfile', { userId })}
-            handleEdit={handleEdit}
-            handleDelete={handleDelete}
-            onShare={onShare}
-            embeddedInShared={true}
-          />
-        )
 
       default:
         return null;
