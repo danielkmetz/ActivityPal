@@ -1,11 +1,17 @@
 const mongoose = require('mongoose');
-const { Types: { ObjectId } } = mongoose;
-const User = require('../models/User');                    // <- adjust path if needed
-const { getPresignedUrl } = require('./cachePresignedUrl'); // <- adjust path if needed
+const {
+  Types: { ObjectId },
+} = mongoose;
+
+const User = require('../models/User'); // adjust path if needed
+const Business = require('../models/Business');
+const { getPresignedUrl } = require('./cachePresignedUrl'); // adjust path if needed
 
 // ---------------- debug helpers ----------------
 const DEBUG = '2' === '1';
-const dlog = (...args) => { if (DEBUG) console.log('[enrich]', ...args); };
+const dlog = (...args) => {
+  if (DEBUG) console.log('[enrich]', ...args);
+};
 const dpost = (post, msg, extra) => {
   if (!DEBUG) return;
   const id = post?._id ? String(post._id) : 'unknown';
@@ -14,24 +20,26 @@ const dpost = (post, msg, extra) => {
 
 // ---------------- tiny utils ----------------
 const toStr = (v) => (v == null ? null : String(v));
-const fullNameOf = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(' ') || null;
+const fullNameOf = (u) =>
+  [u?.firstName, u?.lastName].filter(Boolean).join(' ') || null;
 
 function normalizeUserId(anyShape) {
   const s = toStr(
     anyShape?.userId ??
-    anyShape?.id ??
-    anyShape?._id ??
-    anyShape?.user?.id ??
-    anyShape?.user?._id ??
-    anyShape
+      anyShape?.id ??
+      anyShape?._id ??
+      anyShape?.user?.id ??
+      anyShape?.user?._id ??
+      anyShape
   );
-  return (s && ObjectId.isValid(s)) ? new ObjectId(s) : null;
+  return s && ObjectId.isValid(s) ? new ObjectId(s) : null;
 }
 
 function extractTaggedUserIds(list = []) {
   return list.map(normalizeUserId).filter(Boolean);
 }
 
+// ★ deriveBusinessIdentity also tries to discover logo key/url
 function deriveBusinessIdentity(p = {}) {
   const placeId =
     p.placeId ??
@@ -40,7 +48,7 @@ function deriveBusinessIdentity(p = {}) {
     p.refs?.business?.placeId ??
     p.location?.placeId ??
     p.shared?.snapshot?.placeId ??
-    p.shared?.snapshot?.refs?.business?.placeId ??   // NEW
+    p.shared?.snapshot?.refs?.business?.placeId ??
     null;
 
   const businessName =
@@ -51,10 +59,28 @@ function deriveBusinessIdentity(p = {}) {
     p.refs?.business?.name ??
     p.location?.name ??
     p.shared?.snapshot?.businessName ??
-    p.shared?.snapshot?.refs?.business?.name ??      // NEW
+    p.shared?.snapshot?.refs?.business?.name ??
     null;
 
-  return { placeId, businessName };
+  const businessLogoKey =
+    p.businessLogoKey ??
+    p.details?.businessLogoKey ??
+    p.refs?.business?.logoKey ??
+    p.location?.logoKey ??
+    p.shared?.snapshot?.businessLogoKey ??
+    p.shared?.snapshot?.refs?.business?.logoKey ??
+    null;
+
+  const businessLogoUrl =
+    p.businessLogoUrl ??
+    p.details?.businessLogoUrl ??
+    p.refs?.business?.logoUrl ??
+    p.location?.logoUrl ??
+    p.shared?.snapshot?.businessLogoUrl ??
+    p.shared?.snapshot?.refs?.business?.logoUrl ??
+    null;
+
+  return { placeId, businessName, businessLogoKey, businessLogoUrl };
 }
 
 // ---------------- batch fetch user summaries ----------------
@@ -70,13 +96,21 @@ async function fetchUserSummaries(userIds) {
     .select('_id firstName lastName profilePic')
     .lean();
 
-  dlog('fetchUserSummaries: found users=', rows.length, 'ids=', rows.map(r => String(r._id)));
+  dlog(
+    'fetchUserSummaries: found users=',
+    rows.length,
+    'ids=',
+    rows.map((r) => String(r._id))
+  );
 
-  // sign pics concurrently
-  const signed = await Promise.all(rows.map(async (u) => ({
-    u,
-    profilePicUrl: u?.profilePic?.photoKey ? await getPresignedUrl(u.profilePic.photoKey) : null,
-  })));
+  const signed = await Promise.all(
+    rows.map(async (u) => ({
+      u,
+      profilePicUrl: u?.profilePic?.photoKey
+        ? await getPresignedUrl(u.profilePic.photoKey)
+        : null,
+    }))
+  );
 
   const map = new Map();
   for (const { u, profilePicUrl } of signed) {
@@ -88,7 +122,10 @@ async function fetchUserSummaries(userIds) {
       fullName: fullNameOf(u),
       profilePicUrl,
     });
-    dlog('userSummary:', id, { fullName: fullNameOf(u), hasPic: !!profilePicUrl });
+    dlog('userSummary:', id, {
+      fullName: fullNameOf(u),
+      hasPic: !!profilePicUrl,
+    });
   }
   return map;
 }
@@ -98,14 +135,11 @@ function collectUserIdsFromPosts(posts) {
   const out = new Set();
 
   const asId = (t) => {
-    // Accept ObjectId instance, 24-hex string, or tag objects with various shapes
     if (t == null) return null;
 
-    // primitive or ObjectId
     const prim = toStr(t);
     if (prim && ObjectId.isValid(prim)) return prim;
 
-    // object shapes
     const cand =
       toStr(t.userId) ||
       toStr(t.id) ||
@@ -124,25 +158,28 @@ function collectUserIdsFromPosts(posts) {
         const lid = asId(l?.userId ?? l);
         if (lid) out.add(lid);
       }
-      if (Array.isArray(c?.replies) && c.replies.length) collectFromCommentTree(c.replies);
+      if (Array.isArray(c?.replies) && c.replies.length)
+        collectFromCommentTree(c.replies);
     }
   };
 
-  for (const p of posts) {
+  for (const p of posts || []) {
+    if (!p) continue;
+
     // owner (only Users)
     if (p?.ownerModel === 'User' && p?.ownerId) {
       const oid = asId(p.ownerId);
       if (oid) out.add(oid);
     }
 
-    // ✅ top-level tags (ObjectId[], string[], or objects)
+    // top-level tags
     for (const t of p?.taggedUsers || []) {
       const uid = asId(t);
       if (uid) out.add(uid);
     }
 
-    // media-level tags (array of objects or ids)
-   const mediaOrPhotos = p?.media || p?.photos || [];
+    // media-level tags
+    const mediaOrPhotos = p?.media || p?.photos || [];
     for (const m of mediaOrPhotos) {
       for (const t of m?.taggedUsers || []) {
         const uid = asId(t);
@@ -176,12 +213,43 @@ function collectUserIdsFromPosts(posts) {
   return ids;
 }
 
+// ---------------- collect placeIds for business lookups ----------------
+function collectPlaceIdsFromPosts(posts = []) {
+  const out = new Set();
+
+  for (const p of posts || []) {
+    if (!p) continue;
+
+    const { placeId } = deriveBusinessIdentity(p);
+    if (placeId) out.add(placeId);
+  }
+
+  return [...out];
+}
+
+async function fetchBusinessMap(placeIds = []) {
+  const unique = [...new Set(placeIds)].filter(Boolean);
+  if (!unique.length) return new Map();
+
+  const rows = await Business.find({ placeId: { $in: unique } })
+    .select('placeId businessName logoKey location')
+    .lean();
+
+  const map = new Map();
+  for (const biz of rows) {
+    map.set(biz.placeId, biz);
+  }
+  return map;
+}
+
 // ---------------- media / tags / likes / comments enrichers ----------------
 async function enrichMedia(media = [], userMap) {
   const out = [];
-  for (const m of (media || [])) {
-    const url = m?.photoKey ? await getPresignedUrl(m.photoKey) : (m?.url || null);
-    const taggedUsers = enrichTaggedUsers(m?.taggedUsers || [], userMap); // hydrate x/y + names
+  for (const m of media || []) {
+    const url = m?.photoKey
+      ? await getPresignedUrl(m.photoKey)
+      : m?.url || null;
+    const taggedUsers = enrichTaggedUsers(m?.taggedUsers || [], userMap);
     out.push({ ...m, url, taggedUsers });
   }
   return out;
@@ -189,11 +257,9 @@ async function enrichMedia(media = [], userMap) {
 
 function enrichTaggedUsers(list = [], userMap) {
   const normalizeId = (t) => {
-    // primitive or ObjectId
     const prim = toStr(t);
     if (prim && ObjectId.isValid(prim)) return prim;
 
-    // object shapes
     const cand =
       toStr(t?.userId) ||
       toStr(t?.id) ||
@@ -210,18 +276,21 @@ function enrichTaggedUsers(list = [], userMap) {
 
     if (DEBUG && i < 3) dlog('taggedUser enrich:', { id, hit: !!u });
 
-    // Keep x/y if present (photo-level tags), otherwise null
     const x = t?.x ?? null;
     const y = t?.y ?? null;
 
-    // Prefer hydrated values; fall back to any name/pic present on the tag object
     const firstName = u?.firstName ?? t?.firstName ?? null;
-    const lastName  = u?.lastName  ?? t?.lastName  ?? null;
-    const fullName  = u?.fullName  ?? t?.fullName  ?? (firstName || lastName ? [firstName, lastName].filter(Boolean).join(' ') : null);
+    const lastName = u?.lastName ?? t?.lastName ?? null;
+    const fullName =
+      u?.fullName ??
+      t?.fullName ??
+      (firstName || lastName
+        ? [firstName, lastName].filter(Boolean).join(' ')
+        : null);
     const profilePicUrl = u?.profilePicUrl ?? t?.profilePicUrl ?? null;
 
     return {
-      userId: id,          // stable field used throughout your app
+      userId: id,
       firstName,
       lastName,
       fullName,
@@ -297,24 +366,19 @@ function enrichInviteDetails(details, userMap) {
 }
 
 // ---------------- universal post enricher ----------------
-async function enrichPostUniversal(post, userMap) {
-  dpost(post, 'owner check', { ownerModel: post?.ownerModel, ownerId: String(post?.ownerId || '') });
+async function enrichPostUniversal(post, userMap, businessMap = new Map()) {
+  dpost(post, 'owner check', {
+    ownerModel: post?.ownerModel,
+    ownerId: String(post?.ownerId || ''),
+  });
 
-  // ---------- normalize media/photos so promos/events also get URLs ----------
   const hasMedia = Array.isArray(post?.media) && post.media.length > 0;
   const hasPhotos = Array.isArray(post?.photos) && post.photos.length > 0;
 
-  // If media is missing but photos exist (Promotions/Events, or snapshots),
-  // treat photos as media for the purposes of signing + tags.
-  const rawMedia = hasMedia
-    ? post.media
-    : hasPhotos
-      ? post.photos
-      : [];
+  const rawMedia = hasMedia ? post.media : hasPhotos ? post.photos : [];
 
   const media = await enrichMedia(rawMedia, userMap);
 
-  // only derive owner summary for user-owned posts
   const owner =
     post?.ownerModel === 'User' && post?.ownerId
       ? userMap.get(String(post.ownerId))
@@ -326,29 +390,65 @@ async function enrichPostUniversal(post, userMap) {
   const likes = enrichLikes(post?.likes || [], userMap);
   const comments = enrichComments(post?.comments || [], userMap);
 
-  // derive business identity from multiple shapes,
-  // now also including normalized media if it ever carries business refs
-  const { placeId, businessName } = deriveBusinessIdentity(post);
+  const {
+    placeId: derivedPlaceId,
+    businessName: derivedBusinessName,
+    businessLogoKey: derivedLogoKeyFromPost,
+    businessLogoUrl: derivedBusinessLogoUrl,
+  } = deriveBusinessIdentity(post);
+
+  let placeId = derivedPlaceId ?? post.placeId ?? null;
+  let businessName = derivedBusinessName ?? post.businessName ?? null;
+  let businessLogoKey = derivedLogoKeyFromPost ?? null;
+  let businessLogoUrl = derivedBusinessLogoUrl ?? post.businessLogoUrl ?? null;
+
+  // NEW: address derived from Business, not promo/event doc itself
+  let businessAddress = post.businessAddress ?? post.address ?? null;
+
+  if (placeId && businessMap && businessMap.size) {
+    const biz = businessMap.get(placeId);
+    if (biz) {
+      businessName = businessName || biz.businessName || null;
+
+      if (!businessLogoKey && biz.logoKey) {
+        businessLogoKey = biz.logoKey;
+      }
+
+      if (!businessAddress) {
+        businessAddress =
+          biz.location?.formattedAddress || biz.location?.address || null;
+      }
+    }
+  }
+
+  if (!businessLogoUrl && businessLogoKey) {
+    try {
+      businessLogoUrl = await getPresignedUrl(businessLogoKey);
+    } catch (e) {
+      // swallow
+    }
+  }
 
   let details = post?.details || null;
   if (post?.type === 'review' && details) {
     details = { ...details, fullName: owner?.fullName || null };
-    if (DEBUG) dpost(post, 'review details.fullName', details.fullName);
   } else if (post?.type === 'invite' && details) {
     details = enrichInviteDetails(details, userMap);
   }
 
   const enriched = {
-    ...post,                // keep original fields if already present
+    ...post,
     media,
-    // Keep .photos in sync for things that only had photos before
     ...(hasPhotos && !hasMedia ? { photos: media } : {}),
     taggedUsers,
     likes,
     comments,
     details,
-    placeId: placeId ?? post.placeId ?? null,
-    businessName: businessName ?? post.businessName ?? null,
+    placeId,
+    businessName,
+    businessLogoUrl,
+    businessAddress, // 👈 used later by hydratePromoOrEventDetails
+
     owner: owner
       ? {
           id: owner.id,
@@ -360,21 +460,22 @@ async function enrichPostUniversal(post, userMap) {
       : undefined,
   };
 
-  if (DEBUG) {
-    dpost(post, 'final owner summary (top-level)', {
-      fullName: enriched.fullName,
-      profilePicUrl: enriched.owner?.profilePicUrl ? 'yes' : 'no',
-    });
-  }
-
   return enriched;
 }
 
 async function enrichOneOrMany(postOrPosts) {
   const arr = Array.isArray(postOrPosts) ? postOrPosts : [postOrPosts];
+
   const userIds = collectUserIdsFromPosts(arr);
   const userMap = await fetchUserSummaries(userIds);
-  const enriched = await Promise.all(arr.map((p) => enrichPostUniversal(p, userMap)));
+
+  const placeIds = collectPlaceIdsFromPosts(arr);
+  const businessMap = await fetchBusinessMap(placeIds);
+
+  const enriched = await Promise.all(
+    arr.map((p) => enrichPostUniversal(p, userMap, businessMap))
+  );
+
   return Array.isArray(postOrPosts) ? enriched : enriched[0];
 }
 

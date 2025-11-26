@@ -103,6 +103,12 @@ const typeDefs = gql`
     startsAt: DateTime
     endsAt: DateTime
     hostId: ID
+    title: String
+    recurring: Boolean
+    recurringDays: [String!]
+    description: String
+    allDay: Boolean
+    address: String
   }
 
   type PromotionDetails {
@@ -110,6 +116,12 @@ const typeDefs = gql`
     endsAt: DateTime
     discountPct: Int
     code: String
+    title: String
+    recurring: Boolean
+    recurringDays: [String!]
+    description: String
+    allDay: Boolean
+    address: String
   }
 
   type LiveStreamDetails {

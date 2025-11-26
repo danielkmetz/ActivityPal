@@ -40,8 +40,10 @@ const CommentModalHeader = ({
     const isShared = review?.type === 'sharedPost' || review?.postType === 'sharedPost' || !!review?.original;
     const { isLive, playbackUrl, vodUrl } = renderItem;
     const details = renderItem?.details;
-    const owner = renderItem?.owner || renderItem?.sender 
+    const owner = review?.owner; 
     const totalInvited = Array.isArray(details?.recipients) ? details.recipients.length : 0;
+
+    console.log(review)
 
     const authorPic = (() => {
         if (isShared) return owner?.profilePicUrl || review?.profilePicUrl;

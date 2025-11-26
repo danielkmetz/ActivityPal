@@ -1,11 +1,5 @@
 import React, { useEffect } from 'react';
-import {
-    Modal,
-    View,
-    Text,
-    StyleSheet,
-    TouchableWithoutFeedback,
-} from 'react-native';
+import { Modal, View, Text, StyleSheet, TouchableWithoutFeedback } from 'react-native';
 import Animated from 'react-native-reanimated';
 import useSlideDownDismiss from '../../utils/useSlideDown';
 import { GestureDetector } from 'react-native-gesture-handler';
@@ -15,9 +9,11 @@ import { getTimeLabel } from '../../utils/formatEventPromoTime';
 import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
 
 const SuggestionDetailsModal = ({ visible, onClose, suggestion }) => {
-    const { businessName, distance, title } = suggestion;
+    const { businessName, distance, details } = suggestion;
+    const title = suggestion?.title || details?.title;
+    const description = suggestion?.description || details?.description;
     const logoUrl = suggestion?.logoUrl || suggestion?.businessLogoUrl || profilePicPlaceholder;
-    const address = suggestion?.location?.formattedAddress || suggestion?.formattedAddress; 
+    const address = suggestion?.location?.formattedAddress || suggestion?.formattedAddress || details?.address; 
     const { gesture, animateIn, animateOut, animatedStyle, } = useSlideDownDismiss(onClose);
     
     useEffect(() => {
@@ -58,11 +54,9 @@ const SuggestionDetailsModal = ({ visible, onClose, suggestion }) => {
                                         </Text>
                                     </View>
                                 </View>
-                                <Text style={styles.modalTitle}>{suggestion?.title}</Text>
+                                <Text style={styles.modalTitle}>{title}</Text>
                                 <Text style={styles.modalTime}>{getTimeLabel(suggestion)}</Text>
-                                <Text style={styles.modalNote}>
-                                    {suggestion?.description}
-                                </Text>
+                                <Text style={styles.modalNote}>{description}</Text>
                             </Animated.View>
                         </TouchableWithoutFeedback>
                     </GestureDetector>

@@ -20,7 +20,7 @@ export default function PostHeader({
   embeddedInShared,
 }) {
   const navigation = useNavigation();
-  const postContent = embeddedInShared ? post?.original : post ;
+  const postContent = embeddedInShared ? post?.original : post;
   const currentUserId = useSelector(selectUser)?.id;
   const {
     isSuggestedFollowPost = false,
