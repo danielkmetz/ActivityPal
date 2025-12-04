@@ -20,7 +20,7 @@ import { formatEventDate, getTimeLeft } from '../../functions';
 import { uploadReviewPhotos } from '../../Slices/PhotosSlice';
 import { useLikeAnimations } from '../../utils/LikeHandlers/LikeAnimationContext';
 import { addComment as addCommentGeneric, toApiPostType } from '../../Slices/CommentsSlice';
-import { selectPostById, selectSelectedPost } from '../../Slices/PostsSlice';
+import { selectPostById, selectSelectedPost } from '../../Slices/PostsSelectors/postsSelectors';
 import SharePostModal from './SharedPosts/SharePostModal';
 import { medium } from '../../utils/Haptics/haptics';
 
@@ -40,7 +40,6 @@ export default function CommentScreen() {
     const dateTime = review?.dateTime || review?.date || review?.details?.dateTime;
     const isInvite = review?.type === 'invite';
     const sharedPost = review?.type === 'sharedPost' || review?.postType === 'sharedPost' || !!review?.original;
-
     const [commentText, setCommentText] = useState('');
     const [keyboardHeight, setKeyboardHeight] = useState(null);
     const [isInputCovered, setIsInputCovered] = useState(false);

@@ -27,13 +27,8 @@ import {
   resetOtherUserProfilePic,
   selectOtherUserProfilePic,
 } from "../../Slices/PhotosSlice";
-import {
-  fetchPostsByOtherUserId,
-  selectOtherUserPosts,
-  resetOtherUserPosts,
-  appendOtherUserPosts,
-  setOtherUserPosts,
-} from "../../Slices/PostsSlice";
+import { fetchPostsByOtherUserId, resetOtherUserPosts, appendOtherUserPosts, setOtherUserPosts } from "../../Slices/PostsSlice";
+import { selectOtherUserPosts } from "../../Slices/PostsSelectors/postsSelectors";
 import { createNotification } from "../../Slices/NotificationsSlice";
 import Favorites from "./Favorites";
 import { fetchOtherUserFavorites, selectOtherUserFavorites } from "../../Slices/FavoritesSlice";

@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { View, Text, StyleSheet, Dimensions, TouchableOpacity, TouchableWithoutFeedback } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Avatar } from "react-native-paper";
@@ -7,8 +7,9 @@ import profilePicPlaceholder from "../../../assets/pics/profile-pic-placeholder.
 import { logEngagementIfNeeded } from "../../../Slices/EngagementSlice";
 import { useDispatch, useSelector } from "react-redux";
 import { selection } from "../../../utils/Haptics/haptics";
-import { selectUserAndFriendsPosts } from "../../../Slices/PostsSlice";
+import { selectUserAndFriendsPosts } from "../../../Slices/PostsSelectors/postsSelectors";
 import { selectUser } from "../../../Slices/UserSlice";
+import { getTimeLabel } from "../../../utils/formatEventPromoTime";
 
 const screenWidth = Dimensions.get("window").width;
 
@@ -20,7 +21,8 @@ export default function SuggestionMedia({
 }) {
   const navigation = useNavigation();
   const dispatch = useDispatch();
-  const suggestionContent = suggestion?.original ? suggestion?.original : suggestion;
+  const suggestionContent = suggestion?.original ?? suggestion ?? {};
+  const details = suggestionContent?.details;
   const sharedPost = suggestion?.type === "sharedPost" || !!suggestion?.original;
   const allPosts = useSelector(selectUserAndFriendsPosts);
   const me = useSelector(selectUser);
@@ -39,7 +41,10 @@ export default function SuggestionMedia({
   } = suggestionContent || {};
   const resolvedLogoUrl = logoUrl || businessLogoUrl;
   const resolvedMedia = photos || media || [];
+  const title = details?.title || suggestionContent?.title;
+  const description = details?.description || suggestionContent?.description;
   const overlayTextSize = sharedPost ? 14 : 16;
+  const [overlayVisible, setOverlayVisible] = useState(true);
 
   /* ---------------- helpers ---------------- */
   const isSameLocalDay = (a, b) => {
@@ -158,36 +163,65 @@ export default function SuggestionMedia({
     }
   };
 
+
   /* ---------------- render ---------------- */
   return (
     <View style={styles.photoWrapper}>
-      <PhotoFeed post={normalizedPost} scrollX={scrollX} currentIndexRef={currentIndexRef} />
-      {/* overlay */}
-      <View style={styles.overlayTopText}>
-        <TouchableWithoutFeedback onPress={onNavigateBusiness}>
-          <View style={styles.overlayBusiness}>
-            <Avatar.Image
-              size={45}
-              // react-native-paper Avatar.Image doesn't use "rounded"; it’s a circle by default with size
-              source={resolvedLogoUrl ? { uri: resolvedLogoUrl } : profilePicPlaceholder}
-              style={styles.overlayAvatar}
-            />
-            <View style={styles.overlayTextContainer}>
-              <Text style={[styles.overlayText, { fontSize: overlayTextSize }]} numberOfLines={1}>
-                {businessName}
-              </Text>
-              {distance && (
-                <Text style={styles.overlaySubText}>
-                  {`${(distance / 1609).toFixed(1)} mi away`}
+      <PhotoFeed post={normalizedPost} setOverlayVisible={setOverlayVisible} scrollX={scrollX} currentIndexRef={currentIndexRef} />
+      {/* top overlay */}
+      {overlayVisible && (
+        <View style={styles.placeNameOverlay}>
+          <TouchableWithoutFeedback onPress={onNavigateBusiness}>
+            <View style={styles.overlayBusiness}>
+              <Avatar.Image
+                size={25}
+                // react-native-paper Avatar.Image doesn't use "rounded"; it’s a circle by default with size
+                source={resolvedLogoUrl ? { uri: resolvedLogoUrl } : profilePicPlaceholder}
+                style={styles.overlayAvatar}
+              />
+              <View style={styles.overlayTextContainer}>
+                <Text style={[styles.overlayText, { fontSize: overlayTextSize }]} numberOfLines={1}>
+                  {businessName}
                 </Text>
-              )}
+                {distance && (
+                  <Text style={styles.overlaySubText}>
+                    {`${(distance / 1609).toFixed(1)} mi away`}
+                  </Text>
+                )}
+              </View>
             </View>
+          </TouchableWithoutFeedback>
+        </View>
+      )}
+      {/* bottom overlay */}
+      {overlayVisible && (
+        <View style={styles.overlayTopText}>
+          <View style={styles.bottomTextContainer}>
+            <Text
+              style={styles.eventPromoTitle}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
+              {title}
+            </Text>
+            <Text
+              style={styles.eventPromoDescription}
+              numberOfLines={2}
+              ellipsizeMode="tail"
+            >
+              {description}
+            </Text>
+            <Text style={styles.eventPromoTime}>
+              {getTimeLabel(suggestionContent)}
+            </Text>
           </View>
-        </TouchableWithoutFeedback>
-        <TouchableOpacity style={styles.inviteButton} onPress={onInvitePress}>
-          <Text style={styles.inviteText}>{existingInvite ? "Edit Invite" : "Invite"}</Text>
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity style={styles.inviteButton} onPress={onInvitePress}>
+            <Text style={styles.inviteText}>
+              {existingInvite ? "Edit Invite" : "Invite"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -197,6 +231,16 @@ const styles = StyleSheet.create({
     position: "relative",
     alignSelf: "center",
   },
+  placeNameOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    width: screenWidth,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    padding: 8,
+    zIndex: 2,
+  },
   overlayTopText: {
     position: "absolute",
     bottom: 15,
@@ -204,10 +248,16 @@ const styles = StyleSheet.create({
     right: 0,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(0,0,0,0.65)",
     padding: 8,
     width: screenWidth,
     zIndex: 2,
+  },
+  bottomTextContainer: {
+    flex: 1,
+    flexShrink: 1,
+    marginRight: 8,
   },
   overlayBusiness: {
     flexDirection: "row",
@@ -221,6 +271,16 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     marginLeft: 5,
   },
+  eventPromoTitle: {
+    color: 'white',
+    fontSize: 20,
+    flexShrink: 1,
+  },
+  eventPromoDescription: {
+    color: 'white',
+    fontSize: 15,
+    flexShrink: 1,
+  },
   overlayText: {
     color: "white",
     fontWeight: "bold",
@@ -230,17 +290,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   inviteButton: {
-    position: "absolute",
-    right: 10,
     backgroundColor: "#1E88E5",
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderRadius: 15,
     elevation: 2,
+    marginLeft: 8,
   },
   inviteText: {
     color: "#fff",
     fontWeight: "bold",
     fontSize: 14,
+  },
+  eventPromoTime: {
+    fontSize: 14,
+    color: '#d32f2f',
+    fontWeight: '600',
+    marginTop: 4,
   },
 });
