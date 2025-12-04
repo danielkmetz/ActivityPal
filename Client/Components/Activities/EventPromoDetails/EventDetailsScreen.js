@@ -24,15 +24,12 @@ export default function EventDetailsScreen() {
   const dispatch = useDispatch();
   const { params } = useRoute() || {};
   const activity = params?.activity || {};
-
-  // normalize to singular
   const rawKind = activity?.postType || activity?.kind; // could be plural or singular
   const selectedType = normalizeActivityType(rawKind);   // must return 'event' | 'promotion'
   const activityId   = activity?.postId || activity?._id;
 
   const isPromo = selectedType === 'promotion';
 
-  // UNCONDITIONAL selectors, then choose
   const promoById     = useSelector(s => selectPromotionById(s, activityId));
   const eventById     = useSelector(s => selectEventById(s, activityId));
   const selectedEvent = useSelector(selectSelectedEvent);

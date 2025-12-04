@@ -2,13 +2,8 @@ import React, { createContext, useContext, useMemo, useEffect, useRef, useCallba
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser, selectIsBusiness } from '../Slices/UserSlice';
 import { selectCoordinates } from '../Slices/LocationSlice';
-import {
-  fetchUserActivity,
-  appendUserAndFriendsPosts,
-  setUserAndFriendsPosts,
-  selectUserAndFriendsPosts,
-  selectUserAndFriendsRefreshNonce,
-} from '../Slices/PostsSlice';
+import { fetchUserActivity, appendUserAndFriendsPosts, setUserAndFriendsPosts } from '../Slices/PostsSlice';
+import { selectUserAndFriendsPosts, selectUserAndFriendsRefreshNonce } from '../Slices/PostsSelectors/postsSelectors';
 import usePaginatedFetch from '../utils/usePaginatedFetch';
 
 const UserFeedContext = createContext(null);

@@ -18,7 +18,7 @@ import SharePostModal from '../SharedPosts/SharePostModal';
 import { pickPostId } from '../../../utils/posts/postIdentity';
 import { selectPromotionById } from '../../../Slices/PromotionsSlice';
 import { selectEventById } from '../../../Slices/EventsSlice';
-import { selectPostById } from '../../../Slices/PostsSlice';
+import { selectPostById } from '../../../Slices/PostsSelectors/postsSelectors';
 import PostActions from '../PostActions/PostActions';
 
 const { width, height } = Dimensions.get('window');

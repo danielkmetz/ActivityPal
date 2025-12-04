@@ -1,18 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import {
-  Modal,
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  TextInput,
-  Dimensions,
-  KeyboardAvoidingView,
-  Platform,
-  TouchableWithoutFeedback,
-  Switch,
-  Keyboard,
-} from 'react-native';
+import { Modal, View, Text, TouchableOpacity, StyleSheet, TextInput, Dimensions, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Switch, Keyboard } from 'react-native';
 import Animated from 'react-native-reanimated';
 import TagFriendsModal from '../Reviews/TagFriendsModal';
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
@@ -32,6 +19,222 @@ const google_key = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 const MAX_SHEET_HEIGHT = Math.round(SCREEN_HEIGHT * 0.9);
 
+/* ------------------------- helpers: recurring logic ------------------------ */
+
+const DAY_LOOKUP = {
+  sunday: 0,
+  sun: 0,
+  monday: 1,
+  mon: 1,
+  tuesday: 2,
+  tue: 2,
+  tues: 2,
+  wednesday: 3,
+  wed: 3,
+  thursday: 4,
+  thu: 4,
+  thurs: 4,
+  friday: 5,
+  fri: 5,
+  saturday: 6,
+  sat: 6,
+};
+
+function dayNameToIndex(name) {
+  if (!name) return null;
+  const lower = String(name).toLowerCase().trim();
+  return DAY_LOOKUP[lower] ?? null;
+}
+
+function formatTime(d) {
+  return d.toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function buildTodayAtTime(baseTime) {
+  const now = new Date();
+  const dt = new Date(now);
+  dt.setHours(baseTime.getHours(), baseTime.getMinutes(), 0, 0);
+  return dt;
+}
+
+function getNextRecurringOccurrence(baseStart, recurringDays) {
+  if (!baseStart || !Array.isArray(recurringDays) || !recurringDays.length) {
+    return null;
+  }
+
+  const now = new Date();
+  const nowMs = now.getTime();
+  const baseHour = baseStart.getHours();
+  const baseMinute = baseStart.getMinutes();
+
+  const daySet = new Set(
+    recurringDays
+      .map(dayNameToIndex)
+      .filter((d) => d !== null && d !== undefined)
+  );
+  if (!daySet.size) return null;
+
+  // Look up to 14 days ahead for safety
+  for (let offset = 0; offset < 14; offset++) {
+    const candidate = new Date(now);
+    candidate.setDate(now.getDate() + offset);
+    const weekday = candidate.getDay();
+    if (!daySet.has(weekday)) continue;
+
+    candidate.setHours(baseHour, baseMinute, 0, 0);
+    if (candidate.getTime() > nowMs) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Build a human description of when the event/promo is held.
+ * Example: "on Tuesdays between 7:30 PM and 9:30 PM"
+ * or "on Tue, Dec 2 at 7:30 PM"
+ */
+function buildScheduleDescriptionFromSuggestion(suggestionContent) {
+  if (!suggestionContent?.details) return null;
+
+  const { details } = suggestionContent;
+  const { startsAt, endsAt, recurring, recurringDays } = details;
+
+  if (!startsAt) return null;
+  const start = new Date(startsAt);
+  if (Number.isNaN(start.getTime())) return null;
+
+  const hasEnd = !!endsAt;
+  const end = hasEnd ? new Date(endsAt) : null;
+  const startTime = formatTime(start);
+  const endTime = hasEnd && !Number.isNaN(end.getTime()) ? formatTime(end) : null;
+
+  // Recurring days → "Tuesdays", "Mon, Wed and Fri", etc.
+  if (recurring && Array.isArray(recurringDays) && recurringDays.length) {
+    const dayLabels = recurringDays
+      .map((name) => {
+        const idx = dayNameToIndex(name);
+        if (idx == null) return String(name);
+        return [
+          'Sunday',
+          'Monday',
+          'Tuesday',
+          'Wednesday',
+          'Thursday',
+          'Friday',
+          'Saturday',
+        ][idx];
+      })
+      .filter(Boolean);
+
+    if (!dayLabels.length) return null;
+
+    let daysStr;
+    if (dayLabels.length === 1) {
+      // "Tuesday"
+      daysStr = dayLabels[0];
+    } else if (dayLabels.length === 2) {
+      // "Monday and Wednesday"
+      daysStr = `${dayLabels[0]} and ${dayLabels[1]}`;
+    } else {
+      // "Monday, Wednesday and Friday"
+      daysStr =
+        dayLabels.slice(0, -1).join(', ') +
+        ' and ' +
+        dayLabels[dayLabels.length - 1];
+    }
+
+    if (endTime) {
+      return `on ${daysStr} between ${startTime} and ${endTime}`;
+    }
+    return `on ${daysStr} at ${startTime}`;
+  }
+
+  // Non-recurring: use actual date
+  const dateLabel = start.toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+  });
+
+  if (endTime) {
+    return `on ${dateLabel} between ${startTime} and ${endTime}`;
+  }
+  return `on ${dateLabel} at ${startTime}`;
+}
+
+/**
+ * Returns `null` if dt is valid for this suggestion,
+ * or a schedule string if the time is invalid (used in your alert).
+ */
+function validateAgainstSuggestion(dt, suggestionContent) {
+  if (!suggestionContent?.details) return null;
+
+  const { details } = suggestionContent;
+  const { startsAt, endsAt, recurring, recurringDays } = details;
+
+  if (!startsAt) return null;
+
+  const baseStart = new Date(startsAt);
+  if (Number.isNaN(baseStart.getTime())) return null;
+
+  const baseEnd = endsAt ? new Date(endsAt) : null;
+  const schedule = buildScheduleDescriptionFromSuggestion(suggestionContent);
+
+  // Enforce recurring days if present
+  if (recurring && Array.isArray(recurringDays) && recurringDays.length) {
+    const indices = recurringDays
+      .map(dayNameToIndex)
+      .filter((i) => i !== null && i !== undefined);
+
+    if (indices.length) {
+      const chosenDay = dt.getDay();
+      if (!indices.includes(chosenDay)) {
+        // Wrong day of week
+        return schedule;
+      }
+    }
+  }
+
+  // If no end time, we only know start time; don't enforce range
+  if (!baseEnd || Number.isNaN(baseEnd.getTime())) {
+    return null;
+  }
+
+  // Time-of-day window comparison (respect possible cross-midnight window)
+  const baseStartHour = baseStart.getHours();
+  const baseStartMinute = baseStart.getMinutes();
+  const baseEndHour = baseEnd.getHours();
+  const baseEndMinute = baseEnd.getMinutes();
+
+  const startWindow = new Date(dt);
+  startWindow.setHours(baseStartHour, baseStartMinute, 0, 0);
+
+  const endWindow = new Date(dt);
+  if (baseEnd.getTime() >= baseStart.getTime()) {
+    // Same-day window
+    endWindow.setHours(baseEndHour, baseEndMinute, 0, 0);
+  } else {
+    // Cross-midnight (e.g. 9pm–1am)
+    endWindow.setDate(endWindow.getDate() + 1);
+    endWindow.setHours(baseEndHour, baseEndMinute, 0, 0);
+  }
+
+  const t = dt.getTime();
+  if (t < startWindow.getTime() || t > endWindow.getTime()) {
+    // Outside the time window
+    return schedule;
+  }
+
+  return null;
+}
+
+/* ------------------------------- component ------------------------------- */
+
 const InviteModal = ({
   visible,
   onClose,
@@ -44,63 +247,165 @@ const InviteModal = ({
   const dispatch = useDispatch();
   const user = useSelector(selectUser);
   const friends = useSelector(selectFriends);
-  const suggestionContent = suggestion?.original ? suggestion?.original : suggestion;
-  const getUserId = (u) =>
-    u?._id || u?.id || u?.userId || u?.user?._id || u?.user?.id;
+  const rawSuggestion = suggestion ?? null;
+  const suggestionContent = rawSuggestion?.original ?? rawSuggestion ?? null;
+  const fromSharedPost = !!rawSuggestion?.original;
+
+  const getUserId = (u) => u?._id || u?.id || u?.userId || u?.user?._id || u?.user?.id || null;
 
   const [showFriendsModal, setShowFriendsModal] = useState(false);
   const [selectedPlace, setSelectedPlace] = useState(null);
   const [dateTime, setDateTime] = useState(null);
-  const [selectedFriends, setSelectedFriends] = useState([]);
+  const [selectedFriends, setSelectedFriends] = useState([]); // array of IDs
   const [isPublic, setIsPublic] = useState(true);
   const [note, setNote] = useState('');
   const googleRef = useRef(null);
   const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
 
+  /* -------------------- suggestion → suggestedPlace -------------------- */
+
   const suggestedPlace = useMemo(() => {
     if (!suggestionContent) return null;
+
+    const details = suggestionContent.details || {};
+
+    // Start time of event or promo
+    const rawStart =
+      details.startsAt ||
+      details.startTime ||
+      details.date ||
+      suggestionContent.startTime ||
+      suggestionContent.startsAt ||
+      suggestionContent.date ||
+      null;
+
+    const rawEnd = details.endsAt || details.endTime || null;
+
+    let baseStart = null;
+    if (rawStart) {
+      const t = Date.parse(rawStart);
+      if (Number.isFinite(t)) {
+        baseStart = new Date(t);
+      }
+    }
+
+    let baseEnd = null;
+    if (rawEnd) {
+      const t = Date.parse(rawEnd);
+      if (Number.isFinite(t)) {
+        baseEnd = new Date(t);
+      }
+    }
+
+    const recurring =
+      typeof details.recurring === 'boolean'
+        ? details.recurring
+        : !!suggestionContent.recurring;
+
+    const recurringDays =
+      Array.isArray(details.recurringDays) && details.recurringDays.length
+        ? details.recurringDays
+        : suggestionContent.recurringDays || [];
+
     return {
       placeId: suggestionContent.placeId,
       name: suggestionContent.businessName,
-      startTime: suggestionContent.startTime,
-      note: `Let's go to ${suggestionContent.businessName} for ${suggestionContent.title}`,
+      baseStart, // Date | null
+      baseEnd,   // Date | null
+      note: `Let's go to ${suggestionContent.businessName} for ${details.title || suggestionContent.title}`,
+      recurring,
+      recurringDays,
     };
   }, [
     suggestionContent?.placeId,
     suggestionContent?.businessName,
+    suggestionContent?.details,
     suggestionContent?.startTime,
+    suggestionContent?.startsAt,
+    suggestionContent?.date,
     suggestionContent?.title,
+    suggestionContent?.recurring,
+    suggestionContent?.recurringDays,
   ]);
 
-  // Prefill when editing
+  /* -------------------------- Prefill when editing -------------------------- */
+
   useEffect(() => {
-    if (isEditing && initialInvite && visible) {
-      const placeId = initialInvite.placeId || initialInvite.business?.placeId;
-      const name = initialInvite.businessName || initialInvite.business?.businessName;
+    if (!visible) return;
+    if (!isEditing || !initialInvite) return;
 
-      if (placeId && name) {
-        setSelectedPlace({ placeId, name });
-        googleRef.current?.setAddressText(name);
-      }
+    const placeId = initialInvite.placeId || initialInvite.business?.placeId;
+    const name = initialInvite.businessName || initialInvite.business?.businessName;
 
-      setNote(initialInvite.note || '');
-      setDateTime(initialInvite.dateTime ? new Date(initialInvite.dateTime) : new Date());
-
-      const normalizedIds =
-        initialInvite.recipients?.map((r) => getUserId(r.user || r)) || [];
-      setSelectedFriends(normalizedIds);
+    if (placeId && name) {
+      setSelectedPlace({ placeId, name });
+      googleRef.current?.setAddressText(name);
     }
+
+    setNote(initialInvite.note || '');
+
+    const rawDt =
+      initialInvite.details?.dateTime ||
+      initialInvite.dateTime ||
+      initialInvite.detailsDateTime ||
+      null;
+
+    if (rawDt) {
+      const t = Date.parse(rawDt);
+      setDateTime(Number.isFinite(t) ? new Date(t) : new Date());
+    } else {
+      setDateTime(new Date());
+    }
+
+    const normalizedIds =
+      (initialInvite.details?.recipients || [])
+        .map((r) => getUserId(r.user || r))
+        .filter(Boolean) || [];
+    setSelectedFriends(normalizedIds);
   }, [isEditing, initialInvite, visible]);
 
-  // Prefill from suggestion
+  /* ---------------------- Prefill when from suggestion ---------------------- */
+
   useEffect(() => {
-    if (!isEditing && suggestedPlace && visible) {
-      setSelectedPlace({ placeId: suggestedPlace.placeId, name: suggestedPlace.name });
+    if (!visible) return;
+    if (isEditing) return;
+    if (!suggestedPlace) return;
+
+    // Place
+    setSelectedPlace(
+      suggestedPlace.placeId && suggestedPlace.name
+        ? { placeId: suggestedPlace.placeId, name: suggestedPlace.name }
+        : null
+    );
+    if (suggestedPlace.name) {
       googleRef.current?.setAddressText(suggestedPlace.name);
-      setDateTime(new Date(suggestedPlace.startTime));
-      setNote(suggestedPlace.note);
     }
-  }, [suggestedPlace, isEditing, visible]);
+
+    const { baseStart, recurring, recurringDays } = suggestedPlace;
+    const now = new Date();
+    let dt;
+
+    if (baseStart) {
+      if (fromSharedPost && recurring && Array.isArray(recurringDays) && recurringDays.length) {
+        // Shared post + recurring: next occurrence
+        const next = getNextRecurringOccurrence(baseStart, recurringDays);
+        dt = next || baseStart;
+      } else if (!fromSharedPost) {
+        // Normal suggestions row: TODAY at the event time
+        dt = buildTodayAtTime(baseStart);
+      } else {
+        // Shared post, non-recurring: use original startsAt time
+        dt = baseStart;
+      }
+    } else {
+      dt = now;
+    }
+
+    setDateTime(dt);
+    setNote(suggestedPlace.note || '');
+  }, [suggestedPlace, isEditing, visible, fromSharedPost]);
+
+  /* ---------------------- Animate modal in/out ---------------------- */
 
   useEffect(() => {
     if (visible) {
@@ -113,21 +418,45 @@ const InviteModal = ({
     }
   }, [visible]);
 
+  /* -------------------------- Confirm invite -------------------------- */
+
   const handleConfirmInvite = async () => {
     if (!selectedPlace || !dateTime || selectedFriends.length === 0) {
       alert('Please complete all invite details.');
       return;
     }
 
+    let dt = dateTime;
+    if (!(dt instanceof Date)) {
+      dt = new Date(dateTime);
+    }
+
+    const ts = dt.getTime();
+    if (!Number.isFinite(ts)) {
+      alert('Invalid date/time. Please pick a different time.');
+      return;
+    }
+
+    // If this invite is based on an event/promo suggestion, enforce its schedule.
+    if (!isEditing && suggestionContent) {
+      const schedule = validateAgainstSuggestion(dt, suggestionContent);
+      if (schedule) {
+        alert(`Invalid date or time.\n\nThis event or promo is held ${schedule}.`);
+        return;
+      }
+    }
+
+    const recipientIds = Array.from(new Set(selectedFriends.filter(Boolean)));
+
     const invitePayload = {
       senderId: user.id || user._id,
-      recipientIds: selectedFriends,
+      recipientIds,
       placeId: selectedPlace.placeId,
       businessName: selectedPlace.name,
-      dateTime,            // server accepts Date; serialize server-side if needed
+      dateTime: dt,
       message: '',
       note,
-      isPublic,            // if you migrate to unified posts: map to privacy
+      isPublic,
     };
 
     try {
@@ -135,7 +464,7 @@ const InviteModal = ({
         const updates = {
           placeId: selectedPlace.placeId,
           businessName: selectedPlace.name,
-          dateTime,
+          dateTime: dt,
           note,
           isPublic,
         };
@@ -145,38 +474,38 @@ const InviteModal = ({
             recipientId: user.id || user._id,
             inviteId: initialInvite._id,
             updates,
-            recipientIds: selectedFriends,
+            recipientIds,
           })
         ).unwrap();
 
         medium();
-        setInviteToEdit(null);
-        setIsEditing(false);
+        setInviteToEdit?.(null);
+        setIsEditing?.(false);
         alert('Invite updated!');
       } else {
         await dispatch(sendInvite(invitePayload)).unwrap();
-        // sendInvite thunk already upserts into feeds
+
         medium();
         alert('Invite sent!');
       }
 
-      // reset form
       setSelectedFriends([]);
       setNote('');
       setSelectedPlace(null);
       setDateTime(null);
       onClose?.();
     } catch (err) {
-      console.error('❌ Failed to send/edit invite:', err);
       alert('Something went wrong. Please try again.');
     }
   };
+
+  /* -------------------------- Friends display list -------------------------- */
 
   if (!visible) return null;
 
   const displayFriends = [
     ...friends,
-    ...(initialInvite?.recipients?.map((r) => r.user || r) || []),
+    ...(initialInvite?.details?.recipients?.map((r) => r.user || r) || []),
   ].filter((u, index, self) => {
     const id = getUserId(u);
     return (
@@ -200,7 +529,9 @@ const InviteModal = ({
                 <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
                   <View>
                     <Notch />
-                    <Text style={styles.title}>{isEditing ? 'Edit Vybe Invite' : 'Create Vybe Invite'}</Text>
+                    <Text style={styles.title}>
+                      {isEditing ? 'Edit Vybe Invite' : 'Create Vybe Invite'}
+                    </Text>
 
                     <Text style={styles.label}>Search for a Place</Text>
                     <GooglePlacesAutocomplete
@@ -214,8 +545,18 @@ const InviteModal = ({
                       }}
                       query={{ key: google_key, language: 'en' }}
                       styles={{
-                        container: { flex: 0, zIndex: 100, marginBottom: 20, paddingBottom: 0 },
-                        textInputContainer: { width: '100%', zIndex: 101, marginBottom: 0, paddingBottom: 0 },
+                        container: {
+                          flex: 0,
+                          zIndex: 100,
+                          marginBottom: 20,
+                          paddingBottom: 0,
+                        },
+                        textInputContainer: {
+                          width: '100%',
+                          zIndex: 101,
+                          marginBottom: 0,
+                          paddingBottom: 0,
+                        },
                         textInput: {
                           backgroundColor: '#f5f5f5',
                           height: 50,
@@ -243,7 +584,6 @@ const InviteModal = ({
                       fetchDetails
                       {...googlePlacesDefaultProps}
                     />
-
                     <View style={styles.switchContainer}>
                       <Text style={styles.label}>
                         {isPublic ? 'Public Invite 🌍' : 'Private Invite 🔒'}
@@ -255,7 +595,6 @@ const InviteModal = ({
                         thumbColor={Platform.OS === 'android' ? '#fff' : undefined}
                       />
                     </View>
-
                     <View style={styles.dateTimeInput}>
                       <Text style={styles.label}>Select Date & Time</Text>
                       <DateTimePicker
@@ -263,11 +602,12 @@ const InviteModal = ({
                         mode="datetime"
                         display="default"
                         onChange={(event, selectedDate) => {
-                          if (selectedDate) setDateTime(selectedDate);
+                          if (selectedDate) {
+                            setDateTime(selectedDate);
+                          }
                         }}
                       />
                     </View>
-
                     <View style={styles.noteContainer}>
                       <Text style={styles.label}>Add a Note (optional)</Text>
                       <TextInput
@@ -279,18 +619,17 @@ const InviteModal = ({
                         onChangeText={setNote}
                       />
                     </View>
-
                     <SelectFriendsPicker
                       selectedFriends={selectedFriends}
                       displayFriends={displayFriends}
                       onOpenModal={() => setShowFriendsModal(true)}
                       setSelectedFriends={setSelectedFriends}
                     />
-
                     <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmInvite}>
-                      <Text style={styles.confirmText}>{isEditing ? 'Save Edit' : 'Send Invite'}</Text>
+                      <Text style={styles.confirmText}>
+                        {isEditing ? 'Save Edit' : 'Send Invite'}
+                      </Text>
                     </TouchableOpacity>
-
                     <TagFriendsModal
                       visible={showFriendsModal}
                       onClose={() => setShowFriendsModal(false)}
@@ -341,7 +680,12 @@ const styles = StyleSheet.create({
   label: { fontSize: 14, fontWeight: '500', marginBottom: 4, color: '#555' },
   dateTimeInput: { flexDirection: 'row', alignItems: 'center', marginBottom: 25 },
   keyboardAvoiding: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'transparent' },
-  switchContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  switchContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
   noteContainer: { marginBottom: 16 },
   noteInput: {
     borderColor: '#ccc',

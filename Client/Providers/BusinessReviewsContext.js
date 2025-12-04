@@ -1,12 +1,8 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { selectUser, selectIsBusiness } from '../Slices/UserSlice';
-import {
-  fetchBusinessPosts,
-  appendBusinessPosts,
-  setBusinessPosts,
-  selectBusinessPosts,
-} from '../Slices/PostsSlice';
+import { fetchBusinessPosts, appendBusinessPosts, setBusinessPosts } from '../Slices/PostsSlice';
+import { selectBusinessPosts } from '../Slices/PostsSelectors/postsSelectors';
 import usePaginatedFetch from '../utils/usePaginatedFetch';
 
 const BusinessReviewsContext = createContext(null);

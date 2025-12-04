@@ -2,7 +2,6 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { View, FlatList, Animated, Dimensions } from 'react-native';
 import MediaItem from './MediaItem';
 import PhotoPaginationDots from './PhotoPaginationDots';
-import SuggestionDetailsModal from '../../SuggestionDetails/SuggestionDetailsModal';
 import { createPhotoFeedHandlers } from './photoFeedHandlers';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigation } from '@react-navigation/native';
@@ -46,6 +45,7 @@ export default function PhotoFeed({
   setPhotoTapped,
   onActiveChange, // ← optional callback to mirror your previous onTouchStart/onTouchEnd behavior
   currentIndexRef,
+  setOverlayVisible,
   isCommentScreen = false,
   isMyEventsPromosPage = false,
   isInView = true,
@@ -58,21 +58,22 @@ export default function PhotoFeed({
     () => pickRawMedia(postContent, banner),
     [postContent, banner]
   );
+  // console.log('raw media', rawMedia);
+  // console.log('post content', postContent)
 
   const media = useMemo(
     () => (Array.isArray(rawMedia) ? rawMedia : rawMedia ? [rawMedia] : []),
     [rawMedia]
   );
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
-  const [detailsVisible, setDetailsVisible] = useState(false);
-
+  
   const { handlePhotoTap } = useMemo(
     () =>
       createPhotoFeedHandlers({
         dispatch,
         navigation,
         postContent,
-        onOpenDetails: setDetailsVisible,
+        setOverlayVisible,
         photoTapped,
         isCommentScreen,
         isMyEventsPromosPage,
@@ -147,11 +148,6 @@ export default function PhotoFeed({
       {Array.isArray(media) && media?.length > 1 && (
         <PhotoPaginationDots photos={media} scrollX={scrollX} />
       )}
-      <SuggestionDetailsModal
-        visible={detailsVisible}
-        onClose={() => setDetailsVisible(false)}
-        suggestion={postContent}
-      />
     </View>
   );
 }

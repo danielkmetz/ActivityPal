@@ -385,7 +385,6 @@ export default function CreatePost() {
                   <PostTypeToggle
                     postType={postType}
                     setPostType={setPostType}
-                    onLivePress={() => navigation.navigate('GoLive')}
                   />
                 )}
                 {postType !== "invite" && (

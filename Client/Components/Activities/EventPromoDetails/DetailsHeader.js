@@ -57,6 +57,8 @@ const DetailsHeader = ({ activity, getTimeSincePosted }) => {
         navigation.navigate("BusinessProfile", { business: activity });
     }
 
+    console.log(activity)
+
     return (
         <View style={styles.header}>
             <View style={styles.headerText}>
