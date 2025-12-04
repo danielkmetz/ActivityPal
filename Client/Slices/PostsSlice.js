@@ -1,4 +1,4 @@
-import { createSlice, createAsyncThunk, createSelector } from "@reduxjs/toolkit";
+import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import { GET_USER_ACTIVITY_QUERY } from "./GraphqlQueries/Queries/getUserActivity";
 import { GET_USER_POSTS_QUERY } from "./GraphqlQueries/Queries/getUserPosts";
 import { GET_POSTS_BY_PLACE_QUERY } from "./GraphqlQueries/Queries/getPostsByPlace"; // now returns Post[]
@@ -776,37 +776,3 @@ export const {
   addPostBackToUserAndFriendsByCreatedAt,
   addPostBackToProfileByCreatedAt,
 } = postsSlice.actions;
-
-/* ------------------------------- selectors ------------------------------ */
-export const selectAllPosts = createSelector(
-  [
-    (state) => state.posts.businessPosts || [],
-    (state) => state.posts.userAndFriendsPosts || [],
-    (state) => state.posts.otherUserPosts || [],
-    (state) => state.posts.profilePosts || [],
-    (state) => state.posts.suggestedPosts || [],
-  ],
-  (business, userAndFriends, otherUser, profile, suggested) => [
-    ...business,
-    ...userAndFriends,
-    ...otherUser,
-    ...profile,
-    ...suggested,
-  ]
-);
-
-export const selectProfilePosts = (state) => state.posts.profilePosts || [];
-export const selectHasFetchedOnce = (state) => state.posts.hasFetchedOnce;
-export const selectBusinessPosts = (state) => state.posts.businessPosts || [];
-export const selectOtherUserPosts = (state) => state.posts.otherUserPosts || [];
-export const selectLoading = (state) => state.posts.loading;
-export const selectError = (state) => state.posts.error;
-export const selectLocalPosts = (state) => state.posts.localPosts || [];
-export const selectUserAndFriendsPosts = (state) => state.posts.userAndFriendsPosts || [];
-export const selectSuggestedPosts = (state) => state.posts.suggestedPosts || [];
-export const selectSelectedPost = (state) => state.posts.selectedPost;
-export const selectPostById = createSelector(
-  [selectAllPosts, (_state, postId) => postId],
-  (allPosts, postId) => allPosts.find((p) => (p?._id || p?.id) === postId) || null
-);
-export const selectUserAndFriendsRefreshNonce = (s) => s.posts.userAndFriendsRefreshNonce;

@@ -116,6 +116,7 @@ const PhotoItemImage = ({
   const { getAnimation, registerAnimation } = useLikeAnimations();
   const [animation, setAnimation] = useState(null);
   const [tagModalVisible, setTagModalVisible] = useState(false);
+  const rawBannerUrl = post?.bannerUrl;
   const lastTapRef = useRef({});
   const timersRef = useRef({});
   const user = useSelector(selectUser);
@@ -174,16 +175,14 @@ const PhotoItemImage = ({
       <TouchableWithoutFeedback onPress={handleTap}>
         <View style={styles.videoWrapper}>
           <Image
-            source={{ uri: media.url || media.uri || media.bannerUrl }}
+            source={{ uri: media.url || media.uri || media.bannerUrl || rawBannerUrl }}
             style={styles.photo}
           />
-
           {isInteractive && animation && (
             <Animated.View style={[styles.likeOverlay, { opacity: animation }]}>
               <MaterialCommunityIcons name="thumb-up" size={80} color="#80E6D2" />
             </Animated.View>
           )}
-
           {isInteractive &&
             photoTapped === media.photoKey &&
             media.taggedUsers?.map((taggedUser, idx) => (
@@ -197,7 +196,6 @@ const PhotoItemImage = ({
                 <Text style={styles.tagText}>{taggedUser.fullName}</Text>
               </View>
             ))}
-
           {shouldRenderTagButton && (
             <TouchableWithoutFeedback onPress={openTagModal}>
               <View style={styles.tagIcon}>
@@ -207,7 +205,6 @@ const PhotoItemImage = ({
           )}
         </View>
       </TouchableWithoutFeedback>
-
       <TagUserModal
         visible={tagModalVisible}
         post={post}

@@ -11,7 +11,7 @@ import {
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useDispatch, useSelector } from 'react-redux';
-import { sendInvite, editInvite } from '../../Slices/PostsSlice'; 
+import { sendInvite, editInvite } from '../../Slices/PostsSlice';
 import { selectFriends } from '../../Slices/friendsSlice';
 import { FontAwesome } from '@expo/vector-icons';
 import { selectUser } from '../../Slices/UserSlice';
@@ -36,32 +36,38 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
   const [isPublic, setIsPublic] = useState(true);
   const [note, setNote] = useState('');
   const googleRef = useRef(null);
-  const toId = (u) =>
-    u?._id || u?.id || u?.userId || u?.user?._id || u?.user?.id || null;
+  const toId = (u) => u?._id || u?.id || u?.userId || u?.user?._id || u?.user?.id || null;
 
   useEffect(() => {
     if (isEditing && initialInvite) {
       const placeId = initialInvite.placeId || initialInvite.business?.placeId;
       const name = initialInvite.businessName || initialInvite.business?.businessName;
+
       if (placeId && name) {
         setSelectedPlace({ placeId, name });
         googleRef.current?.setAddressText(name);
       }
 
       setNote(initialInvite.note || '');
-      setDateTime(initialInvite.dateTime ? new Date(initialInvite.dateTime) : new Date());
 
-      // Normalize recipients → friend objects
-      const selectedAsObjects = (initialInvite.recipients || [])
+      // 👇 pull date from details.dateTime first
+      const rawDate =
+        initialInvite.details?.dateTime ||
+        initialInvite.dateTime ||
+        initialInvite.sortDate ||
+        initialInvite.createdAt;
+
+      setDateTime(rawDate ? new Date(rawDate) : new Date());
+
+      // 👇 recipients also live under details
+      const selectedAsObjects = (initialInvite.details?.recipients || [])
         .map((r) => {
           const id = toId(r.user || r);
           if (!id) return null;
 
-          // try to find in your friends list first
           const fromFriends = (friends || []).find((f) => toId(f) === id);
           if (fromFriends) return fromFriends;
 
-          // fallback from invite payload
           const src = r.user || r;
           return {
             _id: id,
@@ -69,7 +75,11 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
             userId: id,
             firstName: src?.firstName,
             lastName: src?.lastName,
-            username: src?.username || src?.fullName || src?.firstName || 'Unknown',
+            username:
+              src?.username ||
+              src?.fullName ||
+              src?.firstName ||
+              'Unknown',
             profilePicUrl: src?.profilePicUrl || src?.presignedProfileUrl || null,
           };
         })

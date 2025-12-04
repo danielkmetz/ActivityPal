@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from "react";
 import { View, StyleSheet, FlatList, InteractionManager } from "react-native";
 import { useSelector, useDispatch } from "react-redux";
 import { useNavigation } from "@react-navigation/native";
-
 import { selectUser } from "../../Slices/UserSlice";
 import EditProfileModal from "./EditProfileModal";
 import Reviews from "../Reviews/Reviews";
@@ -11,7 +10,8 @@ import ProfileTabs from "./ProfileTabs";
 import SelfProfileHeader from "./SelfProfileHeader";
 import profilePlaceholder from "../../assets/pics/profile-pic-placeholder.jpg";
 import { selectProfilePic, selectBanner, fetchUserBanner } from "../../Slices/PhotosSlice";
-import { selectProfilePosts, fetchPostsByUserId, appendProfilePosts, setProfilePosts } from "../../Slices/PostsSlice";
+import { fetchPostsByUserId, appendProfilePosts, setProfilePosts } from "../../Slices/PostsSlice";
+import { selectProfilePosts } from "../../Slices/PostsSelectors/postsSelectors";
 import { selectFavorites, fetchFavorites } from "../../Slices/FavoritesSlice";
 import Favorites from "./Favorites";
 import { selectFollowing, selectFollowers } from "../../Slices/friendsSlice";
