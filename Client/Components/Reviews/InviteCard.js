@@ -2,8 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Alert } from 'react-native';
 import InviteeModal from '../ActivityInvites/InviteeModal/InviteeModal';
 import { formatEventDate } from '../../functions';
-import { requestInvite, deleteInvite } from '../../Slices/PostsSlice';
-import { createNotification } from '../../Slices/NotificationsSlice';
+import { deleteInvite } from '../../Slices/PostsSlice';              // ⬅️ requestInvite removed
 import { selectUser } from '../../Slices/UserSlice';
 import { useSelector, useDispatch } from 'react-redux';
 import InviteModal from '../ActivityInvites/InviteModal';
@@ -18,6 +17,7 @@ import { medium } from '../../utils/Haptics/haptics';
 import NonOwnerOptions from './PostOptionsMenu/NonOwnerPostOptions';
 import ViewerOptionsTrigger from './PostOptionsMenu/ViewerOptionsTrigger';
 import BusinessLink from './PostHeader/BusinessLink';
+import useInviteActions from '../../utils/UserInviteActions/userInviteActions';
 
 const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) => {
   const dispatch = useDispatch();
@@ -35,12 +35,16 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
   const details = postContent?.details;
   const dateTime = details?.dateTime;
   const message = postContent?.message;
-  const businessName = postContent.businessName || postContent.business?.businessName || 'Unnamed Location';
   const totalInvited = Array.isArray(details?.recipients) ? details.recipients.length : 0;
   const senderId = owner?.id || owner?._id || owner?.userId || null;
+
   const [requested, setRequested] = useState(false);
-  const hasRequested = requested || (details.requests || []).some((r) => String(r.userId) === String(userId));
+  const hasRequested = requested || (details?.requests || []).some((r) => String(r.userId) === String(userId));
+
   const { timeLeft, isSender } = useInviteState(postContent, userId);
+
+  // 🔹 centralize invite actions for THIS invite
+  const { requestToJoin } = useInviteActions(invite);
 
   const handleEdit = () => {
     if (invite) {
@@ -63,7 +67,10 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
           style: 'destructive',
           onPress: async () => {
             try {
-              const recipientIds = (inviteToDelete.details.recipients || []).map((r) => r.userId);
+              const recipientIds = (inviteToDelete.details.recipients || []).map(
+                (r) => r.userId
+              );
+
               await dispatch(
                 deleteInvite({
                   senderId: userId,
@@ -89,35 +96,9 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
   };
 
   const handleRequest = async () => {
-    try {
-      await dispatch(
-        requestInvite({
-          userId,
-          inviteId: postContent._id,
-        })
-      ).unwrap();
-
-      // Optional courtesy notification to the sender (unified model semantics)
-      if (senderId) {
-        await dispatch(
-          createNotification({
-            userId: senderId, // notify the invite owner
-            type: 'requestInvite',
-            message: `${user.firstName} wants to join your event at ${businessName}`,
-            relatedId: userId,
-            typeRef: 'User',
-            targetId: postContent._id,
-            targetRef: 'Post', // unified
-            postType: 'invite',
-          })
-        ).unwrap();
-      }
-
+    const ok = await requestToJoin();
+    if (ok) {
       setRequested(true);
-      Alert.alert('Request sent', 'Your request has been sent!');
-    } catch (err) {
-      console.error('❌ Failed to request invite or send notification:', err);
-      Alert.alert('Error', err?.message || 'Something went wrong.');
     }
   };
 
@@ -138,15 +119,19 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
   return (
     <>
       <View style={styles.card}>
-          <PostOptionsMenu
-            dropdownVisible={dropdownVisible}
-            setDropdownVisible={setDropdownVisible}
-            handleEdit={handleEdit}
-            handleDelete={handleDelete}
-            postData={invite}
-            embeddedInShared={embeddedInShared}
-          />
-        <ViewerOptionsTrigger post={invite} onPress={() => setViewerOptionsVisible(true)} embeddedInShared={embeddedInShared} />
+        <PostOptionsMenu
+          dropdownVisible={dropdownVisible}
+          setDropdownVisible={setDropdownVisible}
+          handleEdit={handleEdit}
+          handleDelete={handleDelete}
+          postData={invite}
+          embeddedInShared={embeddedInShared}
+        />
+        <ViewerOptionsTrigger
+          post={invite}
+          onPress={() => setViewerOptionsVisible(true)}
+          embeddedInShared={embeddedInShared}
+        />
         <InviteHeader
           sender={owner}
           totalInvited={totalInvited}

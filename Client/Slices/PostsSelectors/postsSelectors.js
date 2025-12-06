@@ -38,6 +38,8 @@ export const selectSelectedPost = (state) =>
 export const selectUserAndFriendsRefreshNonce = (state) =>
   selectPostsState(state).userAndFriendsRefreshNonce ?? null;
 
+export const selectConflicts = (state) => selectPostsState(state).conflictCheck.conflicts;
+
 /* --------------------- combined / cross-collection selectors --------------------- */
 
 export const selectAllPosts = createSelector(
