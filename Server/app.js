@@ -39,6 +39,7 @@ const removeTags = require('./routes/removeTags');
 const hiddenTags = require('./routes/hiddenTags');
 const hiddenPosts = require('./routes/hiddenPosts');
 const blocks = require('./routes/blocks');
+const conflicts = require('./routes/inviteConflicts');
 
 // Initialize app
 const app = express();
@@ -128,6 +129,7 @@ app.use('/api/remove-tags', removeTags);
 app.use('/api/hidden-tags', hiddenTags);
 app.use('/api/hidden-posts', hiddenPosts);
 app.use('/api/blocks', blocks);
+app.use('/api/conflicts', conflicts);
 
 (async () => {
   const { io, liveBus } = await attachSocketServer(server); // await + correct key

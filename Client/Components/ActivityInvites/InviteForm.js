@@ -10,25 +10,25 @@ import {
 } from 'react-native';
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useDispatch, useSelector } from 'react-redux';
-import { sendInvite, editInvite } from '../../Slices/PostsSlice';
+import { useSelector } from 'react-redux';
 import { selectFriends } from '../../Slices/friendsSlice';
 import { FontAwesome } from '@expo/vector-icons';
-import { selectUser } from '../../Slices/UserSlice';
 import { googlePlacesDefaultProps } from '../../utils/googleplacesDefaults';
 import TagFriendsModal from '../Reviews/TagFriendsModal';
 import { useNavigation } from '@react-navigation/native';
 import SectionHeader from '../Reviews/SectionHeader';
 import FriendPills from '../Reviews/FriendPills';
 import { medium } from '../../utils/Haptics/haptics';
+import useInviteActions from '../../utils/UserInviteActions/userInviteActions';
 
 const google_key = process.env.EXPO_PUBLIC_GOOGLE_KEY;
+const toId = (u) =>
+  u?._id || u?.id || u?.userId || u?.user?._id || u?.user?.id || null;
 
 export default function InviteForm({ isEditing = false, initialInvite = null }) {
-  const dispatch = useDispatch();
   const navigation = useNavigation();
-  const user = useSelector(selectUser);
   const friends = useSelector(selectFriends);
+
   const [showFriendsModal, setShowFriendsModal] = useState(false);
   const [selectedPlace, setSelectedPlace] = useState(null);
   const [dateTime, setDateTime] = useState(null);
@@ -36,12 +36,18 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
   const [isPublic, setIsPublic] = useState(true);
   const [note, setNote] = useState('');
   const googleRef = useRef(null);
-  const toId = (u) => u?._id || u?.id || u?.userId || u?.user?._id || u?.user?.id || null;
+
+  // Centralized invite helpers (these handle conflict checks internally)
+  const { sendInviteWithConflicts, editInviteWithConflicts } =
+    useInviteActions(initialInvite);
 
   useEffect(() => {
     if (isEditing && initialInvite) {
-      const placeId = initialInvite.placeId || initialInvite.business?.placeId;
-      const name = initialInvite.businessName || initialInvite.business?.businessName;
+      const placeId =
+        initialInvite.placeId || initialInvite.business?.placeId;
+      const name =
+        initialInvite.businessName ||
+        initialInvite.business?.businessName;
 
       if (placeId && name) {
         setSelectedPlace({ placeId, name });
@@ -50,7 +56,7 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
 
       setNote(initialInvite.note || '');
 
-      // 👇 pull date from details.dateTime first
+      // pull date from details.dateTime first
       const rawDate =
         initialInvite.details?.dateTime ||
         initialInvite.dateTime ||
@@ -59,31 +65,35 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
 
       setDateTime(rawDate ? new Date(rawDate) : new Date());
 
-      // 👇 recipients also live under details
-      const selectedAsObjects = (initialInvite.details?.recipients || [])
-        .map((r) => {
-          const id = toId(r.user || r);
-          if (!id) return null;
+      // recipients also live under details
+      const selectedAsObjects =
+        (initialInvite.details?.recipients || [])
+          .map((r) => {
+            const id = toId(r.user || r);
+            if (!id) return null;
 
-          const fromFriends = (friends || []).find((f) => toId(f) === id);
-          if (fromFriends) return fromFriends;
+            const fromFriends = (friends || []).find(
+              (f) => toId(f) === id
+            );
+            if (fromFriends) return fromFriends;
 
-          const src = r.user || r;
-          return {
-            _id: id,
-            id,
-            userId: id,
-            firstName: src?.firstName,
-            lastName: src?.lastName,
-            username:
-              src?.username ||
-              src?.fullName ||
-              src?.firstName ||
-              'Unknown',
-            profilePicUrl: src?.profilePicUrl || src?.presignedProfileUrl || null,
-          };
-        })
-        .filter(Boolean);
+            const src = r.user || r;
+            return {
+              _id: id,
+              id,
+              userId: id,
+              firstName: src?.firstName,
+              lastName: src?.lastName,
+              username:
+                src?.username ||
+                src?.fullName ||
+                src?.firstName ||
+                'Unknown',
+              profilePicUrl:
+                src?.profilePicUrl || src?.presignedProfileUrl || null,
+            };
+          })
+          .filter(Boolean);
 
       setSelectedFriends(selectedAsObjects);
     }
@@ -100,16 +110,6 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
       new Set(selectedFriends.map((f) => toId(f)).filter(Boolean))
     );
 
-    const base = {
-      senderId: user.id,
-      recipientIds,
-      placeId: selectedPlace.placeId,
-      businessName: selectedPlace.name,
-      dateTime,
-      note,
-      isPublic,
-    };
-
     try {
       if (isEditing && initialInvite) {
         const updates = {
@@ -120,19 +120,28 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
           isPublic,
         };
 
-        await dispatch(
-          editInvite({
-            recipientId: user.id,
-            inviteId: initialInvite._id,
-            updates,
-            recipientIds, // keep recipients in sync
-          })
-        );
+        const { cancelled } = await editInviteWithConflicts({
+          inviteIdOverride: initialInvite._id,
+          updates,
+          recipientIds,
+        });
+
+        if (cancelled) return;
 
         medium();
         alert('Invite updated!');
       } else {
-        await dispatch(sendInvite(base));
+        const { cancelled } = await sendInviteWithConflicts({
+          recipientIds,
+          placeId: selectedPlace.placeId,
+          businessName: selectedPlace.name,
+          dateTime,
+          note,
+          isPublic,
+        });
+
+        if (cancelled) return;
+
         medium();
         alert('Invite sent!');
       }
@@ -163,13 +172,24 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
         fetchDetails
         {...googlePlacesDefaultProps}
       />
+
       <SectionHeader title="Visibility" />
       <View style={styles.switchContainer}>
         <View style={styles.switchLabelContainer}>
           {isPublic ? (
-            <FontAwesome name="globe" size={20} color="black" style={styles.icon} />
+            <FontAwesome
+              name="globe"
+              size={20}
+              color="black"
+              style={styles.icon}
+            />
           ) : (
-            <FontAwesome name="lock" size={20} color="black" style={styles.icon} />
+            <FontAwesome
+              name="lock"
+              size={20}
+              color="black"
+              style={styles.icon}
+            />
           )}
           <Text style={styles.label}>{isPublic ? 'Public' : 'Private'}</Text>
         </View>
@@ -180,6 +200,7 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
           thumbColor={Platform.OS === 'android' ? '#fff' : undefined}
         />
       </View>
+
       <View style={{ marginTop: 10 }}>
         <SectionHeader title="Date & Time" />
         <View style={{ marginTop: 5, marginLeft: -10 }}>
@@ -187,10 +208,13 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
             value={dateTime || new Date()}
             mode="datetime"
             display="default"
-            onChange={(event, selectedDate) => selectedDate && setDateTime(selectedDate)}
+            onChange={(event, selectedDate) =>
+              selectedDate && setDateTime(selectedDate)
+            }
           />
         </View>
       </View>
+
       <View style={{ marginTop: 10 }}>
         <SectionHeader title="Note (Optional)" />
         <TextInput
@@ -201,6 +225,7 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
           onChangeText={setNote}
         />
       </View>
+
       <TouchableOpacity
         style={styles.friendButton}
         onPress={() => setShowFriendsModal(true)}
@@ -211,6 +236,7 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
             : '➕ Select Friends'}
         </Text>
       </TouchableOpacity>
+
       <FriendPills
         friends={selectedFriends}
         onRemove={(userToRemove) => {
@@ -220,9 +246,16 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
           );
         }}
       />
-      <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmInvite}>
-        <Text style={styles.confirmText}>{isEditing ? 'Save Edit' : 'Send Invite'}</Text>
+
+      <TouchableOpacity
+        style={styles.confirmButton}
+        onPress={handleConfirmInvite}
+      >
+        <Text style={styles.confirmText}>
+          {isEditing ? 'Save Edit' : 'Send Invite'}
+        </Text>
       </TouchableOpacity>
+
       <TagFriendsModal
         visible={showFriendsModal}
         onClose={() => setShowFriendsModal(false)}

@@ -9,6 +9,7 @@ import axios from "axios";
 
 const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
 const INVITES_API = `${process.env.EXPO_PUBLIC_SERVER_URL}/activity-invite`;
+const CHECK_CONFLICTS_URL = `${BASE_URL}/conflicts/check-conflicts`;
 
 /* ---------------------------- local helpers ---------------------------- */
 const _toStr = (v) => (v == null ? "" : String(v));
@@ -393,6 +394,45 @@ export const rejectInviteRequest = createAsyncThunk(
   }
 );
 
+export const checkInviteConflicts = createAsyncThunk(
+  'posts/checkInviteConflicts',
+  async ({ userId, inviteId, dateTime, windowMinutes = 120 }, { rejectWithValue }) => {
+    try {
+      if (!userId) {
+        throw new Error('userId is required');
+      }
+
+      const body = {
+        userId,
+        windowMinutes,
+      };
+
+      // Existing invite: let backend read details.dateTime from Mongo
+      if (inviteId) {
+        body.inviteId = inviteId;
+      }
+      // New invite (not saved yet): send dateTime explicitly
+      else if (dateTime) {
+        body.dateTime = dateTime;
+      } else {
+        throw new Error('Either inviteId or dateTime is required');
+      }
+
+      const res = await axios.post(CHECK_CONFLICTS_URL, body);
+      // Expecting { conflicts: [...] }
+      return res.data;
+    } catch (err) {
+      const status = err?.response?.status;
+      const message =
+        err?.response?.data?.message ||
+        err.message ||
+        'Error checking invite conflicts';
+
+      return rejectWithValue({ status, message });
+    }
+  }
+);
+
 /* --------------------------------- slice -------------------------------- */
 
 const postsSlice = createSlice({
@@ -409,6 +449,11 @@ const postsSlice = createSlice({
     selectedPost: null,
     loading: "idle",
     error: null,
+    conflictCheck: {
+      status: 'idle',      // 'idle' | 'loading' | 'succeeded' | 'failed'
+      error: null,
+      conflicts: [],       // always an array, or you’ll .filter yourself to death later
+    },
   },
   reducers: {
     updateSharedPostInPosts: (state, action) => {
@@ -741,6 +786,27 @@ const postsSlice = createSlice({
       .addCase(fetchMyInvites.rejected, (state, action) => {
         state.loading = 'idle'; state.error = action.payload || action.error?.message;
       })
+      .addCase(checkInviteConflicts.pending, (state) => {
+        state.conflictCheck.status = 'loading';
+        state.conflictCheck.error = null;
+        // don't clear conflicts here; you might want to show previous until new result arrives
+      })
+      .addCase(checkInviteConflicts.fulfilled, (state, action) => {
+        state.conflictCheck.status = 'succeeded';
+
+        const conflicts = action.payload?.conflicts;
+        state.conflictCheck.conflicts = Array.isArray(conflicts) ? conflicts : [];
+        state.conflictCheck.error = null;
+      })
+      .addCase(checkInviteConflicts.rejected, (state, action) => {
+        state.conflictCheck.status = 'failed';
+
+        const payloadMsg = action.payload?.message;
+        const fallbackMsg = action.error?.message || 'Failed to check invite conflicts';
+
+        state.conflictCheck.error = payloadMsg || fallbackMsg;
+        state.conflictCheck.conflicts = []; // on failure treat as “no reliable data”
+      });
   },
 });
 
