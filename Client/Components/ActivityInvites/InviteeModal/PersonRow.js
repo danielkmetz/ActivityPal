@@ -13,10 +13,22 @@ function PersonRow({
 }) {
   const meId = toId(currentUserId);
   const isMe = getRecId(rec) === meId;
-  const pic = rec?.user?.profilePicUrl || rec?.profilePicUrl;
+
+  const pic =
+    rec?.user?.profilePicUrl ||
+    rec?.profilePicUrl ||
+    rec?.avatarUrl || // 👈 allow attendance shape
+    null;
+
   const first = rec?.user?.firstName || rec?.firstName || '';
   const last  = rec?.user?.lastName  || rec?.lastName  || '';
-  const status = rec?.status;
+  const fallbackName = rec?.name || ''; // 👈 attendance shape
+  const fullName =
+    [first, last].filter(Boolean).join(' ') ||
+    fallbackName ||
+    'Someone';
+
+  const status = rec?.status; // 'accepted' | 'declined' etc.
 
   const promptEditResponse = () => {
     if (status === 'accepted') {
@@ -44,8 +56,11 @@ function PersonRow({
 
   return (
     <View style={styles.row}>
-      <Image source={pic ? { uri: pic } : profilePicPlaceholder} style={styles.profilePic} />
-      <Text style={styles.name}>{first} {last}</Text>
+      <Image
+        source={pic ? { uri: pic } : profilePicPlaceholder}
+        style={styles.profilePic}
+      />
+      <Text style={styles.name}>{fullName}</Text>
       {isMe && (status === 'accepted' || status === 'declined') && (
         <TouchableOpacity onPress={promptEditResponse}>
           <Text style={styles.editLink}> Edit response</Text>
