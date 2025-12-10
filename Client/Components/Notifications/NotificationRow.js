@@ -18,21 +18,17 @@ export default function NotificationRow({
 }) {
   // Only invite-related notifications should use the invite hook
   const isInviteNotification =
-    item.postType === 'invite' ||
-    item.type === 'activityInvite' ||
-    item.type === 'requestInvite';
+    item?.postType === 'invite' ||
+    item?.type === 'activityInvite' ||
+    item?.type === 'requestInvite' || 
+    item?.type === 'activityInviteReminder';
 
   // Minimal stub – hook only needs an inviteId
   const inviteStub = isInviteNotification
     ? { _id: item.targetId }
     : null;
 
-  const {
-    acceptForMe,
-    declineForMe,
-    acceptJoinRequest,
-    rejectJoinRequest,
-  } = useInviteActions(inviteStub);
+  const { acceptForMe, declineForMe, acceptJoinRequest, rejectJoinRequest } = useInviteActions(inviteStub);
 
   const sender = (followRequests.received || []).find(
     (u) => u._id === item.relatedId
@@ -59,7 +55,6 @@ export default function NotificationRow({
               {getNotificationIcon(item.type)}
             </View>
           )}
-
           <NotificationTextContent
             item={item}
             sender={sender}
@@ -75,8 +70,8 @@ export default function NotificationRow({
             onRejectJoinRequest={() => rejectJoinRequest(item.relatedId)}
             // follow back
             onFollowBack={() => onFollowBack(item.relatedId, item._id)}
+            onOpenDetails={() => onPress(item)}
           />
-
           {!item.read && <View style={styles.unreadDot} />}
         </View>
       </TouchableWithoutFeedback>

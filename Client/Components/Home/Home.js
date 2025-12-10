@@ -40,10 +40,12 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
   const [updatedFeed, setUpdatedFeed] = useState([]);
   const userId = user?.id;
   const profilePicUrl = profilePic?.url;
-  
-  const orderedRowItems = useMemo(() => {
+
+  const { orderedRowItems, myPlansMeta } = useMemo(() => {
     const base = Array.isArray(myInvites) ? myInvites : [];
-    if (!base.length) return [];
+    if (!base.length) {
+      return { orderedRowItems: [], myPlansMeta: null };
+    }
 
     const BUCKET_ORDER = {
       tonight: 0,
@@ -101,30 +103,19 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
     myPlans.sort(sortByBucketThenTime);
     otherPlans.sort(sortByBucketThenTime);
 
-    const bubbles = [];
-
+    let myPlansMeta = null;
     if (myPlans.length > 0) {
       const count = myPlans.length;
-      const badge = count > 9 ? '9+' : String(count);
-
-      bubbles.push({
-        id: 'my-plans',                       // special id
-        type: 'you-aggregate',                // synthetic type
-        timeLabel: 'My plans',
-        mainLabel: 'Tonight & upcoming',
+      myPlansMeta = {
+        badge: count > 9 ? '9+' : String(count),
+        myPlanIds: myPlans.map((p) => p.postId),
         imageUrl: profilePicUrl || null,
-        badge,
-        myPlanIds: myPlans.map(p => p.postId), // pass to overview if you want
-      });
+      };
     }
 
-    // Then all other plans (pending invites + friends’ public plans)
-    for (const item of otherPlans) {
-      bubbles.push(item);
-    }
-
-    return bubbles;
-  }, [myInvites, user]);
+    // 🔑 Only return "otherPlans" as items – no synthetic 'my-plans' bubble anymore
+    return { orderedRowItems: otherPlans, myPlansMeta };
+  }, [myInvites, profilePicUrl]);
 
   const inviteIdsInRail = useMemo(() => {
     const set = new Set();
@@ -253,26 +244,13 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
       if (!item) return;
       if (hapticMedium) hapticMedium();
 
-      // First bubble: My Plans aggregate
-      if (item.id === 'my-plans') {
-        navigation.navigate('BucketOverview', {
-          mode: 'myPlans',
-          planIds: Array.isArray(item.myPlanIds) ? item.myPlanIds : [],
-        });
-        return;
-      }
-
-      // Everything else in the rail = a single invite
+      // Everything in the rail now represents a single invite
       navigation.navigate('InviteDetails', {
-        postId: item.postId,   // InviteDetails screen can use this to select from store
+        postId: item.postId,
       });
     },
     [navigation]
   );
-
-  const handlePressSeeAll = useCallback(() => {
-    navigation.navigate('PlansOverview'); // your grouped "all plans" screen
-  }, [navigation]);
 
   const handlePressCreatePlan = useCallback(() => {
     if (hapticMedium) hapticMedium();
@@ -286,9 +264,9 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
         <View style={styles.topSpacer} />
         <WhatsHappeningStrip
           items={orderedRowItems}
+          myPlansMeta={myPlansMeta}
           onPressItem={handlePressItem}
           onPressCreatePlan={handlePressCreatePlan}
-          onPressSeeAll={handlePressSeeAll}
           onSeenFriendsItems={(ids) => {
             // optional: mark those friend invites as “seen in strip” so you can
             // hide/de-prioritize them in the main feed.
@@ -296,7 +274,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
         />
       </View>
     ),
-    [orderedRowItems, handlePressItem, handlePressCreatePlan, handlePressSeeAll]
+    [orderedRowItems, handlePressItem, handlePressCreatePlan]
   );
 
   return (

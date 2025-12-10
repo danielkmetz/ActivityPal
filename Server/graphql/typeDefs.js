@@ -58,6 +58,7 @@ const typeDefs = gql`
     refs: PostRefs                # cross-links (e.g., liveStream)
     businessName: String
     businessLogoUrl: String
+    needsRecap: Boolean
 
     # ✅ Hydrated live original (or omitted if not a sharedPost).
     # Your controller attaches this for response; default resolver will expose it.
@@ -97,6 +98,7 @@ const typeDefs = gql`
     dateTime: DateTime!
     recipients: [InviteRecipient!]!
     requests: [Request]
+    needsRecap: Boolean
   }
 
   type EventDetails {
@@ -156,6 +158,7 @@ const typeDefs = gql`
   type PostRefs {
     liveStreamId: ID
     liveStream: LiveStream
+    relatedInviteId: ID
   }
 
   # LiveStream domain object (kept lightweight; social lives on Post)
@@ -183,6 +186,7 @@ const typeDefs = gql`
   type InviteRecipient {
     user: InviteUser!
     status: String!
+    nudgedAt: DateTime
   }
 
   type InviteUser {
@@ -356,6 +360,7 @@ const typeDefs = gql`
     userAndFollowingStories(userId: ID!): [StoryGroup]
     storiesByUser(userId: ID!): [StoryGroup]
     getBusinessRatingSummaries(placeIds: [String!]!): [BusinessRatingSummary!]!
+    getUserInvites(limit: Int, after: ActivityCursor): [Post!]
   }
 `
 

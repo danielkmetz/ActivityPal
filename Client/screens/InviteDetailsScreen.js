@@ -1,11 +1,5 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import { useSelector } from 'react-redux';
 import { selectPostById } from '../Slices/PostsSelectors/postsSelectors';
@@ -23,17 +17,13 @@ export default function InviteDetailsScreen() {
   const route = useRoute();
   const postId = route.params?.postId || null;
   const [requested, setRequested] = useState(false);
-
   const currentUser = useSelector(selectUser);
+  const currentUserId = currentUser?.id || currentUser?._id || currentUser?.userId || null;
   const invite = useSelector((state) =>
     postId ? selectPostById(state, postId) : null
   );
 
-  // Centralized invite actions (includes conflict checks for accept)
   const { acceptForMe, declineForMe, requestToJoin } = useInviteActions(invite);
-
-  const currentUserId =
-    currentUser?.id || currentUser?._id || currentUser?.userId || null;
 
   const {
     postContent,
@@ -75,10 +65,7 @@ export default function InviteDetailsScreen() {
 
   const hasRequested = requested || hasRequestedFromServer;
 
-  const canRequestJoin =
-    !isYou &&
-    !viewerStatus && // not hosting, not invited, not going/declined
-    !!currentUserId;
+  const canRequestJoin = !isYou && !viewerStatus && !!currentUserId;
 
   const handleRequestJoin = async () => {
     if (!postContent || !currentUserId) return;
@@ -98,10 +85,8 @@ export default function InviteDetailsScreen() {
       <View style={styles.bucketRow}>
         <Text style={styles.bucketLabel}>{bucketLabel}</Text>
       </View>
-
       {/* Big event title / note */}
       {note ? <Text style={styles.eventTitle}>{note}</Text> : null}
-
       {/* Host / user hero */}
       <InviteHero
         avatarUri={avatarUri}
@@ -110,7 +95,6 @@ export default function InviteDetailsScreen() {
         viewerStatusText={viewerStatusText}
         privacyText={privacyText}
       />
-
       {/* Place & time block */}
       <InvitePlaceBlock
         businessName={businessName}
@@ -118,7 +102,6 @@ export default function InviteDetailsScreen() {
         fullDateLabel={fullDateLabel}
         clockLabel={clockLabel}
       />
-
       {/* Attendance / who’s invited */}
       <InviteAttendanceSection
         attendance={attendance}
@@ -126,7 +109,6 @@ export default function InviteDetailsScreen() {
         onAcceptSelf={acceptForMe}
         onDeclineSelf={declineForMe}
       />
-
       {/* RSVP controls for current user (only for invited / pending) */}
       <InviteRSVPControls
         viewerStatus={viewerStatus}
@@ -134,7 +116,6 @@ export default function InviteDetailsScreen() {
         onAccept={acceptForMe}
         onDecline={declineForMe}
       />
-
       {/* Request to join CTA */}
       {canRequestJoin && (
         <TouchableOpacity

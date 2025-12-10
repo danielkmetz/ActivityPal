@@ -3,7 +3,9 @@ import { GET_USER_ACTIVITY_QUERY } from "./GraphqlQueries/Queries/getUserActivit
 import { GET_USER_POSTS_QUERY } from "./GraphqlQueries/Queries/getUserPosts";
 import { GET_POSTS_BY_PLACE_QUERY } from "./GraphqlQueries/Queries/getPostsByPlace"; // now returns Post[]
 import { updatePostCollections } from "../utils/posts/UpdatePostCollections";
+import { setInviteNeedsRecap } from "./InvitesSlice";
 import { getUserToken } from "../functions";
+import { getDeviceTimeZone } from '../utils/timezone';
 import client from "../apolloClient";
 import axios from "axios";
 
@@ -55,17 +57,76 @@ const _upsertInDateOrder = (arr, post) => {
   arr.splice(at, 0, post);
 };
 
+const _setNeedsRecapForInviteInArrays = (state, relatedInviteId, value) => {
+  const targetId = String(relatedInviteId || '');
+
+  const touchArray = (arrName) => {
+    const arr = state[arrName];
+    if (!Array.isArray(arr)) return;
+
+    for (let i = 0; i < arr.length; i++) {
+      const post = arr[i];
+      if (!post) continue;
+
+      const id = String(post._id || post.id || '');
+      if (id === targetId && post.type === 'invite') {
+        if (!post.details) post.details = {};
+        post.details.needsRecap = value;
+        break;
+      }
+    }
+  };
+
+  touchArray('userAndFriendsPosts');
+  touchArray('profilePosts');
+  touchArray('otherUserPosts');
+  touchArray('businessPosts');
+  touchArray('suggestedPosts');
+};
+
 /* -------------------------------- thunks ------------------------------- */
 
 /** DELETE /posts/:postId (unified) */
 export const deletePost = createAsyncThunk(
   "posts/deletePost",
-  async ({ postId }, { rejectWithValue }) => {
+  async ({ postId }, { rejectWithValue, getState, dispatch }) => {
     try {
+      const state = getState();
+
+      const all = [
+        ...(state.posts?.userAndFriendsPosts || []),
+        ...(state.posts?.profilePosts || []),
+        ...(state.posts?.otherUserPosts || []),
+        ...(state.posts?.businessPosts || []),
+        ...(state.posts?.suggestedPosts || []),
+      ];
+
+      const existing = all.find(
+        (p) => (p?._id || p?.id) && String(p._id || p.id) === String(postId)
+      );
+
+      const relatedInviteId = existing?.refs?.relatedInviteId
+        ? String(existing.refs.relatedInviteId)
+        : null;
+
       const res = await axios.delete(`${BASE_URL}/posts/${postId}`);
-      return { postId, server: res.data };
+      const server = res.data || {};
+
+      if (server.ok && relatedInviteId) {
+        dispatch(
+          setInviteNeedsRecap({
+            inviteId: relatedInviteId,
+            needsRecap: true,
+          })
+        );
+      }
+
+      return { postId, relatedInviteId, server };
     } catch (error) {
-      const msg = error.response?.data?.message || error.message || "Failed to delete post";
+      const msg =
+        error.response?.data?.message ||
+        error.message ||
+        "Failed to delete post";
       return rejectWithValue(msg);
     }
   }
@@ -74,14 +135,42 @@ export const deletePost = createAsyncThunk(
 /** POST /posts (unified) — accepts your final payload shape for any type */
 export const createPost = createAsyncThunk(
   "posts/createPost",
-  async (payload, { rejectWithValue }) => {
+  async (payload, { rejectWithValue, dispatch }) => {
     try {
       const res = await axios.post(`${BASE_URL}/posts`, payload);
-      // Expecting { post } or the post itself; normalize:
       const post = res.data?.post ?? res.data;
+
+      if (!post) {
+        return rejectWithValue("Failed to create post (no post in response)");
+      }
+
+      const postType = post?.type || payload?.type || null;
+
+      const relatedInviteId =
+        post?.refs?.relatedInviteId
+          ? String(post.refs.relatedInviteId)
+          : payload?.relatedInviteId
+            ? String(payload.relatedInviteId)
+            : null;
+
+      if (
+        relatedInviteId &&
+        (postType === "review" || postType === "check-in")
+      ) {
+        dispatch(
+          setInviteNeedsRecap({
+            inviteId: relatedInviteId,
+            needsRecap: false, // ✅ recap just created → invite no longer needs recap
+          })
+        );
+      }
+
       return post;
     } catch (error) {
-      const msg = error.response?.data?.message || error.message || "Failed to create post";
+      const msg =
+        error.response?.data?.message ||
+        error.message ||
+        "Failed to create post";
       return rejectWithValue(msg);
     }
   }
@@ -275,14 +364,25 @@ export const fetchMyInvites = createAsyncThunk(
   }
 );
 
+// TIME ZONE LOGIC NEEDS TO BE MODIFIED EVENTUALLY TO DERIVE FROM THE PLACE NOT DEVICE
 /** Send invite → add to feeds */
 export const sendInvite = createAsyncThunk(
   'posts/sendInvite',
   async (inviteData, { rejectWithValue, dispatch }) => {
     try {
-      const { data } = await axios.post(`${INVITES_API}/send`, inviteData);
+      const timezone = inviteData.timezone || getDeviceTimeZone();
+      const payload = {
+        ...inviteData,
+        timezone, 
+      };
+
+      const { data } = await axios.post(`${INVITES_API}/send`, payload);
       const post = data?.invite;
-      if (post) dispatch({ type: 'posts/addPostToFeeds', payload: post });
+
+      if (post) {
+        dispatch({ type: 'posts/addPostToFeeds', payload: post });
+      }
+
       return post ?? null;
     } catch (err) {
       return rejectWithValue(err.response?.data || 'Failed to send invite');
@@ -323,11 +423,28 @@ export const rejectInvite = createAsyncThunk(
 /** Edit invite (sender only) → replace everywhere */
 export const editInvite = createAsyncThunk(
   'posts/editInvite',
-  async ({ recipientId, inviteId, updates, recipientIds }, { rejectWithValue, dispatch }) => {
+  async ({ recipientId, inviteId, updates = {}, recipientIds }, { rejectWithValue, dispatch }) => {
     try {
-      const { data } = await axios.put(`${INVITES_API}/edit`, { recipientId, inviteId, updates, recipientIds });
+      let finalUpdates = { ...updates };
+
+      if (finalUpdates.dateTime && !finalUpdates.timezone) {
+        finalUpdates.timezone = getDeviceTimeZone();
+      }
+
+      const body = {
+        recipientId,
+        inviteId,
+        updates: finalUpdates,
+        recipientIds,
+      };
+
+      const { data } = await axios.put(`${INVITES_API}/edit`, body);
       const post = data?.updatedInvite;
-      if (post) dispatch({ type: 'posts/replacePostInFeeds', payload: post });
+
+      if (post) {
+        dispatch({ type: 'posts/replacePostInFeeds', payload: post });
+      }
+
       return post ?? null;
     } catch (err) {
       return rejectWithValue(err.response?.data || 'Failed to edit invite');
@@ -429,6 +546,35 @@ export const checkInviteConflicts = createAsyncThunk(
         'Error checking invite conflicts';
 
       return rejectWithValue({ status, message });
+    }
+  }
+);
+
+export const nudgeInviteRecipient = createAsyncThunk(
+  'posts/nudgeInviteRecipient',
+  async ({ inviteId, recipientId, senderId }, { rejectWithValue, dispatch }) => {
+    try {
+      const { data } = await axios.post(`${INVITES_API}/nudge`, {
+        inviteId,
+        recipientId,
+        senderId,
+      });
+
+      const post = data?.invite;
+
+      // keep it consistent with accept/reject/edit: update all feeds
+      if (post) {
+        dispatch({ type: 'posts/replacePostInFeeds', payload: post });
+      }
+
+      return post ?? null;
+    } catch (err) {
+      const msg =
+        err?.response?.data?.error ||
+        err?.response?.data?.message ||
+        err?.message ||
+        'Failed to nudge invite recipient';
+      return rejectWithValue(msg);
     }
   }
 );
@@ -652,13 +798,23 @@ const postsSlice = createSlice({
       })
       .addCase(deletePost.fulfilled, (state, action) => {
         state.loading = "idle";
-        const deletedId = action.meta.arg.postId;
+
+        const payload = action.payload || {};
+        const deletedId = payload.postId ?? action.meta.arg.postId;
+        const relatedInviteId = payload.relatedInviteId || null;
+
         const notThis = (p) => (p?._id || p?.id) !== deletedId;
+
         state.userAndFriendsPosts = (state.userAndFriendsPosts || []).filter(notThis);
         state.profilePosts = (state.profilePosts || []).filter(notThis);
         state.otherUserPosts = (state.otherUserPosts || []).filter(notThis);
         state.businessPosts = (state.businessPosts || []).filter(notThis);
         state.suggestedPosts = (state.suggestedPosts || []).filter(notThis);
+
+        // If this deleted post was a recap of an invite, mark that invite as needing recap again
+        if (relatedInviteId) {
+          _setNeedsRecapForInviteInArrays(state, relatedInviteId, true);
+        }
       })
       .addCase(deletePost.rejected, (state, action) => {
         state.loading = "idle"; state.error = action.payload;
@@ -671,11 +827,20 @@ const postsSlice = createSlice({
       .addCase(createPost.fulfilled, (state, action) => {
         state.loading = "idle";
         const post = action.payload;
+
         if (!Array.isArray(state.userAndFriendsPosts)) state.userAndFriendsPosts = [];
         if (!Array.isArray(state.profilePosts)) state.profilePosts = [];
+
         _upsertInDateOrder(state.userAndFriendsPosts, post);
         _upsertInDateOrder(state.profilePosts, post);
+
+        // 🔹 If this post is a recap of an invite, mark that invite as recapped
+        const relatedInviteId = post?.refs?.relatedInviteId;
+        if (relatedInviteId) {
+          _setNeedsRecapForInviteInArrays(state, relatedInviteId, false);
+        }
       })
+
       .addCase(createPost.rejected, (state, action) => {
         state.loading = "idle"; state.error = action.payload;
       })
@@ -806,7 +971,29 @@ const postsSlice = createSlice({
 
         state.conflictCheck.error = payloadMsg || fallbackMsg;
         state.conflictCheck.conflicts = []; // on failure treat as “no reliable data”
-      });
+      })
+      .addCase(setInviteNeedsRecap, (state, action) => {
+        const { inviteId, needsRecap } = action.payload || {};
+        if (!inviteId || typeof needsRecap !== 'boolean') return;
+        _setNeedsRecapForInviteInArrays(state, inviteId, needsRecap);
+      })
+      .addCase(nudgeInviteRecipient.pending, (state) => {
+        // totally optional; you may not want to touch global loading here
+        // state.loading = 'pending';
+        state.error = null;
+      })
+      .addCase(nudgeInviteRecipient.fulfilled, (state) => {
+        // `replacePostInFeeds` already updated the arrays.
+        // If you changed loading above, reset it here.
+        // state.loading = 'idle';
+      })
+      .addCase(nudgeInviteRecipient.rejected, (state, action) => {
+        // state.loading = 'idle';
+        state.error =
+          action.payload ||
+          action.error?.message ||
+          'Failed to nudge invite recipient';
+      })
   },
 });
 

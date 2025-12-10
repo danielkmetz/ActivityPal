@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Alert } from 'react-native';
 import InviteeModal from '../ActivityInvites/InviteeModal/InviteeModal';
 import { formatEventDate } from '../../functions';
-import { deleteInvite } from '../../Slices/PostsSlice';              // ⬅️ requestInvite removed
+import { deleteInvite } from '../../Slices/PostsSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { useSelector, useDispatch } from 'react-redux';
 import InviteModal from '../ActivityInvites/InviteModal';
@@ -43,8 +43,22 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
 
   const { timeLeft, isSender } = useInviteState(postContent, userId);
 
-  // 🔹 centralize invite actions for THIS invite
+  // centralize invite actions for THIS invite
   const { requestToJoin } = useInviteActions(invite);
+
+  // ✅ recap flag from backend enrichment
+  const needsRecap = !!postContent?.details?.needsRecap;
+
+  // ✅ compute "is this invite more than 2 hours in the past?"
+  let isPastTwoHours = false;
+  if (dateTime) {
+    let dt = dateTime instanceof Date ? dateTime : new Date(dateTime);
+    if (!Number.isNaN(dt.getTime())) {
+      const now = new Date();
+      const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+      isPastTwoHours = dt <= twoHoursAgo;
+    }
+  }
 
   const handleEdit = () => {
     if (invite) {
@@ -79,7 +93,6 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
                 })
               ).unwrap();
 
-              // Thunk already removed it from feeds
               medium();
               setIsEditing(false);
               setInviteToEdit(null);
@@ -143,11 +156,14 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
         ) : null}
         {message ? <Text style={styles.note}>{message}</Text> : null}
         <CountdownPill value={timeLeft} />
+        {/* 🔹 The row that will now own both the request button AND recap badge */}
         <AttendanceRow
           hasRequested={hasRequested}
           onRequestJoin={handleRequest}
           onOpenInvitees={() => setModalVisible(true)}
           post={invite}
+          needsRecap={needsRecap}
+          isPastTwoHours={isPastTwoHours}
         />
         <PostActions
           post={invite}
@@ -159,8 +175,6 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
       <InviteeModal
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
-        recipients={details?.recipients}
-        requests={details?.requests}
         isSender={isSender}
         invite={invite}
       />
@@ -175,9 +189,10 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
       />
       <NonOwnerOptions
         visible={viewerOptionsVisible}
-        item={invite}
+        post={invite}
         onClose={() => setViewerOptionsVisible(false)}
         isFollowing={true}
+        embeddedInShared={embeddedInShared}
       />
     </>
   );

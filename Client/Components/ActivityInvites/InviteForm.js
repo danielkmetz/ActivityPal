@@ -22,8 +22,7 @@ import { medium } from '../../utils/Haptics/haptics';
 import useInviteActions from '../../utils/UserInviteActions/userInviteActions';
 
 const google_key = process.env.EXPO_PUBLIC_GOOGLE_KEY;
-const toId = (u) =>
-  u?._id || u?.id || u?.userId || u?.user?._id || u?.user?.id || null;
+const toId = (u) => u?._id || u?.id || u?.userId || u?.user?._id || u?.user?.id || null;
 
 export default function InviteForm({ isEditing = false, initialInvite = null }) {
   const navigation = useNavigation();
@@ -37,9 +36,7 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
   const [note, setNote] = useState('');
   const googleRef = useRef(null);
 
-  // Centralized invite helpers (these handle conflict checks internally)
-  const { sendInviteWithConflicts, editInviteWithConflicts } =
-    useInviteActions(initialInvite);
+  const { sendInviteWithConflicts, editInviteWithConflicts } = useInviteActions(initialInvite);
 
   useEffect(() => {
     if (isEditing && initialInvite) {
@@ -172,7 +169,6 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
         fetchDetails
         {...googlePlacesDefaultProps}
       />
-
       <SectionHeader title="Visibility" />
       <View style={styles.switchContainer}>
         <View style={styles.switchLabelContainer}>
@@ -200,7 +196,6 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
           thumbColor={Platform.OS === 'android' ? '#fff' : undefined}
         />
       </View>
-
       <View style={{ marginTop: 10 }}>
         <SectionHeader title="Date & Time" />
         <View style={{ marginTop: 5, marginLeft: -10 }}>
@@ -214,7 +209,6 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
           />
         </View>
       </View>
-
       <View style={{ marginTop: 10 }}>
         <SectionHeader title="Note (Optional)" />
         <TextInput
@@ -225,7 +219,6 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
           onChangeText={setNote}
         />
       </View>
-
       <TouchableOpacity
         style={styles.friendButton}
         onPress={() => setShowFriendsModal(true)}
@@ -236,7 +229,6 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
             : '➕ Select Friends'}
         </Text>
       </TouchableOpacity>
-
       <FriendPills
         friends={selectedFriends}
         onRemove={(userToRemove) => {
@@ -246,7 +238,6 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
           );
         }}
       />
-
       <TouchableOpacity
         style={styles.confirmButton}
         onPress={handleConfirmInvite}
@@ -255,7 +246,6 @@ export default function InviteForm({ isEditing = false, initialInvite = null }) 
           {isEditing ? 'Save Edit' : 'Send Invite'}
         </Text>
       </TouchableOpacity>
-
       <TagFriendsModal
         visible={showFriendsModal}
         onClose={() => setShowFriendsModal(false)}

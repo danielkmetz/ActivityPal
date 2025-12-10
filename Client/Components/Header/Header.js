@@ -73,6 +73,10 @@ export default function Header({ currentRoute, notificationsSeen, setNotificatio
                 return "Settings";
             case "HiddenPosts":
                 return "Hidden Posts";
+            case "MyPlans":
+                return "My Plans";
+            case "InviteDetails":
+                return "Details";    
             case "MessageThread":
                 return <MessageThreadTitle users={userToMessage || []} />;
             default:
@@ -102,9 +106,7 @@ export default function Header({ currentRoute, notificationsSeen, setNotificatio
         dispatch(openLocationModal());
     };
 
-    const goBack = () => {
-        navigation.goBack();
-    };
+    const goBack = () => { navigation.goBack() };
 
     const onOpenPreferences = () => {
         dispatch(openPreferences());
@@ -158,7 +160,8 @@ export default function Header({ currentRoute, notificationsSeen, setNotificatio
                             currentRoute === "FilterSort" ||
                             currentRoute === "EventDetails" ||
                             currentRoute === "Settings" ||
-                            currentRoute === "HiddenPosts"
+                            currentRoute === "HiddenPosts" ||
+                            currentRoute === "InviteDetails"
                         ) && (
                                 <TouchableOpacity onPress={goBack} style={{ marginLeft: -10 }}>
                                     <MaterialCommunityIcons name="chevron-left" size={35} color="black" />

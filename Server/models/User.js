@@ -18,6 +18,8 @@ const NotificationSchema = new mongoose.Schema({
       'activityInvite',
       'activityInviteAccepted',
       'activityInviteDeclined',
+      'activityInviteReminder',
+      'activityInviteNeedsRecap',
       'requestInvite',
     ],
     required: true,

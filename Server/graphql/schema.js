@@ -11,6 +11,7 @@ const { getPostsByPlace } = require('./resolvers/getPostsByPlace.js'); // reused
 const { getSuggestedFollows } = require('./resolvers/getSuggestedFollows.js');
 const { getBusinessRatingSummaries } = require('./resolvers/getBusinessRatingSummaries.js');
 const { getUserTaggedPosts } = require('./resolvers/getUserTaggedPosts.js');
+const { getUserInvites } = require('./resolvers/getUserInvites.js');
 
 // Models used in field resolvers
 const User = require('../models/User');
@@ -75,6 +76,7 @@ const resolvers = {
     getUserPosts,
     getPostsByPlace,
     getUserTaggedPosts,
+    getUserInvites,
 
     // Other queries you already have
     getSuggestedFollows,

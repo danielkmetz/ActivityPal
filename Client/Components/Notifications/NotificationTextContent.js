@@ -15,31 +15,64 @@ export default function NotificationTextContent({
   onAcceptJoinRequest,
   onRejectJoinRequest,
   onFollowBack,
+  onOpenDetails = () => {},
 }) {
+  const { type, createdAt, commentText, message } = item || {};
+  const isInviteType = type === 'activityInvite' || type === 'activityInviteReminder';
+  const isAcceptedInvite = type === 'activityInviteAccepted';
+  const isFollowRequest = type === 'followRequest';
+  const senderProfilePic = sender?.presignedProfileUrl;
+
   return (
-    <View style={[styles.textContainer, item.type === 'followRequest' && { marginLeft: 10 }]}>
-      {item?.type === 'followRequest' && sender ? (
-        <View style={styles.friendRequestContainer}>
-          <Image
-            source={sender.presignedProfileUrl ? { uri: sender.presignedProfileUrl } : profilePicPlaceholder}
-            style={styles.profilePic}
-          />
-          <Text style={styles.message}>{item.message}</Text>
-        </View>
-      ) : (
-        <Text style={styles.message}>{item.message}</Text>
-      )}
-      {item?.commentText ? <Text style={styles.commentText}>{item?.commentText}</Text> : null}
-      <View style={styles.momentRow}>
-        {item.type === 'followRequest' && (
-          <View style={styles.inlineIcon}>
-            {getNotificationIcon(item.type)}
+    <View style={[ styles.textContainer, isFollowRequest && { marginLeft: 10 } ]}>
+      {/* FOLLOW REQUEST: keep existing layout, no Details button needed here */}
+      {isFollowRequest && sender ? (
+        <>
+          <View style={styles.friendRequestContainer}>
+            <Image
+              source={
+                senderProfilePic ? { uri: senderProfilePic } : profilePicPlaceholder
+              }
+              style={styles.profilePic}
+            />
+            <Text style={styles.message}>{message}</Text>
           </View>
-        )}
-        <Text style={styles.timestamp}>{moment(item.createdAt).fromNow()}</Text>
-      </View>
-      {/* Follow request buttons */}
-      {item.type === 'followRequest' && sender && (
+          {commentText && <Text style={styles.commentText}>{commentText}</Text>}
+          <View style={styles.momentRow}>
+            <View style={styles.inlineIcon}>{getNotificationIcon(type)}</View>
+            <Text style={styles.timestamp}>{moment(createdAt).fromNow()}</Text>
+          </View>
+        </>
+      ) : (
+        <View style={styles.mainRow}>
+          {/* Left column: message + comment + timestamp */}
+          <View style={styles.leftColumn}>
+            <Text style={styles.message} numberOfLines={2}>
+              {message}
+            </Text>
+
+            {commentText && (
+              <Text style={styles.commentText}>{commentText}</Text>
+            )}
+
+            <View style={styles.momentRow}>
+              <Text style={styles.timestamp}>{moment(createdAt).fromNow()}</Text>
+            </View>
+          </View>
+          {/* Right side: Details button for accepted invites */}
+          {isAcceptedInvite && (
+            <TouchableOpacity
+              style={styles.detailsButton}
+              onPress={onOpenDetails}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.detailsButtonText}>Details</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+      {/* Follow request action buttons */}
+      {isFollowRequest && sender && (
         <View style={styles.buttonGroup}>
           <TouchableOpacity style={styles.acceptButton} onPress={onAcceptRequest}>
             <Text style={styles.buttonText}>Accept</Text>
@@ -49,8 +82,8 @@ export default function NotificationTextContent({
           </TouchableOpacity>
         </View>
       )}
-      {/* Activity invite buttons */}
-      {item.type === 'activityInvite' && (
+      {/* Activity invite buttons (pre-response) */}
+      {isInviteType && (
         <View style={styles.buttonGroup}>
           <TouchableOpacity style={styles.acceptButton} onPress={onAcceptInvite}>
             <Text style={styles.buttonText}>Accept</Text>
@@ -60,8 +93,8 @@ export default function NotificationTextContent({
           </TouchableOpacity>
         </View>
       )}
-      {/* Request to join buttons */}
-      {item.type === 'requestInvite' && (
+      {/* Request-to-join buttons (host handling) */}
+      {type === 'requestInvite' && (
         <View style={styles.buttonGroup}>
           <TouchableOpacity style={styles.acceptButton} onPress={onAcceptJoinRequest}>
             <Text style={styles.buttonText}>Accept</Text>
@@ -88,12 +121,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 5,
   },
-  profilePic: { width: 40, height: 40, borderRadius: 20, marginRight: 10 },
-  message: { fontSize: 14, fontWeight: 'bold', color: '#333' },
-  commentText: { marginVertical: 10 },
-  momentRow: { flexDirection: 'row', alignItems: 'center' },
+  profilePic: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 10,
+  },
+  mainRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center', 
+  },
+  leftColumn: {
+    flex: 1,
+    marginRight: 8,
+  },
+  message: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  commentText: {
+    marginVertical: 4,
+  },
+  momentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
   inlineIcon: { marginRight: 8 },
-  timestamp: { fontSize: 12, color: '#777', marginTop: 2 },
+  timestamp: {
+    fontSize: 12,
+    color: '#777',
+  },
   buttonGroup: { flexDirection: 'row', marginTop: 8 },
   acceptButton: {
     backgroundColor: '#33cccc',
@@ -116,5 +176,16 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     marginTop: 8,
     alignSelf: 'flex-start',
+  },
+  detailsButton: {
+    backgroundColor: '#007AFF',
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 5,
+  },
+  detailsButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
 });

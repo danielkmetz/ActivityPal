@@ -53,6 +53,10 @@ export const NESTED_POST_FIELDS = gql`
       }
     }
 
+    refs {
+      relatedInviteId
+    }
+
     details {
       ... on ReviewDetails {
         rating
@@ -68,6 +72,25 @@ export const NESTED_POST_FIELDS = gql`
       }
       ... on InviteDetails {
         dateTime
+        needsRecap
+        recipients {
+          user {
+            id
+            firstName
+            lastName
+            profilePicUrl
+          }
+          status
+          nudgedAt
+        }
+        requests {
+          _id
+          userId
+          status
+          firstName
+          lastName
+          profilePicUrl
+        }
       }
       ... on EventDetails {
         startsAt

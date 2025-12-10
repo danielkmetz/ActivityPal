@@ -95,6 +95,7 @@ export default function CheckInItem({
                 visible={viewerOptionsVisible}
                 post={item}
                 onClose={() => setViewerOptionsVisible(false)}
+                embeddedInShared={embeddedInShared}
             />
         </View>
     );

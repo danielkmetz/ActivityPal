@@ -1,157 +1,9 @@
-// hydratePostsForResponse.js
 const { Post } = require('../../models/Post'); // unified model
 const Promotion = require('../../models/Promotions');
 const Event = require('../../models/Events');
 const LiveStream = require('../../models/LiveStream');
 const { enrichOneOrMany } = require('../enrichPosts'); // helper from above
-const { getPresignedUrl } = require('../cachePresignedUrl');
 const { filterHiddenPosts } = require('./filterHiddenPosts');
-
-/**
- * Normalize liveStream posts so `details` always has a consistent shape.
- * Optionally signs `coverKey` -> `coverUrl`.
- */
-async function normalizeLiveStreamDetails(post, liveDoc = null) {
-  if (!post || post.type !== 'liveStream') return post;
-
-  const d = post.details || {};
-  const src = liveDoc || {};
-
-  const result = {
-    title: d.title || src.title || '',
-    status: d.status || src.status || 'idle',
-    coverKey: d.coverKey || src.coverKey || null,
-
-    durationSec:
-      typeof d.durationSec === 'number'
-        ? d.durationSec
-        : typeof src.durationSec === 'number'
-        ? src.durationSec
-        : 0,
-
-    viewerPeak:
-      d.viewerPeak ??
-      (src.stats ? src.stats.viewerPeak : undefined) ??
-      0,
-
-    startedAt: d.startedAt || src.startedAt || null,
-    endedAt: d.endedAt || src.endedAt || null,
-
-    playbackUrl: d.playbackUrl || src.playbackUrl || null,
-    vodUrl:
-      d.vodUrl ||
-      (src.recording ? src.recording.vodUrl : null) ||
-      null,
-
-    __typename: 'LiveStreamDetails',
-  };
-
-  if (result.coverKey) {
-    try {
-      result.coverUrl = d.coverUrl || (await getPresignedUrl(result.coverKey));
-    } catch (e) {
-      console.error('[normalizeLiveStreamDetails] Failed to sign coverKey', {
-        coverKey: result.coverKey,
-        error: e?.message,
-      });
-      result.coverUrl = d.coverUrl || null;
-    }
-  } else {
-    result.coverUrl = d.coverUrl || null;
-  }
-
-  if (!post.placeId && src.placeId) {
-    post.placeId = src.placeId;
-  }
-  if (!post.message && src.caption) {
-    post.message = src.caption;
-  }
-
-  post.details = result;
-  return post;
-}
-
-/**
- * Figure out which LiveStream ID a post refers to.
- */
-function getLiveStreamRefId(post) {
-  if (!post) return null;
-  if (post.refs && post.refs.liveStreamId) return String(post.refs.liveStreamId);
-  if (post.liveStreamId) return String(post.liveStreamId); // legacy
-  if (post.details && post.details.liveStreamId)
-    return String(post.details.liveStreamId);
-  return null;
-}
-
-/**
- * Try to load a LiveStream doc for a given post.
- */
-async function loadLiveStreamForPost(post) {
-  if (!post || post.type !== 'liveStream') return null;
-
-  const refId = getLiveStreamRefId(post);
-  let live = null;
-
-  if (refId) {
-    try {
-      live = await LiveStream.findById(refId).lean();
-    } catch (e) {
-      console.error('[loadLiveStreamForPost] Failed to find by refId', {
-        refId,
-        error: e?.message,
-      });
-    }
-  }
-
-  if (!live && post._id) {
-    try {
-      live = await LiveStream.findOne({ sharedPostId: post._id }).lean();
-    } catch (e) {
-      console.error('[loadLiveStreamForPost] Failed to find by sharedPostId', {
-        postId: post._id,
-        error: e?.message,
-      });
-    }
-  }
-
-  return live;
-}
-
-/**
- * Build a map of LiveStream docs keyed by ID, for all liveStream posts we see.
- */
-async function buildLiveStreamMapForPosts(posts) {
-  const ids = new Set();
-
-  for (const p of posts || []) {
-    if (!p) continue;
-
-    if (p.type === 'liveStream') {
-      const refId = getLiveStreamRefId(p);
-      if (refId) ids.add(refId);
-    }
-
-    if (p.original && p.original.type === 'liveStream') {
-      const refId = getLiveStreamRefId(p.original);
-      if (refId) ids.add(refId);
-    }
-
-    if (p.shared?.snapshot && p.shared.snapshot.type === 'liveStream') {
-      const refId = getLiveStreamRefId(p.shared.snapshot);
-      if (refId) ids.add(refId);
-    }
-  }
-
-  const idList = [...ids];
-  if (!idList.length) return new Map();
-
-  const lives = await LiveStream.find({ _id: { $in: idList } }).lean();
-  const map = new Map();
-  for (const live of lives) {
-    map.set(String(live._id), live);
-  }
-  return map;
-}
 
 /**
  * Try to load an "original" document by id from Post, Promotion, or Event.
@@ -411,7 +263,7 @@ async function hydratePostForResponse(raw, opts = {}) {
   if (hasSnapshot) items.push(raw.shared.snapshot);
   if (hasOriginal) items.push(raw.original);
 
-  const enrichedItems = await enrichOneOrMany(items);
+  const enrichedItems = await enrichOneOrMany(items, viewerId);
 
   let idx = 0;
   const enriched = enrichedItems[idx++];
@@ -435,20 +287,6 @@ async function hydratePostForResponse(raw, opts = {}) {
     if (enriched.shared?.snapshot) {
       await attachBusinessNameIfMissing(enriched.shared.snapshot);
     }
-  }
-
-  if (enriched.type === 'liveStream') {
-    const liveDoc = await loadLiveStreamForPost(enriched);
-    await normalizeLiveStreamDetails(enriched, liveDoc);
-  }
-
-  if (enriched.original && enriched.original.type === 'liveStream') {
-    const liveDoc = await loadLiveStreamForPost(enriched.original);
-    await normalizeLiveStreamDetails(enriched.original, liveDoc);
-  }
-
-  if (enriched.shared?.snapshot && enriched.shared.snapshot.type === 'liveStream') {
-    await normalizeLiveStreamDetails(enriched.shared.snapshot, null);
   }
 
   // 🔹 hydrate promo/event originals & snapshots as suggestions with details
@@ -495,11 +333,8 @@ async function hydrateManyPostsForResponse(posts, opts = {}) {
     if (hasOriginal) flat.push(p.original);
   }
 
-  const enrichedFlat = await enrichOneOrMany(flat);
-  const liveStreamMap = await buildLiveStreamMapForPosts(
-    enrichedFlat.filter(Boolean)
-  );
-
+  const enrichedFlat = await enrichOneOrMany(flat, viewerId);
+  
   let idx = 0;
   const out = [];
 
@@ -526,22 +361,6 @@ async function hydrateManyPostsForResponse(posts, opts = {}) {
       if (top.shared?.snapshot) {
         await attachBusinessNameIfMissing(top.shared.snapshot);
       }
-    }
-
-    if (top.type === 'liveStream') {
-      const refId = getLiveStreamRefId(top);
-      const liveDoc = refId ? liveStreamMap.get(refId) : null;
-      await normalizeLiveStreamDetails(top, liveDoc || null);
-    }
-
-    if (top.original && top.original.type === 'liveStream') {
-      const refId = getLiveStreamRefId(top.original);
-      const liveDoc = refId ? liveStreamMap.get(refId) : null;
-      await normalizeLiveStreamDetails(top.original, liveDoc || null);
-    }
-
-    if (top.shared?.snapshot && top.shared.snapshot.type === 'liveStream') {
-      await normalizeLiveStreamDetails(top.shared.snapshot, null);
     }
 
     // 🔹 hydrate promo/event originals & snapshots as suggestions with details

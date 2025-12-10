@@ -96,6 +96,7 @@ export default function ReviewItem({
             </MaybeTWF>
             <NonOwnerOptions
                 visible={viewerOptionsVisible}
+                embeddedInShared={embeddedInShared}
                 post={item}
                 onClose={() => setViewerOptionsVisible(false)}
             />

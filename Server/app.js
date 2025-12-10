@@ -9,6 +9,7 @@ const morgan = require('morgan');
 const { expressMiddleware } = require('@apollo/server/express4');
 const createApolloServer = require('./graphql/schema'); // Import GraphQL setup
 const { getUserFromToken } = require('./utils/auth');
+const { runRecapReminderSweep } = require('./workers/recapReminderWorker');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -137,6 +138,12 @@ app.use('/api/conflicts', conflicts);
   app.set('liveBus', liveBus);
   //console.log('[live] namespace ready, bus set?', !!app.get('liveBus'));
 })();
+
+setInterval(() => {
+  runRecapReminderSweep().catch((err) => {
+    console.error('❌ Recap reminder sweep failed:', err);
+  });
+}, 30 * 60 * 1000);
 
 // Start server
 const PORT = process.env.PORT || 5000;

@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 
 const InviteeTabs = ({ selectedTab, onChange, counts = {}, style }) => {
   const tabs = [
-    { key: 'invited',   label: 'Invited',  count: counts.invited  || 0 },
+    { key: 'invited',   label: 'Pending',  count: counts.invited  || 0 },
     { key: 'going',     label: 'Going',    count: counts.going    || 0 },
     { key: 'declined',  label: 'Declined', count: counts.declined || 0 },
     { key: 'requested', label: 'Requests', count: counts.requested|| 0 },
