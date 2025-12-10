@@ -30,6 +30,7 @@ import taggedPostsReducer from './Slices/TaggedPostsSlice';
 import hiddenPostsReducer from './Slices/HiddenPostsSlice';
 import BlocksReducer from './Slices/BlocksSlice';
 import uiReducer from './Slices/uiSlice';
+import invitesReducer from './Slices/InvitesSlice';
 
 const store = configureStore({
     reducer: combineReducers({
@@ -39,6 +40,7 @@ const store = configureStore({
         user: userReducer,
         events: eventsReducer,
         posts: postsReducer,
+        invites: invitesReducer,
         photos: photosReducer,
         follows: followsReducer,
         notifications: notificationsReducer,

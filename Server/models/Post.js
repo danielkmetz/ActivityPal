@@ -45,6 +45,7 @@ const BasePostSchema = new Schema({
 
   refs: {
     liveStreamId: { type: Types.ObjectId, ref: 'LiveStream', default: null },
+    relatedInviteId: { type: Types.ObjectId, ref: 'Post', default: null }
   },
 }, { timestamps: true, discriminatorKey: 'type' });
 
@@ -58,6 +59,7 @@ BasePostSchema.index({ location: '2dsphere' });
 BasePostSchema.index({ expireAt: 1 }, { expireAfterSeconds: 0 });
 // Optional: text search on post text
 BasePostSchema.index({ message: 'text' });
+BasePostSchema.index({ 'refs.relatedInviteId': 1, ownerId: 1, type: 1 });
 
 const Post = mongoose.model('Post', BasePostSchema);
 
@@ -84,15 +86,23 @@ const CheckInPost = Post.discriminator('check-in', new Schema({
 const InvitePost = Post.discriminator('invite', new Schema({
   details: {
     dateTime: { type: Date, required: true },
+    timeZone: { type: String, default: 'America/Chicago' },
     recipients: [{
       userId: { type: Types.ObjectId, ref: 'User', required: true },
       status: { type: String, enum: ['pending', 'accepted', 'declined'], default: 'pending' },
+      nudgedAt: { type: Date, default: null },
     }],
+    went: {
+      type: String,
+      enum: ['unknown', 'went', 'did_not_go'],
+      default: 'unknown',
+    },
     requests: [{
       userId: { type: Types.ObjectId, ref: 'User' },
       status: { type: String, enum: ['pending', 'accepted', 'declined'], default: 'pending' },
       requestedAt: { type: Date, default: Date.now },
     }],
+    recapReminderSentAt: { type: Date, default: null }
   },
 }));
 

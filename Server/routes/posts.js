@@ -9,10 +9,7 @@ const { deleteS3Objects } = require('../utils/deleteS3Objects.js');
 const { normalizePoint } = require('../utils/posts/normalizePoint.js');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 const { hydratePostForResponse } = require('../utils/posts/hydrateAndEnrichForResponse.js');
-const {
-  enrichOneOrMany,
-  extractTaggedUserIds,
-} = require('../utils/enrichPosts');
+const { extractTaggedUserIds } = require('../utils/enrichPosts');
 
 // -------------------- constants --------------------
 const ALLOWED_TYPES = new Set([
@@ -22,7 +19,6 @@ const ALLOWED_TYPES = new Set([
   'event',
   'promotion',
   'sharedPost',
-  'liveStream',
 ]);
 
 // -------------------- helpers --------------------
@@ -200,47 +196,6 @@ function buildDetailsForType(type, body, { isPatch = false } = {}) {
       }
       return body.sharedDetails || {};
     }
-    /* ----------------------------- LIVE STREAM -------------------------- */
-    case 'liveStream': {
-      // normalize status coming from callbacks (e.g. 'succeeded' -> 'ended')
-      let status = body.status;
-      if (status === 'succeeded') {
-        status = 'ended';
-      }
-
-      // support either "durationSec" (new) or "durationSecs" (old) in request
-      const durationSec =
-        body.durationSec ??
-        body.durationSecs ??
-        undefined;
-
-      if (isPatch) {
-        return {
-          ...(has('title') ? { title: body.title } : {}),
-          ...(has('status') ? { status } : {}),
-          ...(has('coverKey') ? { coverKey: body.coverKey } : {}),
-          ...(durationSec !== undefined ? { durationSec } : {}),
-          ...(has('viewerPeak') ? { viewerPeak: body.viewerPeak } : {}),
-          ...(has('startedAt') ? { startedAt: body.startedAt } : {}),
-          ...(has('endedAt') ? { endedAt: body.endedAt } : {}),
-          ...(has('playbackUrl') ? { playbackUrl: body.playbackUrl } : {}),
-          ...(has('vodUrl') ? { vodUrl: body.vodUrl } : {}),
-        };
-      }
-
-      // CREATE – build full details block
-      return {
-        title: body.title || '',
-        status: status || 'idle',
-        coverKey: body.coverKey || null,
-        durationSec: durationSec ?? 0,
-        viewerPeak: body.viewerPeak ?? 0,
-        startedAt: body.startedAt || null,
-        endedAt: body.endedAt || null,
-        playbackUrl: body.playbackUrl || null,
-        vodUrl: body.vodUrl || null,
-      };
-    }
     /* ------------------------------ DEFAULT ----------------------------- */
     default:
       return {};
@@ -271,10 +226,20 @@ function buildSharedSection(type, body) {
 }
 
 function buildRefsSection(type, body) {
-  if (type === 'liveStream' && body.liveStreamId) {
-    return { liveStreamId: oid(body.liveStreamId) };
+  const refs = {};
+
+  // 🔹 Recap relationship: review/check-in referring back to an invite
+  // Prefer top-level relatedInviteId; fall back to body.refs.relatedInviteId if present
+  const rawRelated =
+    body.relatedInviteId != null
+      ? body.relatedInviteId
+      : body?.refs?.relatedInviteId ?? null;
+
+  if (rawRelated) {
+    refs.relatedInviteId = oid(rawRelated);
   }
-  return undefined;
+
+  return Object.keys(refs).length ? refs : undefined;
 }
 
 async function diffAndNotifyTags({ post, prevTaggedUserIds, prevPhotos }) {
@@ -327,7 +292,6 @@ async function diffAndNotifyTags({ post, prevTaggedUserIds, prevPhotos }) {
   );
 }
 
-/** Attach businessName + businessLogoUrl for posts/promos/events/snapshots */
 /** Attach businessName + businessLogoUrl for posts/promos/events/snapshots */
 async function attachBusinessNameIfMissing(post) {
   if (!post) return post;
@@ -427,10 +391,6 @@ router.get('/:postId', async (req, res) => {
   }
 });
 
-/**
- * POST /:postType
- * Create a post of a specific type
- */
 router.post('/', async (req, res) => {
   const TAG = '[POST /posts]';
 
@@ -529,11 +489,12 @@ router.post('/', async (req, res) => {
     const sortDate = getSortDateForType(postType, details);
     console.log(`${TAG} ▶ sortDate from getSortDateForType`, sortDate);
 
-    const sharedSection = buildSharedSection(postType, req.body);
+        const sharedSection = buildSharedSection(postType, req.body);
     const refsSection = buildRefsSection(postType, req.body);
 
     console.log(`${TAG} ▶ sharedSection from buildSharedSection`, sharedSection);
-    console.log(`${TAG} ▶ refsSection from buildRefsSection`, refsSection);
+    console.log(`${TAG} ▶ refsSection (final)`, refsSection);
+
 
     // ---- doc to create ----
     const doc = {
@@ -569,16 +530,6 @@ router.post('/', async (req, res) => {
       detailsKind: doc.details?.kind || doc.details?.type,
     });
 
-    // Extra targeted log for livestream-related posts
-    if (postType === 'liveStream' || postType === 'sharedPost') {
-      console.log(`${TAG} 🔍 LiveStream / SharedPost debug`, {
-        type: doc.type,
-        shared: doc.shared,
-        refs: doc.refs,
-        details,
-      });
-    }
-
     // ---- create post ----
     const post = await Post.create(doc);
     console.log(`${TAG} ✅ Created Post document`, {
@@ -611,7 +562,9 @@ router.post('/', async (req, res) => {
       code: err?.code,
       stack: err?.stack,
     });
-    return res.status(500).json({ message: 'Server error', error: err?.message });
+    return res
+      .status(500)
+      .json({ message: 'Server error', error: err?.message });
   }
 });
 

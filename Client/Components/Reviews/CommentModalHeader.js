@@ -1,5 +1,5 @@
-import React, { useRef, useMemo, useState, useEffect } from "react";
-import { View, Text, Image, Animated, StyleSheet, Dimensions, TouchableOpacity } from "react-native";
+import React, { useRef, useState, useEffect } from "react";
+import { View, Text, Image, Animated, StyleSheet, TouchableOpacity } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Avatar } from "react-native-paper";
 import dayjs from "dayjs";
@@ -8,13 +8,10 @@ import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg
 import { useNavigation } from "@react-navigation/native";
 import PostActions from './PostActions/PostActions';
 import SharedPostContent from "./SharedPosts/SharedPostContent";
-import VideoThumbnail from "./VideoThumbnail";
 import PhotoFeed from "./Photos/PhotoFeed";
 import RatingsButton from "./ReviewItem/RatingsButton";
 import BusinessLink from "./PostHeader/BusinessLink";
 
-
-const { width, height } = Dimensions.get('window');
 const pinPic = "https://cdn-icons-png.flaticon.com/512/684/684908.png";
 
 const CommentModalHeader = ({
@@ -33,17 +30,14 @@ const CommentModalHeader = ({
     const currentIndexRef = useRef(0);
     const currentPhoto = renderItem?.photos?.[currentPhotoIndex];
     const isInvite = review?.type === "invite";
-    const likeAnim = useRef({})
     const dateTime = renderItem?.dateTime || renderItem?.date || review?.details?.dateTime;
     const postType = review?.type || review?.postType;
     const postText = review?.reviewText || review?.message || review?.caption;
     const isShared = review?.type === 'sharedPost' || review?.postType === 'sharedPost' || !!review?.original;
-    const { isLive, playbackUrl, vodUrl } = renderItem;
     const details = renderItem?.details;
-    const owner = review?.owner; 
+    const owner = review?.owner;
     const totalInvited = Array.isArray(details?.recipients) ? details.recipients.length : 0;
-
-    console.log(review)
+    const isMedia = renderItem?.media?.length > 0 || renderItem?.photos?.length > 0; 
 
     const authorPic = (() => {
         if (isShared) return owner?.profilePicUrl || review?.profilePicUrl;
@@ -56,11 +50,6 @@ const CommentModalHeader = ({
 
         navigation.navigate('OtherUserProfile', { userId });
     };
-
-    const fileForThumb = useMemo(() => {
-        const src = isLive ? playbackUrl : (vodUrl || playbackUrl);
-        return src ? { type: 'hls', playbackUrl: src } : null;
-    }, [isLive, playbackUrl, vodUrl]);
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -121,7 +110,7 @@ const CommentModalHeader = ({
                 {dateTime && isInvite && (
                     <>
                         <Text style={styles.datetime}>On {formatEventDate(dateTime)}</Text>
-                        <Text style={styles.note}>{renderItem.note}</Text>
+                        <Text style={styles.note}>{postText}</Text>
                         <View style={styles.countdownContainer}>
                             <Text style={styles.countdownLabel}>Starts in:</Text>
                             <Text style={styles.countdownText}>{timeLeft}</Text>
@@ -129,10 +118,11 @@ const CommentModalHeader = ({
                     </>
                 )}
                 {review?.type === "review" && (
-                    <RatingsButton post={review} />
-
+                    <>
+                        <RatingsButton post={review} />
+                        <Text style={styles.reviewText}>{postText}</Text>
+                    </>
                 )}
-                <Text style={styles.reviewText}>{postText}</Text>
                 {isShared && (
                     <SharedPostContent
                         sharedItem={review}
@@ -152,18 +142,7 @@ const CommentModalHeader = ({
                     onActiveChange={(active) => setIsPhotoListActive?.(active)} // keep your old behavior
                 />
             )}
-            {renderItem?.type === 'liveStream' && (
-                <View style={{ marginTop: -50 }}>
-                    <VideoThumbnail
-                        file={fileForThumb}
-                        width={width + 10}
-                        height={height * .5}
-                        likeAnim={likeAnim}
-                        postItem={review}
-                    />
-                </View>
-            )}
-            {review?.type === "check-in" && renderItem?.photos?.length === 0 && (
+            {review?.type === "check-in" && !isMedia && (
                 <Image
                     source={{ uri: pinPic }}
                     style={styles.pinIcon}

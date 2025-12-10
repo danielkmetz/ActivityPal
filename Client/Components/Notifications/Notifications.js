@@ -2,12 +2,7 @@ import React, { useState, useRef } from 'react';
 import { View, FlatList, StyleSheet, Alert } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigation } from '@react-navigation/native';
-
-import {
-  selectIsBusiness,
-  selectUser,
-} from '../../Slices/UserSlice';
-
+import { selectIsBusiness, selectUser } from '../../Slices/UserSlice';
 import {
   selectNotifications,
   markNotificationRead,
@@ -15,13 +10,7 @@ import {
   createNotification,
   deleteNotification,
 } from '../../Slices/NotificationsSlice';
-
-import {
-  selectBusinessNotifications,
-  markBusinessNotificationRead,
-  deleteBusinessNotification,
-} from '../../Slices/BusNotificationsSlice';
-
+import { selectBusinessNotifications, markBusinessNotificationRead, deleteBusinessNotification } from '../../Slices/BusNotificationsSlice';
 import {
   approveFollowRequest,
   setFollowBack,
@@ -31,7 +20,6 @@ import {
   selectFollowing,
   followUserImmediately,
 } from '../../Slices/friendsSlice';
-
 import { fetchPostById } from '../../Slices/PostsSlice';
 import { decrementLastSeenUnreadCount } from '../../utils/notificationsHasSeen';
 import NotificationRow from './NotificationRow';
@@ -111,18 +99,11 @@ export default function Notifications() {
   const userId = user?.id;
   const placeId = user?.businessDetails?.placeId;
   const fullName = `${user?.firstName} ${user?.lastName}`;
-
+  
   const handleNotificationPress = async (notification) => {
     if (!notification) return;
 
-    const {
-      type,
-      postType,
-      targetId,
-      commentId,
-      replyId,
-      _id: notificationId,
-    } = notification;
+    const { type, postType, targetId, commentId, replyId, _id: notificationId } = notification;
 
     const target = replyId || commentId;
 
@@ -143,10 +124,11 @@ export default function Notifications() {
       'like',
       'tag',
       'photoTag',
-      'activityInvite',         // someone invited you
-      'requestInvite',          // someone requested to join your invite
-      'activityInviteAccepted', // your request was accepted
-      'activityInviteDeclined', // your request was declined
+      'activityInvite',         
+      'requestInvite',          
+      'activityInviteAccepted', 
+      'activityInviteDeclined', 
+      'activityInviteReminder',
     ];
 
     if (!contentTypes.includes(type)) {

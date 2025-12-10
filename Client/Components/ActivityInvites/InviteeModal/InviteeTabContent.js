@@ -1,6 +1,10 @@
 import React, { memo } from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import profilePicPlaceholder from '../../../assets/pics/profile-pic-placeholder.jpg';
+import PersonRow from './PersonRow';
+import { useSelector } from 'react-redux';
+import { selectUser } from '../../../Slices/UserSlice';
+import { toId } from '../../../utils/Formatting/toId';
 
 const InviteeTabContent = ({
   selectedTab,
@@ -9,29 +13,55 @@ const InviteeTabContent = ({
   declined = [],
   requests = [],
   isSender = false,
+  inviteId,
+  onAcceptSelf = () => {},
+  onDeclineSelf = () => {},
   onAcceptRequest = () => {},
   onRejectRequest = () => {},
-  inviteId,
-  renderPersonRow, // (rec, idx) => ReactNode (parent renders your PersonRow)
+  onNudgeRecipient = () => {}, // optional for host nudging
 }) => {
-  const renderList = (list, emptyText) =>
+  const user = useSelector(selectUser);
+  const currentUserId = toId(user?.id || user?._id);
+
+  const renderRecipients = (list, emptyText) =>
     list.length > 0 ? (
-      list.map((rec, idx) => renderPersonRow(rec, idx))
+      list.map((rec, idx) => (
+        <PersonRow
+          key={rec?.user?.id || rec?.userId || idx}
+          rec={rec}
+          currentUserId={currentUserId}
+          onAcceptSelf={onAcceptSelf}
+          onDeclineSelf={onDeclineSelf}
+          // if PersonRow has isHost/onNudge props:
+          isHost={isSender}
+          onNudge={(recipientId) => onNudgeRecipient(recipientId)}
+        />
+      ))
     ) : (
       <Text style={styles.emptyText}>{emptyText}</Text>
     );
 
   return (
     <View>
-      {selectedTab === 'going' && renderList(going, 'No one has accepted yet')}
-      {selectedTab === 'invited' && renderList(invited, 'No pending invites')}
-      {selectedTab === 'declined' && renderList(declined, 'No declines')}
-      {selectedTab === 'requested' && (
-        requests.length > 0 ? (
+      {selectedTab === 'going' &&
+        renderRecipients(going, 'No one has accepted yet')}
+
+      {selectedTab === 'invited' &&
+        renderRecipients(invited, 'No pending invites')}
+
+      {selectedTab === 'declined' &&
+        renderRecipients(declined, 'No declines')}
+
+      {selectedTab === 'requested' &&
+        (requests.length > 0 ? (
           requests.map((req, idx) => (
             <View key={idx} style={[styles.usersRow, styles.requestRow]}>
               <Image
-                source={req.profilePicUrl ? { uri: req.profilePicUrl } : profilePicPlaceholder}
+                source={
+                  req.profilePicUrl
+                    ? { uri: req.profilePicUrl }
+                    : profilePicPlaceholder
+                }
                 style={styles.profilePic}
               />
               <Text style={styles.userText}>
@@ -57,8 +87,7 @@ const InviteeTabContent = ({
           ))
         ) : (
           <Text style={styles.emptyText}>No join requests yet</Text>
-        )
-      )}
+        ))}
     </View>
   );
 };

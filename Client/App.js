@@ -12,11 +12,7 @@ import { Provider, useDispatch, useSelector } from 'react-redux';
 import Header from './Components/Header/Header';
 import store from './store';
 import * as Font from 'expo-font';
-import {
-  getCurrentCoordinates,
-  selectCoordinates,
-  getCityStateCountry,
-} from './Slices/LocationSlice';
+import { getCurrentCoordinates, selectCoordinates, getCityStateCountry } from './Slices/LocationSlice';
 import { loadToken, selectUser, selectIsBusiness } from './Slices/UserSlice';
 import { PaperProvider } from 'react-native-paper';
 import { selectGooglePlaces, fetchNearbyPromosAndEvents } from './Slices/GooglePlacesSlice';
@@ -24,11 +20,7 @@ import { fetchNotifications, selectUnreadCount } from './Slices/NotificationsSli
 import { fetchBusinessNotifications } from './Slices/BusNotificationsSlice';
 import useScrollTracking from './utils/useScrollTracking';
 import { navigationRef } from './utils/NavigationService';
-import {
-  fetchSuggestedFriends,
-  setHasFetchedSuggestions,
-  selectHasFetchedSuggestions,
-} from './Slices/friendsSlice';
+import { fetchSuggestedFriends, setHasFetchedSuggestions, selectHasFetchedSuggestions } from './Slices/friendsSlice';
 import { fetchProfilePic } from './Slices/PhotosSlice';
 import client from './apolloClient';
 import { LikeAnimationsProvider } from './utils/LikeHandlers/LikeAnimationContext';
@@ -37,6 +29,7 @@ import { UserFeedProvider } from './Providers/UserFeedContext';
 import { HiddenTaggedProvider } from './Providers/HiddenTaggedContext';
 import { HiddenPostsProvider } from './Providers/HiddenPostsContext';
 import { selectHeaderTitle } from './Slices/uiSlice';
+import InvitesProvider from './Providers/InvitesProvider';
 
 const fetchFonts = async () => {
   return await Font.loadAsync({
@@ -44,8 +37,6 @@ const fetchFonts = async () => {
     'Poppins Bold': require('./assets/fonts/Poppins-SemiBold.ttf'),
   });
 };
-
-const BASE_URL = process.env.EXPO_PUBLIC_BASE_URL;
 
 /* ----------------------- NAV STATE HELPER ---------------------- */
 
@@ -293,25 +284,27 @@ export default function App() {
         <PaperProvider>
           <GestureHandlerRootView style={{ flex: 1 }}>
             <SafeAreaProvider>
-              <LikeAnimationsProvider>
-                <BusinessReviewsProvider>
-                  <HiddenPostsProvider>
-                    <HiddenTaggedProvider>
-                      <UserFeedProvider>
-                        <NavigationContainer
-                          ref={(ref) => {
-                            navigationRef.current = ref;
-                          }}
-                        >
-                          <RootErrorBoundary>
-                            <MainApp />
-                          </RootErrorBoundary>
-                        </NavigationContainer>
-                      </UserFeedProvider>
-                    </HiddenTaggedProvider>
-                  </HiddenPostsProvider>
-                </BusinessReviewsProvider>
-              </LikeAnimationsProvider>
+              <InvitesProvider>
+                <LikeAnimationsProvider>
+                  <BusinessReviewsProvider>
+                    <HiddenPostsProvider>
+                      <HiddenTaggedProvider>
+                        <UserFeedProvider>
+                          <NavigationContainer
+                            ref={(ref) => {
+                              navigationRef.current = ref;
+                            }}
+                          >
+                            <RootErrorBoundary>
+                              <MainApp />
+                            </RootErrorBoundary>
+                          </NavigationContainer>
+                        </UserFeedProvider>
+                      </HiddenTaggedProvider>
+                    </HiddenPostsProvider>
+                  </BusinessReviewsProvider>
+                </LikeAnimationsProvider>
+              </InvitesProvider>
             </SafeAreaProvider>
           </GestureHandlerRootView>
         </PaperProvider>

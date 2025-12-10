@@ -1,43 +1,26 @@
 import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableWithoutFeedback,
-  Modal,
-  Dimensions,
-} from 'react-native';
+import { View, Text, StyleSheet, TouchableWithoutFeedback, Modal, Dimensions } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { GestureDetector } from 'react-native-gesture-handler';
-import { useSelector } from 'react-redux';
-
-import { selectUser } from '../../../Slices/UserSlice';
 import useSlideDownDismiss from '../../../utils/useSlideDown';
-
 import InviteeTabs from './InviteeTabs';
 import InviteeTabContent from './InviteeTabContent';
-import PersonRow from './PersonRow';
-
-// ✅ NEW centralized helper hook (make sure this path matches your project)
 import useInviteActions from '../../../utils/UserInviteActions/userInviteActions';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
-const toId = (v) => (v && v.toString ? v.toString() : v || '');
 
 const InviteeModal = ({
   visible,
   onClose,
-  requests = [],
-  recipients = [],
   isSender,
   invite,
 }) => {
   const [selectedTab, setSelectedTab] = useState('going');
-
-  const user = useSelector(selectUser);
-  const meId = toId(user?.id || user?._id);
-
   const postContent = invite?.original ?? invite ?? {};
+  const details = postContent?.details;
+
+  const recipients = details?.recipients;
+  const requests = details?.requests;
   const going = (recipients || []).filter((r) => r.status === 'accepted');
   const declined = (recipients || []).filter((r) => r.status === 'declined');
   const invited = (recipients || []).filter((r) => r.status === 'pending');
@@ -49,30 +32,28 @@ const InviteeModal = ({
     requested: (requests || []).length,
   };
 
-  const { gesture, animateIn, animateOut, animatedStyle } =
-    useSlideDownDismiss(onClose);
+  const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
 
   useEffect(() => {
     if (visible) {
-      // slide in when opened
       animateIn();
     } else {
-      // slide out then call onClose
       (async () => {
         await animateOut();
         onClose?.();
       })();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
-  // ✅ Use the refactored helper hook; it now runs conflict checks internally
   const {
     acceptForMe,
     declineForMe,
     acceptJoinRequest,
     rejectJoinRequest,
+    nudgeRecipient,
   } = useInviteActions(invite);
+
+  const inviteId = postContent?._id || invite?.id;
 
   return (
     <Modal visible={visible} transparent>
@@ -83,15 +64,12 @@ const InviteeModal = ({
               <View style={styles.notchContainer}>
                 <View style={styles.notch} />
               </View>
-
               <Text style={styles.title}>Who's Going</Text>
-
               <InviteeTabs
                 selectedTab={selectedTab}
                 onChange={setSelectedTab}
                 counts={counts}
               />
-
               <InviteeTabContent
                 selectedTab={selectedTab}
                 going={going}
@@ -99,21 +77,13 @@ const InviteeModal = ({
                 declined={declined}
                 requests={requests}
                 isSender={isSender}
-                // Host accepts / rejects join requests
+                inviteId={inviteId}
+                onAcceptSelf={acceptForMe}
+                onDeclineSelf={declineForMe}
+                // host handling join requests
                 onAcceptRequest={(relatedId) => acceptJoinRequest(relatedId)}
                 onRejectRequest={(relatedId) => rejectJoinRequest(relatedId)}
-                inviteId={postContent?._id || invite?.id}
-                renderPersonRow={(rec, idx) => (
-                  <PersonRow
-                    key={idx}
-                    rec={rec}
-                    currentUserId={meId}
-                    // Self-changing response uses the hook’s handlers
-                    // ✅ acceptForMe will run the conflict checker before RSVP
-                    onAcceptSelf={acceptForMe}
-                    onDeclineSelf={declineForMe}
-                  />
-                )}
+                onNudgeRecipient={nudgeRecipient}
               />
             </Animated.View>
           </GestureDetector>
