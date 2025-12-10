@@ -77,6 +77,7 @@ export const POST_FIELDS = gql`
       }
       ... on InviteDetails {
         dateTime
+        needsRecap
         recipients {
           user {
             id
@@ -85,6 +86,7 @@ export const POST_FIELDS = gql`
             profilePicUrl
           }
           status
+          nudgedAt
         }
         requests {
           _id
@@ -127,6 +129,10 @@ export const POST_FIELDS = gql`
     # ✅ NEW: hydrated live original for shared posts
     original {
       ...NestedPostFields
+    }
+    
+    refs {
+      relatedInviteId
     }
   }
 `;

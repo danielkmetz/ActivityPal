@@ -30,7 +30,7 @@ import EventDetailsScreen from '../Activities/EventPromoDetails/EventDetailsScre
 import { selectProfilePic } from '../../Slices/PhotosSlice';
 import SettingsScreen from '../Profile/Settings/SettingsScreen';
 import HiddenPostsScreen from '../Profile/Settings/HiddenPostsScreen';
-import BucketOverviewScreen from '../../screens/BucketOverviewScreen';
+import MyPlansScreen from '../../screens/MyPlansScreen';
 import InviteDetailsScreen from '../../screens/InviteDetailsScreen';
 import CreateEventOrPromoPage from '../BusinessEvents/CreateEventPromo/CreateEventOrPromoPage';
 
@@ -262,7 +262,7 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
             <Stack.Screen name="EventDetails" component={EventDetailsScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
             <Stack.Screen name="HiddenPosts" component={HiddenPostsScreen} scrollY={scrollY} onScroll={onScroll} isAtEnd={isAtEnd} />
-            <Stack.Screen name="BucketOverview" component={BucketOverviewScreen} options={{ title: 'Plans'}} />
+            <Stack.Screen name="MyPlans" component={MyPlansScreen} options={{ title: 'Plans'}} />
             <Stack.Screen name="InviteDetails" component={InviteDetailsScreen} options={{ title: 'Plan details'}} />
         </Stack.Navigator>
     )

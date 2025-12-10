@@ -52,6 +52,8 @@ export default function CreatePost() {
 
   const isEditing = route.params?.isEditing || false;
   const initialPost = route.params?.initialPost || null;
+  const relatedInviteId = route.params?.relatedInviteId || null;
+  const initialBusinessFromRoute = route.params?.initialBusiness || null;
   const googlePlacesRef = useRef(null);
   const fullName = `${user.firstName} ${user?.lastName}`;
 
@@ -59,7 +61,7 @@ export default function CreatePost() {
     ? route.params?.initialPost?.type
     : route.params?.postType;
   const [postType, setPostType] = useState(initialType);
-  
+
   useEffect(() => {
     if (isEditing && initialPost) {
       //setPostType(initialPost.type); // "review" or "check-in"
@@ -84,6 +86,17 @@ export default function CreatePost() {
       }
     }
   }, [isEditing, initialPost]);
+
+  useEffect(() => {
+    // Only for NEW posts that came from a recap badge
+    if (!isEditing && initialBusinessFromRoute && !business) {
+      setBusiness(initialBusinessFromRoute);
+
+      if (initialBusinessFromRoute.name && googlePlacesRef.current) {
+        googlePlacesRef.current.setAddressText(initialBusinessFromRoute.name);
+      }
+    }
+  }, [isEditing, initialBusinessFromRoute, business]);
 
   useEffect(() => {
     setPhotoList(selectedPhotos);
@@ -234,27 +247,43 @@ export default function CreatePost() {
       const placeId = business.place_id;
       const businessName = business.name || "";
       const location = business.formatted_address || "";
-      const rawPhotos = (Array.isArray(photoList) && photoList.length > 0 ? photoList : selectedPhotos) || [];
+      const rawPhotos =
+        (Array.isArray(photoList) && photoList.length > 0
+          ? photoList
+          : selectedPhotos) || [];
 
       // 1) upload photos (deduped)
       const uploadedPhotos = await uploadDedupPhotos({
-        dispatch, userId: currentUserId, placeId, photos: rawPhotos,
+        dispatch,
+        userId: currentUserId,
+        placeId,
+        photos: rawPhotos,
       });
 
       // 2) common fields
-      const taggedUserIds = (taggedUsers || []).map(normalizeId).filter(Boolean);
+      const taggedUserIds = (taggedUsers || [])
+        .map(normalizeId)
+        .filter(Boolean);
       let postId;
 
       // 3) edit vs create
       if (isEditing && initialPost) {
-        const base = { placeId, taggedUsers: taggedUserIds, photos: uploadedPhotos };
+        const base = {
+          placeId,
+          taggedUsers: taggedUserIds,
+          photos: uploadedPhotos,
+        };
         const updates = isReview
           ? {
             ...base,
             // details for reviews
-            rating, priceRating, serviceRating, atmosphereRating, wouldRecommend,
-            reviewText: trimmedReview,           // your backend maps reviewText/message
-            message: trimmedReview,              // keep both for safety
+            rating,
+            priceRating,
+            serviceRating,
+            atmosphereRating,
+            wouldRecommend,
+            reviewText: trimmedReview, // backend maps reviewText/message
+            message: trimmedReview, // keep both for safety
           }
           : { ...base, message: trimmedCheckIn || null };
 
@@ -265,21 +294,31 @@ export default function CreatePost() {
       } else {
         // unified create payload: single shape for any type
         const payload = {
-          type: postType,                  // backend can use this for /posts or ignore if path-param based
+          type: postType, // backend can use this for /posts or ignore if path-param based
           userId: currentUserId,
           placeId,
           location,
           businessName,
           photos: uploadedPhotos,
-          taggedUsers: taggedUserIds,      // backend will extract ids if objects are passed
+          taggedUsers: taggedUserIds, // backend will extract ids if objects are passed
+
+          // 🔹 recap linkage: only send if we actually came from a recap entry point
+          ...(relatedInviteId ? { relatedInviteId } : {}),
+
           // message + type-specific fields:
           ...(isReview
             ? {
-              message: trimmedReview,    // server prefers message; also honors reviewText
+              message: trimmedReview, // server prefers message; also honors reviewText
               reviewText: trimmedReview,
-              rating, priceRating, serviceRating, atmosphereRating, wouldRecommend,
+              rating,
+              priceRating,
+              serviceRating,
+              atmosphereRating,
+              wouldRecommend,
             }
-            : { message: trimmedCheckIn || null }),
+            : {
+              message: trimmedCheckIn || null,
+            }),
         };
 
         const created = await dispatch(createPost(payload)).unwrap();
@@ -297,7 +336,7 @@ export default function CreatePost() {
         businessName,
         postType,
         postId,
-        taggedUsers,      // use original array so post-level tags still notify even if you sent ids
+        taggedUsers, // use original array so post-level tags still notify even if you sent ids
         uploadedPhotos,
       });
 

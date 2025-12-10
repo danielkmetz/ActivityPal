@@ -1,11 +1,10 @@
 const mongoose = require('mongoose');
-const {
-  Types: { ObjectId },
-} = mongoose;
-
+const { Types: { ObjectId } } = mongoose;
 const User = require('../models/User'); // adjust path if needed
 const Business = require('../models/Business');
 const { getPresignedUrl } = require('./cachePresignedUrl'); // adjust path if needed
+const { buildRecapMapForUser } = require('./invites/inviteRecapMap');
+const { deriveBusinessIdentity } = require('./posts/deriveBusinessIdentity');
 
 // ---------------- debug helpers ----------------
 const DEBUG = '2' === '1';
@@ -20,67 +19,22 @@ const dpost = (post, msg, extra) => {
 
 // ---------------- tiny utils ----------------
 const toStr = (v) => (v == null ? null : String(v));
-const fullNameOf = (u) =>
-  [u?.firstName, u?.lastName].filter(Boolean).join(' ') || null;
+const fullNameOf = (u) => [u?.firstName, u?.lastName].filter(Boolean).join(' ') || null;
 
 function normalizeUserId(anyShape) {
   const s = toStr(
     anyShape?.userId ??
-      anyShape?.id ??
-      anyShape?._id ??
-      anyShape?.user?.id ??
-      anyShape?.user?._id ??
-      anyShape
+    anyShape?.id ??
+    anyShape?._id ??
+    anyShape?.user?.id ??
+    anyShape?.user?._id ??
+    anyShape
   );
   return s && ObjectId.isValid(s) ? new ObjectId(s) : null;
 }
 
 function extractTaggedUserIds(list = []) {
   return list.map(normalizeUserId).filter(Boolean);
-}
-
-// ★ deriveBusinessIdentity also tries to discover logo key/url
-function deriveBusinessIdentity(p = {}) {
-  const placeId =
-    p.placeId ??
-    p.details?.placeId ??
-    p.details?.place?.placeId ??
-    p.refs?.business?.placeId ??
-    p.location?.placeId ??
-    p.shared?.snapshot?.placeId ??
-    p.shared?.snapshot?.refs?.business?.placeId ??
-    null;
-
-  const businessName =
-    p.businessName ??
-    p.details?.businessName ??
-    p.details?.placeName ??
-    p.details?.place?.name ??
-    p.refs?.business?.name ??
-    p.location?.name ??
-    p.shared?.snapshot?.businessName ??
-    p.shared?.snapshot?.refs?.business?.name ??
-    null;
-
-  const businessLogoKey =
-    p.businessLogoKey ??
-    p.details?.businessLogoKey ??
-    p.refs?.business?.logoKey ??
-    p.location?.logoKey ??
-    p.shared?.snapshot?.businessLogoKey ??
-    p.shared?.snapshot?.refs?.business?.logoKey ??
-    null;
-
-  const businessLogoUrl =
-    p.businessLogoUrl ??
-    p.details?.businessLogoUrl ??
-    p.refs?.business?.logoUrl ??
-    p.location?.logoUrl ??
-    p.shared?.snapshot?.businessLogoUrl ??
-    p.shared?.snapshot?.refs?.business?.logoUrl ??
-    null;
-
-  return { placeId, businessName, businessLogoKey, businessLogoUrl };
 }
 
 // ---------------- batch fetch user summaries ----------------
@@ -338,13 +292,14 @@ function enrichInviteDetails(details, userMap) {
     return {
       user: u
         ? {
-            id: u.id,
-            firstName: u.firstName,
-            lastName: u.lastName,
-            profilePicUrl: u.profilePicUrl,
-          }
+          id: u.id,
+          firstName: u.firstName,
+          lastName: u.lastName,
+          profilePicUrl: u.profilePicUrl,
+        }
         : null,
       status: r?.status || 'pending',
+      nudgedAt: r?.nudgedAt || null,
     };
   });
 
@@ -366,7 +321,13 @@ function enrichInviteDetails(details, userMap) {
 }
 
 // ---------------- universal post enricher ----------------
-async function enrichPostUniversal(post, userMap, businessMap = new Map()) {
+async function enrichPostUniversal(
+  post,
+  userMap,
+  businessMap = new Map(),
+  viewerId = null,
+  recapMap = new Map()
+) {
   dpost(post, 'owner check', {
     ownerModel: post?.ownerModel,
     ownerId: String(post?.ownerId || ''),
@@ -436,6 +397,56 @@ async function enrichPostUniversal(post, userMap, businessMap = new Map()) {
     details = enrichInviteDetails(details, userMap);
   }
 
+  // ----- needsRecap flag injection for invites -----
+  if (
+    post?.type === 'invite' &&
+    details &&
+    viewerId &&
+    recapMap &&
+    recapMap instanceof Map
+  ) {
+    const viewerStr = toStr(viewerId);
+
+    // Host is implicitly "going"
+    const isHost = toStr(post.ownerId) === viewerStr;
+
+    const recips = details.recipients || [];
+    const me = recips.find((r) => {
+      const rid = toStr(r?.user?.id) || toStr(r?.userId);
+      return rid === viewerStr;
+    });
+    const recipientStatus = me?.status || null;
+
+    const isAccepted = isHost || recipientStatus === 'accepted';
+
+    // Parse invite start time
+    const rawDate = details.dateTime;
+    let dt = null;
+    if (rawDate instanceof Date) {
+      dt = rawDate;
+    } else if (rawDate) {
+      const parsed = new Date(rawDate);
+      if (!Number.isNaN(parsed.getTime())) dt = parsed;
+    }
+
+    const now = new Date();
+    const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+    const isPastTwoHours = !!dt && dt <= twoHoursAgo;
+
+    const hasRecap = recapMap.has(String(post._id));
+
+    // Start from a clean copy and drop any stale needsRecap
+    let nextDetails = { ...details };
+    delete nextDetails.needsRecap;
+
+    if (isAccepted && isPastTwoHours) {
+      // Only invites that matter to this viewer get a flag
+      nextDetails.needsRecap = !hasRecap; // true if no recap yet, false if recap exists
+    }
+
+    details = nextDetails;
+  }
+
   const enriched = {
     ...post,
     media,
@@ -451,19 +462,19 @@ async function enrichPostUniversal(post, userMap, businessMap = new Map()) {
 
     owner: owner
       ? {
-          id: owner.id,
-          firstName: owner.firstName,
-          lastName: owner.lastName,
-          fullName: `${owner.firstName} ${owner.lastName}`,
-          profilePicUrl: owner.profilePicUrl,
-        }
+        id: owner.id,
+        firstName: owner.firstName,
+        lastName: owner.lastName,
+        fullName: `${owner.firstName} ${owner.lastName}`,
+        profilePicUrl: owner.profilePicUrl,
+      }
       : undefined,
   };
 
   return enriched;
 }
 
-async function enrichOneOrMany(postOrPosts) {
+async function enrichOneOrMany(postOrPosts, viewerId = null) {
   const arr = Array.isArray(postOrPosts) ? postOrPosts : [postOrPosts];
 
   const userIds = collectUserIdsFromPosts(arr);
@@ -472,8 +483,12 @@ async function enrichOneOrMany(postOrPosts) {
   const placeIds = collectPlaceIdsFromPosts(arr);
   const businessMap = await fetchBusinessMap(placeIds);
 
+  const recapMap = await buildRecapMapForUser(arr, viewerId);
+
   const enriched = await Promise.all(
-    arr.map((p) => enrichPostUniversal(p, userMap, businessMap))
+    arr.map((p) =>
+      enrichPostUniversal(p, userMap, businessMap, viewerId, recapMap)
+    )
   );
 
   return Array.isArray(postOrPosts) ? enriched : enriched[0];

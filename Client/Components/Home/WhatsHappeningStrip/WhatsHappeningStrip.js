@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { FontAwesome, Feather } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 
 // items shape:
 // {
@@ -22,18 +23,26 @@ import { FontAwesome, Feather } from '@expo/vector-icons';
 
 export default function WhatsHappeningStrip({
   items = [],
+  myPlansMeta,
   onPressItem,
   onPressCreatePlan,
-  onPressSeeAll,        // replaces "All plans" bubble
   onSeenFriendsItems,
 }) {
+  const navigation = useNavigation();
   const safeItems = Array.isArray(items) ? items : [];
 
   const viewabilityConfig = { itemVisiblePercentThreshold: 60 };
 
+  const handlePressMyPlans = () => {
+    navigation.navigate('MyPlans');
+  };
+
   const onViewableItemsChanged = useRef(({ viewableItems }) => {
     if (!onSeenFriendsItems) return;
-    const seenFriendIds = viewableItems
+
+    const list = Array.isArray(viewableItems) ? viewableItems : [];
+
+    const seenFriendIds = list
       .map(v => v.item)
       .filter(
         item => item && item.type === 'friends' && typeof item.id === 'string'
@@ -44,6 +53,19 @@ export default function WhatsHappeningStrip({
       onSeenFriendsItems(seenFriendIds);
     }
   }).current;
+
+  // ---- NEW: derive a single "my plans" source and remove it from list ----
+  const { myPlansItem, otherItems } = useMemo(() => {
+    const youItem = safeItems.find(item => item && item.type === 'you');
+    const filtered = youItem
+      ? safeItems.filter(item => item !== youItem)
+      : safeItems;
+
+    return {
+      myPlansItem: youItem || null,
+      otherItems: filtered,
+    };
+  }, [safeItems]);
 
   const renderCreateBubble = () => (
     <TouchableOpacity
@@ -58,6 +80,47 @@ export default function WhatsHappeningStrip({
       <Text style={styles.subLabel}>something</Text>
     </TouchableOpacity>
   );
+
+  // Single My Plans bubble, powered by myPlansItem if it exists
+  const renderMyPlansBubble = () => {
+    if (!handlePressMyPlans) return null;
+
+    const photoUrl = myPlansMeta?.imageUrl;
+    const badge = myPlansMeta?.badge;
+
+    return (
+      <TouchableOpacity
+        style={styles.bubbleWrapper}
+        onPress={handlePressMyPlans}
+        activeOpacity={0.8}
+      >
+        <View style={[styles.bubble, styles.myPlansBubble]}>
+          {photoUrl ? (
+            <Image
+              source={{ uri: photoUrl }}
+              style={styles.bubbleImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={styles.bubbleFallback}>
+              <Feather name="calendar" size={22} />
+            </View>
+          )}
+          {badge ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{badge}</Text>
+            </View>
+          ) : null}
+        </View>
+        <Text style={styles.timeLabel} numberOfLines={1}>
+          My plans
+        </Text>
+        <Text style={styles.subLabel} numberOfLines={2}>
+          Past &amp; upcoming
+        </Text>
+      </TouchableOpacity>
+    );
+  };
 
   const renderItem = ({ item }) => (
     <TouchableOpacity
@@ -99,27 +162,16 @@ export default function WhatsHappeningStrip({
       <View style={styles.headerRow}>
         <View>
           <Text style={styles.title}>What’s happening</Text>
-          {/* <Text style={styles.subtitle}>
-            Your invites, friends’ plans, and busy spots near you
-          </Text> */}
         </View>
-
-        {onPressSeeAll ? (
-          <TouchableOpacity
-            onPress={onPressSeeAll}
-            hitSlop={styles.hitSlop}
-          >
-            <Text style={styles.seeAllText}>See all</Text>
-          </TouchableOpacity>
-        ) : null}
       </View>
 
       <FlatList
         horizontal
         showsHorizontalScrollIndicator={false}
-        data={safeItems}
+        data={otherItems}
         keyExtractor={item => String(item.id)}
         renderItem={renderItem}
+        ListHeaderComponent={renderMyPlansBubble}
         ListFooterComponent={renderCreateBubble}
         contentContainerStyle={styles.listContent}
         viewabilityConfig={viewabilityConfig}
@@ -218,5 +270,8 @@ const styles = StyleSheet.create({
     bottom: 8,
     left: 8,
     right: 8,
+  },
+  myPlansBubble: {
+    backgroundColor: '#DBEAFE',
   },
 });

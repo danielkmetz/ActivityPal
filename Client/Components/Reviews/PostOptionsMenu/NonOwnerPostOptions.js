@@ -27,7 +27,7 @@ const getTagId = (t) => toStr(t?.userId ?? t?._id ?? t?.id ?? t);
 
 const NonOwnerOptions = ({ post, visible, onClose, title = 'Post options' }) => {
   const dispatch = useDispatch();
-  const postContent = post?.original ? post?.original : post;
+  const postContent = post?.original ?? post ?? {};
   const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
   const currentUser = useSelector(selectUser);
   const following = useSelector(selectFollowing);
@@ -41,8 +41,8 @@ const NonOwnerOptions = ({ post, visible, onClose, title = 'Post options' }) => 
   const isPostOwner = ownerId === currentUserId;
   const isBusy = status === 'pending';
   const followingIds = following.map(u => u._id);
-  const isFollowing = followingIds.includes(ownerId)
-  
+  const isFollowing = followingIds.includes(ownerId);
+
   // Profile-level (tagged) hide helpers
   const { isHidden: isHiddenOnProfile, hide: hideFromProfile, unhide: unhideFromProfile } = useHiddenTagged();
   const hiddenOnProfile = isHiddenOnProfile(postType, postId);

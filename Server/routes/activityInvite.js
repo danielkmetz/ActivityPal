@@ -14,13 +14,25 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const DISPLAY_TZ = 'America/Chicago';
-const fmtWhen = (iso) =>
-  iso ? dayjs.utc(iso).tz(DISPLAY_TZ).format('MMMM D [at] h:mm A') : '';
+
+const fmtWhen = (iso, tz = DISPLAY_TZ) =>
+  iso ? dayjs.utc(iso).tz(tz).format('MMMM D [at] h:mm A') : '';
 
 const ensureInviteDetails = (post) => {
   if (!post.details) post.details = {};
   if (!Array.isArray(post.details.recipients)) post.details.recipients = [];
   if (!Array.isArray(post.details.requests)) post.details.requests = [];
+
+  // default timezone on the invite if missing
+  if (typeof post.details.timezone !== 'string' || !post.details.timezone.trim()) {
+    post.details.timezone = DISPLAY_TZ;
+  }
+
+  // recap worker will set this when it fires
+  if (typeof post.details.recapReminderSentAt === 'undefined') {
+    post.details.recapReminderSentAt = null;
+  }
+
   return post.details;
 };
 
@@ -136,6 +148,7 @@ async function serializeInvitePost(postDoc) {
     return {
       __typename: 'InviteRecipient',
       status: r.status || 'pending',
+      nudgedAt: r.nudgedAt || null,
       user: {
         __typename: 'InviteUser',
         id: String(r.userId),
@@ -227,13 +240,14 @@ router.post('/send', async (req, res) => {
     note,
     businessName,
     location,
+    timezone,           // 👈 from client (event timezone)
   } = req.body;
 
   try {
     const sender = await User.findById(senderId);
     if (!sender) return res.status(404).json({ error: 'Sender not found' });
 
-    // Ensure business exists
+    // Ensure business exists (unchanged)
     let business = await Business.findOne({ placeId }).lean();
     if (!business) {
       const created = await Business.create({
@@ -259,6 +273,10 @@ router.post('/send', async (req, res) => {
     const text = message ?? note ?? '';
     const privacy = isPublic ? 'public' : 'followers';
 
+    const eventTimezone = (typeof timezone === 'string' && timezone.trim())
+      ? timezone.trim()
+      : DISPLAY_TZ;
+
     const post = await InvitePost.create({
       ownerId: senderId,
       ownerModel: 'User',
@@ -270,14 +288,16 @@ router.post('/send', async (req, res) => {
       privacy,
       details: {
         dateTime: when,
+        timezone: eventTimezone,           // 👈 store event tz
         recipients: recipientIds.map((id) => ({ userId: id, status: 'pending' })),
         requests: [],
+        recapReminderSentAt: null,        // 👈 worker will set later
       },
       sortDate: createdAt,
     });
 
-    // Notifications
-    const formattedDateTime = fmtWhen(when.toISOString());
+    // Notifications (use event timezone for messaging)
+    const formattedDateTime = fmtWhen(when.toISOString(), eventTimezone);
     const baseNotif = {
       type: 'activityInvite',
       message: `${sender.firstName} invited you to ${business.businessName} on ${formattedDateTime}`,
@@ -331,11 +351,12 @@ router.post('/accept', async (req, res) => {
 
     await post.save();
 
-    // Remove original invite notification just for THIS invite
+    // Remove original invite *and reminder* notifications for THIS invite
     recipient.notifications = (recipient.notifications || []).filter(
       (n) =>
         !(
-          n.type === 'activityInvite' &&
+          (n.type === 'activityInvite' ||
+            n.type === 'activityInviteReminder') &&           // 👈 include reminder
           String(n.relatedId) === String(post.ownerId) &&
           String(n.targetId) === String(post._id) &&
           n.postType === 'invite'
@@ -344,7 +365,8 @@ router.post('/accept', async (req, res) => {
     await recipient.save();
 
     const business = await Business.findOne({ placeId: post.placeId }).lean();
-    const formattedDate = fmtWhen(details.dateTime);
+    const tz = details.timezone || DISPLAY_TZ;
+    const formattedDate = fmtWhen(details.dateTime, tz);
     const acceptedCount = (details.recipients || []).filter(
       (r) => r.status === 'accepted'
     ).length;
@@ -376,8 +398,12 @@ router.post('/accept', async (req, res) => {
     };
 
     await Promise.all([
-      User.findByIdAndUpdate(post.ownerId, { $push: { notifications: senderNotification } }),
-      User.findByIdAndUpdate(recipientId, { $push: { notifications: recipientConfirmation } }),
+      User.findByIdAndUpdate(post.ownerId, {
+        $push: { notifications: senderNotification },
+      }),
+      User.findByIdAndUpdate(recipientId, {
+        $push: { notifications: recipientConfirmation },
+      }),
     ]);
 
     if (acceptedCount >= 5 && business?._id) {
@@ -398,10 +424,14 @@ router.post('/accept', async (req, res) => {
     }
 
     const out = await serializeInvitePost(post);
-    return res.status(200).json({ success: true, message: 'Invite accepted!', invite: out });
+    return res
+      .status(200)
+      .json({ success: true, message: 'Invite accepted!', invite: out });
   } catch (err) {
     console.error('❌ Error in /accept:', err);
-    return res.status(500).json({ error: 'Failed to accept invite', details: err.message });
+    return res
+      .status(500)
+      .json({ error: 'Failed to accept invite', details: err.message });
   }
 });
 
@@ -425,10 +455,12 @@ router.post('/reject', async (req, res) => {
 
     await post.save();
 
+    // Remove original invite *and reminder* notifications for THIS invite
     recipient.notifications = (recipient.notifications || []).filter(
       (n) =>
         !(
-          n.type === 'activityInvite' &&
+          (n.type === 'activityInvite' ||
+            n.type === 'activityInviteReminder') &&           // 👈 include reminder
           String(n.relatedId) === String(post.ownerId) &&
           String(n.targetId) === String(post._id) &&
           n.postType === 'invite'
@@ -437,7 +469,8 @@ router.post('/reject', async (req, res) => {
     await recipient.save();
 
     const business = await Business.findOne({ placeId: post.placeId }).lean();
-    const formattedDate = fmtWhen(details.dateTime);
+    const tz = details.timezone || DISPLAY_TZ;
+    const formattedDate = fmtWhen(details.dateTime, tz);
 
     const senderNotification = {
       type: 'activityInviteDeclined',
@@ -466,15 +499,25 @@ router.post('/reject', async (req, res) => {
     };
 
     await Promise.all([
-      User.findByIdAndUpdate(post.ownerId, { $push: { notifications: senderNotification } }),
-      User.findByIdAndUpdate(recipientId, { $push: { notifications: recipientConfirmation } }),
+      User.findByIdAndUpdate(post.ownerId, {
+        $push: { notifications: senderNotification },
+      }),
+      User.findByIdAndUpdate(recipientId, {
+        $push: { notifications: recipientConfirmation },
+      }),
     ]);
 
     const out = await serializeInvitePost(post);
-    return res.status(200).json({ success: true, message: 'Invite declined, sender notified.', invite: out });
+    return res.status(200).json({
+      success: true,
+      message: 'Invite declined, sender notified.',
+      invite: out,
+    });
   } catch (err) {
     console.error('❌ Error in /reject:', err);
-    return res.status(500).json({ error: 'Failed to decline invite', details: err.message });
+    return res
+      .status(500)
+      .json({ error: 'Failed to decline invite', details: err.message });
   }
 });
 
@@ -514,11 +557,17 @@ router.put('/edit', async (req, res) => {
     // Core post fields
     post.message = updates.message ?? post.message;
     post.placeId = updates.placeId ?? post.placeId;
+
     if (updates.dateTime !== undefined) {
       const newWhen = updates.dateTime ? new Date(updates.dateTime) : null;
       if (newWhen) {
-        details.dateTime = newWhen;   // ✅ only event time moves
+        details.dateTime = newWhen;
       }
+    }
+
+    // NEW: allow timezone update if provided
+    if (typeof updates.timezone === 'string' && updates.timezone.trim()) {
+      details.timezone = updates.timezone.trim();
     }
 
     // Invite-specific
@@ -529,10 +578,13 @@ router.put('/edit', async (req, res) => {
     await post.save();
 
     const business = await Business.findOne({ placeId: post.placeId }).lean();
-    const formattedDateTime = fmtWhen(details.dateTime);
-    const updatedMessage = `${sender.firstName} invited you to ${business?.businessName || 'a place'} on ${formattedDateTime}`;
+    const tz = details.timezone || DISPLAY_TZ;
+    const formattedDateTime = fmtWhen(details.dateTime, tz);
+    const updatedMessage = `${sender.firstName} invited you to ${
+      business?.businessName || 'a place'
+    } on ${formattedDateTime}`;
 
-    // Upsert/update recipient notifications
+    // Upsert/update recipient notifications (unchanged except message uses tz now)
     await Promise.all(
       nextIds.map(async (uid) => {
         const user = await User.findById(uid);
@@ -570,7 +622,7 @@ router.put('/edit', async (req, res) => {
       })
     );
 
-    // Remove notifications from removed recipients
+    // Remove notifications from removed recipients (unchanged)
     const removedIds = [...prevSet].filter((id) => !nextSet.has(id));
     await Promise.all(
       removedIds.map((rid) =>
@@ -761,6 +813,137 @@ router.post('/reject-user-request', async (req, res) => {
   } catch (err) {
     console.error('❌ Failed to reject request:', err);
     return res.status(500).json({ error: 'Failed to reject request', details: err.message });
+  }
+});
+
+/* --------------------------- /nudge --------------------------- */
+
+router.post('/nudge', async (req, res) => {
+  const { senderId, recipientId, inviteId } = req.body;
+
+  try {
+    const sender = await User.findById(senderId);
+    if (!sender) {
+      return res.status(404).json({ error: 'Sender not found' });
+    }
+
+    const post = await InvitePost.findOne({ _id: inviteId, type: 'invite' });
+    if (!post) {
+      return res.status(404).json({ error: 'Invite not found' });
+    }
+
+    // Only the host/sender can nudge
+    if (String(post.ownerId) !== String(senderId)) {
+      return res
+        .status(400)
+        .json({ error: 'Only the sender can nudge recipients' });
+    }
+
+    const details = ensureInviteDetails(post);
+
+    const row = (details.recipients || []).find(
+      (r) => String(r.userId) === String(recipientId)
+    );
+    if (!row) {
+      return res
+        .status(404)
+        .json({ error: 'Recipient not found on this invite' });
+    }
+
+    // Only pending recipients get nudged
+    if (row.status !== 'pending') {
+      return res
+        .status(400)
+        .json({ error: 'Only pending recipients can be nudged' });
+    }
+
+    // Enforce one-nudge-per-user-per-invite
+    if (row.nudgedAt) {
+      return res
+        .status(400)
+        .json({ error: 'Recipient has already been nudged for this invite' });
+    }
+
+    row.nudgedAt = new Date();
+    await post.save();
+
+    const business = await Business.findOne({ placeId: post.placeId }).lean();
+    const tz = details.timezone || DISPLAY_TZ;
+    const formattedDateTime = fmtWhen(details.dateTime, tz);
+
+    const nudgeMessage = business
+      ? `${sender.firstName} sent you a reminder about ${business.businessName} on ${formattedDateTime}`
+      : `${sender.firstName} sent you a reminder about an invite on ${formattedDateTime}`;
+
+    const nudgeNotification = {
+      type: 'activityInviteReminder', // new notification type
+      message: nudgeMessage,
+      relatedId: sender._id,          // who nudged you
+      typeRef: 'User',
+      targetId: post._id,             // the invite
+      targetRef: 'Post',
+      postType: 'invite',
+      createdAt: new Date(),
+    };
+
+    // 🔻 NEW: update existing notification instead of blindly pushing
+    const recipient = await User.findById(recipientId);
+    if (!recipient) {
+      return res.status(404).json({ error: 'Recipient user not found' });
+    }
+
+    // Make sure the invite is tracked on the user (previously $addToSet)
+    if (!Array.isArray(recipient.activityInvites)) {
+      recipient.activityInvites = [];
+    }
+    const alreadyHasInvite = recipient.activityInvites.some(
+      (id) => String(id) === String(post._id)
+    );
+    if (!alreadyHasInvite) {
+      recipient.activityInvites.push(post._id);
+    }
+
+    if (!Array.isArray(recipient.notifications)) {
+      recipient.notifications = [];
+    }
+
+    // Find an existing invite notification to transform into a reminder
+    const idx = recipient.notifications.findIndex(
+      (n) =>
+        String(n.targetId) === String(post._id) &&
+        n.postType === 'invite' &&
+        (n.type === 'activityInvite' ||
+          n.type === 'activityInviteReminder')
+    );
+
+    if (idx >= 0) {
+      // Update the existing notification in place -> becomes the reminder
+      const existing = recipient.notifications[idx];
+      existing.type = 'activityInviteReminder';
+      existing.message = nudgeMessage;
+      existing.relatedId = sender._id;
+      existing.typeRef = 'User';
+      existing.targetRef = 'Post';
+      existing.postType = 'invite';
+      existing.createdAt = new Date(); // bump to top if you sort by createdAt
+    } else {
+      // No existing invite notification? Fallback: push a new reminder notification
+      recipient.notifications.push(nudgeNotification);
+    }
+
+    await recipient.save();
+
+    const out = await serializeInvitePost(post);
+    return res.status(200).json({
+      success: true,
+      message: 'Recipient nudged',
+      invite: out,
+    });
+  } catch (err) {
+    console.error('❌ Error in /nudge:', err);
+    return res
+      .status(500)
+      .json({ error: 'Failed to nudge recipient', details: err.message });
   }
 });
 
