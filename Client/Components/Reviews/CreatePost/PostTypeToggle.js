@@ -1,12 +1,14 @@
 import React from 'react';
-import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
+import { TouchableOpacity, Text, StyleSheet, View } from 'react-native';
 
-export default function PostTypeToggle({ postType, setPostType }) {
-  const types = [
+export default function PostTypeToggle({ postType, setPostType, hideTypes = [] }) {
+  const allTypes = [
     { key: 'review', label: 'Review' },
     { key: 'check-in', label: 'Check-in' },
     { key: 'invite', label: 'Invite' },
   ];
+
+  const types = allTypes.filter(t => !hideTypes.includes(t.key));
 
   const handleSelect = (key) => setPostType?.(key);
 
@@ -23,7 +25,9 @@ export default function PostTypeToggle({ postType, setPostType }) {
             accessibilityState={{ selected: isActive }}
             accessibilityLabel={label}
           >
-            <Text style={[styles.tabTxt, isActive && styles.tabTxtActive]}>{label}</Text>
+            <Text style={[styles.tabTxt, isActive && styles.tabTxtActive]}>
+              {label}
+            </Text>
           </TouchableOpacity>
         );
       })}
@@ -54,5 +58,5 @@ const styles = StyleSheet.create({
   tabTxtActive: {
     color: 'tomato',
     fontWeight: 'bold',
-  }
+  },
 });

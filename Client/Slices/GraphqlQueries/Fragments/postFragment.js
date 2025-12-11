@@ -64,13 +64,12 @@ export const POST_FIELDS = gql`
 
     details {
       ... on ReviewDetails {
-        rating
-        reviewText
-        priceRating
-        atmosphereRating
-        serviceRating
-        wouldRecommend
-        fullName
+        rating           
+        wouldGoBack      
+        reviewText       
+        priceRating      
+        vibeTags         
+        fullName         
       }
       ... on CheckInDetails {
         date

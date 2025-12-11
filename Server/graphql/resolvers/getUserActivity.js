@@ -5,35 +5,12 @@ const Business = require('../../models/Business'); // for businessName attach
 const { Post } = require('../../models/Post');
 const { getAuthorExclusionSets } = require('../../services/blockService');
 const { hydrateManyPostsForResponse } = require('../../utils/posts/hydrateAndEnrichForResponse');
-
-const oid = (v) => new mongoose.Types.ObjectId(String(v));
-const isOid = (v) => mongoose.Types.ObjectId.isValid(String(v));
+const { buildCursorQuery } = require('../../utils/posts/buildCursorQuery');
+const { oid, isOid } = require('../../utils/posts/oid');
+const { normalizeTypesArg } = require('../../utils/posts/normalizeTypesArg');
 
 const DEFAULT_LIMIT = 5;
 const VISIBLE_STATES = ['visible'];
-
-function buildCursorQuery(after) {
-  if (!after?.sortDate || !after?.id || !isOid(after.id)) return {};
-  const sd = new Date(after.sortDate);
-  return {
-    $or: [
-      { sortDate: { $lt: sd } },
-      { sortDate: sd, _id: { $lt: oid(after.id) } },
-    ],
-  };
-}
-
-const ALLOWED_TYPES = new Set([
-  'review', 'check-in', 'invite', 'event', 'promotion', 'sharedPost', 'liveStream',
-]);
-
-function normalizeTypesArg(types) {
-  if (!types) return null;
-  const list = Array.isArray(types) ? types : String(types).split(',');
-  const cleaned = list.map((t) => String(t).trim()).filter(Boolean);
-  const allowed = cleaned.filter((t) => ALLOWED_TYPES.has(t));
-  return allowed.length ? allowed : null;
-}
 
 function buildPrivacyAuthorFilter(meId, authorOids) {
   return {
@@ -73,16 +50,25 @@ const getUserActivity = async (_, { types, limit = DEFAULT_LIMIT, after }, conte
   const { excludeAuthorIds: raw = [] } =
     (await getAuthorExclusionSets(meId).catch(() => ({ excludeAuthorIds: [] }))) || {};
 
+  const excludeSet = new Set((raw || []).map(String));
+
   const authorOids = [meId, ...followingStr]
-    .filter((id) => !raw.map(String).includes(String(id)))
+    .filter((id) => !excludeSet.has(String(id)))
     .map(oid);
 
   if (!authorOids.length) return [];
 
   const typeFilter = normalizeTypesArg(types);
 
+  if (Array.isArray(typeFilter) && typeFilter.length === 0) {
+    // user passed only invalid types → no posts match
+    return [];
+  }
+
   const base = {
-    type: typeFilter ? { $in: typeFilter } : { $exists: true },
+    ...(Array.isArray(typeFilter) && typeFilter.length
+      ? { type: { $in: typeFilter } }
+      : {}), // no 'type' predicate when no filter given
     visibility: { $in: VISIBLE_STATES },
     ...buildPrivacyAuthorFilter(meId, authorOids),
     ...buildCursorQuery(after),

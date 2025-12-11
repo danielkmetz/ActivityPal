@@ -22,25 +22,16 @@ import {
 } from '../../Slices/friendsSlice';
 import { fetchPostById } from '../../Slices/PostsSlice';
 import { decrementLastSeenUnreadCount } from '../../utils/notificationsHasSeen';
+import { normalizePostType } from '../../utils/normalizePostType';
 import NotificationRow from './NotificationRow';
-
-/* ----------------------------- utils ----------------------------- */
-
-const normalizePostType = (t = '') => {
-  const s = String(t).trim().toLowerCase();
-  if (['review', 'reviews'].includes(s)) return 'review';
-  if (['check-in', 'checkin', 'checkins'].includes(s)) return 'check-in';
-  if (['invite', 'activityinvite', 'activity-invite'].includes(s)) return 'invite';
-  if (['event', 'events'].includes(s)) return 'event';
-  if (['promo', 'promotion', 'promotions'].includes(s)) return 'promotion';
-  if (['sharedpost', 'sharedposts'].includes(s)) return 'sharedPost';
-  return s || 'review';
-};
+import { buildInitialBusinessFromInvite } from '../../utils/InviteDetails/buildBusiness';
 
 // Helper: pick the right fetch thunk (all go through unified fetch now)
 const getFetchAction = ({ postType, targetId }) => {
   const pt = normalizePostType(postType);
-  return fetchPostById({ postType: pt, postId: targetId });
+  // For fetching, treat "post" as generic: let the backend infer the subtype
+  const fetchType = pt === 'post' ? undefined : pt;
+  return fetchPostById({ postType: fetchType, postId: targetId });
 };
 
 // Helper: unify 404 detection across action or AxiosError
@@ -99,23 +90,36 @@ export default function Notifications() {
   const userId = user?.id;
   const placeId = user?.businessDetails?.placeId;
   const fullName = `${user?.firstName} ${user?.lastName}`;
-  
+
   const handleNotificationPress = async (notification) => {
     if (!notification) return;
 
-    const { type, postType, targetId, commentId, replyId, _id: notificationId } = notification;
+    const {
+      type,
+      postType,
+      targetId,
+      commentId,
+      replyId,
+      _id: notificationId,
+    } = notification;
 
     const target = replyId || commentId;
 
     // Mark as read first
-    if (!isBusiness) {
-      dispatch(markNotificationRead({ userId: user.id, notificationId }));
-    } else {
-      dispatch(markBusinessNotificationRead({ placeId, notificationId }));
-    }
-    await decrementLastSeenUnreadCount();
+    try {
+      if (!isBusiness) {
+        dispatch(markNotificationRead({ userId: user.id, notificationId }));
+      } else {
+        dispatch(markBusinessNotificationRead({ placeId, notificationId }));
+      }
 
-    // Legacy content-driven notification types that should open a post
+      await decrementLastSeenUnreadCount();
+    } catch (e) {
+      // optional: keep a single error log if you want
+      console.error('Error while marking notification read / decrementing unread:', e);
+    }
+
+    // Notification types that should open a post
     const contentTypes = [
       'comment',
       'review',
@@ -124,45 +128,65 @@ export default function Notifications() {
       'like',
       'tag',
       'photoTag',
-      'activityInvite',         
-      'requestInvite',          
-      'activityInviteAccepted', 
-      'activityInviteDeclined', 
+      'activityInvite',
+      'requestInvite',
+      'activityInviteAccepted',
+      'activityInviteDeclined',
       'activityInviteReminder',
+      'activityInviteNeedsRecap',
     ];
 
     if (!contentTypes.includes(type)) {
-      console.warn('Unhandled notification type:', type);
+      return;
+    }
+
+    const normalizedPostType = normalizePostType(postType);
+
+    if (!targetId) {
       return;
     }
 
     try {
       const action = await dispatch(
-        getFetchAction({ postType: normalizePostType(postType), targetId })
+        getFetchAction({ postType: normalizedPostType, targetId })
       );
 
+      const payload = action?.payload ?? null;
+      const notFoundFromAction = isNotFound(action);
+
       if (action?.meta?.requestStatus === 'rejected') {
-        if (isNotFound(action)) {
+        if (notFoundFromAction) {
           navigation.navigate('Notifications');
           showMissingAlert();
           return;
         }
+
         Alert.alert('Error', 'Unable to load the content.');
         return;
       }
 
-      const payload = action?.payload ?? null;
-
-      if (!payload || isNotFound(action)) {
+      if (!payload || notFoundFromAction) {
         navigation.navigate('Notifications');
         showMissingAlert();
         return;
       }
 
-      const pt = normalizePostType(postType);
+      const pt = normalizedPostType;
 
-      // 🔹 Route invites into InviteDetails so all RSVP logic & conflict checks
-      //     are handled centrally via useInviteActions there.
+      // 🔹 SPECIAL CASE: recap reminders → go straight to CreatePost
+      if (type === 'activityInviteNeedsRecap') {
+        const initialBusiness = buildInitialBusinessFromInvite(payload);
+
+        navigation.navigate('CreatePost', {
+          postType: 'review',        // recap = review (you can change this if needed)
+          relatedInviteId: targetId, // link recap back to invite
+          ...(initialBusiness ? { initialBusiness } : {}),
+        });
+
+        return;
+      }
+
+      // Invites → InviteDetails
       if (pt === 'invite') {
         navigation.navigate('InviteDetails', {
           postId: targetId,
@@ -170,7 +194,7 @@ export default function Notifications() {
         return;
       }
 
-      // 🔹 Events & promos go to EventDetails (your existing behavior)
+      // Events & promos → EventDetails
       if (pt === 'event' || pt === 'promotion') {
         navigation.navigate('EventDetails', {
           activity: payload,
@@ -179,7 +203,7 @@ export default function Notifications() {
         return;
       }
 
-      // 🔹 Everything else (reviews, check-ins, etc.) goes to CommentScreen
+      // Everything else → CommentScreen
       navigation.navigate('CommentScreen', {
         reviewId: targetId, // kept prop name for backwards compatibility
         targetId: target,
@@ -187,11 +211,12 @@ export default function Notifications() {
         photoTapped,
       });
     } catch (err) {
-      if (isNotFound(err)) {
+      const notFoundFromError = isNotFound(err);
+
+      if (notFoundFromError) {
         navigation.navigate('Notifications');
         showMissingAlert();
       } else {
-        console.error('Error fetching notification target:', err);
         Alert.alert('Error', 'Unable to load the content.');
       }
     }
@@ -203,10 +228,10 @@ export default function Notifications() {
       const updatedNotifications = notifications.map((n) =>
         n.type === 'followRequest' && n.relatedId === senderId
           ? {
-              ...n,
-              message: `You accepted ${n.message.split(' ')[0]}'s follow request.`,
-              type: 'followRequestAccepted',
-            }
+            ...n,
+            message: `You accepted ${n.message.split(' ')[0]}'s follow request.`,
+            type: 'followRequestAccepted',
+          }
           : n
       );
       dispatch(setNotifications(updatedNotifications));
@@ -272,11 +297,11 @@ export default function Notifications() {
       const updatedNotifications = notifications.map((n) =>
         n._id === notificationId
           ? {
-              ...n,
-              type: 'follow',
-              message: `You followed ${fullNameFollowBack} back.`,
-              read: true,
-            }
+            ...n,
+            type: 'follow',
+            message: `You followed ${fullNameFollowBack} back.`,
+            read: true,
+          }
           : n
       );
       dispatch(setNotifications(updatedNotifications));

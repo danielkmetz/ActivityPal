@@ -58,8 +58,9 @@ const typeDefs = gql`
     refs: PostRefs                # cross-links (e.g., liveStream)
     businessName: String
     businessLogoUrl: String
-    needsRecap: Boolean
-
+    deletedAt: DateTime
+    expireAt: DateTime
+    
     # ✅ Hydrated live original (or omitted if not a sharedPost).
     # Your controller attaches this for response; default resolver will expose it.
     original: Post
@@ -82,12 +83,16 @@ const typeDefs = gql`
 
   type ReviewDetails {
     rating: Int!
-    reviewText: String!
+    wouldGoBack: Boolean!
+    reviewText: String
     priceRating: Int
-    atmosphereRating: Int
-    serviceRating: Int
-    wouldRecommend: Boolean
+    vibeTags: [String!]
     fullName: String
+    
+    # legacy fields – still here for backwards compatibility, but you’re not really populating them anymore
+    atmosphereRating: Int @deprecated(reason: "Legacy field; no longer collected for new reviews.")
+    serviceRating: Int @deprecated(reason: "Legacy field; no longer collected for new reviews.")
+    wouldRecommend: Boolean @deprecated(reason: "Replaced by wouldGoBack.")
   }
 
   type CheckInDetails {
@@ -96,9 +101,12 @@ const typeDefs = gql`
 
   type InviteDetails {
     dateTime: DateTime!
+    timeZone: String
     recipients: [InviteRecipient!]!
     requests: [Request]
+    went: String                     # 'unknown' | 'went' | 'did_not_go'
     needsRecap: Boolean
+    recapReminderSentAt: DateTime
   }
 
   type EventDetails {
@@ -144,13 +152,9 @@ const typeDefs = gql`
     originalOwner: OriginalOwner
     originalOwnerModel: String
 
-    # Old shape kept for backward compatibility; prefer snapshotPost below.
-    snapshot: JSON @deprecated(reason: "Use snapshotPost for a fully typed, enriched snapshot")
+    # Hydrated snapshot in Post shape (enriched by the controller).
+    snapshot: Post
 
-    # ✅ Enriched snapshot in Post shape (what your controller builds now).
-    snapshotPost: Post
-
-    # Optional helpful flags your hydrate helper can set
     originalExists: Boolean
     originalAccessible: Boolean
   }

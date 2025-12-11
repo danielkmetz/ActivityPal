@@ -1,25 +1,11 @@
-const mongoose = require('mongoose');
 const Business = require('../../models/Business');
 const User = require('../../models/User');
 const { Post } = require('../../models/Post'); // ✅ unified Post model
 const { hydrateManyPostsForResponse } = require('../../utils/posts/hydrateAndEnrichForResponse');
+const { buildCursorQuery } = require('../../utils/posts/buildCursorQuery');
+const { oid, isOid } = require('../../utils/posts/oid');
 
-const getAuthUserId = (ctx) =>
-  ctx?.user?._id?.toString?.() || ctx?.user?.id || ctx?.user?.userId || null;
-
-const isOid = (v) => mongoose.Types.ObjectId.isValid(String(v));
-const oid   = (v) => new mongoose.Types.ObjectId(String(v));
-
-function buildCursorQuery(after) {
-  if (!after?.sortDate || !after?.id || !isOid(after.id)) return {};
-  const sd = new Date(after.sortDate);
-  return {
-    $or: [
-      { sortDate: { $lt: sd } },
-      { sortDate: sd, _id: { $lt: oid(after.id) } },
-    ],
-  };
-}
+const getAuthUserId = (ctx) => ctx?.user?._id?.toString?.() || ctx?.user?.id || ctx?.user?.userId || null;
 
 async function privacyFilterForViewer(viewerId) {
   // If no viewer, only public posts are visible.
