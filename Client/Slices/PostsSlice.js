@@ -191,24 +191,30 @@ export const updatePost = createAsyncThunk(
   }
 );
 
-/** GET /posts/:postType/:postId (server returns normalized Post) */
 export const fetchPostById = createAsyncThunk(
-  "posts/fetchPostById",
+  'posts/fetchPostById',
   async ({ postType, postId }, { rejectWithValue }) => {
     try {
-      const res = await axios.get(`${BASE_URL}/posts/${postId}`, {
-        params: { type: postType },
-      });
-      // expecting the normalized post (or wrapped); normalize:
+      const params = {};
+
+      // Only send when we actually want to constrain by type
+      if (postType && postType !== 'post') {
+        params.type = postType;
+      }
+
+      const res = await axios.get(`${BASE_URL}/posts/${postId}`, { params });
       return res.data?.post ?? res.data;
     } catch (err) {
       const status = err?.response?.status;
       if (status === 404) {
-        return rejectWithValue({ status: 404, message: "Not Found" });
+        return rejectWithValue({ status: 404, message: 'Not Found' });
       }
       return rejectWithValue({
         status: status ?? 0,
-        message: err?.response?.data?.message || err?.message || "Failed to fetch post",
+        message:
+          err?.response?.data?.message ||
+          err?.message ||
+          'Failed to fetch post',
       });
     }
   }

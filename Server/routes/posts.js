@@ -14,6 +14,7 @@ const { extractTaggedUserIds } = require('../utils/enrichPosts');
 // -------------------- constants --------------------
 const ALLOWED_TYPES = new Set([
   'review',
+  'post',
   'check-in',
   'invite',
   'event',
@@ -31,7 +32,6 @@ const isValidPoint = p =>
   p.coordinates.every(Number.isFinite);
 
 const isNullIsland = p => isValidPoint(p) && p.coordinates[0] === 0 && p.coordinates[1] === 0;
-const briefLoc = p => (p ? { type: p.type, coordinates: p.coordinates } : null);
 
 async function upsertBusinessIfNeeded(placeId, businessName, location) {
   if (!placeId) return null;
@@ -88,6 +88,15 @@ function nextSortDate({ prevSortDate }) {
   return prevSortDate || new Date();
 }
 
+function normalizeVibeTags(raw) {
+  if (!Array.isArray(raw)) return [];
+  const cleaned = raw
+    .map((t) => (typeof t === 'string' ? t.trim() : ''))
+    .filter(Boolean);
+  // de-dupe and clamp to 3
+  return [...new Set(cleaned)].slice(0, 3);
+}
+
 function buildDetailsForType(type, body, { isPatch = false } = {}) {
   const has = (k) => Object.prototype.hasOwnProperty.call(body, k);
 
@@ -95,24 +104,59 @@ function buildDetailsForType(type, body, { isPatch = false } = {}) {
     /* ------------------------------ REVIEW ------------------------------ */
     case 'review': {
       if (isPatch) {
-        return {
-          ...(has('rating') ? { rating: body.rating } : {}),
-          ...(has('reviewText') ? { reviewText: body.reviewText } : {}),
-          ...(has('priceRating') ? { priceRating: body.priceRating } : {}),
-          ...(has('atmosphereRating') ? { atmosphereRating: body.atmosphereRating } : {}),
-          ...(has('serviceRating') ? { serviceRating: body.serviceRating } : {}),
-          ...(has('wouldRecommend') ? { wouldRecommend: body.wouldRecommend } : {}),
-          ...(has('fullName') ? { fullName: body.fullName } : {}),
-        };
+        const patch = {};
+
+        if (has('rating')) {
+          patch.rating = body.rating;
+        }
+
+        if (has('wouldGoBack')) {
+          patch.wouldGoBack = body.wouldGoBack;
+        }
+
+        // Keep review text in sync with either reviewText OR message
+        if (has('reviewText') || has('message')) {
+          const text = has('reviewText') ? body.reviewText : body.message;
+          patch.reviewText =
+            typeof text === 'string' ? text : '';
+        }
+
+        if (has('priceRating')) {
+          patch.priceRating = body.priceRating ?? null;
+        }
+
+        if (has('vibeTags')) {
+          patch.vibeTags = normalizeVibeTags(body.vibeTags);
+        }
+
+        if (has('fullName')) {
+          patch.fullName = body.fullName;
+        }
+
+        return patch;
       }
-      // create
+
+      // create path
+      const rating = body.rating;
+      const wouldGoBack = body.wouldGoBack;
+
+      // you can let Mongoose enforce required, but this is where you'd 400 if you want:
+      // if (rating == null) throw new Error('rating is required');
+      // if (typeof wouldGoBack !== 'boolean') throw new Error('wouldGoBack is required');
+
+      const textSource =
+        typeof body.reviewText === 'string' && body.reviewText.trim().length
+          ? body.reviewText
+          : typeof body.message === 'string'
+          ? body.message
+          : '';
+
       return {
-        rating: body.rating,
-        reviewText: body.reviewText,
+        rating,
+        wouldGoBack,
+        reviewText: textSource,
         priceRating: body.priceRating ?? null,
-        atmosphereRating: body.atmosphereRating ?? null,
-        serviceRating: body.serviceRating ?? null,
-        wouldRecommend: body.wouldRecommend ?? null,
+        vibeTags: normalizeVibeTags(body.vibeTags),
         fullName: body.fullName,
       };
     }
@@ -355,29 +399,36 @@ async function attachBusinessNameIfMissing(post) {
  */
 router.get('/:postId', async (req, res) => {
   const { postId } = req.params;
-  const postType = req.query.type || req.params.postType || req.body?.type || req.body?.postType;
+
+  const rawType =
+    req.query.type || req.params.postType || req.body?.type || req.body?.postType;
+  const postType = rawType ? String(rawType).trim() : null;
 
   if (!isValidObjectId(postId)) {
     return res.status(400).json({ message: 'Invalid postId' });
   }
+
   if (postType && !ALLOWED_TYPES.has(postType)) {
     return res.status(400).json({ message: 'Unsupported postType' });
   }
 
   try {
     const match = { _id: postId };
-    if (postType) match.type = postType;
+
+    // If "post" is your generic / catch-all, don’t over-constrain:
+    if (postType && postType !== 'post') {
+      match.type = postType;
+    }
 
     const doc = await Post.findOne(match).lean();
     if (!doc) return res.status(404).json({ message: 'Post not found' });
 
-    // viewerId is optional; pass it if you gate by privacy inside the helper
     const viewerId =
       req.user?.id || req.user?._id?.toString?.() || req.user?.userId || null;
 
     const enriched = await hydratePostForResponse(doc, {
       viewerId,
-      attachBusinessNameIfMissing, // will run on top-level, original, and snapshot
+      attachBusinessNameIfMissing,
     });
 
     return res.status(200).json(enriched);

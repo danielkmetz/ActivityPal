@@ -1,14 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import {
-  View,
-  TextInput,
-  StyleSheet,
-  FlatList,
-  Alert,
-  KeyboardAvoidingView,
-  Keyboard,
-  TouchableWithoutFeedback,
-} from "react-native";
+import { View, TextInput, StyleSheet, FlatList, Alert, KeyboardAvoidingView, Keyboard, TouchableWithoutFeedback } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { useDispatch, useSelector } from "react-redux";
 import EditPhotosModal from "../../Profile/EditPhotosModal";
@@ -21,13 +12,18 @@ import { createBusinessNotification } from "../../../Slices/BusNotificationsSlic
 import { selectMediaFromGallery } from "../../../utils/selectPhotos";
 import { handlePhotoUpload } from "../../../utils/photoUploadHelper";
 import InviteForm from "../../ActivityInvites/InviteForm";
-import SectionHeader from '../SectionHeader'
+import SectionHeader from "../SectionHeader";
 import Autocomplete from "../../Location/Autocomplete";
 import PostTypeToggle from "./PostTypeToggle";
 import ReviewForm from "./ReviewForm";
 import TaggedFriendsSection from "./TaggedFriendsSection";
 import SelectedMediaSection from "./SelectMediaSection";
 import SubmitButton from "./SubmitButton";
+import RecapHeader from "./RecapHeader";
+import FriendsAndMediaSection from './FriendsAndMediaSection';
+import PostExtrasRow from './PostExtrasSection';
+import TaggedFriendsPreview from './TaggedFriendsPreview';
+import MediaPreview from "./MediaPreview";
 
 export default function CreatePost() {
   const navigation = useNavigation();
@@ -36,6 +32,9 @@ export default function CreatePost() {
   const user = useSelector(selectUser);
   const [business, setBusiness] = useState(null);
   const [rating, setRating] = useState(3);
+  const [wouldGoBack, setWouldGoBack] = useState(null); // 'yes' | 'maybe' | 'no'
+  const [vibeTags, setVibeTags] = useState([]); // string[]
+  const [priceRating, setPriceRating] = useState(null); // 1–4, optional
   const [review, setReview] = useState("");
   const [checkInMessage, setCheckInMessage] = useState("");
   const [selectedPhotos, setSelectedPhotos] = useState([]);
@@ -45,15 +44,12 @@ export default function CreatePost() {
   const [editPhotosModalVisible, setEditPhotosModalVisible] = useState(false);
   const [photoDetailsEditing, setPhotoDetailsEditing] = useState(false);
   const [tagFriendsModalVisible, setTagFriendsModalVisible] = useState(false);
-  const [priceRating, setPriceRating] = useState(null); // 1–4
-  const [atmosphereRating, setAtmosphereRating] = useState(3); // 1–5
-  const [serviceRating, setServiceRating] = useState(3); // 1–5
-  const [wouldRecommend, setWouldRecommend] = useState(true);
 
   const isEditing = route.params?.isEditing || false;
   const initialPost = route.params?.initialPost || null;
   const relatedInviteId = route.params?.relatedInviteId || null;
   const initialBusinessFromRoute = route.params?.initialBusiness || null;
+  const inviteDateTimeLabel = route.params?.inviteDateTimeLabel || null;
   const googlePlacesRef = useRef(null);
   const fullName = `${user.firstName} ${user?.lastName}`;
 
@@ -61,25 +57,40 @@ export default function CreatePost() {
     ? route.params?.initialPost?.type
     : route.params?.postType;
   const [postType, setPostType] = useState(initialType);
+  const isRecap = !!relatedInviteId && !isEditing;
 
   useEffect(() => {
     if (isEditing && initialPost) {
-      //setPostType(initialPost.type); // "review" or "check-in"
       setReview(initialPost.message || "");
       setCheckInMessage(initialPost.message || "");
       setTaggedUsers(initialPost.taggedUsers || []);
       setSelectedPhotos(initialPost.media || []);
       setPhotoList(initialPost.media || []);
-      setPriceRating(initialPost.details?.priceRating || null);
-      setServiceRating(initialPost.details?.serviceRating || 3);
-      setAtmosphereRating(initialPost.details?.atmosphereRating || 3);
-      setWouldRecommend(initialPost.details?.wouldRecommend || true);
+
+      const details = initialPost.details || {};
+
+      setPriceRating(
+        details.priceRating != null ? details.priceRating : null
+      );
+
+      // Backwards compatibility: map old wouldRecommend boolean → wouldGoBack
+      const existingWouldGoBack =
+        details.wouldGoBack ||
+        (typeof details.wouldRecommend === "boolean"
+          ? details.wouldRecommend
+            ? "yes"
+            : "no"
+          : null);
+
+      setWouldGoBack(existingWouldGoBack);
+      setVibeTags(Array.isArray(details.vibeTags) ? details.vibeTags : []);
+      setRating(details.rating || 3);
+
       setBusiness({
         place_id: initialPost.placeId,
         name: initialPost.businessName,
         formatted_address: initialPost.location || "",
       });
-      setRating(initialPost.details?.rating || 3);
 
       if (initialPost.businessName) {
         googlePlacesRef.current?.setAddressText(`${initialPost.businessName}`);
@@ -104,73 +115,83 @@ export default function CreatePost() {
 
   const handlePhotoAlbumSelection = async () => {
     const newFiles = await selectMediaFromGallery();
+    if (!newFiles || newFiles.length === 0) return;
 
-    if (newFiles.length > 0) {
-      const getKey = (p) => p.photoKey || p.localKey || p.uri || p._id;
+    const getKey = (p) => p.photoKey || p.localKey || p.uri || p._id;
 
-      // 1) Ensure existing photos have a stable `order`
-      const existingWithOrder = (photoList || []).map((p, idx) =>
-        p?.order != null ? p : { ...p, order: idx }
-      );
-      const maxOrder =
-        existingWithOrder.length > 0
-          ? Math.max(...existingWithOrder.map((p) => p.order))
-          : -1;
+    // 1) Ensure existing photos have a stable `order`
+    const existingWithOrder = (photoList || []).map((p, idx) =>
+      p?.order != null ? p : { ...p, order: idx }
+    );
+    const maxOrder =
+      existingWithOrder.length > 0
+        ? Math.max(...existingWithOrder.map((p) => p.order))
+        : -1;
 
-      // 2) Stamp `order` onto the new files
-      const prepared = newFiles.map((file, i) => ({
-        ...file,
-        taggedUsers: [],
-        description: file.description || "",
-        uri: file.uri,
-        order: maxOrder + 1 + i,
-      }));
+    // 2) Stamp `order` onto the new files
+    const prepared = newFiles.map((file, i) => ({
+      ...file,
+      taggedUsers: [],
+      description: file.description || "",
+      uri: file.uri,
+      order: maxOrder + 1 + i,
+    }));
 
-      // 3) Merge, de-dupe by a stable key (keep first occurrence), then sort by `order`
-      const seen = new Set();
-      const merged = [...existingWithOrder, ...prepared];
-      const deduped = merged.filter((photo) => {
-        const key = getKey(photo);
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
+    // 3) Merge, de-dupe by a stable key (keep first occurrence), then sort by `order`
+    const seen = new Set();
+    const merged = [...existingWithOrder, ...prepared];
+    const deduped = merged.filter((photo) => {
+      const key = getKey(photo);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 
-      const ordered = deduped.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const ordered = deduped.sort(
+      (a, b) => (a.order ?? 0) - (b.order ?? 0)
+    );
 
-      setSelectedPhotos(ordered);
-      setPhotoList(ordered);
-      setEditPhotosModalVisible(true);
-      setPreviewPhoto(null);
-    }
+    setSelectedPhotos(ordered);
+    setPhotoList(ordered);
+    setEditPhotosModalVisible(true);
+    setPreviewPhoto(null);
   };
 
   const getPhotoKey = (p) => p.photoKey || p.localKey || p.uri || p._id;
 
   const replaceInPlace = (list, updated) => {
     const k = getPhotoKey(updated);
-    const idx = list.findIndex(p => getPhotoKey(p) === k);
-    if (idx === -1) return list; // not found, no change
+    const idx = list.findIndex((p) => getPhotoKey(p) === k);
+    if (idx === -1) return list;
     const next = list.slice();
     next[idx] = { ...list[idx], ...updated };
     return next;
   };
 
   const handlePhotoSave = (updatedPhoto) => {
-    setPhotoList(prev => replaceInPlace(prev, updatedPhoto));
-    setSelectedPhotos(prev => replaceInPlace(prev, updatedPhoto));
+    setPhotoList((prev) => replaceInPlace(prev, updatedPhoto));
+    setSelectedPhotos((prev) => replaceInPlace(prev, updatedPhoto));
   };
 
   const handlePhotoDelete = (photoToDelete) => {
     setSelectedPhotos((prev) =>
       prev.filter((photo) => {
-        const matchById = photo._id && photoToDelete._id && photo._id === photoToDelete._id;
-        const matchByKey = photo.photoKey && photoToDelete.photoKey && photo.photoKey === photoToDelete.photoKey;
-        const matchByUri = photo.uri && photoToDelete.uri && photo.uri === photoToDelete.uri;
+        const matchById =
+          photo._id &&
+          photoToDelete._id &&
+          photo._id === photoToDelete._id;
+        const matchByKey =
+          photo.photoKey &&
+          photoToDelete.photoKey &&
+          photo.photoKey === photoToDelete.photoKey;
+        const matchByUri =
+          photo.uri &&
+          photoToDelete.uri &&
+          photo.uri === photoToDelete.uri;
         return !(matchById || matchByKey || matchByUri);
       })
     );
-    setPhotoDetailsEditing(false); // close modal after deletion
+    setPhotoDetailsEditing(false);
   };
 
   // ------------ helpers -------------
@@ -182,63 +203,91 @@ export default function CreatePost() {
     const deduped = [];
     for (const p of photos) {
       const k = p.photoKey || p.uri || p.localKey || JSON.stringify(p);
-      if (!seen.has(k)) { seen.add(k); deduped.push(p); }
+      if (!seen.has(k)) {
+        seen.add(k);
+        deduped.push(p);
+      }
     }
     return handlePhotoUpload({ dispatch, userId, placeId, photos: deduped });
   };
 
   const notifyAll = async ({
-    dispatch, fullName, currentUserId, placeId, businessName,
-    postType, postId, taggedUsers, uploadedPhotos,
+    dispatch,
+    fullName,
+    currentUserId,
+    placeId,
+    businessName,
+    postType,
+    postId,
+    taggedUsers,
+    uploadedPhotos,
   }) => {
     const postTagPromises = (taggedUsers || []).map((tu) =>
-      dispatch(createNotification({
-        userId: normalizeId(tu),
-        type: "tag",
-        message: `${fullName} tagged you in a ${postType}!`,
-        relatedId: currentUserId,
-        typeRef: "User",
-        targetId: postId,
-        postType,
-      }))
-    );
-
-    const photoTagPromises = (uploadedPhotos || []).flatMap((photo) =>
-      (photo.taggedUsers || []).map((u) =>
-        dispatch(createNotification({
-          userId: normalizeId(u),
-          type: "photoTag",
-          message: `${fullName} tagged you in a photo!`,
+      dispatch(
+        createNotification({
+          userId: normalizeId(tu),
+          type: "tag",
+          message: `${fullName} tagged you in a ${postType}!`,
           relatedId: currentUserId,
           typeRef: "User",
           targetId: postId,
           postType,
-        }))
+        })
       )
     );
 
-    const businessPromise = dispatch(createBusinessNotification({
-      placeId,
-      postType,
-      type: postType,
-      message: `${fullName} ${postType === "review" ? "left a review on" : "checked in at"} ${businessName}`,
-      relatedId: currentUserId,
-      typeRef: "User",
-      targetId: postId,
-      targetRef: "Post",
-    }));
+    const photoTagPromises = (uploadedPhotos || []).flatMap((photo) =>
+      (photo.taggedUsers || []).map((u) =>
+        dispatch(
+          createNotification({
+            userId: normalizeId(u),
+            type: "photoTag",
+            message: `${fullName} tagged you in a photo!`,
+            relatedId: currentUserId,
+            typeRef: "User",
+            targetId: postId,
+            postType,
+          })
+        )
+      )
+    );
 
-    return Promise.all([...postTagPromises, ...photoTagPromises, businessPromise]);
+    const businessPromise = dispatch(
+      createBusinessNotification({
+        placeId,
+        postType,
+        type: postType,
+        message: `${fullName} ${postType === "review" ? "left a review on" : "checked in at"
+          } ${businessName}`,
+        relatedId: currentUserId,
+        typeRef: "User",
+        targetId: postId,
+        targetRef: "Post",
+      })
+    );
+
+    return Promise.all([
+      ...postTagPromises,
+      ...photoTagPromises,
+      businessPromise,
+    ]);
   };
 
-  // ------------ main ---------------
   const handleSubmit = async () => {
     const isReview = postType === "review";
     const trimmedReview = (review || "").trim();
     const trimmedCheckIn = (checkInMessage || "").trim();
 
-    if (!business || (isReview && !trimmedReview)) {
-      Alert.alert("Error", "Please fill in all required fields.");
+    if (!business) {
+      Alert.alert("Error", "Please choose a place.");
+      return;
+    }
+
+    if (isReview && (!rating || !wouldGoBack)) {
+      Alert.alert(
+        "Error",
+        "Please add an overall rating and whether you'd go back."
+      );
       return;
     }
 
@@ -273,48 +322,47 @@ export default function CreatePost() {
           taggedUsers: taggedUserIds,
           photos: uploadedPhotos,
         };
+
         const updates = isReview
           ? {
             ...base,
-            // details for reviews
             rating,
+            wouldGoBack,
             priceRating,
-            serviceRating,
-            atmosphereRating,
-            wouldRecommend,
-            reviewText: trimmedReview, // backend maps reviewText/message
-            message: trimmedReview, // keep both for safety
+            vibeTags,
+            reviewText: trimmedReview || null,
+            message: trimmedReview || null,
           }
-          : { ...base, message: trimmedCheckIn || null };
+          : {
+            ...base,
+            message: trimmedCheckIn || null,
+          };
 
-        await dispatch(updatePost({ postId: initialPost._id, updates })).unwrap();
+        await dispatch(
+          updatePost({ postId: initialPost._id, updates })
+        ).unwrap();
         postId = initialPost._id;
 
         Alert.alert("Success", `Your ${postType} has been updated!`);
       } else {
-        // unified create payload: single shape for any type
+        // unified create payload
         const payload = {
-          type: postType, // backend can use this for /posts or ignore if path-param based
+          type: postType,
           userId: currentUserId,
           placeId,
           location,
           businessName,
           photos: uploadedPhotos,
-          taggedUsers: taggedUserIds, // backend will extract ids if objects are passed
-
-          // 🔹 recap linkage: only send if we actually came from a recap entry point
+          taggedUsers: taggedUserIds,
           ...(relatedInviteId ? { relatedInviteId } : {}),
-
-          // message + type-specific fields:
           ...(isReview
             ? {
-              message: trimmedReview, // server prefers message; also honors reviewText
-              reviewText: trimmedReview,
+              message: trimmedReview || null,
+              reviewText: trimmedReview || null,
               rating,
+              wouldGoBack,
               priceRating,
-              serviceRating,
-              atmosphereRating,
-              wouldRecommend,
+              vibeTags,
             }
             : {
               message: trimmedCheckIn || null,
@@ -336,7 +384,7 @@ export default function CreatePost() {
         businessName,
         postType,
         postId,
-        taggedUsers, // use original array so post-level tags still notify even if you sent ids
+        taggedUsers,
         uploadedPhotos,
       });
 
@@ -358,30 +406,27 @@ export default function CreatePost() {
 
   if (!postType) {
     return null;
-  };
+  }
 
   return (
-    <View style={{ flex: 1, backgroundColor: 'white', marginTop: 10, }}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" >
+    <View style={{ flex: 1, backgroundColor: "white", marginTop: 10 }}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <FlatList
-            data={[{}]} // dummy item to drive the layout
+            data={[{}]}
             keyExtractor={(_, i) => i.toString()}
             renderItem={() => (
               <>
-                {/* Main body content here */}
                 {postType === "review" && (
                   <ReviewForm
                     rating={rating}
                     setRating={setRating}
+                    wouldGoBack={wouldGoBack}
+                    setWouldGoBack={setWouldGoBack}
+                    vibeTags={vibeTags}
+                    setVibeTags={setVibeTags}
                     priceRating={priceRating}
                     setPriceRating={setPriceRating}
-                    serviceRating={serviceRating}
-                    setServiceRating={setServiceRating}
-                    atmosphereRating={atmosphereRating}
-                    setAtmosphereRating={setAtmosphereRating}
-                    wouldRecommend={wouldRecommend}
-                    setWouldRecommend={setWouldRecommend}
                     reviewText={review}
                     setReviewText={setReview}
                   />
@@ -405,15 +450,38 @@ export default function CreatePost() {
                 )}
                 {postType !== "invite" && (
                   <>
-                    <TaggedFriendsSection taggedUsers={taggedUsers} onOpenTagModal={() => setTagFriendsModalVisible(true)} />
+                    {/* <TaggedFriendsSection
+                      taggedUsers={taggedUsers}
+                      onOpenTagModal={() => setTagFriendsModalVisible(true)}
+                    />
                     <SelectedMediaSection
                       selectedPhotos={selectedPhotos}
-                      onOpenCamera={() => navigation.navigate('CameraScreen')}
+                      onOpenCamera={() => navigation.navigate("CameraScreen")}
                       onOpenLibrary={handlePhotoAlbumSelection}
                       onOpenTagModal={() => setTagFriendsModalVisible(true)}
                       onOpenPhotoDetails={handleOpenPhotoDetails}
+                    /> */}
+                    <PostExtrasRow
+                      taggedUsers={taggedUsers}
+                      selectedPhotos={selectedPhotos}
+                      onOpenTagModal={() => setTagFriendsModalVisible(true)}
+                      onOpenCamera={() => navigation.navigate('CameraScreen')}
+                      onOpenLibrary={handlePhotoAlbumSelection}
                     />
-                    <SubmitButton label={!isEditing ? 'Post' : 'Save changes'} onPress={handleSubmit} />
+                    <TaggedFriendsPreview
+                      taggedUsers={taggedUsers}
+                      onOpenTagModal={() => setTagFriendsModalVisible(true)}
+                    />
+
+                    <MediaPreview
+                      selectedPhotos={selectedPhotos}
+                      onOpenPhotoDetails={handleOpenPhotoDetails}
+                      onOpenEditPhotos={() => setEditPhotosModalVisible(true)}
+                    />
+                    <SubmitButton
+                      label={!isEditing ? "Post" : "Save changes"}
+                      onPress={handleSubmit}
+                    />
                   </>
                 )}
               </>
@@ -424,10 +492,18 @@ export default function CreatePost() {
                   <PostTypeToggle
                     postType={postType}
                     setPostType={setPostType}
+                    hideTypes={isRecap ? ["invite"] : []}
                   />
                 )}
-                {postType !== "invite" && (
-                  <View style={{ zIndex: 999, position: 'relative' }}>
+                {!isEditing && relatedInviteId && (
+                  <RecapHeader
+                    relatedInviteId={relatedInviteId}
+                    business={business || initialBusinessFromRoute}
+                    inviteDateTimeLabel={inviteDateTimeLabel}
+                  />
+                )}
+                {postType !== "invite" && !isRecap && (
+                  <View style={{ zIndex: 999, position: "relative" }}>
                     <Autocomplete
                       ref={googlePlacesRef}
                       onPlaceSelected={setBusiness}
@@ -437,7 +513,11 @@ export default function CreatePost() {
                 )}
               </>
             }
-            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 140, marginTop: 120 }}
+            contentContainerStyle={{
+              paddingHorizontal: 16,
+              paddingBottom: 140,
+              marginTop: 120,
+            }}
             keyboardShouldPersistTaps="handled"
           />
         </TouchableWithoutFeedback>
@@ -486,5 +566,12 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     marginTop: 5,
     textAlignVertical: "top",
+  },
+  lockedLocationNotice: {
+    marginTop: 6,
+  },
+  lockedLocationText: {
+    fontSize: 12,
+    color: "#6B7280",
   },
 });

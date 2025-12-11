@@ -5,49 +5,72 @@ const { LikeSchema } = require('./Likes');
 const { PhotoSchema } = require('./Photos');
 const { GeoPointSchema } = require('./GeoPoint');
 
-const BasePostSchema = new Schema({
-  type: { type: String, enum: ['review', 'check-in', 'invite', 'event', 'promotion', 'sharedPost', 'liveStream'], required: true },
+const BasePostSchema = new Schema(
+  {
+    type: {
+      type: String,
+      enum: [
+        'review',
+        'check-in',
+        'invite',
+        'event',
+        'promotion',
+        'sharedPost',
+        'liveStream',
+      ],
+      required: true,
+    },
 
-  ownerId: { type: Types.ObjectId, refPath: 'ownerModel', required: true },
-  ownerModel: { type: String, enum: ['User', 'Business'], default: 'User' },
+    ownerId: { type: Types.ObjectId, refPath: 'ownerModel', required: true },
+    ownerModel: { type: String, enum: ['User', 'Business'], default: 'User' },
 
-  // ✅ single field for post text shown in the feed/UI
-  message: { type: String, default: '', maxlength: 4000, trim: true },
+    // unified text for feed
+    message: { type: String, default: '', maxlength: 4000, trim: true },
 
-  businessName: { type: String, default: null },
-  placeId: { type: String, index: true, default: null },
-  location: { type: GeoPointSchema, default: undefined },
+    businessName: { type: String, default: null },
+    placeId: { type: String, index: true, default: null },
+    location: { type: GeoPointSchema, default: undefined },
 
-  media: [PhotoSchema],
-  taggedUsers: [{ type: Types.ObjectId, ref: 'User' }],
+    media: [PhotoSchema],
+    taggedUsers: [{ type: Types.ObjectId, ref: 'User' }],
 
-  likes: [LikeSchema],
-  comments: [CommentSchema],
-  stats: {
-    likeCount: { type: Number, default: 0 },
-    commentCount: { type: Number, default: 0 },
-    shareCount: { type: Number, default: 0 },
+    likes: [LikeSchema],
+    comments: [CommentSchema],
+    stats: {
+      likeCount: { type: Number, default: 0 },
+      commentCount: { type: Number, default: 0 },
+      shareCount: { type: Number, default: 0 },
+    },
+
+    privacy: {
+      type: String,
+      enum: ['public', 'followers', 'private', 'unlisted'],
+      default: 'public',
+    },
+    visibility: {
+      type: String,
+      enum: ['visible', 'hidden', 'deleted'],
+      default: 'visible',
+    },
+    deletedAt: { type: Date },
+
+    sortDate: { type: Date, default: () => new Date(), index: true },
+    expireAt: { type: Date },
+
+    shared: {
+      originalPostId: { type: Types.ObjectId, ref: 'Post' },
+      originalOwner: { type: Types.ObjectId, refPath: 'shared.originalOwnerModel' },
+      originalOwnerModel: { type: String, enum: ['User', 'Business'] },
+      snapshot: Schema.Types.Mixed,
+    },
+
+    refs: {
+      liveStreamId: { type: Types.ObjectId, ref: 'LiveStream', default: null },
+      relatedInviteId: { type: Types.ObjectId, ref: 'Post', default: null },
+    },
   },
-
-  privacy: { type: String, enum: ['public', 'followers', 'private', 'unlisted'], default: 'public' },
-  visibility: { type: String, enum: ['visible', 'hidden', 'deleted'], default: 'visible' },
-  deletedAt: { type: Date },
-
-  sortDate: { type: Date, default: () => new Date(), index: true },
-  expireAt: { type: Date },
-
-  shared: {
-    originalPostId: { type: Types.ObjectId, ref: 'Post' },
-    originalOwner: { type: Types.ObjectId, refPath: 'shared.originalOwnerModel' },
-    originalOwnerModel: { type: String, enum: ['User', 'Business'] },
-    snapshot: Schema.Types.Mixed,
-  },
-
-  refs: {
-    liveStreamId: { type: Types.ObjectId, ref: 'LiveStream', default: null },
-    relatedInviteId: { type: Types.ObjectId, ref: 'Post', default: null }
-  },
-}, { timestamps: true, discriminatorKey: 'type' });
+  { timestamps: true, discriminatorKey: 'type' }
+);
 
 BasePostSchema.path('createdAt').immutable(true);
 BasePostSchema.index({ visibility: 1, sortDate: -1 });
@@ -57,100 +80,177 @@ BasePostSchema.index({ placeId: 1, sortDate: -1 });
 BasePostSchema.index({ taggedUsers: 1, sortDate: -1 });
 BasePostSchema.index({ location: '2dsphere' });
 BasePostSchema.index({ expireAt: 1 }, { expireAfterSeconds: 0 });
-// Optional: text search on post text
 BasePostSchema.index({ message: 'text' });
 BasePostSchema.index({ 'refs.relatedInviteId': 1, ownerId: 1, type: 1 });
 
 const Post = mongoose.model('Post', BasePostSchema);
 
-// --- discriminators (only domain data; no more "caption"/"note" here) ---
+// ------------------------- REVIEW DISCRIMINATOR -------------------------
 
-const ReviewPost = Post.discriminator('review', new Schema({
-  details: {
-    rating: { type: Number, min: 1, max: 5, required: true },
-    reviewText: { type: String, required: true },   // stays domain-specific
-    priceRating: { type: Number, min: 0, max: 4, default: null },
-    atmosphereRating: { type: Number, min: 0, max: 5, default: null },
-    serviceRating: { type: Number, min: 0, max: 5, default: null },
-    wouldRecommend: { type: Boolean, default: null },
-    fullName: { type: String },
-  },
-}));
-
-const CheckInPost = Post.discriminator('check-in', new Schema({
-  details: {
-    date: { type: Date, default: Date.now },
-  },
-}));
-
-const InvitePost = Post.discriminator('invite', new Schema({
-  details: {
-    dateTime: { type: Date, required: true },
-    timeZone: { type: String, default: 'America/Chicago' },
-    recipients: [{
-      userId: { type: Types.ObjectId, ref: 'User', required: true },
-      status: { type: String, enum: ['pending', 'accepted', 'declined'], default: 'pending' },
-      nudgedAt: { type: Date, default: null },
-    }],
-    went: {
-      type: String,
-      enum: ['unknown', 'went', 'did_not_go'],
-      default: 'unknown',
-    },
-    requests: [{
-      userId: { type: Types.ObjectId, ref: 'User' },
-      status: { type: String, enum: ['pending', 'accepted', 'declined'], default: 'pending' },
-      requestedAt: { type: Date, default: Date.now },
-    }],
-    recapReminderSentAt: { type: Date, default: null }
-  },
-}));
-
-const EventPost = Post.discriminator('event', new Schema({
-  details: { startsAt: Date, endsAt: Date, hostId: { type: Types.ObjectId, ref: 'Business' } },
-}));
-
-const PromotionPost = Post.discriminator('promotion', new Schema({
-  details: { startsAt: Date, endsAt: Date, discountPct: Number, code: String },
-}));
-
-const SharedPost = Post.discriminator('sharedPost', new Schema({}));
-
-const LiveStreamPost = Post.discriminator(
-  'liveStream',
+const ReviewPost = Post.discriminator(
+  'review',
   new Schema(
     {
       details: {
-        title: { type: String, default: '' },
+        // core recap
+        rating: { type: Number, min: 1, max: 5, required: true },
 
-        // live status of the stream
-        status: {
-          type: String,
-          enum: ['idle', 'live', 'ended', 'error'],
-          default: 'idle',
+        // new required "would go back" field (yes/no)
+        wouldGoBack: {
+          type: Boolean,
+          required: true,
         },
 
-        // thumbnail image key in S3 (optional)
-        coverKey: { type: String, default: null },
+        // optional text; rating-only reviews must be allowed
+        reviewText: {
+          type: String,
+          default: '',
+          maxlength: 4000,
+          trim: true,
+        },
 
-        // duration in *seconds* for the VOD
-        durationSec: { type: Number, default: 0 },
+        // optional price rating (0–4, where 0 = not set/unknown)
+        priceRating: {
+          type: Number,
+          min: 0,
+          max: 4,
+          default: null,
+        },
 
-        viewerPeak: { type: Number, default: 0 },
+        // up to 3 vibe tags like ['chill', 'loud', 'romantic']
+        vibeTags: {
+          type: [String],
+          default: [],
+          validate: {
+            validator: function (arr) {
+              if (!Array.isArray(arr)) return false;
+              return arr.length <= 3;
+            },
+            message: 'vibeTags can contain at most 3 items',
+          },
+        },
 
-        // timing fields – when the stream actually started/ended
-        startedAt: { type: Date },
-        endedAt: { type: Date },
+        // cached display name (optional)
+        fullName: { type: String },
 
-        // URLs to play the live stream / replay (if you persist them here)
-        playbackUrl: { type: String, default: null },
-        vodUrl: { type: String, default: null },
+        // legacy fields kept for backward compatibility (hidden by default)
+        atmosphereRating: {
+          type: Number,
+          min: 0,
+          max: 5,
+          default: null,
+          select: false,
+        },
+        serviceRating: {
+          type: Number,
+          min: 0,
+          max: 5,
+          default: null,
+          select: false,
+        },
+        wouldRecommend: {
+          type: Boolean,
+          default: null,
+          select: false,
+        },
       },
     },
-    {
-      _id: false, // "details" is a nested object, no separate _id
-    }
+    { _id: false }
   )
 );
 
-module.exports = { Post, ReviewPost, CheckInPost, InvitePost, EventPost, PromotionPost, SharedPost, LiveStreamPost };
+// ------------------------ OTHER DISCRIMINATORS --------------------------
+
+const CheckInPost = Post.discriminator(
+  'check-in',
+  new Schema(
+    {
+      details: {
+        date: { type: Date, default: Date.now },
+      },
+    },
+    { _id: false }
+  )
+);
+
+const InvitePost = Post.discriminator(
+  'invite',
+  new Schema(
+    {
+      details: {
+        dateTime: { type: Date, required: true },
+        timeZone: { type: String, default: 'America/Chicago' },
+        recipients: [
+          {
+            userId: { type: Types.ObjectId, ref: 'User', required: true },
+            status: {
+              type: String,
+              enum: ['pending', 'accepted', 'declined'],
+              default: 'pending',
+            },
+            nudgedAt: { type: Date, default: null },
+          },
+        ],
+        went: {
+          type: String,
+          enum: ['unknown', 'went', 'did_not_go'],
+          default: 'unknown',
+        },
+        requests: [
+          {
+            userId: { type: Types.ObjectId, ref: 'User' },
+            status: {
+              type: String,
+              enum: ['pending', 'accepted', 'declined'],
+              default: 'pending',
+            },
+            requestedAt: { type: Date, default: Date.now },
+          },
+        ],
+        recapReminderSentAt: { type: Date, default: null },
+      },
+    },
+    { _id: false }
+  )
+);
+
+const EventPost = Post.discriminator(
+  'event',
+  new Schema(
+    {
+      details: {
+        startsAt: Date,
+        endsAt: Date,
+        hostId: { type: Types.ObjectId, ref: 'Business' },
+      },
+    },
+    { _id: false }
+  )
+);
+
+const PromotionPost = Post.discriminator(
+  'promotion',
+  new Schema(
+    {
+      details: {
+        startsAt: Date,
+        endsAt: Date,
+        discountPct: Number,
+        code: String,
+      },
+    },
+    { _id: false }
+  )
+);
+
+const SharedPost = Post.discriminator('sharedPost', new Schema({}));
+
+module.exports = {
+  Post,
+  ReviewPost,
+  CheckInPost,
+  InvitePost,
+  EventPost,
+  PromotionPost,
+  SharedPost,
+};

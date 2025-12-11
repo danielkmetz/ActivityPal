@@ -289,15 +289,16 @@ function enrichInviteDetails(details, userMap) {
     const id = toStr(r?.userId || r?.user?.id || r?.user?._id);
     const u = id ? userMap.get(id) : null;
     if (DEBUG && i < 3) dlog('invite recipient enrich:', { id, hit: !!u });
+
+    const baseUser = {
+      id: id || null,
+      firstName: u?.firstName || null,
+      lastName: u?.lastName || null,
+      profilePicUrl: u?.profilePicUrl || null,
+    };
+
     return {
-      user: u
-        ? {
-          id: u.id,
-          firstName: u.firstName,
-          lastName: u.lastName,
-          profilePicUrl: u.profilePicUrl,
-        }
-        : null,
+      user: baseUser,                           // 👈 always non-null
       status: r?.status || 'pending',
       nudgedAt: r?.nudgedAt || null,
     };
@@ -391,8 +392,18 @@ async function enrichPostUniversal(
   }
 
   let details = post?.details || null;
-  if (post?.type === 'review' && details) {
-    details = { ...details, fullName: owner?.fullName || null };
+
+  if (post?.type === 'review') {
+    const ownerFullName =
+      owner?.fullName ||
+      (owner?.firstName || owner?.lastName
+        ? [owner.firstName, owner.lastName].filter(Boolean).join(' ')
+        : null);
+
+    details = {
+      ...(details || {}),
+      fullName: ownerFullName,
+    };
   } else if (post?.type === 'invite' && details) {
     details = enrichInviteDetails(details, userMap);
   }

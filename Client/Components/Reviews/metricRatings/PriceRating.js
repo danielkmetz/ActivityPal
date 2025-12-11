@@ -4,7 +4,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 export default function PriceRating({ value, onChange }) {
   return (
     <View>
-      <Text style={styles.label}>Price</Text>
+      <Text style={styles.label}>Price (optional)</Text>
       <View style={styles.group}>
         {[1, 2, 3, 4].map((val) => (
           <TouchableOpacity

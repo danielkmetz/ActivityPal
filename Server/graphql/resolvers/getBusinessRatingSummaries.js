@@ -1,4 +1,4 @@
-const { Post } = require('../../models/Post'); // ✅ unified Post model
+const { Post } = require('../../models/Post');
 
 const getBusinessRatingSummaries = async (_, { placeIds }) => {
   try {
@@ -6,54 +6,52 @@ const getBusinessRatingSummaries = async (_, { placeIds }) => {
       throw new Error('placeIds must be a non-empty array');
     }
 
-    // One aggregation over the unified Post collection (type: 'review')
+    // Aggregate over unified Post collection, only review posts
     const agg = await Post.aggregate([
-      { $match: { type: 'review', placeId: { $in: placeIds } } },
+      {
+        $match: {
+          type: 'review',
+          placeId: { $in: placeIds },
+        },
+      },
 
       {
         $group: {
           _id: '$placeId',
           totalReviews: { $sum: 1 },
 
-          // Only count numeric values for each rating bucket
-          ratingSum: {
-            $sum: {
-              $cond: [{ $isNumber: '$details.rating' }, '$details.rating', 0],
-            },
-          },
-          ratingCount: {
-            $sum: { $cond: [{ $isNumber: '$details.rating' }, 1, 0] },
-          },
+          // new canonical rating (required)
+          ratingSum: { $sum: '$details.rating' },
 
+          // optional price rating
           priceSum: {
             $sum: {
-              $cond: [{ $isNumber: '$details.priceRating' }, '$details.priceRating', 0],
+              $cond: [
+                { $isNumber: '$details.priceRating' },
+                '$details.priceRating',
+                0,
+              ],
             },
           },
           priceCount: {
-            $sum: { $cond: [{ $isNumber: '$details.priceRating' }, 1, 0] },
-          },
-
-          serviceSum: {
             $sum: {
-              $cond: [{ $isNumber: '$details.serviceRating' }, '$details.serviceRating', 0],
+              $cond: [
+                { $isNumber: '$details.priceRating' },
+                1,
+                0,
+              ],
             },
           },
-          serviceCount: {
-            $sum: { $cond: [{ $isNumber: '$details.serviceRating' }, 1, 0] },
-          },
 
-          atmosphereSum: {
+          // new yes/no field: wouldGoBack
+          wouldGoBackCount: {
             $sum: {
-              $cond: [{ $isNumber: '$details.atmosphereRating' }, '$details.atmosphereRating', 0],
+              $cond: [
+                { $eq: ['$details.wouldGoBack', true] },
+                1,
+                0,
+              ],
             },
-          },
-          atmosphereCount: {
-            $sum: { $cond: [{ $isNumber: '$details.atmosphereRating' }, 1, 0] },
-          },
-
-          recommendCount: {
-            $sum: { $cond: [{ $eq: ['$details.wouldRecommend', true] }, 1, 0] },
           },
         },
       },
@@ -63,18 +61,21 @@ const getBusinessRatingSummaries = async (_, { placeIds }) => {
           _id: 0,
           placeId: '$_id',
 
+          // average star rating
           averageRating: {
             $round: [
               {
                 $cond: [
-                  { $gt: ['$ratingCount', 0] },
-                  { $divide: ['$ratingSum', '$ratingCount'] },
+                  { $gt: ['$totalReviews', 0] },
+                  { $divide: ['$ratingSum', '$totalReviews'] },
                   0,
                 ],
               },
               2,
             ],
           },
+
+          // average price rating (only where priceRating is present)
           averagePriceRating: {
             $round: [
               {
@@ -87,37 +88,23 @@ const getBusinessRatingSummaries = async (_, { placeIds }) => {
               2,
             ],
           },
-          averageServiceRating: {
-            $round: [
-              {
-                $cond: [
-                  { $gt: ['$serviceCount', 0] },
-                  { $divide: ['$serviceSum', '$serviceCount'] },
-                  0,
-                ],
-              },
-              2,
-            ],
-          },
-          averageAtmosphereRating: {
-            $round: [
-              {
-                $cond: [
-                  { $gt: ['$atmosphereCount', 0] },
-                  { $divide: ['$atmosphereSum', '$atmosphereCount'] },
-                  0,
-                ],
-              },
-              2,
-            ],
-          },
 
+          // legacy metrics are now just hard-coded (no legacy support)
+          averageServiceRating: { $literal: 0 },
+          averageAtmosphereRating: { $literal: 0 },
+
+          // percentage of reviews where wouldGoBack === true
           recommendPercentage: {
             $cond: [
               { $gt: ['$totalReviews', 0] },
               {
                 $round: [
-                  { $multiply: [{ $divide: ['$recommendCount', '$totalReviews'] }, 100] },
+                  {
+                    $multiply: [
+                      { $divide: ['$wouldGoBackCount', '$totalReviews'] },
+                      100,
+                    ],
+                  },
                   0,
                 ],
               },
@@ -128,8 +115,10 @@ const getBusinessRatingSummaries = async (_, { placeIds }) => {
       },
     ]);
 
-    // Ensure we return an entry for every requested placeId (even if no reviews)
+    // Map aggregation results back to the requested placeIds,
+    // and return an "empty" summary for places with no reviews.
     const map = new Map(agg.map((d) => [d.placeId, d]));
+
     const empty = {
       averageRating: 0,
       averagePriceRating: 0,
@@ -139,7 +128,7 @@ const getBusinessRatingSummaries = async (_, { placeIds }) => {
     };
 
     const summaries = placeIds.map((placeId) =>
-      map.has(placeId) ? { placeId, ...map.get(placeId) } : { placeId, ...empty }
+      map.get(placeId) || { placeId, ...empty }
     );
 
     return summaries;

@@ -59,13 +59,12 @@ export const NESTED_POST_FIELDS = gql`
 
     details {
       ... on ReviewDetails {
-        rating
-        reviewText
-        priceRating
-        atmosphereRating
-        serviceRating
-        wouldRecommend
-        fullName
+        rating           
+        wouldGoBack      
+        reviewText       
+        priceRating      
+        vibeTags         
+        fullName         
       }
       ... on CheckInDetails {
         date
@@ -159,7 +158,7 @@ export const SHARED_META_FIELDS = gql`
     }
 
     # New, fully-typed enriched snapshot
-    snapshotPost {
+    snapshot {
       ...NestedPostFields
     }
 
