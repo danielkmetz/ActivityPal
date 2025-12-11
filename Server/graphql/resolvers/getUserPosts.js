@@ -3,32 +3,9 @@ const User = require('../../models/User');
 const Business = require('../../models/Business');
 const { Post } = require('../../models/Post');
 const { hydrateManyPostsForResponse } = require('../../utils/posts/hydrateAndEnrichForResponse');
-
-const oid = (v) => new mongoose.Types.ObjectId(String(v));
-const isOid = (v) => mongoose.Types.ObjectId.isValid(String(v));
-
-function buildCursorQuery(after) {
-  if (!after?.sortDate || !after?.id || !isOid(after.id)) return {};
-  const sd = new Date(after.sortDate);
-  return {
-    $or: [
-      { sortDate: { $lt: sd } },
-      { sortDate: sd, _id: { $lt: oid(after.id) } },
-    ],
-  };
-}
-
-// (optional) normalize allowed types if you want to gate the input
-const ALLOWED_TYPES = new Set([
-  'review', 'check-in', 'invite', 'event', 'promotion', 'sharedPost', 'liveStream',
-]);
-const normalizeTypesArg = (types) => {
-  if (!types) return null;
-  const list = Array.isArray(types) ? types : String(types).split(',');
-  const cleaned = list.map((t) => String(t).trim()).filter(Boolean);
-  const allowed = cleaned.filter((t) => ALLOWED_TYPES.has(t));
-  return allowed.length ? allowed : null;
-};
+const { buildCursorQuery } = require('../../utils/posts/buildCursorQuery');
+const { oid, isOid } = require('../../utils/posts/oid');
+const { normalizeTypesArg } = require('../../utils/posts/normalizeTypesArg');
 
 // same helper used elsewhere
 async function attachBusinessNameIfMissing(post) {
@@ -65,6 +42,10 @@ const getUserPosts = async (_, { userId, types, limit = 15, after }, context) =>
     }
 
     const typeList = normalizeTypesArg(types);
+    
+    if (Array.isArray(typeList) && typeList.length === 0) {
+      return [];
+    }
     const typeFilter = typeList ? { type: { $in: typeList } } : {};
 
     // base filter (allow legacy docs missing privacy/visibility)
