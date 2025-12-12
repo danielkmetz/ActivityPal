@@ -10,7 +10,7 @@ export const addFavorite = createAsyncThunk(
     async ({ userId, placeId }, { rejectWithValue }) => {
         try {
             const response = await axios.post(`${API_URL}/favorites/${userId}/${placeId}`);
-            return response.data.favorites; // Returns updated favorites array
+            return response.data.favorites;
         } catch (error) {
             return rejectWithValue(error.response ? error.response.data : error.message);
         }

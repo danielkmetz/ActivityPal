@@ -1,13 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import {
-  View,
-  Image,
-  Text,
-  Animated,
-  TouchableWithoutFeedback,
-  Dimensions,
-  StyleSheet,
-} from 'react-native';
+import { View, Image, Text, Animated, TouchableWithoutFeedback, Dimensions, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLikeAnimations } from '../../../utils/LikeHandlers/LikeAnimationContext';
 import { handleLikeWithAnimation as likeWithAnim } from '../../../utils/LikeHandlers';

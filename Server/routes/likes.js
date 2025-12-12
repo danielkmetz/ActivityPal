@@ -12,8 +12,7 @@ const Business = require('../models/Business');
 /* -------------------------------------------------------------------------- */
 const short = (v, n = 8) => (typeof v === 'string' ? v.slice(-n) : v);
 const nowIso = () => new Date().toISOString();
-const genRid = (prefix = 'like') =>
-  `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+const genRid = (prefix = 'like') => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
 const redact = (obj) => {
   try {

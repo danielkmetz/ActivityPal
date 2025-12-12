@@ -86,7 +86,7 @@ const styles = StyleSheet.create({
   userPicAndName: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 15,
+    // marginBottom: 15,
     padding: 6,
     paddingRight: 30,
     flexShrink: 1,
