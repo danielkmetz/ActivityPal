@@ -1,41 +1,19 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { View, FlatList, Animated, Dimensions } from 'react-native';
-import MediaItem from './MediaItem';
-import PhotoPaginationDots from './PhotoPaginationDots';
-import { createPhotoFeedHandlers } from './photoFeedHandlers';
-import { useDispatch, useSelector } from 'react-redux';
-import { useNavigation } from '@react-navigation/native';
-import { selectBanner } from '../../../Slices/PhotosSlice';
+import React, { useMemo, useState, useRef, useEffect } from "react";
+import { View, FlatList, Animated, Dimensions } from "react-native";
+import { useDispatch, useSelector } from "react-redux";
+import { useNavigation } from "@react-navigation/native";
+import MediaItem from "./MediaItem";
+import PhotoPaginationDots from "./PhotoPaginationDots";
+import { createPhotoFeedHandlers } from "./photoFeedHandlers";
+import { selectBanner } from "../../../Slices/PhotosSlice";
+import { resolveMediaList } from "../../../utils/Media/resolveMedia";
 
-const screenWidth = Dimensions.get('window').width;
+const screenWidth = Dimensions.get("window").width;
 
-const pickRawMedia = (postContent, banner) => {
-  // 1) Photos array with items
-  if (Array.isArray(postContent?.photos) && postContent.photos.length > 0) {
-    return postContent.photos;
-  }
-
-  // 2) Generic media array with items
-  if (Array.isArray(postContent?.media) && postContent.media.length > 0) {
-    return postContent.media;
-  }
-
-  // 3) Single banner URL (string)
-  if (postContent?.bannerUrl) {
-    return postContent.bannerUrl;
-  }
-
-  // 4) Fallback banner from Redux
-  if (banner?.presignedUrl) {
-    return banner.presignedUrl;
-  }
-
-  // 5) Live stream playback URL (string)
-  if (postContent?.details?.playbackUrl) {
-    return postContent.details.playbackUrl;
-  }
-
-  return null;
+const keyForMedia = (m, i) => {
+  if (m == null) return String(i);
+  if (typeof m === "string") return m; // URL string
+  return m.photoKey || m._id || m.id || m.url || m.uri || String(i);
 };
 
 export default function PhotoFeed({
@@ -43,111 +21,111 @@ export default function PhotoFeed({
   post,
   photoTapped,
   setPhotoTapped,
-  onActiveChange, // ← optional callback to mirror your previous onTouchStart/onTouchEnd behavior
-  currentIndexRef,
+  onActiveChange,
   setOverlayVisible,
   isCommentScreen = false,
   isMyEventsPromosPage = false,
   isInView = true,
+  onIndexChange,
+  onActiveMediaChange,
 }) {
   const dispatch = useDispatch();
   const navigation = useNavigation();
-  const postContent = post?.original ?? post ?? {};
   const banner = useSelector(selectBanner);
-  const rawMedia = useMemo(
-    () => pickRawMedia(postContent, banner),
-    [postContent, banner]
-  );
-  // console.log('raw media', rawMedia);
-  // console.log('post content', postContent)
+  const media = useMemo(() => {
+    return resolveMediaList(post, banner?.presignedUrl);
+  }, [
+    post?._id,
+    post?.updatedAt,
+    post?.original?._id,
+    post?.original?.updatedAt,
+    banner?.presignedUrl,
+  ]);
 
-  const media = useMemo(
-    () => (Array.isArray(rawMedia) ? rawMedia : rawMedia ? [rawMedia] : []),
-    [rawMedia]
-  );
-  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
-  
+  const [activeIndex, setActiveIndex] = useState(0);
+  const internalScrollX = useRef(new Animated.Value(0)).current;
+  const sx = scrollX || internalScrollX;
+
   const { handlePhotoTap } = useMemo(
     () =>
       createPhotoFeedHandlers({
         dispatch,
         navigation,
-        postContent,
+        postContent: post?.original ?? post ?? {},
         setOverlayVisible,
         photoTapped,
         isCommentScreen,
         isMyEventsPromosPage,
       }),
-    [
-      postContent?._id,              // keep deps minimal & stable
-      postContent?.placeId,
-      photoTapped,
-    ]
-  )
+    [dispatch, navigation, post?._id, photoTapped, setOverlayVisible, isCommentScreen, isMyEventsPromosPage]
+  );
+
+  const computeIndex = (e) => {
+    const x = e?.nativeEvent?.contentOffset?.x ?? 0;
+    const idx = Math.round(x / screenWidth);
+    
+    return Math.max(0, Math.min(idx, Math.max(0, media.length - 1)));
+  };
+
+  const notifyParent = (idx) => {
+    onIndexChange?.(idx);
+    const activeItem = media[idx];
+    onActiveMediaChange?.(activeItem, idx);
+  };
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (currentPhotoIndex !== currentIndexRef.current) {
-        setCurrentPhotoIndex(currentIndexRef.current);
-      }
-    }, 100);
+    if (!media.length) return;
+    setActiveIndex(0);
+    notifyParent(0);
+  }, [post?._id, media.length]);
 
-    return () => clearInterval(interval);
-  }, [currentPhotoIndex]);
-
-  if (media?.length === 0) {
-    return null;
-  }
+  if (!media.length) return null;
 
   return (
-    <View style={{ width: screenWidth, alignSelf: 'center' }}>
+    <View style={{ width: screenWidth, alignSelf: "center" }}>
       <FlatList
         data={media}
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
-        keyExtractor={(photo, index) => index.toString()}
-        scrollEnabled={media?.length > 1}
-        overScrollMode='never'
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-          {
-            useNativeDriver: false,
-            listener: (e) => {
-              const index = Math.round(e.nativeEvent.contentOffset.x / screenWidth);
-              if (currentIndexRef?.current !== undefined) {
-                currentIndexRef.current = index;
-              }
-              if (typeof setCurrentPhotoIndex === 'function') {
-                setCurrentPhotoIndex(index);
-              }
-            },
-          }
-        )}
+        keyExtractor={(item, index) => keyForMedia(item, index)}
+        scrollEnabled={media.length > 1}
+        overScrollMode="never"
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: sx } } }], {
+          useNativeDriver: false,
+          listener: (e) => {
+            const idx = computeIndex(e);
+            setActiveIndex((prev) => (prev === idx ? prev : idx));
+          },
+        })}
         scrollEventThrottle={16}
+        onMomentumScrollEnd={(e) => {
+          const idx = computeIndex(e);
+          setActiveIndex(idx);
+          notifyParent(idx);
+        }}
         onTouchStart={() => onActiveChange?.(true)}
         onTouchEnd={() => onActiveChange?.(false)}
         renderItem={({ item, index }) => {
-          const isActiveMedia = index === currentIndexRef.current;
+          const isActiveMedia = index === activeIndex;
 
           return (
-          <View style={{ width: screenWidth }}>
-            <MediaItem
-              media={item}
-              post={post}
-              index={index}
-              photoTapped={photoTapped}
-              setPhotoTapped={setPhotoTapped}
-              onOpenFullScreen={handlePhotoTap}
-              shouldPlay={isInView && isActiveMedia}
-            />
-          </View>
-          )
+            <View style={{ width: screenWidth }}>
+              <MediaItem
+                media={item}
+                post={post}
+                index={index}
+                photoTapped={photoTapped}
+                setPhotoTapped={setPhotoTapped}
+                onOpenFullScreen={handlePhotoTap}
+                shouldPlay={isInView && isActiveMedia}
+              />
+            </View>
+          );
         }}
       />
-      {Array.isArray(media) && media?.length > 1 && (
-        <PhotoPaginationDots photos={media} scrollX={scrollX} />
-      )}
+
+      {media.length > 1 && <PhotoPaginationDots photos={media} scrollX={sx} />}
     </View>
   );
 }

@@ -1,8 +1,8 @@
-// helpers/likes.js
 import { Animated } from 'react-native';
 import { toggleLike as togglePostLike } from '../Slices/LikesSlice';
 import { medium, selection } from '../utils/Haptics/haptics';
 import { fireHapticOnce } from './Haptics/fireHapticOnce';
+import { normalizePostType } from './normalizePostType';
 
 /* ---------------------------------- */
 /* Debug helpers                       */
@@ -12,9 +12,7 @@ const ts = () => new Date().toISOString().split('T')[1].replace('Z', '');
 const log = (...a) => DEBUG_LIKES && console.log(`[likes ${ts()}]`, ...a);
 const warn = (...a) => DEBUG_LIKES && console.warn(`[likes ${ts()}]`, ...a);
 const err = (...a) => DEBUG_LIKES && console.error(`[likes ${ts()}]`, ...a);
-
-const pickId = (e) =>
-  e?._id || e?.id || e?.linkedPostId || e?.eventId || e?.promotionId || e?.postId || null;
+const pickId = (e) => e?._id || e?.id || e?.linkedPostId || e?.eventId || e?.promotionId || e?.postId || null;
 
 /* ---------------------------------- */
 /* Type helpers                        */
@@ -33,85 +31,43 @@ const resolveSuggestionPostId = (entity, fallback) => {
   );
 };
 
-/**
- * Map any UI/legacy type to the new router keys.
- * - All "post-like" things => 'posts' (review, check-in, invite, sharedPost, liveStream)
- * - Events/Promotions stay explicit
- * - Suggestions decide between events/promotions by entity.kind/__typename
- */
-const normalizePostType = (t, entity) => {
-  if (t === 'suggestion') {
-    const kind = String(entity?.kind || entity?.__typename || '').toLowerCase();
-    if (kind.includes('promo')) return 'promotions';
-    if (kind.includes('event')) return 'events';
-    // default to events for suggestions if ambiguous
-    return 'events';
-  }
+const normalizeLikeBucket = (postType, entity) => {
+  // If caller already passed a bucket, keep it.
+  const lower = String(postType || '').toLowerCase();
+  if (lower === 'posts' || lower === 'events' || lower === 'promotions') return lower;
 
-  const lower = String(t || '').toLowerCase();
+  // Canonicalize from postType + entity context
+  const canonical =
+    normalizePostType(
+      lower === 'suggestion'
+        ? { type: 'suggestion', kind: entity?.kind || entity?.__typename }
+        : postType
+    ) ||
+    normalizePostType(entity);
 
-  // Explicit fast paths
-  if (lower === 'events' || lower === 'event') return 'events';
-  if (lower === 'promotions' || lower === 'promotion') return 'promotions';
+  if (canonical === 'event') return 'events';
+  if (canonical === 'promotion') return 'promotions';
+  if (canonical === 'suggestion') return 'events';
 
-  // Null/empty t: infer from entity
-  if (!lower) {
-    const tn = String(entity?.__typename || '').toLowerCase();
-    const kind = String(entity?.kind || '').toLowerCase();
-    if (tn === 'event' || kind.includes('event')) return 'events';
-    if (tn === 'promotion' || kind.includes('promo')) return 'promotions';
-    // everything else is a unified Post
-    return 'posts';
-  }
-
-  // Anything "post-like" → unified Post route
-  switch (lower) {
-    case 'review':
-    case 'reviews':
-    case 'checkin':
-    case 'check-ins':
-    case 'check-in':
-    case 'checkins':
-    case 'invite':
-    case 'invites':
-    case 'sharedpost':
-    case 'sharedposts':
-    case 'livestream':
-    case 'live-stream':
-    case 'livestreams':
-    case 'live-streams':
-    case 'post':
-    case 'posts':
-      return 'posts';
-    default:
-      // Fall back: if caller passed something odd, prefer 'posts'
-      return 'posts';
-  }
+  return 'posts';
 };
 
 /* ---------------------------------- */
 /* Core like handler (centralized)     */
 /* ---------------------------------- */
 export const handleLike = async ({
-  postType,
+  postType, // now expects: 'posts' | 'events' | 'promotions'
   postId,
-  review,   // entity being liked (post/review/invite/event/promo/suggestion)
+  review,
   userId,
   dispatch,
 }) => {
-  if (!postId) {
-    warn('handleLike: missing postId', { postType, reviewId: pickId(review) });
-    return null;
-  }
-
-  const normalizedType = normalizePostType(postType, review);
+  if (!postId) return null;
 
   try {
-    // Thunk returns: { postId, likes, likesCount, liked }
-    const result = await dispatch(togglePostLike({ postType: normalizedType, postId }));
+    const result = await dispatch(togglePostLike({ postType, postId }));
     const payload = result?.payload || {};
 
-    // Derive whether *this user* now likes it
     const userLiked =
       typeof payload.liked === 'boolean'
         ? payload.liked
@@ -119,17 +75,8 @@ export const handleLike = async ({
           ? payload.likes.some((l) => String(l.userId) === String(userId))
           : false;
 
-    log('handleLike: toggled', {
-      type: normalizedType,
-      postId,
-      liked: userLiked,
-      likesCount: payload.likesCount,
-    });
-
-    // Server handles notifications now; nothing to do client-side.
     return payload;
   } catch (e) {
-    err(`handleLike: Error toggling like for ${postType} (${postId})`, e);
     return null;
   }
 };
@@ -156,7 +103,7 @@ export const handleLikeWithAnimation = async ({
   force = false,     // pass true from your double-tap handler
   animateTarget = null,
 }) => {
-  const normalizedType = normalizePostType(postType, review);
+  const normalizedType = normalizeLikeBucket(postType, review);
 
   // 1) Compute the effective LIKE id (suggestions may map to their underlying item)
   const effectivePostId =
