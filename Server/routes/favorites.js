@@ -1,47 +1,69 @@
 const express = require("express");
-const User = require("../models/User"); // User model (contains checkIns)
+const User = require("../models/User"); 
 const router = express.Router();
 
 router.post("/:userId/:placeId", async (req, res) => {
-    try {
-      const user = await User.findById(req.params.userId);
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-  
-      if (!user.favorites) {
-        user.favorites = [];
-      }
-  
-      // Check if the place is already favorited
-      if (!user.favorites.some(fav => fav.placeId === req.params.placeId)) {
-        user.favorites.push({ placeId: req.params.placeId });
-        await user.save();
-      }
-  
-      return res.json({
-        message: "Establishment added to favorites",
-        favorites: user.favorites,
-      });
-  
-    } catch (error) {
-      return res.status(500).json({ error: error.message });
+  try {
+    const { userId, placeId } = req.params;
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    user.favorites = Array.isArray(user.favorites) ? user.favorites : [];
+
+    // Handle legacy string[] OR object[] safely
+    const has = user.favorites.some((fav) =>
+      typeof fav === "string" ? fav === placeId : fav?.placeId === placeId
+    );
+
+    if (!has) {
+      user.favorites.push({ placeId, favoritedAt: new Date() }); // keep metadata in DB if you want
+      await user.save();
     }
-});  
+
+    // ✅ Always return a stable shape to the client: string[]
+    const favoriteIds = user.favorites
+      .map((fav) => (typeof fav === "string" ? fav : fav?.placeId))
+      .filter(Boolean);
+
+    return res.json({
+      message: "Establishment added to favorites",
+      favorites: favoriteIds,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
     
 router.delete("/:userId/:placeId", async (req, res) => {
-    try {
-      const user = await User.findById(req.params.userId);
-      if (!user) return res.status(404).json({ message: "User not found" });
-  
-      // Filter out the favorite by matching the `placeId` inside the object
-      user.favorites = user.favorites.filter(fav => fav.placeId !== req.params.placeId);
-  
-      await user.save();
-      res.json({ message: "Establishment removed from favorites", favorites: user.favorites });
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
+  try {
+    const { userId, placeId } = req.params;
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    user.favorites = Array.isArray(user.favorites) ? user.favorites : [];
+
+    // ✅ supports legacy string[] AND object[]
+    user.favorites = user.favorites.filter((fav) => {
+      if (typeof fav === "string") return fav !== placeId;
+      return fav?.placeId !== placeId;
+    });
+
+    await user.save();
+
+    // ✅ always return ids
+    const favoriteIds = user.favorites
+      .map((fav) => (typeof fav === "string" ? fav : fav?.placeId))
+      .filter(Boolean);
+
+    return res.json({
+      message: "Establishment removed from favorites",
+      favorites: favoriteIds,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
 });
   
 router.get("/users/:userId", async (req, res) => {

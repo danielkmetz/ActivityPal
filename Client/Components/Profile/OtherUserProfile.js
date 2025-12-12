@@ -1,66 +1,39 @@
-import React, { useEffect, useState } from "react";
-import { View, StyleSheet, FlatList, InteractionManager } from "react-native";
-import { useDispatch, useSelector } from "react-redux";
-import { selectUser, fetchOtherUserSettings, selectOtherUserSettings, selectOtherUserName, fetchUserFullName } from "../../Slices/UserSlice";
-import OtherUserHeader from './OtherUser/OtherUserHeader';
-import FollowControls from './FollowControls';
-import ProfileTabs from './ProfileTabs';
-import {
-  selectFollowRequests,
-  selectFollowing,
-  approveFollowRequest,
-  cancelFollowRequest,
-  declineFollowRequest,
-  unfollowUser,
-  selectOtherUserFollowers,
-  selectOtherUserFollowing,
-  fetchOtherUserFollowersAndFollowing,
-  followBack,
-} from "../../Slices/friendsSlice";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { View, FlatList, StyleSheet, InteractionManager } from "react-native";
+import { useDispatch, useSelector, shallowEqual } from "react-redux";
+import { selectUser, fetchOtherUserSettings, selectOtherUserSettings, fetchUserFullName } from "../../Slices/UserSlice";
+import { selectFollowRequests, selectFollowing, selectOtherUserFollowers, selectOtherUserFollowing, fetchOtherUserFollowersAndFollowing } from "../../Slices/friendsSlice";
 import Reviews from "../Reviews/Reviews";
 import Photos from "./Photos";
-import {
-  fetchOtherUserBanner,
-  resetOtherUserBanner,
-  selectOtherUserBanner,
-  fetchOtherUserProfilePic,
-  resetOtherUserProfilePic,
-  selectOtherUserProfilePic,
-} from "../../Slices/PhotosSlice";
+import Favorites from "./Favorites";
+import ConnectionsModal from "./ConnectionsModal";
+import { fetchOtherUserBanner, resetOtherUserBanner, fetchOtherUserProfilePic, resetOtherUserProfilePic } from "../../Slices/PhotosSlice";
 import { fetchPostsByOtherUserId, resetOtherUserPosts, appendOtherUserPosts, setOtherUserPosts } from "../../Slices/PostsSlice";
 import { selectOtherUserPosts } from "../../Slices/PostsSelectors/postsSelectors";
-import { createNotification } from "../../Slices/NotificationsSlice";
-import Favorites from "./Favorites";
 import { fetchOtherUserFavorites, selectOtherUserFavorites } from "../../Slices/FavoritesSlice";
 import usePaginatedFetch from "../../utils/usePaginatedFetch";
-import ConnectionsModal from "./ConnectionsModal";
-import { handleFollowUserHelper } from "../../utils/followHelper";
-import { selectConversations, chooseUserToMessage } from "../../Slices/DirectMessagingSlice";
-import useTaggedFeed from '../../hooks/useTaggedFeed';
+import useTaggedFeed from "../../hooks/useTaggedFeed";
+import OtherUserProfileChrome from "./OtherUserProfileChrome";
 
 export default function OtherUserProfile({ route, navigation }) {
   const { userId } = route.params;
-  const mainUser = useSelector(selectUser);
   const dispatch = useDispatch();
-  const followRequests = useSelector(selectFollowRequests);
-  const otherUserFollowing = useSelector(selectOtherUserFollowing);
-  const otherUserFollowers = useSelector(selectOtherUserFollowers);
-  const following = useSelector(selectFollowing)
-  const banner = useSelector(selectOtherUserBanner);
-  const favorites = useSelector(selectOtherUserFavorites);
-  const profileReviews = useSelector(selectOtherUserPosts);
-  const otherUserProfilePic = useSelector(selectOtherUserProfilePic);
+  const mainUser = useSelector(selectUser, shallowEqual);
+  const followRequests = useSelector(selectFollowRequests) || { sent: [], received: [] };
+  const following = useSelector(selectFollowing) || [];
+  const otherUserFollowing = useSelector(selectOtherUserFollowing) || [];
+  const otherUserFollowers = useSelector(selectOtherUserFollowers) || [];
   const otherUserPrivacy = useSelector(selectOtherUserSettings);
-  const fullName = useSelector(selectOtherUserName);
-  const conversations = useSelector(selectConversations);
-  const isPrivate = otherUserPrivacy?.profileVisibility === 'private';
+  const favorites = useSelector(selectOtherUserFavorites) || [];
+  const profileReviews = useSelector(selectOtherUserPosts) || [];
+  const isPrivate = otherUserPrivacy?.profileVisibility === "private";
   const [isRequestSent, setIsRequestSent] = useState(false);
   const [isRequestReceived, setIsRequestReceived] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
-  const [dropdownVisible, setDropdownVisible] = useState(false);
   const [activeSection, setActiveSection] = useState("reviews");
   const [connectionsModalVisible, setConnectionsModalVisible] = useState(false);
   const [activeConnectionsTab, setActiveConnectionsTab] = useState("followers");
+
   const { loadMore, refresh, isLoading, hasMore } = usePaginatedFetch({
     fetchThunk: fetchPostsByOtherUserId,
     appendAction: appendOtherUserPosts,
@@ -69,38 +42,51 @@ export default function OtherUserProfile({ route, navigation }) {
     limit: 5,
   });
 
-  const { posts: taggedPosts, status: taggedStatus, hasMore: taggedHasMore, loadMore: loadMoreTagged } =
-    useTaggedFeed(userId, activeSection, 15);
+  const {
+    posts: taggedPosts,
+    status: taggedStatus,
+    hasMore: taggedHasMore,
+    loadMore: loadMoreTagged,
+  } = useTaggedFeed(userId, activeSection, 15);
 
+  /* ------------------------------ */
+  /* Fetch user data                 */
+  /* ------------------------------ */
   useEffect(() => {
-    if (userId) {
-      dispatch(fetchOtherUserBanner(userId));
-      dispatch(fetchUserFullName(userId));
-      dispatch(fetchOtherUserProfilePic(userId));
-      dispatch(fetchOtherUserFavorites(userId));
-      dispatch(fetchOtherUserSettings(userId));
-      dispatch(fetchOtherUserFollowersAndFollowing(userId));
+    if (!userId) return;
 
-      const task = InteractionManager.runAfterInteractions(() => {
-        refresh();
-      });
+    dispatch(fetchOtherUserBanner(userId));
+    dispatch(fetchUserFullName(userId));
+    dispatch(fetchOtherUserProfilePic(userId));
+    dispatch(fetchOtherUserFavorites(userId));
+    dispatch(fetchOtherUserSettings(userId));
+    dispatch(fetchOtherUserFollowersAndFollowing(userId));
 
-      return () => task.cancel();
-    }
-  }, [userId]);
+    const task = InteractionManager.runAfterInteractions(() => {
+      refresh();
+    });
 
+    return () => task?.cancel?.();
+  }, [userId, dispatch, refresh]);
+
+  /* ------------------------------ */
+  /* Derive relationship state       */
+  /* ------------------------------ */
   useEffect(() => {
-    if (!mainUser || !followRequests || !following || !userId) return;
+    if (!userId) return;
 
-    const followingIds = following.map(u => u._id);
-    const sentRequestIds = (followRequests?.sent || []).map(u => u._id || u);
-    const receivedRequestIds = (followRequests?.received || []).map(u => u._id || u);
+    const followingIds = (following || []).map((u) => String(u?._id || u?.id)).filter(Boolean);
+    const sentRequestIds = (followRequests?.sent || []).map((u) => String(u?._id || u)).filter(Boolean);
+    const receivedRequestIds = (followRequests?.received || []).map((u) => String(u?._id || u)).filter(Boolean);
 
-    setIsRequestSent(sentRequestIds.includes(userId));
-    setIsRequestReceived(receivedRequestIds.includes(userId));
-    setIsFollowing(followingIds.includes(userId));
-  }, [mainUser, following, followRequests, userId]);
+    setIsRequestSent(sentRequestIds.includes(String(userId)));
+    setIsRequestReceived(receivedRequestIds.includes(String(userId)));
+    setIsFollowing(followingIds.includes(String(userId)));
+  }, [following, followRequests, userId]);
 
+  /* ------------------------------ */
+  /* Cleanup on leave                */
+  /* ------------------------------ */
   useEffect(() => {
     const unsubscribe = navigation.addListener("beforeRemove", () => {
       dispatch(resetOtherUserBanner());
@@ -111,133 +97,121 @@ export default function OtherUserProfile({ route, navigation }) {
     return unsubscribe;
   }, [navigation, dispatch]);
 
-  const handleCancelRequest = async () => {
-    await dispatch(cancelFollowRequest({ recipientId: userId }));
-    // ✅ Explicitly update the state to ensure UI reflects the change
-    setIsRequestSent(false);
-  };
+  const photos = useMemo(() => {
+    if (activeSection !== "photos") return [];
 
-  const handleDenyRequest = () => dispatch(declineFollowRequest({ requesterId: userId }));
+    const urls = new Set();
+    for (const post of profileReviews || []) {
+      const mediaArr = Array.isArray(post?.photos) ? post.photos : post?.media;
+      if (!Array.isArray(mediaArr)) continue;
+      for (const m of mediaArr) {
+        const u = m?.url || m?.presignedUrl || m?.uri || null;
+        if (u) urls.add(u);
+      }
+    }
+    return Array.from(urls).map((url) => ({ url }));
+  }, [activeSection, profileReviews]);
 
-  const handleUnfollow = () => {
-    dispatch(unfollowUser(userId));
-    setDropdownVisible(false);
-    setIsFollowing(false);
-  };
+  /* ------------------------------ */
+  /* Chrome                          */
+  /* ------------------------------ */
+  const header = useCallback(() => {
+    return (
+      <OtherUserProfileChrome
+        userId={userId}
+        activeSection={activeSection}
+        setActiveSection={setActiveSection}
+        onOpenFollowers={() => { setActiveConnectionsTab("followers"); setConnectionsModalVisible(true); }}
+        onOpenFollowing={() => { setActiveConnectionsTab("following"); setConnectionsModalVisible(true); }}
+      />
+    );
+  }, [userId, activeSection]);
 
-  const handleFollowUser = () => {
-    handleFollowUserHelper({
-      isPrivate,
-      userId,
-      mainUser,
-      dispatch,
-      setIsFollowing,
-      setIsRequestSent,
-    });
-  };
+  /* ------------------------------ */
+  /* Tab bodies                       */
+  /* ------------------------------ */
+  const renderPrivateGate = useCallback(() => {
+    // If your backend already returns nothing when private, you can remove this.
+    return (
+      <FlatList
+        style={styles.container}
+        data={[{ key: "private" }]}
+        keyExtractor={(x) => x.key}
+        ListHeaderComponent={header}
+        renderItem={() => <View style={{ height: 200 }} />}
+        showsVerticalScrollIndicator={false}
+      />
+    );
+  }, [header]);
 
-  const handleAcceptRequest = async () => {
-    await dispatch(approveFollowRequest(userId));
+  const renderReviews = useCallback(() => {
+    return (
+      <Reviews
+        reviews={profileReviews}
+        onLoadMore={loadMore}
+        isLoadingMore={isLoading}
+        hasMore={hasMore}
+        ListHeaderComponent={header}
+        ListFooterComponent={<View style={{ height: 100 }} />}
+      />
+    );
+  }, [profileReviews, loadMore, isLoading, hasMore, header]);
 
-    // ✅ Create a notification for the original sender
-    await dispatch(createNotification({
-      userId,
-      type: 'followAccepted',
-      message: `${fullName} accepted your follow request!`,
-      relatedId: userId,
-      typeRef: 'User'
-    }));
-  };
+  const renderTagged = useCallback(() => {
+    return (
+      <Reviews
+        reviews={taggedPosts}
+        onLoadMore={loadMoreTagged}
+        isLoadingMore={taggedStatus === "pending"}
+        hasMore={taggedHasMore}
+        ListHeaderComponent={header}
+        ListFooterComponent={<View style={{ height: 100 }} />}
+      />
+    );
+  }, [taggedPosts, loadMoreTagged, taggedStatus, taggedHasMore, header]);
 
-  const handleSendMessage = () => {
-    const currentUserId = mainUser?.id;
-    if (!currentUserId || !userId) return;
+  const renderPhotos = useCallback(() => {
+    return (
+      <Photos
+        photos={photos}
+        ListHeaderComponent={header}
+        ListFooterComponent={<View style={{ height: 100 }} />}
+      />
+    );
+  }, [photos, header]);
 
-    const participantIds = [currentUserId, userId].sort();
+  const renderFavorites = useCallback(() => {
+    return (
+      <Favorites
+        favorites={favorites}
+        ListHeaderComponent={header}
+        ListFooterComponent={<View style={{ height: 100 }} />}
+      />
+    );
+  }, [favorites, header]);
 
-    const existingConversation = conversations.find(conv => {
-      const ids = (conv.participants || [])
-        .map(p => (typeof p === 'object' ? p._id : p)?.toString())
-        .filter(Boolean)
-        .sort();
+  const isLocked = isPrivate && !isFollowing && !isRequestReceived && String(mainUser?.id) !== String(userId);
 
-      return (
-        ids.length === participantIds.length &&
-        ids.every((id, index) => id === participantIds[index])
-      );
-    });
+  const body = useMemo(() => {
+    if (isLocked) return renderPrivateGate();
+    if (activeSection === "reviews") return renderReviews();
+    if (activeSection === "tagged") return renderTagged();
+    if (activeSection === "photos") return renderPhotos();
+    if (activeSection === "favorites") return renderFavorites();
+    return renderReviews();
+  }, [
+    isLocked,
+    activeSection,
+    renderPrivateGate,
+    renderReviews,
+    renderTagged,
+    renderPhotos,
+    renderFavorites,
+  ]);
 
-    // ✅ Construct the full recipient object payload
-    const recipient = {
-      _id: userId,
-      firstName: fullName?.split(" ")[0] || "",
-      lastName: fullName?.split(" ")[1] || "",
-      profilePic: otherUserProfilePic || {},
-      profilePicUrl: otherUserProfilePic?.url || "",
-      privacySettings: otherUserPrivacy || {},
-      following: otherUserFollowing || [],
-    };
-
-    dispatch(chooseUserToMessage([recipient]));
-
-    navigation.navigate('MessageThread', {
-      conversationId: existingConversation?._id || null,
-      participants: [recipient],
-    });
-  };
-
-  const photos = Array.from(
-    new Set(profileReviews.flatMap((review) => review.photos?.map((photo) => photo.url) || []))
-  ).map((url) => ({ url }));
-
- const data =
-    activeSection === "photos" ? photos
-    : activeSection === "favorites" ? favorites
-    : [];
-
-  const renderHeader = () => (
+  return (
     <>
-      <OtherUserHeader
-        onBack={() => navigation.goBack()}
-        bannerUrl={banner?.url}
-        profilePicUrl={otherUserProfilePic?.url}
-        fullName={fullName}
-        followersCount={otherUserFollowers.length}
-        followingCount={otherUserFollowing.length}
-        openFollowers={() => { setActiveConnectionsTab('followers'); setConnectionsModalVisible(true); }}
-        openFollowing={() => { setActiveConnectionsTab('following'); setConnectionsModalVisible(true); }}
-      />
-      <FollowControls
-        isFollowing={isFollowing}
-        isRequestSent={isRequestSent}
-        isRequestReceived={isRequestReceived}
-        onUnfollow={handleUnfollow}
-        onAcceptRequest={handleAcceptRequest}
-        onDenyRequest={handleDenyRequest}
-        onCancelRequest={handleCancelRequest}
-        onFollow={handleFollowUser}
-        onMessage={handleSendMessage}
-      />
-      <View style={styles.divider} />
-      <ProfileTabs active={activeSection} onChange={setActiveSection} />
-      {activeSection === 'reviews' && (
-        <Reviews
-          reviews={profileReviews}
-          onLoadMore={loadMore}
-          isLoadingMore={isLoading}
-          hasMore={hasMore}
-        />
-      )}
-      {activeSection === 'tagged' && (
-        <Reviews
-          reviews={taggedPosts}                    // mixed types; your renderer should branch on __typename if needed
-          onLoadMore={loadMoreTagged}
-          isLoadingMore={taggedStatus === 'pending'}
-          hasMore={taggedHasMore}
-        />
-      )}
-      {activeSection === 'photos' && <Photos photos={photos} />}
-      {activeSection === 'favorites' && <Favorites favorites={favorites} />}
+      {body}
       <ConnectionsModal
         visible={connectionsModalVisible}
         onClose={() => setConnectionsModalVisible(false)}
@@ -247,19 +221,8 @@ export default function OtherUserProfile({ route, navigation }) {
       />
     </>
   );
-
-  return (
-    <FlatList
-      style={styles.container}
-      data={data}
-      keyExtractor={(item, index) => index.toString()}
-      ListHeaderComponent={renderHeader()}
-      showsVerticalScrollIndicator={false}
-    />
-  );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f5f5f5" },
-  divider: { width: "100%", height: 1, backgroundColor: "lightgray", marginVertical: 10 },
 });

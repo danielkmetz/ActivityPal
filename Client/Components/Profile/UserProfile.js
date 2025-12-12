@@ -1,42 +1,44 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { View, StyleSheet, FlatList, InteractionManager } from "react-native";
-import { useSelector, useDispatch } from "react-redux";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { View, Text, StyleSheet, FlatList, InteractionManager } from "react-native";
+import { useSelector, useDispatch, shallowEqual } from "react-redux";
 import { useNavigation } from "@react-navigation/native";
 import { selectUser } from "../../Slices/UserSlice";
-import EditProfileModal from "./EditProfileModal";
-import Reviews from "../Reviews/Reviews";
-import Photos from "./Photos";
-import ProfileTabs from "./ProfileTabs";
-import SelfProfileHeader from "./SelfProfileHeader";
-import profilePlaceholder from "../../assets/pics/profile-pic-placeholder.jpg";
 import { selectProfilePic, selectBanner, fetchUserBanner } from "../../Slices/PhotosSlice";
 import { fetchPostsByUserId, appendProfilePosts, setProfilePosts } from "../../Slices/PostsSlice";
 import { selectProfilePosts } from "../../Slices/PostsSelectors/postsSelectors";
 import { selectFavorites, fetchFavorites } from "../../Slices/FavoritesSlice";
-import Favorites from "./Favorites";
 import { selectFollowing, selectFollowers } from "../../Slices/friendsSlice";
-import usePaginatedFetch from "../../utils/usePaginatedFetch";
-import ConnectionsModal from "./ConnectionsModal";
 import { clearTodayEngagementLog } from "../../Slices/EngagementSlice";
+import usePaginatedFetch from "../../utils/usePaginatedFetch";
 import useTaggedFeed from "../../hooks/useTaggedFeed";
+import EditProfileModal from "./EditProfileModal";
+import ConnectionsModal from "./ConnectionsModal";
+import ProfileTabs from "./ProfileTabs";
+import SelfProfileHeader from "./SelfProfileHeader";
+import Reviews from "../Reviews/Reviews";
+import Photos from "./Photos";
+import Favorites from "./Favorites";
+import ProfileChrome from './ProfileChrome';
+import profilePlaceholder from "../../assets/pics/profile-pic-placeholder.jpg";
 
 export default function UserProfile() {
   const dispatch = useDispatch();
   const navigation = useNavigation();
-  const user = useSelector(selectUser);
+  const user = useSelector(selectUser, shallowEqual);
+  const userId = user?.id;
   const profilePic = useSelector(selectProfilePic);
   const banner = useSelector(selectBanner);
-  const profilePosts = useSelector(selectProfilePosts);
+  const profilePosts = useSelector(selectProfilePosts) || [];
+  const favorites = useSelector(selectFavorites) || [];
   const following = useSelector(selectFollowing) || [];
   const followers = useSelector(selectFollowers) || [];
   const [activeSection, setActiveSection] = useState("reviews");
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [connectionsModalVisible, setConnectionsModalVisible] = useState(false);
   const [activeConnectionsTab, setActiveConnectionsTab] = useState("followers");
-  const favorites = useSelector(selectFavorites);
-  const fullName = `${user?.firstName || ""} ${user?.lastName || ""}`.trim();
-  const bannerPlaceholder = null;
-  const userId = user?.id;
+  const fullName = useMemo(() => {
+    return `${user?.firstName || ""} ${user?.lastName || ""}`.trim();
+  }, [user?.firstName, user?.lastName]);
 
   const { loadMore, refresh, isLoading, hasMore } = usePaginatedFetch({
     fetchThunk: fetchPostsByUserId,
@@ -54,117 +56,151 @@ export default function UserProfile() {
   } = useTaggedFeed(userId, activeSection, 15);
 
   useEffect(() => {
-    if (userId) {
-      dispatch(fetchUserBanner(userId));
-      dispatch(fetchFavorites(userId));
+    if (!userId) return;
+    dispatch(fetchUserBanner(userId));
+    dispatch(fetchFavorites(userId));
 
-      const task = InteractionManager.runAfterInteractions(() => {
-        refresh();
-      });
+    const task = InteractionManager.runAfterInteractions(() => {
+      refresh();
+    });
 
-      return () => task?.cancel?.();
-    }
+    return () => task?.cancel?.();
   }, [userId, dispatch, refresh]);
 
   const photos = useMemo(() => {
+    if (activeSection !== "photos") return [];
+
     const pickUrl = (m) =>
-      m?.url ||
-      m?.presignedUrl ||
-      m?.photoUrl ||
-      m?.src ||
-      m?.uri ||
-      null;
+      m?.url || m?.presignedUrl || m?.photoUrl || m?.src || m?.uri || null;
 
     const urls = new Set();
+
     for (const post of profilePosts || []) {
       const mediaArr = Array.isArray(post?.photos) ? post.photos : post?.media;
       if (!Array.isArray(mediaArr)) continue;
+
       for (const m of mediaArr) {
         const u = pickUrl(m);
         if (u && !urls.has(u)) urls.add(u);
       }
     }
+
     return Array.from(urls).map((url) => ({ url }));
-  }, [profilePosts]);
+  }, [activeSection, profilePosts]);
 
-  const data =
-    activeSection === "photos"
-      ? photos
-      : activeSection === "favorites"
-      ? favorites
-      : []; // reviews & tagged render in ListHeader
-
-  const openFollowers = () => {
+  const openFollowers = useCallback(() => {
     setActiveConnectionsTab("followers");
     setConnectionsModalVisible(true);
-  };
-  const openFollowing = () => {
+  }, []);
+
+  const openFollowing = useCallback(() => {
     setActiveConnectionsTab("following");
     setConnectionsModalVisible(true);
-  };
+  }, []);
 
-  const renderHeader = () => (
-    <>
-      <SelfProfileHeader
-        bannerUrl={banner?.url}
-        profilePicUrl={profilePic?.url}
-        fullName={fullName}
-        followersCount={followers.length || 0}
-        followingCount={following.length || 0}
-        onOpenFollowers={openFollowers}
-        onOpenFollowing={openFollowing}
-        onEditProfile={() => setEditModalVisible(true)}
-        onSettings={() => navigation.navigate("Settings")}
-        onClearLog={clearTodayEngagementLog}
+  const onClearLog = useCallback(() => {
+    dispatch(clearTodayEngagementLog());
+  }, [dispatch]);
+
+  const header = useCallback(() => (
+    <ProfileChrome
+      activeSection={activeSection}
+      setActiveSection={setActiveSection}
+      setEditModalVisible={setEditModalVisible}
+      setConnectionsModalVisible={setConnectionsModalVisible}
+      setActiveConnectionsTab={setActiveConnectionsTab}
+    />
+  ), [activeSection]);
+
+
+  /* ------------------------------ */
+  /* Tab rendering                   */
+  /* ------------------------------ */
+  const renderAboutFallback = useCallback(() => {
+    // You don’t currently have an "about" tab; this is just a safe fallback.
+    return (
+      <FlatList
+        style={styles.container}
+        data={[{ key: "empty" }]}
+        keyExtractor={(x) => x.key}
+        ListHeaderComponent={header}
+        renderItem={() => <View style={{ height: 80 }} />}
+        showsVerticalScrollIndicator={false}
       />
-      <View style={styles.divider} />
-      <ProfileTabs active={activeSection} onChange={setActiveSection} />
-      {activeSection === "reviews" && (
-        <Reviews
-          // ✅ unified post array (mixed types OK)
-          reviews={profilePosts}
-          onLoadMore={loadMore}
-          isLoadingMore={isLoading}
-          hasMore={hasMore}
-        />
-      )}
-      {activeSection === "tagged" && (
-        <Reviews
-          // ✅ unified post array for tagged content
-          reviews={taggedPosts}
-          onLoadMore={loadMoreTagged}
-          isLoadingMore={taggedStatus === "pending"}
-          hasMore={taggedHasMore}
-        />
-      )}
-      {activeSection === "photos" && <Photos photos={photos} />}
-      {activeSection === "favorites" && <Favorites favorites={favorites} />}
-      <View style={{ marginBottom: 100 }} />
+    );
+  }, [header]);
+
+  const renderReviews = useCallback(() => {
+    return (
+      <Reviews
+        reviews={profilePosts}
+        onLoadMore={loadMore}
+        isLoadingMore={isLoading}
+        hasMore={hasMore}
+        ListHeaderComponent={header}
+        ListFooterComponent={<View style={{ height: 100 }} />}
+      />
+    );
+  }, [profilePosts, loadMore, isLoading, hasMore, header]);
+
+  const renderTagged = useCallback(() => {
+    return (
+      <Reviews
+        reviews={taggedPosts}
+        onLoadMore={loadMoreTagged}
+        isLoadingMore={taggedStatus === "pending"}
+        hasMore={taggedHasMore}
+        ListHeaderComponent={header}
+        ListFooterComponent={<View style={{ height: 100 }} />}
+      />
+    );
+  }, [taggedPosts, loadMoreTagged, taggedStatus, taggedHasMore, header]);
+
+  const renderPhotos = useCallback(() => {
+    return (
+      <Photos
+        photos={photos}
+        ListHeaderComponent={header}
+        ListFooterComponent={<View style={{ height: 100 }} />}
+      />
+    );
+  }, [photos, header]);
+
+  const renderFavorites = useCallback(() => {
+    return (
+      <Favorites
+        favorites={favorites}
+        ListHeaderComponent={header}
+        ListFooterComponent={<View style={{ height: 100 }} />}
+      />
+    );
+  }, [favorites, header]);
+
+  const body = useMemo(() => {
+    if (activeSection === "reviews") return renderReviews();
+    if (activeSection === "tagged") return renderTagged();
+    if (activeSection === "photos") return renderPhotos();
+    if (activeSection === "favorites") return renderFavorites();
+    return renderAboutFallback();
+  }, [activeSection, renderReviews, renderTagged, renderPhotos, renderFavorites, renderAboutFallback]);
+
+  return (
+    <>
+      {body}
+      <EditProfileModal
+        visible={editModalVisible}
+        setEditModalVisible={setEditModalVisible}
+        onClose={() => setEditModalVisible(false)}
+        bannerPlaceholder={null}
+        profilePicPlaceholder={profilePlaceholder}
+        aboutInfo={{}}
+      />
       <ConnectionsModal
         visible={connectionsModalVisible}
         onClose={() => setConnectionsModalVisible(false)}
         followers={followers}
         following={following}
         initialTab={activeConnectionsTab}
-      />
-    </>
-  );
-
-  return (
-    <>
-      <FlatList
-        showsVerticalScrollIndicator={false}
-        ListHeaderComponent={renderHeader()}
-        data={data}
-        keyExtractor={(item, index) => (item?.url ?? String(index))}
-      />
-      <EditProfileModal
-        visible={editModalVisible}
-        setEditModalVisible={setEditModalVisible}
-        onClose={() => setEditModalVisible(false)}
-        bannerPlaceholder={bannerPlaceholder}
-        profilePicPlaceholder={profilePlaceholder}
-        aboutInfo={{}}
       />
     </>
   );

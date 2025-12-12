@@ -15,7 +15,7 @@ export const LikeAnimationsProvider = ({ children }) => {
 
   const getAnimation = (postId) => animationsRef.current[postId];
 
-  contextValue = { registerAnimation, getAnimation }; // 👈 Save ref
+  contextValue = { registerAnimation, getAnimation };
 
   return (
     <LikeAnimationsContext.Provider value={contextValue}>
