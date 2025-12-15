@@ -17,31 +17,26 @@ const AttendanceRow = ({
   const details = postContent?.details || {};
   const recipients = Array.isArray(details.recipients) ? details.recipients : [];
   const postOwner = postContent?.owner;
-  const postOwnerId = postOwner?.id;
   const user = useSelector(selectUser);
-  const userId = user?.id;
-  const isOwner = postOwnerId === userId;
+  const meId = toId(user?.id ?? user?._id);
+  const ownerId = toId(postOwner?.id ?? postOwner?._id);
+  const isOwner = !!meId && ownerId === meId;
+
+  const myRecipientRow = useMemo(() => {
+    if (!meId) return null;
+    return recipients.find((r) => {
+      const recUserId = r?.userId ?? r?.user?.id ?? r?.user?._id ?? r?.id;
+      return toId(recUserId) === meId;
+    }) || null;
+  }, [recipients, meId]);
+
+  const isRecipient = !!myRecipientRow;
 
   const { acceptedCount, totalCount } = useMemo(() => {
     const total = recipients.length;
     const accepted = recipients.filter((r) => r.status === 'accepted').length;
     return { acceptedCount: accepted, totalCount: total };
   }, [recipients]);
-
-  const isAcceptedRecipient = useMemo(() => {
-    const meId = toId(userId);
-    if (!meId) return false;
-
-    return recipients.some((r) => {
-      if (r.status !== 'accepted') return false;
-      const recUserId =
-        r?.userId ??
-        r?.user?.id ??
-        r?.user?._id ??
-        r?.id;
-      return toId(recUserId) === meId;
-    });
-  }, [recipients, userId]);
 
   return (
     <View style={styles.container}>
@@ -59,7 +54,7 @@ const AttendanceRow = ({
       <View style={styles.rightSlot}>
         {needsRecap ? (
           <NeedsRecapBadge post={post} />
-        ) : !isPastTwoHours && !isOwner && !isAcceptedRecipient ? (
+        ) : !isPastTwoHours && !isOwner && !isRecipient ? (
           hasRequested ? (
             <View style={styles.requestedPill}>
               <Text style={styles.requestedText}>Requested</Text>

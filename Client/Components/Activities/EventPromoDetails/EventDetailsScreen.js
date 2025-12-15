@@ -13,8 +13,6 @@ import { uploadReviewPhotos } from '../../../Slices/PhotosSlice';
 import { selectSelectedPromotion, selectPromotionById, fetchPromotionById } from '../../../Slices/PromotionsSlice';
 import { selectEventById, selectSelectedEvent, fetchEventById } from '../../../Slices/EventsSlice';
 import { addComment, toApiPostType } from '../../../Slices/CommentsSlice';
-
-// ensure this returns 'event' | 'promotion'
 import { normalizeActivityType } from '../../../utils/normalizeActivityType';
 
 const LOG_DETAILS = true;
@@ -27,9 +25,7 @@ export default function EventDetailsScreen() {
   const rawKind = activity?.postType || activity?.kind; // could be plural or singular
   const selectedType = normalizeActivityType(rawKind);   // must return 'event' | 'promotion'
   const activityId   = activity?.postId || activity?._id;
-
   const isPromo = selectedType === 'promotion';
-
   const promoById     = useSelector(s => selectPromotionById(s, activityId));
   const eventById     = useSelector(s => selectEventById(s, activityId));
   const selectedEvent = useSelector(selectSelectedEvent);

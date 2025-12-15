@@ -1,15 +1,15 @@
 import React, { useMemo, useState, useRef } from "react";
-import { View, Text, StyleSheet, Dimensions, TouchableOpacity, TouchableWithoutFeedback, Animated } from "react-native";
+import { View, Text, StyleSheet, Dimensions, TouchableWithoutFeedback, Animated } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Avatar } from "react-native-paper";
 import { useDispatch, useSelector } from "react-redux";
 import PhotoFeed from "../Photos/PhotoFeed";
 import profilePicPlaceholder from "../../../assets/pics/profile-pic-placeholder.jpg";
 import { logEngagementIfNeeded } from "../../../Slices/EngagementSlice";
-import { selection } from "../../../utils/Haptics/haptics";
 import { selectUserAndFriendsPosts } from "../../../Slices/PostsSelectors/postsSelectors";
 import { selectUser } from "../../../Slices/UserSlice";
 import { getTimeLabel } from "../../../utils/formatEventPromoTime";
+import InviteActionButton from '../Invites/InviteActionButton';
 
 const screenWidth = Dimensions.get("window").width;
 
@@ -44,7 +44,6 @@ const pickFallbackUrl = (s) =>
 export default function SuggestionMedia({
   suggestion,
   scrollX,
-  setInviteModalVisible,
 }) {
   const navigation = useNavigation();
   const dispatch = useDispatch();
@@ -139,19 +138,6 @@ export default function SuggestionMedia({
     navigation.navigate("BusinessProfile", { business: suggestionContent });
   };
 
-  const onInvitePress = () => {
-    selection();
-    if (existingInvite) {
-      navigation.navigate("CreatePost", {
-        postType: "invite",
-        isEditing: true,
-        initialPost: existingInvite,
-      });
-    } else {
-      setInviteModalVisible?.(true);
-    }
-  };
-
   return (
     <View style={styles.photoWrapper}>
       <PhotoFeed
@@ -194,9 +180,7 @@ export default function SuggestionMedia({
             </Text>
             <Text style={styles.eventPromoTime}>{getTimeLabel(suggestionContent)}</Text>
           </View>
-          <TouchableOpacity style={styles.inviteButton} onPress={onInvitePress}>
-            <Text style={styles.inviteText}>{existingInvite ? "Edit Invite" : "Invite"}</Text>
-          </TouchableOpacity>
+          <InviteActionButton suggestion={suggestion} existingInvite={existingInvite} />
         </View>
       )}
     </View>

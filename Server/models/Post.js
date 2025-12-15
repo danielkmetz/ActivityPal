@@ -4,6 +4,7 @@ const { CommentSchema } = require('./Comment');
 const { LikeSchema } = require('./Likes');
 const { PhotoSchema } = require('./Photos');
 const { GeoPointSchema } = require('./GeoPoint');
+const { User } = require('../models/User');
 
 const BasePostSchema = new Schema(
   {

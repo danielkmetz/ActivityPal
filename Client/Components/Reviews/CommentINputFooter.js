@@ -1,22 +1,16 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Image,
-} from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import VideoThumbnail from './VideoThumbnail';
 import { isVideo } from '../../utils/isVideo';
 import { selectMediaFromGallery } from '../../utils/selectPhotos';
+import { FontAwesome } from '@expo/vector-icons';
 
 const CommentInputFooter = ({
   commentText,
   setCommentText,
   handleAddComment,
   setSelectedMedia,
-  selectedMedia, // ✅ Pass down selected media to show previews
+  selectedMedia,
 }) => {
   const handleSelectMedia = async () => {
     const files = await selectMediaFromGallery();
@@ -27,11 +21,6 @@ const CommentInputFooter = ({
 
   return (
     <View style={styles.commentInputContainer}>
-      {/* Media Icon */}
-      <TouchableOpacity onPress={handleSelectMedia} style={styles.mediaIcon}>
-        <Text style={styles.mediaIconText}>📷</Text>
-      </TouchableOpacity>
-      {/* Input wrapper with media and TextInput */}
       <View style={styles.fakeInputBox}>
         {selectedMedia?.length > 0 && (
           <View style={styles.inlineMedia}>
@@ -47,14 +36,19 @@ const CommentInputFooter = ({
           placeholder="Write a comment..."
           value={commentText}
           onChangeText={setCommentText}
-          multiline={true}
+          multiline
           textAlignVertical="top"
-          // onContentSizeChange={(event) => {
-          //   setContentHeight(event.nativeEvent.contentSize.height);
-          // }}
         />
+        {/* anchored icon */}
+        <TouchableOpacity
+          style={styles.mediaIconButton}
+          onPress={handleSelectMedia}
+          activeOpacity={0.7}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <FontAwesome name="picture-o" size={18} color="#777" />
+        </TouchableOpacity>
       </View>
-      {/* Post Button */}
       <TouchableOpacity style={styles.commentButton} onPress={handleAddComment}>
         <Text style={styles.commentButtonText}>Post</Text>
       </TouchableOpacity>
@@ -80,9 +74,18 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     padding: 8,
     backgroundColor: '#fff',
+    position: 'relative', // IMPORTANT for absolute icon
   },
   commentInput: {
     fontSize: 14,
+    paddingRight: 34, // IMPORTANT so text doesn't overlap icon
+  },
+  mediaIconButton: {
+    position: 'absolute',
+    right: 8,
+    bottom: 3, 
+    padding: 6,
+    borderRadius: 14,
   },
   commentButton: {
     backgroundColor: '#009999',
@@ -95,24 +98,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
   },
-  mediaIcon: {
-    marginRight: 10,
-    padding: 4,
-  },
-  mediaIconText: {
-    fontSize: 20,
-  },
-  mediaPreviewContainer: {
-    flexDirection: 'row',
-    marginHorizontal: 15,
-    marginBottom: 10,
-  },
-  mediaThumbnail: {
-    width: 70,
-    height: 70,
-    borderRadius: 5,
-    marginRight: 10,
-  },
   inlineMedia: {
     marginBottom: 8,
     alignItems: 'flex-start',
@@ -121,9 +106,5 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 8,
-  },
-  commentInputText: {
-    fontSize: 14,
-    minHeight: 40,
   },
 });

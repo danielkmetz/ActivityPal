@@ -6,56 +6,64 @@ import { normalizePostType } from '../../../utils/normalizePostType';
  * Factory to build PhotoFeed handlers with injected deps.
  */
 export function createPhotoFeedHandlers({
-    dispatch,
-    navigation,
-    postContent,
-    setOverlayVisible = () => {},
-    photoTapped,       // optional callback from parent
-    isCommentScreen=false,
-    isMyEventsPromosPage=false,
+  dispatch,
+  navigation,
+  postContent,
+  setOverlayVisible = () => {},
+  photoTapped,
+  isCommentScreen = false,
+  isMyEventsPromosPage = false,
 }) {
-    const postType = normalizePostType(postContent);
-    const isEventPromoOrSuggestion = eventPromoDetector(postContent, postType);
-    const { isSuggestedFollowPost } = postContent;
-    const media = postContent?.photos || postContent?.media;
+  const kind = normalizePostType(postContent); // may become 'event' or 'promotion' for suggestion wrappers
+  const isSuggestionWrapper = postContent?.type === 'suggestion';
 
-    const taggedUsersByPhotoKey = Object.fromEntries(
-        (media || []).map((photo) => [
-            photo.photoKey,
-            photo.taggedUsers || [],
-        ])
-    );
+  // IMPORTANT: selectedType should represent STORE/WRAPPER for FullScreen
+  const selectedTypeForNav = isSuggestionWrapper ? 'suggestion' : kind;
 
-    const onOpenFullScreen = (photo, index) => {
-        navigation.navigate('FullScreenPhoto', {
-            reviewId: postContent?._id,
-            initialIndex: index,
-            selectedType: postType,
-            taggedUsersByPhotoKey: taggedUsersByPhotoKey || {},
-            isSuggestedPost: isSuggestedFollowPost,
-            isEventPromo: isEventPromoOrSuggestion,
-        });
-    };
+  // isEventPromo should mean "pull from Events/Promotions slices", NOT "this is event/promo-ish"
+  const isEventPromoForNav =
+    !isSuggestionWrapper && (kind === 'event' || kind === 'promotion');
 
-    const toggleOverlay = () => {
-        if (typeof setOverlayVisible === 'function') setOverlayVisible(prev => !prev);
-        const { targetType, targetId } = getEngagementTarget(postContent) || {};
-        logEngagementIfNeeded(dispatch, {
-            targetType,
-            targetId,
-            placeId: postContent?.placeId,
-            engagementType: 'click',
-        });
-    };
+  const isEventPromoOrSuggestion = eventPromoDetector(postContent, kind);
+  const { isSuggestedFollowPost } = postContent;
+  const media = postContent?.photos || postContent?.media;
 
-    const handlePhotoTap = (photo, index) => {
-        if (isEventPromoOrSuggestion && !isCommentScreen && !isMyEventsPromosPage) {
-            toggleOverlay();
-        } else {
-            onOpenFullScreen(photo, index);
-        }
-        if (typeof photoTapped === 'function') photoTapped(photo, index);
-    };
+  const taggedUsersByPhotoKey = Object.fromEntries(
+    (media || []).map((photo) => [photo.photoKey, photo.taggedUsers || []])
+  );
 
-    return { onOpenFullScreen, toggleOverlay, handlePhotoTap };
+  const onOpenFullScreen = (photo, index) => {
+    navigation.navigate('FullScreenPhoto', {
+      reviewId: postContent?._id || postContent?.id,
+      initialIndex: index,
+      selectedType: selectedTypeForNav,     // ✅ stays 'suggestion' for suggestion wrapper
+      suggestionKind: kind,                 // optional: keep the underlying kind if you want it
+      isSuggestion: isSuggestionWrapper,    // ✅ explicit, no guessing
+      isEventPromo: isEventPromoForNav,     // ✅ only true for real event/promo entities in those slices
+      taggedUsersByPhotoKey: taggedUsersByPhotoKey || {},
+      isSuggestedPost: isSuggestedFollowPost,
+    });
+  };
+
+  const toggleOverlay = () => {
+    if (typeof setOverlayVisible === 'function') setOverlayVisible((prev) => !prev);
+    const { targetType, targetId } = getEngagementTarget(postContent) || {};
+    logEngagementIfNeeded(dispatch, {
+      targetType,
+      targetId,
+      placeId: postContent?.placeId,
+      engagementType: 'click',
+    });
+  };
+
+  const handlePhotoTap = (photo, index) => {
+    if (isEventPromoOrSuggestion && !isCommentScreen && !isMyEventsPromosPage) {
+      toggleOverlay();
+    } else {
+      onOpenFullScreen(photo, index);
+    }
+    if (typeof photoTapped === 'function') photoTapped(photo, index);
+  };
+
+  return { onOpenFullScreen, toggleOverlay, handlePhotoTap };
 }
