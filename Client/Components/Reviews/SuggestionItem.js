@@ -1,6 +1,5 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useRef, useEffect } from "react";
 import { View, StyleSheet, Animated } from "react-native";
-import InviteModal from "../ActivityInvites/InviteModal";
 import { useDispatch } from "react-redux";
 import { useNavigation } from "@react-navigation/native";
 import PostActions from "./PostActions/PostActions";
@@ -8,13 +7,12 @@ import { logEngagementIfNeeded, getEngagementTarget } from "../../Slices/Engagem
 import { medium } from "../../utils/Haptics/haptics";
 import SuggestionMedia from './SuggestedItems/SuggestionMedia';
 import SuggestionStatusBanner from './SuggestedItems/SuggestionStatusBanner';
+import { resolvePostContent } from "../../utils/posts/resolvePostContent";
 
 export default function SuggestionItem({ suggestion, onShare, embeddedInShared = false }) {
     const navigation = useNavigation();
     const dispatch = useDispatch();
-    const currentIndexRef = useRef(0);
-    const suggestionContent = suggestion?.original ? suggestion?.original : suggestion;
-    const [inviteModalVisible, setInviteModalVisible] = useState(false);
+    const suggestionContent = resolvePostContent(suggestion);
     const tapTimeoutRef = useRef(null);
     const scrollX = useRef(new Animated.Value(0)).current;
     const { placeId } = suggestionContent || {};
@@ -45,20 +43,12 @@ export default function SuggestionItem({ suggestion, onShare, embeddedInShared =
             <SuggestionMedia
                 suggestion={suggestion}
                 scrollX={scrollX}
-                currentIndexRef={currentIndexRef}
-                setInviteModalVisible={setInviteModalVisible}
             />
             <PostActions
                 post={suggestion}
                 handleOpenComments={handleOpenComments}
                 onShare={onShare}
                 embeddedInShared={embeddedInShared}
-            />
-            <InviteModal
-                visible={inviteModalVisible}
-                onClose={() => setInviteModalVisible(false)}
-                isEditing={false}
-                suggestion={suggestion}
             />
         </View>
     );

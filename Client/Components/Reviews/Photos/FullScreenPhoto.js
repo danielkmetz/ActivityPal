@@ -29,21 +29,43 @@ const FullScreenPhoto = () => {
   const navigation = useNavigation();
   const {
     reviewId,
-    selectedType,            // 'review' | 'check-in' | 'invite' | 'event' | 'promotion' | 'promo' | suggestion
+    selectedType,
     initialIndex = 0,
     taggedUsersByPhotoKey,
     isEventPromo = false,
+    isSuggestion = false,
   } = route?.params ?? {};
   const user = useSelector(selectUser);
 
   // ---- pick the source object from the store ----
   const review = useSelector((state) => {
-    if (isEventPromo) {
-      if (selectedType === 'event') return selectEventById(state, reviewId);
-      if (selectedType === 'promo' || selectedType === 'promotion') return selectPromotionById(state, reviewId);
-      return selectNearbySuggestionById(state, reviewId);
+    if (isSuggestion || selectedType === 'suggestion') {
+      return (
+        selectNearbySuggestionById(state, reviewId) ||
+        selectPostById(state, reviewId) // fallback if you ever upsert it into posts
+      );
     }
-    return selectPostById(state, reviewId);
+
+    // ✅ Real events/promos that live in their own slices
+    if (isEventPromo) {
+      const fromEvent =
+        selectedType === 'event' ? selectEventById(state, reviewId) : null;
+
+      const fromPromo =
+        (selectedType === 'promo' || selectedType === 'promotion')
+          ? selectPromotionById(state, reviewId)
+          : null;
+
+      return (
+        fromEvent ||
+        fromPromo ||
+        selectPostById(state, reviewId) ||
+        selectNearbySuggestionById(state, reviewId) // last-ditch fallback
+      );
+    }
+
+    // ✅ Normal posts
+    return selectPostById(state, reviewId) || selectNearbySuggestionById(state, reviewId);
   });
 
   // ---- normalize files list (media/photos) ----
@@ -207,7 +229,7 @@ const FullScreenPhoto = () => {
                 tagsForCurrent.map((u, i) => {
                   // Support absolute px or normalized coords
                   const left = typeof u.x === 'number' && u.x <= 1 ? u.x * renderedSize.width : u.x;
-                  const top  = typeof u.y === 'number' && u.y <= 1 ? u.y * renderedSize.height : u.y;
+                  const top = typeof u.y === 'number' && u.y <= 1 ? u.y * renderedSize.height : u.y;
                   return (
                     <View key={u.userId || i} style={[styles.tagBubble, { top, left }]}>
                       <Text style={styles.tagText}>{u.fullName}</Text>
@@ -219,7 +241,7 @@ const FullScreenPhoto = () => {
         />
         {/* Actions */}
         <View style={styles.actionsContainer}>
-          <PostActions 
+          <PostActions
             post={review}
             onShare={openShareToFeedModal}
             orientation={"column"}

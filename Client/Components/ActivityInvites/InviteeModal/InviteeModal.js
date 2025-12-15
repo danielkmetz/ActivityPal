@@ -18,7 +18,6 @@ const InviteeModal = ({
   const [selectedTab, setSelectedTab] = useState('going');
   const postContent = invite?.original ?? invite ?? {};
   const details = postContent?.details;
-
   const recipients = details?.recipients;
   const requests = details?.requests;
   const going = (recipients || []).filter((r) => r.status === 'accepted');

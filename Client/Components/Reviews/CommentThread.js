@@ -29,12 +29,12 @@ import {
 import { selectUser } from '../../Slices/UserSlice';
 import { selectMediaFromGallery } from '../../utils/selectPhotos';
 import { uploadReviewPhotos } from '../../Slices/PhotosSlice';
+import { FontAwesome } from '@expo/vector-icons';
 import {
   addReply as addReplyGeneric,
   toggleLike as toggleLikeGeneric,
   editComment as editCommentGeneric,
   deleteComment as deleteCommentGeneric,
-  toApiPostType,
 } from '../../Slices/CommentsSlice';
 import { selection } from '../../utils/Haptics/haptics';
 
@@ -318,7 +318,7 @@ export default function CommentThread({
                 />
                 {commentText.trim() === '' && (selectedMedia?.length ?? 0) === 0 && (
                   <TouchableOpacity onPress={handleSelectMedia} style={styles.cameraIcon}>
-                    <MaterialCommunityIcons name="camera-outline" size={24} color="#555" />
+                    <FontAwesome name="picture-o" size={18} color="#777" />
                   </TouchableOpacity>
                 )}
               </View>
@@ -391,7 +391,7 @@ const styles = StyleSheet.create({
   replyContainer: { flexDirection: 'row', marginLeft: 10 },
   expandRepliesButton: { flexDirection: 'row', alignItems: 'center', marginLeft: 10 },
   replyCountText: { fontSize: 14, color: '#888' },
-  cameraIcon: { position: 'absolute', right: 20, top: 5 },
+  cameraIcon: { position: 'absolute', right: 20, top: 8 },
   fakeInputBox: {
     flex: 1, borderWidth: 1, borderColor: '#ccc', borderRadius: 5, padding: 8, position: 'relative', backgroundColor: '#fff',
   },

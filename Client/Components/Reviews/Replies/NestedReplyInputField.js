@@ -1,6 +1,6 @@
 import React from 'react';
 import { TextInput, TouchableOpacity, StyleSheet } from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { FontAwesome } from '@expo/vector-icons';
 
 const NestedReplyInputField = ({
   text,
@@ -29,7 +29,7 @@ const NestedReplyInputField = ({
       />
       {text.trim() === '' && selectedMedia.length === 0 && (
         <TouchableOpacity onPress={handleSelectReplyMedia} style={styles.cameraIcon}>
-          <MaterialCommunityIcons name="camera-outline" size={24} color="#555" />
+          <FontAwesome name="picture-o" size={18} color="#777" />
         </TouchableOpacity>
       )}
     </>
@@ -45,6 +45,6 @@ const styles = StyleSheet.create({
   cameraIcon: {
     position: 'absolute',
     right: 20,
-    top: 8,
+    top: 10,
   },
 });

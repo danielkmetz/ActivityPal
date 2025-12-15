@@ -5,16 +5,9 @@ import { useNavigation, useRoute, useIsFocused } from '@react-navigation/native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import * as FileSystem from 'expo-file-system';
 import { Audio } from 'expo-av';
-import Animated, {
-  useSharedValue,
-  runOnJS,
-  useAnimatedStyle,
-  withTiming,
-  withRepeat,
-  useAnimatedProps,
-} from 'react-native-reanimated';
+import Animated, { useSharedValue, runOnJS, useAnimatedStyle, withTiming, withRepeat, useAnimatedProps } from 'react-native-reanimated';
 import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
-import CameraControls from './CameraControls'; // ⬅️ new import
+import CameraControls from './CameraControls';
 
 const AnimatedCamera = Animated.createAnimatedComponent(Camera);
 

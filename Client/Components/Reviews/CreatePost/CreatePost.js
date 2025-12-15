@@ -16,11 +16,8 @@ import SectionHeader from "../SectionHeader";
 import Autocomplete from "../../Location/Autocomplete";
 import PostTypeToggle from "./PostTypeToggle";
 import ReviewForm from "./ReviewForm";
-import TaggedFriendsSection from "./TaggedFriendsSection";
-import SelectedMediaSection from "./SelectMediaSection";
 import SubmitButton from "./SubmitButton";
 import RecapHeader from "./RecapHeader";
-import FriendsAndMediaSection from './FriendsAndMediaSection';
 import PostExtrasRow from './PostExtrasSection';
 import TaggedFriendsPreview from './TaggedFriendsPreview';
 import MediaPreview from "./MediaPreview";
@@ -44,7 +41,6 @@ export default function CreatePost() {
   const [editPhotosModalVisible, setEditPhotosModalVisible] = useState(false);
   const [photoDetailsEditing, setPhotoDetailsEditing] = useState(false);
   const [tagFriendsModalVisible, setTagFriendsModalVisible] = useState(false);
-
   const isEditing = route.params?.isEditing || false;
   const initialPost = route.params?.initialPost || null;
   const relatedInviteId = route.params?.relatedInviteId || null;
@@ -450,17 +446,6 @@ export default function CreatePost() {
                 )}
                 {postType !== "invite" && (
                   <>
-                    {/* <TaggedFriendsSection
-                      taggedUsers={taggedUsers}
-                      onOpenTagModal={() => setTagFriendsModalVisible(true)}
-                    />
-                    <SelectedMediaSection
-                      selectedPhotos={selectedPhotos}
-                      onOpenCamera={() => navigation.navigate("CameraScreen")}
-                      onOpenLibrary={handlePhotoAlbumSelection}
-                      onOpenTagModal={() => setTagFriendsModalVisible(true)}
-                      onOpenPhotoDetails={handleOpenPhotoDetails}
-                    /> */}
                     <PostExtrasRow
                       taggedUsers={taggedUsers}
                       selectedPhotos={selectedPhotos}
@@ -472,7 +457,6 @@ export default function CreatePost() {
                       taggedUsers={taggedUsers}
                       onOpenTagModal={() => setTagFriendsModalVisible(true)}
                     />
-
                     <MediaPreview
                       selectedPhotos={selectedPhotos}
                       onOpenPhotoDetails={handleOpenPhotoDetails}
