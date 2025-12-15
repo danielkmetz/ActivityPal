@@ -6,7 +6,7 @@ import { selectMediaFromGallery } from '../../utils/selectPhotos';
 import { isVideo } from '../../utils/isVideo';
 import VideoThumbnail from './VideoThumbnail';
 import MediaPreview from './Photos/MediaPreview';
-import { selection } from '../../utils/Haptics/haptics';
+import { FontAwesome } from '@expo/vector-icons';
 
 const CommentBubble = ({
   fullName,
@@ -64,7 +64,7 @@ const CommentBubble = ({
             />
           </View>
           <TouchableOpacity onPress={handleSelectMedia} style={styles.mediaIcon}>
-            <MaterialCommunityIcons name="image-outline" size={22} color="#009999" />
+            <FontAwesome name="picture-o" size={22} color="#009999" />
           </TouchableOpacity>
         </View>
       ) : (
@@ -144,7 +144,8 @@ const styles = StyleSheet.create({
   },
   mediaIcon: {
     marginTop: 8,
-    alignSelf: 'flex-start',
+    marginRight: 10,
+    alignSelf: 'flex-end',
   },
   image: {
     width: 200,

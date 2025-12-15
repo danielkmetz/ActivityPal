@@ -11,6 +11,7 @@ import PostActions from '../../Reviews/PostActions/PostActions';
 import { resetSelectedEvent } from '../../../Slices/EventsSlice';
 import { resetSelectedPromotion } from '../../../Slices/PromotionsSlice';
 import { logEngagementIfNeeded } from '../../../Slices/EngagementSlice';
+import InviteActionButton from '../../Reviews/Invites/InviteActionButton';
 import PhotoFeed from '../../Reviews/Photos/PhotoFeed';
 
 const DetailsHeader = ({ activity, getTimeSincePosted }) => {
@@ -23,7 +24,7 @@ const DetailsHeader = ({ activity, getTimeSincePosted }) => {
     const currentIndexRef = useRef(0);
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
     const scrollX = useRef(new Animated.Value(0)).current;
-    
+
     useEffect(() => {
         if (placeId && !logo) {
             dispatch(fetchLogo(placeId));
@@ -57,8 +58,6 @@ const DetailsHeader = ({ activity, getTimeSincePosted }) => {
         navigation.navigate("BusinessProfile", { business: activity });
     }
 
-    console.log(activity)
-
     return (
         <View style={styles.header}>
             <View style={styles.headerText}>
@@ -83,8 +82,16 @@ const DetailsHeader = ({ activity, getTimeSincePosted }) => {
                     </View>
                 </View>
                 <View style={styles.detailsSection}>
-                    <Text style={styles.itemTitle}>{activity?.title}</Text>
-                    <Text style={styles.time}>{getTimeLabel(activity)}</Text>
+                    <View style={styles.titleRow}>
+                        <View style={{ flex: 1, paddingRight: 10 }}>
+                            <Text style={styles.itemTitle}>{activity?.title}</Text>
+                            <Text style={styles.time}>{getTimeLabel(activity)}</Text>
+                        </View>
+                        <InviteActionButton
+                            suggestion={activity}
+                            existingInvite={null} // upgrade later to detect + pass existing invite
+                        />
+                    </View>
                     <Text style={styles.itemDescription}>{activity?.description}</Text>
                 </View>
                 <PhotoFeed
@@ -92,7 +99,7 @@ const DetailsHeader = ({ activity, getTimeSincePosted }) => {
                     scrollX={scrollX}
                     currentIndexRef={currentIndexRef}
                     setCurrentPhotoIndex={setCurrentPhotoIndex}
-                    photoTapped={null} // hook up if you have a tap handler
+                    photoTapped={null}
                     isCommentScreen={true}
                 />
             </View>
@@ -154,6 +161,12 @@ const styles = StyleSheet.create({
     detailsSection: {
         paddingHorizontal: 16,
         paddingBottom: 16,
+    },
+    titleRow: {
+        flexDirection: "row",
+        alignItems: "flex-start",
+        justifyContent: "space-between",
+        gap: 10,
     },
     itemTitle: {
         fontSize: 18,

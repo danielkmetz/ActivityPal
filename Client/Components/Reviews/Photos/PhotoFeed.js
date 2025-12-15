@@ -41,7 +41,6 @@ export default function PhotoFeed({
     post?.original?.updatedAt,
     banner?.presignedUrl,
   ]);
-
   const [activeIndex, setActiveIndex] = useState(0);
   const internalScrollX = useRef(new Animated.Value(0)).current;
   const sx = scrollX || internalScrollX;
@@ -124,7 +123,6 @@ export default function PhotoFeed({
           );
         }}
       />
-
       {media.length > 1 && <PhotoPaginationDots photos={media} scrollX={sx} />}
     </View>
   );

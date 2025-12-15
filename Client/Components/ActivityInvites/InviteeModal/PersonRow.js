@@ -9,23 +9,19 @@ function PersonRow({
   rec,
   currentUserId,
   isHost = false,
-  onAcceptSelf = () => {},
-  onDeclineSelf = () => {},
-  onNudge = () => {},
+  onAcceptSelf = () => { },
+  onDeclineSelf = () => { },
+  onNudge = () => { },
 }) {
   const meId = toId(currentUserId);
   const recId = getRecId(rec);
   const isMe = recId === meId;
   const pic = rec?.user?.profilePicUrl || rec?.profilePicUrl || rec?.avatarUrl || null;
   const first = rec?.user?.firstName || rec?.firstName || '';
-  const last  = rec?.user?.lastName  || rec?.lastName  || '';
+  const last = rec?.user?.lastName || rec?.lastName || '';
   const fallbackName = rec?.name || '';
-  const fullName =
-    [first, last].filter(Boolean).join(' ') ||
-    fallbackName ||
-    'Someone';
-
-  const status = rec?.status; // 'accepted' | 'declined' | 'pending' etc.
+  const fullName = [first, last].filter(Boolean).join(' ') || fallbackName || 'Someone';
+  const status = rec?.status; // 'accepted' | 'declined' | 'pending' | etc.
   const hasBeenNudged = !!rec?.nudgedAt;
 
   const promptEditResponse = () => {
@@ -34,7 +30,21 @@ function PersonRow({
         'Edit response',
         'Change your response?',
         [
-          { text: 'Decline', style: 'destructive', onPress: onDeclineSelf },
+          {
+            text: 'Decline',
+            style: 'destructive',
+            onPress: () => {
+              Alert.alert(
+                'Decline invite?',
+                'Are you sure you want to decline?',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Decline', style: 'destructive', onPress: onDeclineSelf },
+                ],
+                { cancelable: true }
+              );
+            },
+          },
           { text: 'Cancel', style: 'cancel' },
         ],
         { cancelable: true }
@@ -56,10 +66,7 @@ function PersonRow({
     if (!recId) return;
 
     if (hasBeenNudged) {
-      Alert.alert(
-        'Already nudged',
-        'You’ve already nudged this person about this plan.'
-      );
+      Alert.alert('Already nudged', 'You’ve already nudged this person about this plan.');
       return;
     }
 
@@ -68,13 +75,24 @@ function PersonRow({
 
   const canNudge = isHost && !isMe && status === 'pending';
 
+  const canRespond = isMe && status === 'pending';
+
+  const handleDecline = () => {
+    Alert.alert(
+      'Decline invite?',
+      'Are you sure you want to decline?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Decline', style: 'destructive', onPress: onDeclineSelf },
+      ],
+      { cancelable: true }
+    );
+  };
+
   return (
     <View style={styles.row}>
       <View style={styles.infoContainer}>
-        <Image
-          source={pic ? { uri: pic } : profilePicPlaceholder}
-          style={styles.profilePic}
-        />
+        <Image source={pic ? { uri: pic } : profilePicPlaceholder} style={styles.profilePic} />
         <Text style={styles.name}>{fullName}</Text>
         {isMe && (status === 'accepted' || status === 'declined') && (
           <TouchableOpacity onPress={promptEditResponse}>
@@ -82,23 +100,43 @@ function PersonRow({
           </TouchableOpacity>
         )}
       </View>
-      {canNudge && (
-        <TouchableOpacity
-          style={[
-            styles.nudgeButton,
-            !hasBeenNudged && styles.nudgeButtonActive, // filled when NOT nudged
-          ]}
-          onPress={handleNudge} // <- always active, logic decides what happens
-        >
-          <Text
-            style={[
-              styles.nudgeText,
-              !hasBeenNudged && styles.nudgeTextActive, // white text when NOT nudged
-            ]}
+      {canRespond ? (
+        <View style={styles.actionsRow}>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.acceptButton]}
+            onPress={onAcceptSelf}
+            activeOpacity={0.8}
           >
-            {hasBeenNudged ? 'Nudged' : 'Nudge'}
-          </Text>
-        </TouchableOpacity>
+            <Text style={[styles.actionText, styles.actionTextLight]}>Accept</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.declineButton]}
+            onPress={handleDecline}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.actionText, styles.actionTextLight]}>Decline</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        canNudge && (
+          <TouchableOpacity
+            style={[
+              styles.nudgeButton,
+              !hasBeenNudged && styles.nudgeButtonActive, // filled when NOT nudged
+            ]}
+            onPress={handleNudge} // always active; logic decides what happens
+            activeOpacity={0.8}
+          >
+            <Text
+              style={[
+                styles.nudgeText,
+                !hasBeenNudged && styles.nudgeTextActive, // white text when NOT nudged
+              ]}
+            >
+              {hasBeenNudged ? 'Nudged' : 'Nudge'}
+            </Text>
+          </TouchableOpacity>
+        )
       )}
     </View>
   );
@@ -134,6 +172,30 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
     color: '#007bff',
     fontSize: 14,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 10,
+  },
+  actionButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginLeft: 8,
+  },
+  acceptButton: {
+    backgroundColor: '#009999',
+  },
+  declineButton: {
+    backgroundColor: '#d64545',
+  },
+  actionText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  actionTextLight: {
+    color: '#fff',
   },
   nudgeButton: {
     paddingHorizontal: 10,

@@ -14,8 +14,7 @@ import {
 import { createNotification, setNotifications, selectNotifications } from '../../Slices/NotificationsSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { runConflictCheckBeforeAccept } from './runConflictCheck';
-
-const toId = (v) => (v && v.toString ? v.toString() : v || '');
+import { toId } from '../Formatting/toId';
 
 export default function useInviteActions(invite) {
   const dispatch = useDispatch();

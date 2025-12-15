@@ -1,10 +1,8 @@
 const express = require("express");
 const router = express.Router();
-const mongoose = require("mongoose");
 const { DateTime } = require("luxon");
 const Business = require("../models/Business");
 const Promotion = require("../models/Promotions.js"); // ✅ singular to match your schema file
-const HiddenPost = require("../models/HiddenPosts.js");
 const { getPresignedUrl } = require("../utils/cachePresignedUrl.js");
 const { enrichComments } = require("../utils/userPosts.js");
 const { isPromoActive, isPromoLaterToday } = require("../utils/enrichBusinesses.js");

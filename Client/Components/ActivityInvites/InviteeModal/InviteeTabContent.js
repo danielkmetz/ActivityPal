@@ -45,13 +45,10 @@ const InviteeTabContent = ({
     <View>
       {selectedTab === 'going' &&
         renderRecipients(going, 'No one has accepted yet')}
-
       {selectedTab === 'invited' &&
         renderRecipients(invited, 'No pending invites')}
-
       {selectedTab === 'declined' &&
         renderRecipients(declined, 'No declines')}
-
       {selectedTab === 'requested' &&
         (requests.length > 0 ? (
           requests.map((req, idx) => (

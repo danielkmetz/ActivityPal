@@ -25,7 +25,9 @@ import { decrementLastSeenUnreadCount } from '../../utils/notificationsHasSeen';
 import { normalizePostType } from '../../utils/normalizePostType';
 import NotificationRow from './NotificationRow';
 import { buildInitialBusinessFromInvite } from '../../utils/InviteDetails/buildBusiness';
-
+// 
+// Photo tags are rendering "unable to find content" when the post does not exist yet because of pagination
+// 
 // Helper: pick the right fetch thunk (all go through unified fetch now)
 const getFetchAction = ({ postType, targetId }) => {
   const pt = normalizePostType(postType);
@@ -72,21 +74,16 @@ const showMissingAlert = () => {
 export default function Notifications() {
   const dispatch = useDispatch();
   const navigation = useNavigation();
-
   const isBusiness = useSelector(selectIsBusiness);
   const user = useSelector(selectUser);
-
   const notifications = useSelector((state) =>
     isBusiness ? selectBusinessNotifications(state) : selectNotifications(state)
   );
-
   const followRequests = useSelector(selectFollowRequests);
   const following = useSelector(selectFollowing);
   const followers = useSelector(selectFollowers);
-
   const [photoTapped, setPhotoTapped] = useState(null); // kept for CommentScreen compat
   const lastTapRef = useRef({});
-
   const userId = user?.id;
   const placeId = user?.businessDetails?.placeId;
   const fullName = `${user?.firstName} ${user?.lastName}`;

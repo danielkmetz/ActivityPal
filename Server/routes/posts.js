@@ -5,11 +5,12 @@ const { isValidObjectId } = require('mongoose');
 const Business = require('../models/Business.js');
 const User = require('../models/User.js');
 const { Post } = require('../models/Post.js'); // unified model with discriminators
-const { deleteS3Objects } = require('../utils/deleteS3Objects.js');
+const deleteS3Objects = require('../utils/deleteS3Objects.js');
 const { normalizePoint } = require('../utils/posts/normalizePoint.js');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 const { hydratePostForResponse } = require('../utils/posts/hydrateAndEnrichForResponse.js');
 const { extractTaggedUserIds } = require('../utils/enrichPosts');
+const { clearOldestNeedsRecapNotification } = require('../utils/posts/removeRecapNotification.js');
 
 // -------------------- constants --------------------
 const ALLOWED_TYPES = new Set([
@@ -148,8 +149,8 @@ function buildDetailsForType(type, body, { isPatch = false } = {}) {
         typeof body.reviewText === 'string' && body.reviewText.trim().length
           ? body.reviewText
           : typeof body.message === 'string'
-          ? body.message
-          : '';
+            ? body.message
+            : '';
 
       return {
         rating,
@@ -443,35 +444,9 @@ router.get('/:postId', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-  const TAG = '[POST /posts]';
-
-  // ---- raw incoming ----
-  console.log(`${TAG} ▶ Incoming request`, {
-    bodyKeys: Object.keys(req.body || {}),
-    rawType: req.body?.type,
-    rawPostType: req.body?.postType,
-  });
-
-  // Try to surface any "share" hints from the payload
-  console.log(`${TAG} ▶ Share-ish hints`, {
-    isShare: req.body?.isShare,
-    shareType: req.body?.shareType,
-    originalPostId: req.body?.originalPostId,
-    originalPostType: req.body?.originalPostType,
-    fromPostId: req.body?.fromPostId,
-    sharedPostId: req.body?.sharedPostId,
-    liveStreamId: req.body?.liveStreamId,
-    sharedLiveStreamId: req.body?.sharedLiveStreamId,
-  });
-
-  const postType = req.body.type || req.body.postType;
-  console.log(`${TAG} ▶ Resolved postType`, postType);
+  const postType = req.body?.type || req.body?.postType;
 
   if (!ALLOWED_TYPES.has(postType)) {
-    console.warn(`${TAG} ❌ Unsupported postType`, {
-      postType,
-      allowedTypes: Array.from(ALLOWED_TYPES),
-    });
     return res.status(400).json({ message: 'Unsupported postType' });
   }
 
@@ -488,66 +463,30 @@ router.post('/', async (req, res) => {
       taggedUsers,
     } = req.body;
 
-    console.log(`${TAG} ▶ Basic fields`, {
-      userId,
-      placeId,
-      businessName,
-      privacy,
-      isPublic,
-      photosCount: Array.isArray(photos) ? photos.length : null,
-      taggedUsersCount: Array.isArray(taggedUsers) ? taggedUsers.length : null,
-    });
-
-    // ---- location sources ----
     const locFromBody = normalizePoint(rawLoc);
-    console.log(`${TAG} ▶ locFromBody`, locFromBody);
 
-    // Upsert/lookup business (may give us a location fallback)
     const business = placeId
       ? await upsertBusinessIfNeeded(placeId, businessName, req.body.location)
       : null;
 
-    console.log(`${TAG} ▶ Business lookup / upsert result`, {
-      hasBusiness: !!business,
-      businessId: business?._id,
-      businessName: business?.businessName,
-      businessPlaceId: business?.placeId,
-      businessLocation: business?.location,
-    });
-
     const locFromBusiness = normalizePoint(business?.location);
-    console.log(`${TAG} ▶ locFromBusiness`, locFromBusiness);
-
     const locCandidate = locFromBody || (placeId ? locFromBusiness : null);
-    console.log(`${TAG} ▶ locCandidate`, locCandidate);
 
-    // ---- media, tags, details, sort date ----
     const media = await buildMediaFromPhotos(photos || [], userId);
-    console.log(`${TAG} ▶ buildMediaFromPhotos result`, {
-      mediaCount: Array.isArray(media) ? media.length : null,
-      firstMedia: media?.[0],
-    });
-
     const postLevelTags = extractTaggedUserIds(taggedUsers);
-    console.log(`${TAG} ▶ postLevelTags`, postLevelTags);
-
     const details = buildDetailsForType(postType, req.body);
-    console.log(`${TAG} ▶ details from buildDetailsForType`, {
-      kind: details?.kind || details?.type,
-      details,
-    });
-
     const sortDate = getSortDateForType(postType, details);
-    console.log(`${TAG} ▶ sortDate from getSortDateForType`, sortDate);
 
-        const sharedSection = buildSharedSection(postType, req.body);
+    const sharedSection = buildSharedSection(postType, req.body);
     const refsSection = buildRefsSection(postType, req.body);
 
-    console.log(`${TAG} ▶ sharedSection from buildSharedSection`, sharedSection);
-    console.log(`${TAG} ▶ refsSection (final)`, refsSection);
+    // relatedInviteId can come directly or via refs
+    const relatedInviteIdRaw =
+      req.body?.relatedInviteId ||
+      req.body?.refs?.relatedInviteId ||
+      refsSection?.relatedInviteId ||
+      null;
 
-
-    // ---- doc to create ----
     const doc = {
       type: postType,
       ownerId: userId,
@@ -564,32 +503,30 @@ router.post('/', async (req, res) => {
       refs: refsSection,
     };
 
-    // attach location only if strictly valid (and not [0,0] if you choose to skip it)
     if (isValidPoint(locCandidate) && !isNullIsland(locCandidate)) {
       doc.location = locCandidate;
     }
 
-    console.log(`${TAG} ▶ Final doc before Post.create`, {
-      type: doc.type,
-      ownerId: doc.ownerId,
-      hasLocation: !!doc.location,
-      location: doc.location,
-      privacy: doc.privacy,
-      sortDate: doc.sortDate,
-      shared: doc.shared,
-      refs: doc.refs,
-      detailsKind: doc.details?.kind || doc.details?.type,
-    });
-
-    // ---- create post ----
     const post = await Post.create(doc);
-    console.log(`${TAG} ✅ Created Post document`, {
-      postId: post?._id,
-      type: post?.type,
-      detailsKind: post?.details?.kind || post?.details?.type,
-      shared: post?.shared,
-      refs: post?.refs,
-    });
+
+    const postPlaceId = post.placeId || doc.placeId;
+
+    const SHOULD_CLEAR_RECAP = postType === 'review' || postType === 'check-in';
+
+    if (SHOULD_CLEAR_RECAP && postPlaceId) {
+      try {
+        await clearOldestNeedsRecapNotification({
+          userId,
+          createdPostId: post._id,
+          placeId: postPlaceId,
+          postTime: post.sortDate || post.createdAt,
+          relatedInviteIdRaw,
+        });
+      } catch (e) {
+        // If you won’t log, at least report:
+        // Sentry.captureException(e);
+      }
+    }
 
     const raw = post.toObject();
 
@@ -598,24 +535,11 @@ router.post('/', async (req, res) => {
       attachBusinessNameIfMissing,
     });
 
-    console.log(`${TAG} ▶ hydratePostForResponse output`, {
-      postId: enriched?._id,
-      type: enriched?.type,
-      isShared: !!enriched?.shared,
-      sharedMeta: enriched?.shared,
-    });
-
     return res.status(201).json(enriched);
   } catch (err) {
-    console.error(`${TAG} ❌ Error creating post`, {
-      message: err?.message,
-      name: err?.name,
-      code: err?.code,
-      stack: err?.stack,
-    });
     return res
       .status(500)
-      .json({ message: 'Server error', error: err?.message });
+      .json({ message: 'Server error', error: err?.message || 'Unknown error' });
   }
 });
 
