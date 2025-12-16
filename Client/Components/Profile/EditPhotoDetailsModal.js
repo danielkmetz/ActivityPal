@@ -1,34 +1,44 @@
 import React, { useState, useEffect } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Modal,
-  ImageBackground,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  Image,
-} from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, Modal, ImageBackground, KeyboardAvoidingView, Platform, Pressable, useWindowDimensions, Image, TouchableWithoutFeedback } from "react-native";
 import TagFriendsModal from "../Reviews/TagFriendsModal";
 import { VideoView } from "expo-video";
 import { useSmartVideoPlayer } from "../../utils/useSmartVideoPlayer";
 import { isVideo } from "../../utils/isVideo";
+import Notch from "../Notch/Notch";
+import useSlideDownDismiss from "../../utils/useSlideDown";
+import Animated from "react-native-reanimated";
+import { GestureDetector } from "react-native-gesture-handler";
 
-export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose, onDelete, isPromotion }) {
+export default function EditPhotoDetailsModal({
+  visible,
+  photo,
+  onSave,
+  onClose,
+  onDelete,
+  isPromotion,
+}) {
+  const { width } = useWindowDimensions();
+  const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
+  const previewHeight = Math.round(width * 1.15);
   const [description, setDescription] = useState(photo?.description || "");
-  const [taggedUsers, setTaggedUsers] = useState(photo?.taggedUsers || []); // Stores {username, x, y}
-  const [selectedPosition, setSelectedPosition] = useState(null);
+  const [taggedUsers, setTaggedUsers] = useState(photo?.taggedUsers || []);
   const [showTagFriendsModal, setShowTagFriendsModal] = useState(false);
-  const getTagId = (t) => String(t?.userId || t?._id || t?.id || '');
-  const getTagName = (t) => t?.username || t?.fullName || 'Unknown';
+  const [selectedPosition, setSelectedPosition] = useState(null);
+  const [previewLayout, setPreviewLayout] = useState({ w: width, h: previewHeight });
+  const getTagId = (t) => String(t?.userId || t?._id || t?.id || "");
+  const getTagName = (t) => t?.username || t?.fullName || "Unknown";
   const getTagPic = (t) => t?.profilePic || t?.profilePicUrl || t?.presignedProfileUrl || null;
 
-  const handleRemoveTagById = (id) => {
-    setTaggedUsers((prev) => prev.filter((t) => getTagId(t) !== String(id)));
-  };
+  useEffect(() => {
+    if (visible) {
+      animateIn();
+    } else {
+      (async () => {
+        await animateOut();
+        onClose?.();
+      })();
+    }
+  }, [visible]);
 
   useEffect(() => {
     setDescription(photo?.description || "");
@@ -37,293 +47,274 @@ export default function EditPhotoDetailsModal({ visible, photo, onSave, onClose,
 
   const player = useSmartVideoPlayer(photo);
 
+  const handleRemoveTagById = (id) => {
+    setTaggedUsers((prev) => prev.filter((t) => getTagId(t) !== String(id)));
+  };
+
   const handleSave = () => {
-    const clonedTaggedUsers = taggedUsers.map(user => ({ ...user })); // shallow clone each tag
     const clonedPhoto = {
       ...photo,
       description,
-      taggedUsers: clonedTaggedUsers,
+      taggedUsers: taggedUsers.map((t) => ({ ...t })),
     };
-
-    onSave(JSON.parse(JSON.stringify(clonedPhoto))); // full deep clone to break shared refs
-    setTaggedUsers([]);
-    setDescription("");
-    setSelectedPosition(null);
+    onSave(JSON.parse(JSON.stringify(clonedPhoto)));
     onClose();
   };
 
-  // Handle tap on the image to open friend tagging modal
-  const handleImagePress = (event) => {
-    const { locationX, locationY } = event.nativeEvent;
-    setSelectedPosition({ x: locationX, y: locationY });
+  const handleDelete = () => {
+    if (typeof onDelete !== "function") return;
+    if (!photo) return;
+    onDelete(photo);
+    onClose();
+  };
+
+  const handlePressPreview = (e) => {
+    if (isPromotion) return;
+
+    const { locationX, locationY } = e.nativeEvent;
+    const w = previewLayout.w || width;
+    const h = previewLayout.h || previewHeight;
+
+    // store as percentages so tags scale correctly
+    const xPct = w ? locationX / w : 0;
+    const yPct = h ? locationY / h : 0;
+
+    setSelectedPosition({ xPct, yPct });
     setShowTagFriendsModal(true);
   };
 
-  const handleDelete = () => {
-    if (typeof onDelete === 'function') {
-      if (!photo) {
-        console.error('❌ Cannot delete: photo is missing');
-        return;
-      }
-      onDelete(photo); // 🔥 Send the whole photo object (not just id)
-      onClose();
-    } else {
-      console.error('❌ onDelete is not a function');
-    }
-  };
-
   const handleTagFriend = (selectedFriends) => {
-    if (selectedFriends.length > 0 && selectedPosition) {
-      setTaggedUsers((prevTaggedUsers) => {
-        let updatedTaggedUsers = prevTaggedUsers.map(user => ({ ...user }));
-
-        selectedFriends.forEach(friend => {
-          const friendId = friend.userId || friend._id || friend.id;
-
-          if (!friendId) {
-            console.warn("⚠️ Skipping invalid friend without ID:", friend);
-            return; // Skip if no valid ID found
-          }
-
-          const existingIndex = updatedTaggedUsers.findIndex(user => user.userId === friendId);
-
-          if (existingIndex !== -1) {
-            // Update position of existing tag
-            updatedTaggedUsers[existingIndex] = {
-              ...updatedTaggedUsers[existingIndex],
-              x: selectedPosition.x,
-              y: selectedPosition.y,
-            };
-          } else {
-            // Add new tagged friend
-            updatedTaggedUsers.push({
-              username: friend.username || `${friend.firstName || ''} ${friend.lastName || ''}`.trim(),
-              userId: friendId,
-              x: selectedPosition.x,
-              y: selectedPosition.y,
-              profilePic: friend.profilePic || friend.presignedProfileUrl || null,
-            });
-          }
-        });
-
-        return updatedTaggedUsers;
-      });
+    if (!selectedFriends?.length || !selectedPosition) {
+      setShowTagFriendsModal(false);
+      setSelectedPosition(null);
+      return;
     }
+
+    setTaggedUsers((prev) => {
+      const next = prev.map((t) => ({ ...t }));
+
+      selectedFriends.forEach((friend) => {
+        const friendId = friend.userId || friend._id || friend.id;
+        if (!friendId) return;
+
+        const idx = next.findIndex((t) => String(t.userId) === String(friendId));
+        const tagPatch = {
+          userId: friendId,
+          username: friend.username || `${friend.firstName || ""} ${friend.lastName || ""}`.trim(),
+          profilePic: friend.profilePic || friend.presignedProfileUrl || null,
+          xPct: selectedPosition.xPct,
+          yPct: selectedPosition.yPct,
+        };
+
+        if (idx !== -1) next[idx] = { ...next[idx], ...tagPatch };
+        else next.push(tagPatch);
+      });
+
+      return next;
+    });
 
     setShowTagFriendsModal(false);
     setSelectedPosition(null);
   };
 
-  return (
-    <Modal visible={visible} animationType="slide" transparent={true}>
-      <KeyboardAvoidingView
-        style={styles.modalContainer}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <View style={styles.contentWrapper}>
-          <ScrollView contentContainerStyle={styles.content}>
-            <Text style={styles.title}>Edit Photo</Text>
-            {/* Photo Preview with Clickable Tags */}
-            {(photo?.uri || photo?.url) && (
-              <View style={styles.photoContainer}>
-                {isVideo(photo) ? (
-                  <VideoView
-                    player={player}
-                    style={styles.photoPreview}
-                    allowsFullscreen
-                    allowsPictureInPicture
-                    contentFit="cover"
-                  />
-                ) : (
-                  <ImageBackground
-                    source={{ uri: photo.uri || photo.url }}
-                    style={styles.photoPreview}
-                    onTouchEnd={(e) => {
-                      if (!isPromotion) {
-                        e.persist?.(); // Not always necessary in React Native, but safe
-                        handleImagePress(e);
-                      }
-                    }}
-                  >
-                    {/* Render tagged friends */}
-                    {taggedUsers.map((user, index) => (
-                      <View
-                        key={getTagId(user) || index}
-                        style={[styles.tagMarker, { left: user.x, top: user.y }]}
-                      >
-                        <TouchableOpacity
-                          onPress={() => handleRemoveTagById(getTagId(user))}
-                          style={styles.tagRemoveBtn}
-                          hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
-                        >
-                          <Text style={styles.tagRemoveX}>×</Text>
-                        </TouchableOpacity>
-                        {getTagPic(user) ? (
-                          <Image source={{ uri: getTagPic(user) }} style={styles.tagProfilePic} />
-                        ) : (
-                          <View style={[styles.tagProfilePic, styles.tagProfilePicFallback]} />
-                        )}
-                        <Text style={styles.tagText}>{getTagName(user)}</Text>
-                      </View>
-                    ))}
-                  </ImageBackground>
-                )}
-              </View>
-            )}
-            {/* Description Section */}
-            <Text style={styles.caption}>Description</Text>
-            <TextInput
-              style={styles.input}
-              value={description}
-              onChangeText={setDescription}
-            />
-            {/* Save and Cancel Buttons */}
-            <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-              <Text style={styles.saveButtonText}>Save</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
-              <Text style={styles.deleteButtonText}>Delete</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
-          </ScrollView>
+  const renderTags = () => {
+    const w = previewLayout.w || width;
+    const h = previewLayout.h || previewHeight;
+
+    return taggedUsers.map((user, index) => {
+      const key = getTagId(user) || String(index);
+
+      // fallback if older tags have raw x/y
+      const left = Number.isFinite(user?.xPct) ? user.xPct * w : user?.x ?? 0;
+      const top = Number.isFinite(user?.yPct) ? user.yPct * h : user?.y ?? 0;
+
+      return (
+        <View key={key} style={[styles.tagMarker, { left, top }]}>
+          <TouchableOpacity
+            onPress={() => handleRemoveTagById(getTagId(user))}
+            style={styles.tagRemoveBtn}
+            hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
+          >
+            <Text style={styles.tagRemoveX}>×</Text>
+          </TouchableOpacity>
+
+          {getTagPic(user) ? (
+            <Image source={{ uri: getTagPic(user) }} style={styles.tagProfilePic} />
+          ) : (
+            <View style={[styles.tagProfilePic, styles.tagProfilePicFallback]} />
+          )}
+          <Text style={styles.tagText} numberOfLines={1}>
+            {getTagName(user)}
+          </Text>
         </View>
-      </KeyboardAvoidingView>
-      {/* Friend Tagging Modal */}
-      <TagFriendsModal
-        visible={showTagFriendsModal}
-        onClose={() => setShowTagFriendsModal(false)}
-        onSave={handleTagFriend}
-        isPhotoTagging={true}
-      />
+      );
+    });
+  };
+
+  return (
+    <Modal visible={visible} transparent>
+      <TouchableWithoutFeedback onPress={animateOut}>
+        <View style={styles.overlay}>
+          <KeyboardAvoidingView style={styles.modalContainer} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+            <GestureDetector gesture={gesture}>
+              <Animated.View style={[styles.sheet, animatedStyle]}>
+                <Notch />
+                {/* Header */}
+                <View style={styles.header}>
+                  <TouchableOpacity onPress={onClose} hitSlop={10}>
+                    <Text style={styles.headerBtn}>Cancel</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.headerTitle}>Edit Photo</Text>
+                  <TouchableOpacity onPress={handleSave} hitSlop={10}>
+                    <Text style={[styles.headerBtn, styles.headerBtnPrimary]}>Save</Text>
+                  </TouchableOpacity>
+                </View>
+                {/* Full-width preview */}
+                <View
+                  style={{ width, height: previewHeight, backgroundColor: "#000" }}
+                  onLayout={(e) => {
+                    const { width: w, height: h } = e.nativeEvent.layout;
+                    setPreviewLayout({ w, h });
+                  }}
+                >
+                  {isVideo(photo) ? (
+                    <VideoView
+                      player={player}
+                      style={{ width: "100%", height: "100%" }}
+                      nativeControls={false}
+                      allowsFullscreen={false}
+                      allowsPictureInPicture={false}
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <Pressable onPress={handlePressPreview} style={{ width: "100%", height: "100%" }}>
+                      <ImageBackground source={{ uri: photo?.uri || photo?.url }} style={{ width: "100%", height: "100%" }}>
+                        {renderTags()}
+                        {!isPromotion && taggedUsers.length === 0 && (
+                          <View style={styles.hintPill}>
+                            <Text style={styles.hintText}>Tap anywhere to tag friends</Text>
+                          </View>
+                        )}
+                      </ImageBackground>
+                    </Pressable>
+                  )}
+                </View>
+                {/* Bottom actions */}
+                <View style={styles.actions}>
+                  <TouchableOpacity style={styles.deleteRow} onPress={handleDelete}>
+                    <Text style={styles.deleteText}>Remove</Text>
+                  </TouchableOpacity>
+                </View>
+              </Animated.View>
+            </GestureDetector>
+          </KeyboardAvoidingView>
+          <TagFriendsModal
+            visible={showTagFriendsModal}
+            onClose={() => setShowTagFriendsModal(false)}
+            onSave={handleTagFriend}
+            isPhotoTagging
+          />
+        </View>
+      </TouchableWithoutFeedback>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  modalContainer: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  contentWrapper: {
-    height: '90%',
-    width: "100%",
+  modalContainer: { flex: 1, justifyContent: "flex-end" },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' },
+  sheet: {
     backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 20,
-    marginTop: 100,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 15,
+    paddingBottom: 30,
   },
-  content: {
+  header: {
+    height: 56,
+    paddingHorizontal: 14,
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#e6e6e6",
   },
-  title: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginBottom: 10,
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: "700",
   },
-  photoContainer: {
-    width: "100%",
+  headerBtn: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#666",
+  },
+  headerBtnPrimary: { color: "teal" },
+  actions: {
+    padding: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#e6e6e6",
+  },
+  deleteRow: {
+    paddingVertical: 12,
     alignItems: "center",
-    marginBottom: 20,
-  },
-  photoPreview: {
-    width: "100%",
-    height: 300,
     borderRadius: 10,
-    resizeMode: "cover",
-    justifyContent: "flex-start",
+    backgroundColor: "#f6f6f6",
+  },
+  deleteText: {
+    color: "#d11a2a",
+    fontWeight: "700",
   },
   tagMarker: {
     position: "absolute",
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
-    padding: 5,
-    borderRadius: 5,
+    backgroundColor: "rgba(0, 0, 0, 0.65)",
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 999,
     flexDirection: "row",
     alignItems: "center",
-  },
-  tagProfilePic: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    marginRight: 5,
-  },
-  tagText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "bold",
-  },
-  input: {
-    width: "100%",
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 5,
-    padding: 10,
-    marginBottom: 10,
-    backgroundColor: "#f9f9f9",
-  },
-  saveButton: {
-    backgroundColor: "teal",
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: "center",
-    marginBottom: 10,
-    width: "100%",
-    marginTop: 25,
-  },
-  saveButtonText: {
-    color: "#fff",
-    fontWeight: "bold",
-  },
-  deleteButton: {
-    backgroundColor: "#006666",
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: "center",
-    marginBottom: 10,
-    width: "100%",
-  },
-  deleteButtonText: {
-    color: "#fff",
-    fontWeight: "bold",
-  },
-  cancelButton: {
-    backgroundColor: "#d9d9d9",
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: "center",
-    marginBottom: 10,
-    width: "100%",
-  },
-  cancelButtonText: {
-    color: "#888",
-    fontWeight: "bold",
-  },
-  caption: {
-    width: "100%",
-    fontSize: 13,
-    fontWeight: "600",
-    marginBottom: 5,
-    color: "#333",
+    maxWidth: 220,
   },
   tagRemoveBtn: {
     width: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: '#ff3b30', // iOS "destructive" red
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#ff3b30",
+    alignItems: "center",
+    justifyContent: "center",
     marginRight: 6,
   },
   tagRemoveX: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 12,
     lineHeight: 12,
-    fontWeight: 'bold',
+    fontWeight: "bold",
+  },
+  tagProfilePic: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    marginRight: 6,
   },
   tagProfilePicFallback: {
-    backgroundColor: '#666',
+    backgroundColor: "#666",
+  },
+  tagText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  hintPill: {
+    position: "absolute",
+    bottom: 14,
+    alignSelf: "center",
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  hintText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 12,
   },
 });
