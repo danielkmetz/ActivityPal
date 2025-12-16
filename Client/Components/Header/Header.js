@@ -161,7 +161,7 @@ export default function Header({ currentRoute, notificationsSeen, setNotificatio
                             currentRoute === "EventDetails" ||
                             currentRoute === "Settings" ||
                             currentRoute === "HiddenPosts" ||
-                            currentRoute === "InviteDetails"
+                            currentRoute === "InviteDetails" 
                         ) && (
                                 <TouchableOpacity onPress={goBack} style={{ marginLeft: -10 }}>
                                     <MaterialCommunityIcons name="chevron-left" size={35} color="black" />

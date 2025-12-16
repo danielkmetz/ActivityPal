@@ -206,6 +206,7 @@ function MainApp() {
         currentRoute !== 'OtherUserProfile' &&
         currentRoute !== 'BusinessProfile' &&
         currentRoute !== 'CameraScreen' &&
+        currentRoute !== 'CameraPreview' &&
         currentRoute !== 'CommentScreen' &&
         currentRoute !== 'FullScreenPhoto' &&
         currentRoute !== 'EventDetails' && (
