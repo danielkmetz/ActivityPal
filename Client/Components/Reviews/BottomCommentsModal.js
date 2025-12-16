@@ -1,17 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import {
-    Modal,
-    View,
-    Text,
-    StyleSheet,
-    TextInput,
-    TouchableOpacity,
-    Dimensions,
-    KeyboardAvoidingView,
-    Platform,
-    TouchableWithoutFeedback,
-    FlatList,
-} from 'react-native';
+import { Modal, View, Text, StyleSheet, TextInput, TouchableOpacity, Dimensions, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, FlatList } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { GestureDetector } from 'react-native-gesture-handler';
 import useSlideDownDismiss from '../../utils/useSlideDown';
@@ -181,7 +169,6 @@ const BottomCommentsModal = ({ visible, onClose, post }) => {
                                         contentContainerStyle={{ paddingBottom: 20 }}
                                         showsVerticalScrollIndicator={false}
                                     />
-
                                     {/* Input */}
                                     <View style={styles.inputRow}>
                                         <TextInput

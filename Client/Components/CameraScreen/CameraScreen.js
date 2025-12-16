@@ -15,14 +15,14 @@ const formatTime = (ms = 0) => {
   const total = Math.max(0, Math.floor(ms / 1000));
   const m = Math.floor(total / 60);
   const s = total % 60;
-  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 };
 
 export default function CameraScreen() {
   const nav = useNavigation();
   const route = useRoute();
   const isFocused = useIsFocused();
-  const { onCapture } = route.params || {};
+  const { onCapture, returnMode, returnRouteKey } = route.params || {};
   const cameraRef = useRef(null);
   const [facing, setFacing] = useState('back');
   const device = useCameraDevice(facing);
@@ -63,7 +63,7 @@ export default function CameraScreen() {
       interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DO_NOT_MIX,
       shouldDuckAndroid: true,
       staysActiveInBackground: false,
-    }).catch(() => {});
+    }).catch(() => { });
   }, []);
 
   const animatedCameraProps = useAnimatedProps(() => {
@@ -151,11 +151,11 @@ export default function CameraScreen() {
       const info = await FileSystem.getInfoAsync(srcFileUri, { size: true });
       if (!info.exists || !info.size) await new Promise((r) => setTimeout(r, 60));
       const dir = `${FileSystem.cacheDirectory}stories/`;
-      await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => { });
       const ext = inferExt(srcFileUri.replace('file://', ''));
       const dest = normalizeFileUri(`${dir}rec_${Date.now()}.${ext}`);
       await FileSystem.copyAsync({ from: srcFileUri, to: dest });
-      try { await FileSystem.deleteAsync(srcFileUri, { idempotent: true }); } catch {}
+      try { await FileSystem.deleteAsync(srcFileUri, { idempotent: true }); } catch { }
       return dest;
     } catch (e) {
       return normalizeFileUri(srcFileUri);
@@ -186,7 +186,7 @@ export default function CameraScreen() {
   const startRecording = useCallback(() => {
     if (!cameraRef.current || isRecordingRef.current) return;
 
-    Audio.setAudioModeAsync({ allowsRecordingIOS: true }).catch(() => {});
+    Audio.setAudioModeAsync({ allowsRecordingIOS: true }).catch(() => { });
 
     isRecordingRef.current = true;
     recordingDonePromiseRef.current = new Promise((resolve) => {
@@ -233,9 +233,19 @@ export default function CameraScreen() {
       segmentsRef.current = [];
       setIsRecording(false);
 
+      if (returnMode === "post") {
+        nav.navigate("CameraPreview", {
+          file: { mediaType: "video", segments },
+          returnRouteKey,
+          returnMode: "post",
+          returnPopCount: 2,
+        });
+        return;
+      }
+
       const file = { mediaType: 'video', segments };
       if (onCapture) { onCapture([file]); nav.goBack(); }
-      else { nav.navigate('StoryPreview', { file }); }
+      else { nav.navigate('CameraPreview', { file }); }
     } catch (e) {
       setIsRecording(false);
     } finally {
@@ -289,8 +299,18 @@ export default function CameraScreen() {
         taggedUsers: [],
         description: '',
       };
+
+      if (returnMode === "post") {
+        nav.navigate("CameraPreview", {
+          file: { uri: file.uri, mediaType: "photo" },
+          returnRouteKey,
+          returnMode: "post",
+          returnPopCount: 2, 
+        });
+        return;
+      }
       if (onCapture) { onCapture([file]); nav.goBack(); }
-      else { nav.navigate('StoryPreview', { file }); }
+      else { nav.navigate('CameraPreview', { file }); }
     } catch {
       Alert.alert('Error', 'Failed to take photo.');
     }

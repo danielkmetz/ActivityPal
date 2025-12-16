@@ -33,6 +33,7 @@ import HiddenPostsScreen from '../Profile/Settings/HiddenPostsScreen';
 import MyPlansScreen from '../../screens/MyPlansScreen';
 import InviteDetailsScreen from '../../screens/InviteDetailsScreen';
 import CreateEventOrPromoPage from '../BusinessEvents/CreateEventPromo/CreateEventOrPromoPage';
+import CameraPreview from '../../screens/CameraPreview';
 
 enableScreens(true);
 const Tab = createBottomTabNavigator();
@@ -264,6 +265,7 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
             <Stack.Screen name="HiddenPosts" component={HiddenPostsScreen} scrollY={scrollY} onScroll={onScroll} isAtEnd={isAtEnd} />
             <Stack.Screen name="MyPlans" component={MyPlansScreen} options={{ title: 'Plans'}} />
             <Stack.Screen name="InviteDetails" component={InviteDetailsScreen} options={{ title: 'Plan details'}} />
+            <Stack.Screen name="CameraPreview" component={CameraPreview} />
         </Stack.Navigator>
     )
 }

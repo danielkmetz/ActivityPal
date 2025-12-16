@@ -11,6 +11,7 @@ import { createNotification } from "../../../Slices/NotificationsSlice";
 import { createBusinessNotification } from "../../../Slices/BusNotificationsSlice";
 import { selectMediaFromGallery } from "../../../utils/selectPhotos";
 import { handlePhotoUpload } from "../../../utils/photoUploadHelper";
+import { mergeMedia } from '../../../utils/CameraScreen/mergeMedia';
 import InviteForm from "../../ActivityInvites/InviteForm";
 import SectionHeader from "../SectionHeader";
 import Autocomplete from "../../Location/Autocomplete";
@@ -104,6 +105,16 @@ export default function CreatePost() {
       }
     }
   }, [isEditing, initialBusinessFromRoute, business]);
+
+  useEffect(() => {
+    const incoming = route.params?.capturedMedia;
+    if (!Array.isArray(incoming) || incoming.length === 0) return;
+
+    setSelectedPhotos((prev) => mergeMedia(prev, incoming));
+
+    // IMPORTANT: clear the param so it doesn’t re-apply on future renders/focus
+    navigation.setParams({ capturedMedia: null });
+  }, [route.params?.capturedMedia]);
 
   useEffect(() => {
     setPhotoList(selectedPhotos);
@@ -274,16 +285,44 @@ export default function CreatePost() {
     const trimmedReview = (review || "").trim();
     const trimmedCheckIn = (checkInMessage || "").trim();
 
+    const safeStringify = (v) => {
+      try {
+        return JSON.stringify(v, null, 2);
+      } catch {
+        return String(v);
+      }
+    };
+
+    const extractErrMessage = (err) => {
+      if (!err) return null;
+      if (typeof err === "string") return err;
+      if (err?.message) return err.message;
+
+      const axiosMsg =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.response?.data ||
+        err?.response?.statusText;
+
+      if (axiosMsg) return typeof axiosMsg === "string" ? axiosMsg : safeStringify(axiosMsg);
+
+      if (err?.payload) {
+        if (typeof err.payload === "string") return err.payload;
+        if (err.payload?.message) return err.payload.message;
+        return safeStringify(err.payload);
+      }
+
+      if (err?.error) return typeof err.error === "string" ? err.error : safeStringify(err.error);
+      return safeStringify(err);
+    };
+
     if (!business) {
       Alert.alert("Error", "Please choose a place.");
       return;
     }
 
     if (isReview && (!rating || !wouldGoBack)) {
-      Alert.alert(
-        "Error",
-        "Please add an overall rating and whether you'd go back."
-      );
+      Alert.alert("Error", "Please add an overall rating and whether you'd go back.");
       return;
     }
 
@@ -292,12 +331,10 @@ export default function CreatePost() {
       const placeId = business.place_id;
       const businessName = business.name || "";
       const location = business.formatted_address || "";
-      const rawPhotos =
-        (Array.isArray(photoList) && photoList.length > 0
-          ? photoList
-          : selectedPhotos) || [];
 
-      // 1) upload photos (deduped)
+      const rawPhotos =
+        (Array.isArray(photoList) && photoList.length > 0 ? photoList : selectedPhotos) || [];
+
       const uploadedPhotos = await uploadDedupPhotos({
         dispatch,
         userId: currentUserId,
@@ -305,13 +342,10 @@ export default function CreatePost() {
         photos: rawPhotos,
       });
 
-      // 2) common fields
-      const taggedUserIds = (taggedUsers || [])
-        .map(normalizeId)
-        .filter(Boolean);
+      const taggedUserIds = (taggedUsers || []).map(normalizeId).filter(Boolean);
+
       let postId;
 
-      // 3) edit vs create
       if (isEditing && initialPost) {
         const base = {
           placeId,
@@ -334,14 +368,11 @@ export default function CreatePost() {
             message: trimmedCheckIn || null,
           };
 
-        await dispatch(
-          updatePost({ postId: initialPost._id, updates })
-        ).unwrap();
-        postId = initialPost._id;
+        await dispatch(updatePost({ postId: initialPost._id, updates })).unwrap();
 
+        postId = initialPost._id;
         Alert.alert("Success", `Your ${postType} has been updated!`);
       } else {
-        // unified create payload
         const payload = {
           type: postType,
           userId: currentUserId,
@@ -360,18 +391,15 @@ export default function CreatePost() {
               priceRating,
               vibeTags,
             }
-            : {
-              message: trimmedCheckIn || null,
-            }),
+            : { message: trimmedCheckIn || null }),
         };
 
         const created = await dispatch(createPost(payload)).unwrap();
-        postId = created._id;
 
+        postId = created._id;
         Alert.alert("Success", `Your ${postType} has been posted!`);
       }
 
-      // 4) notifications
       await notifyAll({
         dispatch,
         fullName,
@@ -386,7 +414,8 @@ export default function CreatePost() {
 
       navigation.goBack();
     } catch (err) {
-      Alert.alert("Error", err?.message || "Failed to submit.");
+      const msg = extractErrMessage(err) || "Failed to submit.";
+      Alert.alert("Error", msg);
     }
   };
 
@@ -399,6 +428,14 @@ export default function CreatePost() {
     setPhotoDetailsEditing(false);
     setPreviewPhoto(null);
   };
+
+  const openCamera = () => {
+    navigation.navigate("CameraScreen", {
+      returnRouteName: route.name,
+      returnRouteKey: route.key,
+      returnMode: "post",
+    })
+  }
 
   if (!postType) {
     return null;
@@ -450,7 +487,7 @@ export default function CreatePost() {
                       taggedUsers={taggedUsers}
                       selectedPhotos={selectedPhotos}
                       onOpenTagModal={() => setTagFriendsModalVisible(true)}
-                      onOpenCamera={() => navigation.navigate('CameraScreen')}
+                      onOpenCamera={openCamera}
                       onOpenLibrary={handlePhotoAlbumSelection}
                     />
                     <TaggedFriendsPreview

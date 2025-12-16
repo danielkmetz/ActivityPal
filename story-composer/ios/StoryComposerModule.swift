@@ -303,7 +303,7 @@ class StoryComposer: RCTEventEmitter {
 
         let bgLayer = CALayer()
         bgLayer.backgroundColor = colorFromString(bg).cgColor
-        bgLayer.cornerRadius = min(24 * geomScale, bannerHeight / 2) // pleasant pill on single line
+        bgLayer.cornerRadius = 0 // pleasant pill on single line
         bgLayer.frame = bannerFrame
 
         // Container spans full width; x is sideMargin, y is normalized center

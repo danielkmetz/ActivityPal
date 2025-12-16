@@ -1,21 +1,7 @@
 import React, { useState, useEffect, } from "react";
-import {
-  View,
-  Text,
-  Image,
-  Modal,
-  StyleSheet,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  Dimensions,
-} from "react-native";
+import { View, Text, Image, Modal, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, Dimensions } from "react-native";
 import { GestureDetector, Gesture } from "react-native-gesture-handler";
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  runOnJS,
-} from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS } from "react-native-reanimated";
 import EditPhotoDetailsModal from "./EditPhotoDetailsModal";
 import VideoThumbnail from "../Reviews/VideoThumbnail";
 
@@ -162,7 +148,6 @@ export default function EditPhotosModal({
     <Modal visible={visible} animationType="slide" transparent={false}>
       <View style={styles.container}>
         <Text style={styles.title}>Edit Photos</Text>
-
         {shouldRenderGrid && (
           <View style={styles.gridContainer}>
             {photoList.map((photo, index) => (
@@ -177,7 +162,6 @@ export default function EditPhotosModal({
             ))}
           </View>
         )}
-
         <View style={styles.buttonContainer}>
           <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
             <Text style={styles.cancelButtonText}>Cancel</Text>
@@ -186,7 +170,6 @@ export default function EditPhotosModal({
             <Text style={styles.saveButtonText}>Save Photos</Text>
           </TouchableOpacity>
         </View>
-
         {selectedPhoto && (
           <EditPhotoDetailsModal
             visible={detailsModalVisible}

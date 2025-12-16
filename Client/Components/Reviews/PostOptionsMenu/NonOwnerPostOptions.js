@@ -227,7 +227,7 @@ const NonOwnerOptions = ({ post, visible, onClose, title = 'Post options' }) => 
   };
 
   return (
-    <Modal transparent visible={visible} onRequestClose={onClose}>
+    <Modal transparent visible={visible} onRequestClose={animateOut}>
       <TouchableWithoutFeedback onPress={handleOverlayPress}>
         <Animated.View style={styles.modalOverlay}>
           <GestureDetector gesture={gesture}>
