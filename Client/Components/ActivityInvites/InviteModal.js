@@ -1,18 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import {
-  Modal,
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  TextInput,
-  Dimensions,
-  KeyboardAvoidingView,
-  Platform,
-  TouchableWithoutFeedback,
-  Switch,
-  Keyboard,
-} from 'react-native';
+import { Modal, View, Text, TouchableOpacity, StyleSheet, TextInput, Dimensions, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Switch, Keyboard } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
@@ -248,10 +235,7 @@ const InviteModal = ({
   const rawSuggestion = suggestion ?? null;
   const suggestionContent = rawSuggestion?.original ?? rawSuggestion ?? null;
   const fromSharedPost = !!rawSuggestion?.original;
-
-  const getUserId = (u) =>
-    u?._id || u?.id || u?.userId || u?.user?._id || u?.user?.id || null;
-
+  const getUserId = (u) => u?._id || u?.id || u?.userId || u?.user?._id || u?.user?.id || null;
   const [showFriendsModal, setShowFriendsModal] = useState(false);
   const [selectedPlace, setSelectedPlace] = useState(null);
   const [dateTime, setDateTime] = useState(null);
@@ -259,12 +243,8 @@ const InviteModal = ({
   const [isPublic, setIsPublic] = useState(true);
   const [note, setNote] = useState('');
   const googleRef = useRef(null);
-  const { gesture, animateIn, animateOut, animatedStyle } =
-    useSlideDownDismiss(onClose);
-
-  // 🔹 Get centralized invite helpers (with conflict checks baked in)
-  const { sendInviteWithConflicts, editInviteWithConflicts } =
-    useInviteActions(initialInvite);
+  const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
+  const { sendInviteWithConflicts, editInviteWithConflicts } = useInviteActions(initialInvite);
 
   /* -------------------- suggestion → suggestedPlace -------------------- */
 
@@ -421,7 +401,6 @@ const InviteModal = ({
     } else {
       (async () => {
         await animateOut();
-        onClose?.();
       })();
     }
   }, [visible]);

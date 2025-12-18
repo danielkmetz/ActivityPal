@@ -59,8 +59,7 @@ export default PhotoPaginationDots;
 
 const styles = StyleSheet.create({
     paginationContainer: {
-        position: 'absolute',
-        bottom: -15,
+        marginTop: 10,
         flexDirection: 'row',
         justifyContent: 'center',
         alignSelf: 'center',
@@ -71,7 +70,6 @@ const styles = StyleSheet.create({
         borderRadius: 5,
         backgroundColor: '#ccc',
         marginHorizontal: 3,
-        marginBottom: 10,
     },
 
 });

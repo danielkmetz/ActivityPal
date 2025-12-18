@@ -1,44 +1,34 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { View, Text, StyleSheet, FlatList, InteractionManager } from "react-native";
+import React, { useState, useEffect, useMemo } from "react";
+import { View, InteractionManager } from "react-native";
 import { useSelector, useDispatch, shallowEqual } from "react-redux";
-import { useNavigation } from "@react-navigation/native";
 import { selectUser } from "../../Slices/UserSlice";
-import { selectProfilePic, selectBanner, fetchUserBanner } from "../../Slices/PhotosSlice";
+import { fetchUserBanner } from "../../Slices/PhotosSlice";
 import { fetchPostsByUserId, appendProfilePosts, setProfilePosts } from "../../Slices/PostsSlice";
 import { selectProfilePosts } from "../../Slices/PostsSelectors/postsSelectors";
-import { selectFavorites, fetchFavorites } from "../../Slices/FavoritesSlice";
+import { selectFavorites, fetchFavorites, fetchFavoritedDetails, selectFavoritedDetails, selectFavoritesStatus } from "../../Slices/FavoritesSlice";
 import { selectFollowing, selectFollowers } from "../../Slices/friendsSlice";
-import { clearTodayEngagementLog } from "../../Slices/EngagementSlice";
 import usePaginatedFetch from "../../utils/usePaginatedFetch";
 import useTaggedFeed from "../../hooks/useTaggedFeed";
 import EditProfileModal from "./EditProfileModal";
 import ConnectionsModal from "./ConnectionsModal";
-import ProfileTabs from "./ProfileTabs";
-import SelfProfileHeader from "./SelfProfileHeader";
 import Reviews from "../Reviews/Reviews";
-import Photos from "./Photos";
-import Favorites from "./Favorites";
 import ProfileChrome from './ProfileChrome';
 import profilePlaceholder from "../../assets/pics/profile-pic-placeholder.jpg";
 
 export default function UserProfile() {
   const dispatch = useDispatch();
-  const navigation = useNavigation();
   const user = useSelector(selectUser, shallowEqual);
   const userId = user?.id;
-  const profilePic = useSelector(selectProfilePic);
-  const banner = useSelector(selectBanner);
   const profilePosts = useSelector(selectProfilePosts) || [];
   const favorites = useSelector(selectFavorites) || [];
   const following = useSelector(selectFollowing) || [];
   const followers = useSelector(selectFollowers) || [];
+  const favoritedDetails = useSelector(selectFavoritedDetails) || [];
+  const favoritesStatus = useSelector(selectFavoritesStatus);
   const [activeSection, setActiveSection] = useState("reviews");
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [connectionsModalVisible, setConnectionsModalVisible] = useState(false);
   const [activeConnectionsTab, setActiveConnectionsTab] = useState("followers");
-  const fullName = useMemo(() => {
-    return `${user?.firstName || ""} ${user?.lastName || ""}`.trim();
-  }, [user?.firstName, user?.lastName]);
 
   const { loadMore, refresh, isLoading, hasMore } = usePaginatedFetch({
     fetchThunk: fetchPostsByUserId,
@@ -67,6 +57,12 @@ export default function UserProfile() {
     return () => task?.cancel?.();
   }, [userId, dispatch, refresh]);
 
+  useEffect(() => {
+    if (activeSection !== "favorites") return;
+    if (!Array.isArray(favorites) || favorites.length === 0) return;
+    dispatch(fetchFavoritedDetails(favorites));
+  }, [activeSection, favorites, dispatch]);
+
   const photos = useMemo(() => {
     if (activeSection !== "photos") return [];
 
@@ -88,105 +84,76 @@ export default function UserProfile() {
     return Array.from(urls).map((url) => ({ url }));
   }, [activeSection, profilePosts]);
 
-  const openFollowers = useCallback(() => {
-    setActiveConnectionsTab("followers");
-    setConnectionsModalVisible(true);
-  }, []);
+  const photoRows = useMemo(() => {
+    const rows = [];
+    for (let i = 0; i < photos.length; i += 3) {
+      const chunk = photos.slice(i, i + 3);
+      rows.push({
+        type: "photoRow",
+        key: `photoRow:${chunk[0]?.url?.split("?")[0] || i}`,
+        row: chunk,
+      });
+    }
+    return rows.length ? rows : [{ type: "empty", key: "empty:photos" }];
+  }, [photos]);
 
-  const openFollowing = useCallback(() => {
-    setActiveConnectionsTab("following");
-    setConnectionsModalVisible(true);
-  }, []);
+  const favoritesRows = useMemo(() => {
+    if (activeSection !== "favorites") return [];
 
-  const onClearLog = useCallback(() => {
-    dispatch(clearTodayEngagementLog());
-  }, [dispatch]);
+    if (favoritesStatus === "loading") {
+      return [{ type: "loading", key: "favorites:loading" }];
+    }
+    if (favoritesStatus === "failed") {
+      return [{ type: "error", key: "favorites:error", message: "Error fetching favorites." }];
+    }
 
-  const header = useCallback(() => (
-    <ProfileChrome
-      activeSection={activeSection}
-      setActiveSection={setActiveSection}
-      setEditModalVisible={setEditModalVisible}
-      setConnectionsModalVisible={setConnectionsModalVisible}
-      setActiveConnectionsTab={setActiveConnectionsTab}
-    />
-  ), [activeSection]);
+    if (!favoritedDetails.length) {
+      return [{ type: "empty", key: "favorites:empty", message: "No favorites yet." }];
+    }
 
+    return favoritedDetails.map((biz, idx) => ({
+      type: "favorite",
+      key: `favorite:${biz?._id || biz?.placeId || idx}`,
+      favorite: biz,
+    }));
+  }, [activeSection, favoritesStatus, favoritedDetails]);
 
-  /* ------------------------------ */
-  /* Tab rendering                   */
-  /* ------------------------------ */
-  const renderAboutFallback = useCallback(() => {
-    // You don’t currently have an "about" tab; this is just a safe fallback.
-    return (
-      <FlatList
-        style={styles.container}
-        data={[{ key: "empty" }]}
-        keyExtractor={(x) => x.key}
-        ListHeaderComponent={header}
-        renderItem={() => <View style={{ height: 80 }} />}
-        showsVerticalScrollIndicator={false}
-      />
-    );
-  }, [header]);
-
-  const renderReviews = useCallback(() => {
-    return (
-      <Reviews
-        reviews={profilePosts}
-        onLoadMore={loadMore}
-        isLoadingMore={isLoading}
-        hasMore={hasMore}
-        ListHeaderComponent={header}
-        ListFooterComponent={<View style={{ height: 100 }} />}
-      />
-    );
-  }, [profilePosts, loadMore, isLoading, hasMore, header]);
-
-  const renderTagged = useCallback(() => {
-    return (
-      <Reviews
-        reviews={taggedPosts}
-        onLoadMore={loadMoreTagged}
-        isLoadingMore={taggedStatus === "pending"}
-        hasMore={taggedHasMore}
-        ListHeaderComponent={header}
-        ListFooterComponent={<View style={{ height: 100 }} />}
-      />
-    );
-  }, [taggedPosts, loadMoreTagged, taggedStatus, taggedHasMore, header]);
-
-  const renderPhotos = useCallback(() => {
-    return (
-      <Photos
-        photos={photos}
-        ListHeaderComponent={header}
-        ListFooterComponent={<View style={{ height: 100 }} />}
-      />
-    );
-  }, [photos, header]);
-
-  const renderFavorites = useCallback(() => {
-    return (
-      <Favorites
-        favorites={favorites}
-        ListHeaderComponent={header}
-        ListFooterComponent={<View style={{ height: 100 }} />}
-      />
-    );
-  }, [favorites, header]);
-
-  const body = useMemo(() => {
-    if (activeSection === "reviews") return renderReviews();
-    if (activeSection === "tagged") return renderTagged();
-    if (activeSection === "photos") return renderPhotos();
-    if (activeSection === "favorites") return renderFavorites();
-    return renderAboutFallback();
-  }, [activeSection, renderReviews, renderTagged, renderPhotos, renderFavorites, renderAboutFallback]);
+  const listData = useMemo(() => {
+    if (activeSection === "favorites") return favoritesRows;
+    if (activeSection === "photos") return photoRows;      
+    if (activeSection === "tagged") return taggedPosts;
+    return profilePosts;
+  }, [activeSection, favoritesRows, photoRows, taggedPosts, profilePosts]);
 
   return (
-    <>
-      {body}
+    <View>
+      <Reviews
+        reviews={listData}
+        ListHeaderComponent={
+          <ProfileChrome
+            activeSection={activeSection}
+            setActiveSection={setActiveSection}
+            setEditModalVisible={setEditModalVisible}
+            setConnectionsModalVisible={setConnectionsModalVisible}
+            setActiveConnectionsTab={setActiveConnectionsTab}
+          />
+        }
+        onLoadMore={
+          activeSection === "tagged" ? loadMoreTagged :
+            activeSection === "reviews" || activeSection === "photos" ? loadMore :
+              undefined
+        }
+        hasMore={
+          activeSection === "tagged" ? taggedHasMore :
+            activeSection === "reviews" || activeSection === "photos" ? hasMore :
+              false
+        }
+        isLoadingMore={
+          activeSection === "tagged" ? taggedStatus === "pending" :
+            activeSection === "reviews" || activeSection === "photos" ? isLoading :
+              false
+        }
+      />
       <EditProfileModal
         visible={editModalVisible}
         setEditModalVisible={setEditModalVisible}
@@ -202,11 +169,6 @@ export default function UserProfile() {
         following={following}
         initialTab={activeConnectionsTab}
       />
-    </>
+    </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
-  divider: { width: "100%", height: 1, backgroundColor: "lightgray", marginVertical: 10 },
-});
