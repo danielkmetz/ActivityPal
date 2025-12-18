@@ -120,15 +120,19 @@ const resolveRecurringMeta = (item = {}) => {
 /* Updated getTimeLabel                                               */
 /* ------------------------------------------------------------------ */
 
-export const getTimeLabel = (item) => {
+export const getTimeLabel = (item, opts = {}) => {
   if (!item) return null;
+
+  const { compact = false } = opts;
 
   const { recurring, recurringDays, allDay, startTime, endTime, kind } =
     resolveRecurringMeta(item);
 
-  if (allDay) return "Happening All Day";
+  // All day
+  if (allDay) return compact ? "All day" : "Happening All Day";
 
-  // 🌀 Recurring with days
+  // Recurring: FULL = "Mon, Wed from 3:00 PM - 6:00 PM"
+  // Compact = "3:00 PM - 6:00 PM"
   if (
     recurring &&
     Array.isArray(recurringDays) &&
@@ -136,25 +140,31 @@ export const getTimeLabel = (item) => {
     startTime &&
     endTime
   ) {
-    const shortDays = recurringDays.map(getShortDay).join(", ");
     const start = formatTimeTo12Hour(startTime);
     const end = formatTimeTo12Hour(endTime);
+
+    if (compact) return `${start} - ${end}`;
+
+    const shortDays = recurringDays.map(getShortDay).join(", ");
     return `${shortDays} from ${start} - ${end}`;
   }
 
-  // 🔵 Active
+  // Active
   if (kind.includes("active") && endTime) {
-    return `Ends at ${formatTimeTo12Hour(endTime)}`;
+    const end = formatTimeTo12Hour(endTime);
+    return compact ? end : `Ends at ${end}`;
   }
 
-  // 🟡 Upcoming
+  // Upcoming
   if (kind.includes("upcoming") && startTime) {
-    return `Starts at ${formatTimeTo12Hour(startTime)}`;
+    const start = formatTimeTo12Hour(startTime);
+    return compact ? start : `Starts at ${start}`;
   }
 
-  // 🔴 Inactive
+  // Inactive
   if (kind.includes("inactive") && endTime) {
-    return `Ended on ${formatDate(endTime)} at ${formatTimeTo12Hour(endTime)}`;
+    const end = formatTimeTo12Hour(endTime);
+    return compact ? end : `Ended on ${formatDate(endTime)} at ${end}`;
   }
 
   return null;

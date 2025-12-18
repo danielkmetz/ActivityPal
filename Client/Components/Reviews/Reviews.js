@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { Alert, FlatList, Animated, ActivityIndicator, Text } from 'react-native';
 import { useDispatch } from 'react-redux';
 import { useNavigation } from '@react-navigation/native';
@@ -11,8 +11,14 @@ import SuggestionItem from './SuggestionItem';
 import SharedPostItem from './SharedPosts/SharedPostItem';
 import SharePostModal from './SharedPosts/SharePostModal';
 import { medium } from '../../utils/Haptics/haptics';
+import PhotoGridRow from '../Profile/PhotoGridRow';
+import FavoriteItem from '../Profile/Favorites/FavoriteItem';
+import EventPromoRow from '../BusinessEvents/EventPromoRow';
+import BusinessAboutRow from '../Profile/BusinessProfile/BusinessAboutRow';
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
+
+const getItemId = (it) => it?._id || it?.id || it?.postId || null;
 
 export default function Reviews({
   reviews,
@@ -22,6 +28,8 @@ export default function Reviews({
   onScroll,
   onLoadMore,
   isLoadingMore,
+  mediaScrollX,
+  disableEngagementViews = false,
 }) {
   const dispatch = useDispatch();
   const navigation = useNavigation();
@@ -46,6 +54,10 @@ export default function Reviews({
     []
   );
 
+  const NON_POST_TYPES = useRef(
+    new Set(["aboutRow", "photoRow", "favorite", "loading", "empty", "error"])
+  ).current;
+
   const safeViewabilityConfig = useMemo(() => {
     const cfg = baseViewabilityConfig || {};
     const hasItem = cfg.itemVisiblePercentThreshold != null;
@@ -67,34 +79,48 @@ export default function Reviews({
     };
   }, [baseViewabilityConfig]);
 
+  const disableEngagementViewsRef = useRef(!!disableEngagementViews);
+  useEffect(() => {
+    disableEngagementViewsRef.current = !!disableEngagementViews;
+  }, [disableEngagementViews]);
+
   const onViewableItemsChanged = useRef(({ viewableItems }) => {
     if (!Array.isArray(viewableItems) || viewableItems.length === 0) return;
 
-    // 1) Decide which post is “active” (first visible item)
-    const topItem = viewableItems[0]?.item;
-    if (topItem) {
-      const id = topItem._id || topItem.id || topItem.postId;
-      setActivePostId(id || null);
-    }
+    // 1) Active item: choose first "post-like" item, not header/rows
+    const firstPostLike = viewableItems
+      .map((v) => v?.item)
+      .find((it) => it && !NON_POST_TYPES.has(it.type) && getItemId(it));
 
-    // 2) Log engagement views for suggestion cards
-    viewableItems.forEach(({ item: data }) => {
-      if (!data || data.type !== 'suggestion') return;
+    if (firstPostLike) {
+      const nextId = getItemId(firstPostLike);
+      if (nextId) {
+        setActivePostId((prev) => (prev === nextId ? prev : nextId));
+      }
+    }
+    // If no post-like item found, do NOTHING (don't wipe activePostId)
+
+    // 2) Engagement logging: optionally disabled by context
+    if (disableEngagementViewsRef.current) return;
+
+    for (const v of viewableItems) {
+      const data = v?.item;
+      if (!data || data.type !== "suggestion") continue;
 
       const placeId = data?.placeId;
       let targetId = null;
       let targetType = null;
 
-      const kind = (data.kind || '').toLowerCase();
+      const kind = String(data.kind || "").toLowerCase();
 
-      if (kind.includes('event')) {
-        targetType = 'event';
+      if (kind.includes("event")) {
+        targetType = "event";
         targetId = data._id;
-      } else if (kind.includes('promo')) {
-        targetType = 'promo';
+      } else if (kind.includes("promo")) {
+        targetType = "promo";
         targetId = data._id;
       } else {
-        targetType = 'place';
+        targetType = "place";
         targetId = data.placeId;
       }
 
@@ -105,10 +131,10 @@ export default function Reviews({
           targetType,
           targetId,
           placeId,
-          engagementType: 'view',
+          engagementType: "view",
         });
       }
-    });
+    }
   }).current;
 
   /* -------------------------- Infinite scroll controls -------------------------- */
@@ -247,10 +273,10 @@ export default function Reviews({
         data={reviews}
         extraData={reviews ?? []}
         keyExtractor={(item, index) => {
-          const id = item._id || item.id || index;
-          return item.type === 'suggestion'
-            ? `suggestion-${index}`
-            : `${item.type}-${id}`;
+          if (item?.key) return String(item.key);
+
+          const id = item?._id || item?.id || item?.postId || index;
+          return `${item?.type || "row"}-${id}-${index}`;
         }}
         viewabilityConfig={safeViewabilityConfig}
         onViewableItemsChanged={onViewableItemsChanged}
@@ -269,7 +295,7 @@ export default function Reviews({
                   size="small"
                   style={{ marginVertical: 10 }}
                 />
-                )
+              )
               : !hasMoreEffective
                 ? (
                   <Text
@@ -281,19 +307,19 @@ export default function Reviews({
                   >
                     🎉 You’re all caught up!
                   </Text>
-                  )
+                )
                 : null
             : null
         }
         onScroll={
           scrollY
             ? Animated.event(
-                [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-                {
-                  useNativeDriver: true,
-                  listener: onScroll,
-                }
-              )
+              [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+              {
+                useNativeDriver: true,
+                listener: onScroll,
+              }
+            )
             : onScroll || undefined
         }
         scrollEventThrottle={16}
@@ -301,12 +327,45 @@ export default function Reviews({
           const id = item._id || item.id || item.postId;
           const isInView = activePostId && activePostId === id;
 
+          if (item?.type === "favorite") {
+            return (
+              <FavoriteItem
+                business={item.favorite}
+                onPress={(biz) => navigation.navigate("BusinessProfile", { business: biz })}
+              />
+            );
+          }
+          if (item?.type === "photoRow") {
+            return <PhotoGridRow row={item.row} />;
+          }
+          if (item?.type === "event" || item?.type === "promotion") {
+            const selectedTab = item.type === "event" ? "events" : "promotions";
+            return (
+              <EventPromoRow
+                item={item}
+                selectedTab={selectedTab}
+                scrollX={mediaScrollX}
+                photoTapped={photoTapped}
+                setPhotoTapped={setPhotoTapped}
+                onShare={openShareToFeedModal}
+              />
+            );
+          }
+          if (item?.type === "aboutRow") {
+            return (
+              <BusinessAboutRow
+                location={item.location}
+                phone={item.phone}
+                description={item.description}
+              />
+            );
+          }
           if (item.type === 'invite') {
             return (
               <InviteCard
                 invite={item}
                 onShare={openShareToFeedModal}
-                // if invites ever get video, you can pass isInView here too
+              // if invites ever get video, you can pass isInView here too
               />
             );
           }

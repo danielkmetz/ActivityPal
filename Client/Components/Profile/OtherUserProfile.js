@@ -1,16 +1,14 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { View, FlatList, StyleSheet, InteractionManager } from "react-native";
-import { useDispatch, useSelector, shallowEqual } from "react-redux";
-import { selectUser, fetchOtherUserSettings, selectOtherUserSettings, fetchUserFullName } from "../../Slices/UserSlice";
-import { selectFollowRequests, selectFollowing, selectOtherUserFollowers, selectOtherUserFollowing, fetchOtherUserFollowersAndFollowing } from "../../Slices/friendsSlice";
+import React, { useState, useEffect, useMemo } from "react";
+import { StyleSheet, InteractionManager } from "react-native";
+import { useDispatch, useSelector } from "react-redux";
+import { fetchOtherUserSettings, fetchUserFullName } from "../../Slices/UserSlice";
+import { selectOtherUserFollowers, selectOtherUserFollowing, fetchOtherUserFollowersAndFollowing } from "../../Slices/friendsSlice";
 import Reviews from "../Reviews/Reviews";
-import Photos from "./Photos";
-import Favorites from "./Favorites";
 import ConnectionsModal from "./ConnectionsModal";
 import { fetchOtherUserBanner, resetOtherUserBanner, fetchOtherUserProfilePic, resetOtherUserProfilePic } from "../../Slices/PhotosSlice";
 import { fetchPostsByOtherUserId, resetOtherUserPosts, appendOtherUserPosts, setOtherUserPosts } from "../../Slices/PostsSlice";
 import { selectOtherUserPosts } from "../../Slices/PostsSelectors/postsSelectors";
-import { fetchOtherUserFavorites, selectOtherUserFavorites } from "../../Slices/FavoritesSlice";
+import { fetchOtherUserFavorites, selectOtherUserFavorites, fetchOtherUserFavoritedDetails, selectOtherUserFavoritedDetails } from "../../Slices/FavoritesSlice";
 import usePaginatedFetch from "../../utils/usePaginatedFetch";
 import useTaggedFeed from "../../hooks/useTaggedFeed";
 import OtherUserProfileChrome from "./OtherUserProfileChrome";
@@ -18,18 +16,11 @@ import OtherUserProfileChrome from "./OtherUserProfileChrome";
 export default function OtherUserProfile({ route, navigation }) {
   const { userId } = route.params;
   const dispatch = useDispatch();
-  const mainUser = useSelector(selectUser, shallowEqual);
-  const followRequests = useSelector(selectFollowRequests) || { sent: [], received: [] };
-  const following = useSelector(selectFollowing) || [];
   const otherUserFollowing = useSelector(selectOtherUserFollowing) || [];
   const otherUserFollowers = useSelector(selectOtherUserFollowers) || [];
-  const otherUserPrivacy = useSelector(selectOtherUserSettings);
   const favorites = useSelector(selectOtherUserFavorites) || [];
   const profileReviews = useSelector(selectOtherUserPosts) || [];
-  const isPrivate = otherUserPrivacy?.profileVisibility === "private";
-  const [isRequestSent, setIsRequestSent] = useState(false);
-  const [isRequestReceived, setIsRequestReceived] = useState(false);
-  const [isFollowing, setIsFollowing] = useState(false);
+  const favoritedDetails = useSelector(selectOtherUserFavoritedDetails) || [];
   const [activeSection, setActiveSection] = useState("reviews");
   const [connectionsModalVisible, setConnectionsModalVisible] = useState(false);
   const [activeConnectionsTab, setActiveConnectionsTab] = useState("followers");
@@ -69,20 +60,11 @@ export default function OtherUserProfile({ route, navigation }) {
     return () => task?.cancel?.();
   }, [userId, dispatch, refresh]);
 
-  /* ------------------------------ */
-  /* Derive relationship state       */
-  /* ------------------------------ */
   useEffect(() => {
-    if (!userId) return;
-
-    const followingIds = (following || []).map((u) => String(u?._id || u?.id)).filter(Boolean);
-    const sentRequestIds = (followRequests?.sent || []).map((u) => String(u?._id || u)).filter(Boolean);
-    const receivedRequestIds = (followRequests?.received || []).map((u) => String(u?._id || u)).filter(Boolean);
-
-    setIsRequestSent(sentRequestIds.includes(String(userId)));
-    setIsRequestReceived(receivedRequestIds.includes(String(userId)));
-    setIsFollowing(followingIds.includes(String(userId)));
-  }, [following, followRequests, userId]);
+    if (activeSection !== "favorites") return;
+    if (!Array.isArray(favorites) || favorites.length === 0) return;
+    dispatch(fetchOtherUserFavoritedDetails(favorites));
+  }, [activeSection, favorites, dispatch]);
 
   /* ------------------------------ */
   /* Cleanup on leave                */
@@ -112,106 +94,69 @@ export default function OtherUserProfile({ route, navigation }) {
     return Array.from(urls).map((url) => ({ url }));
   }, [activeSection, profileReviews]);
 
-  /* ------------------------------ */
-  /* Chrome                          */
-  /* ------------------------------ */
-  const header = useCallback(() => {
-    return (
-      <OtherUserProfileChrome
-        userId={userId}
-        activeSection={activeSection}
-        setActiveSection={setActiveSection}
-        onOpenFollowers={() => { setActiveConnectionsTab("followers"); setConnectionsModalVisible(true); }}
-        onOpenFollowing={() => { setActiveConnectionsTab("following"); setConnectionsModalVisible(true); }}
-      />
-    );
-  }, [userId, activeSection]);
+  const photoRows = useMemo(() => {
+    const rows = [];
+    for (let i = 0; i < photos.length; i += 3) {
+      const chunk = photos.slice(i, i + 3);
+      rows.push({
+        type: "photoRow",
+        key: `photoRow:${chunk[0]?.url?.split("?")[0] || i}`,
+        row: chunk,
+      });
+    }
+    return rows.length ? rows : [{ type: "empty", key: "empty:photos" }];
+  }, [photos]);
 
-  /* ------------------------------ */
-  /* Tab bodies                       */
-  /* ------------------------------ */
-  const renderPrivateGate = useCallback(() => {
-    // If your backend already returns nothing when private, you can remove this.
-    return (
-      <FlatList
-        style={styles.container}
-        data={[{ key: "private" }]}
-        keyExtractor={(x) => x.key}
-        ListHeaderComponent={header}
-        renderItem={() => <View style={{ height: 200 }} />}
-        showsVerticalScrollIndicator={false}
-      />
-    );
-  }, [header]);
+  const favoritesRows = useMemo(() => {
+    if (activeSection !== "favorites") return [];
 
-  const renderReviews = useCallback(() => {
-    return (
-      <Reviews
-        reviews={profileReviews}
-        onLoadMore={loadMore}
-        isLoadingMore={isLoading}
-        hasMore={hasMore}
-        ListHeaderComponent={header}
-        ListFooterComponent={<View style={{ height: 100 }} />}
-      />
-    );
-  }, [profileReviews, loadMore, isLoading, hasMore, header]);
+    if (!favoritedDetails.length) {
+      return [{ type: "empty", key: "favorites:empty", message: "No favorites yet." }];
+    }
 
-  const renderTagged = useCallback(() => {
-    return (
-      <Reviews
-        reviews={taggedPosts}
-        onLoadMore={loadMoreTagged}
-        isLoadingMore={taggedStatus === "pending"}
-        hasMore={taggedHasMore}
-        ListHeaderComponent={header}
-        ListFooterComponent={<View style={{ height: 100 }} />}
-      />
-    );
-  }, [taggedPosts, loadMoreTagged, taggedStatus, taggedHasMore, header]);
+    return favoritedDetails.map((biz, idx) => ({
+      type: "favorite",
+      key: `favorite:${biz?._id || biz?.placeId || idx}`,
+      favorite: biz,
+    }));
+  }, [activeSection, favoritedDetails]);
 
-  const renderPhotos = useCallback(() => {
-    return (
-      <Photos
-        photos={photos}
-        ListHeaderComponent={header}
-        ListFooterComponent={<View style={{ height: 100 }} />}
-      />
-    );
-  }, [photos, header]);
-
-  const renderFavorites = useCallback(() => {
-    return (
-      <Favorites
-        favorites={favorites}
-        ListHeaderComponent={header}
-        ListFooterComponent={<View style={{ height: 100 }} />}
-      />
-    );
-  }, [favorites, header]);
-
-  const isLocked = isPrivate && !isFollowing && !isRequestReceived && String(mainUser?.id) !== String(userId);
-
-  const body = useMemo(() => {
-    if (isLocked) return renderPrivateGate();
-    if (activeSection === "reviews") return renderReviews();
-    if (activeSection === "tagged") return renderTagged();
-    if (activeSection === "photos") return renderPhotos();
-    if (activeSection === "favorites") return renderFavorites();
-    return renderReviews();
-  }, [
-    isLocked,
-    activeSection,
-    renderPrivateGate,
-    renderReviews,
-    renderTagged,
-    renderPhotos,
-    renderFavorites,
-  ]);
+  const listData = useMemo(() => {
+    if (activeSection === "favorites") return favoritesRows;
+    if (activeSection === "photos") return photoRows;
+    if (activeSection === "tagged") return taggedPosts;
+    return profileReviews;
+  }, [activeSection, favoritesRows, photoRows, taggedPosts, profileReviews]);
 
   return (
     <>
-      {body}
+      <Reviews
+        reviews={listData}
+        ListHeaderComponent={
+          <OtherUserProfileChrome
+            userId={userId}
+            activeSection={activeSection}
+            setActiveSection={setActiveSection}
+            onOpenFollowers={() => { setActiveConnectionsTab("followers"); setConnectionsModalVisible(true); }}
+            onOpenFollowing={() => { setActiveConnectionsTab("following"); setConnectionsModalVisible(true); }}
+          />
+        }
+        onLoadMore={
+          activeSection === "tagged" ? loadMoreTagged :
+            activeSection === "reviews" || activeSection === "photos" ? loadMore :
+              undefined
+        }
+        hasMore={
+          activeSection === "tagged" ? taggedHasMore :
+            activeSection === "reviews" || activeSection === "photos" ? hasMore :
+              false
+        }
+        isLoadingMore={
+          activeSection === "tagged" ? taggedStatus === "pending" :
+            activeSection === "reviews" || activeSection === "photos" ? isLoading :
+              false
+        }
+      />
       <ConnectionsModal
         visible={connectionsModalVisible}
         onClose={() => setConnectionsModalVisible(false)}

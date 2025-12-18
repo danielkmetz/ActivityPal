@@ -246,12 +246,4 @@ const styles = StyleSheet.create({
     marginVertical: 10,
     alignItems: "center",
   },
-  tagIcon: {
-    position: "absolute",
-    bottom: 50,
-    right: 10,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    padding: 6,
-    borderRadius: 20,
-  },
 });

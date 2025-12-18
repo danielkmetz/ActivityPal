@@ -213,7 +213,6 @@ const styles = StyleSheet.create({
   photoContainer: {
     width: screenWidth,
     height: 400,
-    marginBottom: 15,
   },
   photo: {
     width: screenWidth,

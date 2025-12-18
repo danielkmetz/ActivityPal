@@ -1,113 +1,125 @@
-import React, { useEffect } from 'react';
-import { Modal, View, Text, StyleSheet, TouchableWithoutFeedback } from 'react-native';
-import Animated from 'react-native-reanimated';
-import useSlideDownDismiss from '../../utils/useSlideDown';
-import { GestureDetector } from 'react-native-gesture-handler';
-import { Avatar } from 'react-native-paper';
-import Notch from '../Notch/Notch';
-import { getTimeLabel } from '../../utils/formatEventPromoTime';
-import profilePicPlaceholder from '../../assets/pics/profile-pic-placeholder.jpg';
+import React, { useEffect } from "react";
+import { Modal, View, Text, StyleSheet, Pressable, ScrollView, Dimensions, TouchableWithoutFeedback } from "react-native";
+import Animated from "react-native-reanimated";
+import { GestureDetector } from "react-native-gesture-handler";
+import useSlideDownDismiss from "../../utils/useSlideDown";
+import Notch from "../Notch/Notch";
+import InviteActionButton from "../Reviews/Invites/InviteActionButton";
+import DetailsModalBody from './DetailsModalBody';
+import Hero from './Hero';
 
-const SuggestionDetailsModal = ({ visible, onClose, suggestion }) => {
-    const { businessName, distance, details } = suggestion;
-    const title = suggestion?.title || details?.title;
-    const description = suggestion?.description || details?.description;
-    const logoUrl = suggestion?.logoUrl || suggestion?.businessLogoUrl || profilePicPlaceholder;
-    const address = suggestion?.location?.formattedAddress || suggestion?.formattedAddress || details?.address; 
-    const { gesture, animateIn, animateOut, animatedStyle, } = useSlideDownDismiss(onClose);
-    
+const { height: screenHeight } = Dimensions.get("window");
+
+export default function SuggestionDetailsModal({
+    visible,
+    onClose,
+    suggestion,
+    existingInvite = null,
+    onPressBusiness = null,
+}) {
+    const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
+    const details = suggestion?.details || {};
+    const placeId = suggestion?.placeId || details?.placeId || null;
+
     useEffect(() => {
         if (visible) {
             animateIn();
         } else {
             (async () => {
                 await animateOut();
-                onClose();
             })();
         }
     }, [visible]);
 
+    const handlePressBusiness = async () => {
+        if (typeof onPressBusiness === "function") {
+            await animateOut();
+            onPressBusiness({ placeId, suggestion });
+        }
+    }
+
+    if (!visible) return null;
+
     return (
-        <Modal
-            transparent={true}
-            visible={visible}
-            onRequestClose={onClose}
-        >
-            <TouchableWithoutFeedback onPress={animateOut}>
-                <Animated.View style={styles.modalOverlay}>
+        <Modal transparent visible={visible} onRequestClose={animateOut}>
+            <TouchableWithoutFeedback onPress={animateOut} >
+                <View style={styles.overlay}>
                     <GestureDetector gesture={gesture}>
-                        <TouchableWithoutFeedback>
-                            <Animated.View style={[styles.modalContent, animatedStyle]}>
-                                <Notch />
-                                <View style={styles.header}>
-                                    <Avatar.Image
-                                        size={45}
-                                        rounded
-                                        source={{ uri: logoUrl }}
-                                        containerStyle={{ backgroundColor: "#ccc", marginRight: 10 }}
-                                    />
-                                    <View style={{ flexShrink: 1 }}>
-                                        <Text style={styles.businessName}>{businessName}</Text>
-                                        <Text style={[styles.distance, { marginTop: 5, }]}>{address}</Text>
-                                        <Text style={styles.distance}>
-                                            {distance ? `${(distance / 1609).toFixed(1)} mi away` : null}
-                                        </Text>
+                        <Animated.View style={[styles.sheet, animatedStyle]}>
+                            <TouchableWithoutFeedback onPress={() => { }}>
+                                <View>
+                                    <Notch />
+                                    <ScrollView
+                                        style={styles.body}
+                                        contentContainerStyle={styles.scrollContent}
+                                        showsVerticalScrollIndicator={false}
+                                    >
+                                        {/* Hero */}
+                                        <Hero suggestion={suggestion} />
+                                        {/* Everything below keeps your old body padding */}
+                                        <DetailsModalBody
+                                            onPressBusiness={handlePressBusiness}
+                                            suggestion={suggestion}
+                                        />
+                                    </ScrollView>
+                                    {/* Sticky CTA */}
+                                    <View style={styles.actionSheet}>
+                                        <InviteActionButton
+                                            suggestion={suggestion}
+                                            existingInvite={existingInvite}
+                                            variant="row"
+                                        />
+                                        <Pressable onPress={animateOut} style={styles.cancelRow}>
+                                            <Text style={styles.cancelRowText}>Close</Text>
+                                        </Pressable>
                                     </View>
                                 </View>
-                                <Text style={styles.modalTitle}>{title}</Text>
-                                <Text style={styles.modalTime}>{getTimeLabel(suggestion)}</Text>
-                                <Text style={styles.modalNote}>{description}</Text>
-                            </Animated.View>
-                        </TouchableWithoutFeedback>
+                            </TouchableWithoutFeedback>
+                        </Animated.View>
                     </GestureDetector>
-                </Animated.View>
+                </View>
             </TouchableWithoutFeedback>
         </Modal>
     );
-};
+}
 
 const styles = StyleSheet.create({
-    modalOverlay: {
+    overlay: {
         flex: 1,
-        justifyContent: 'flex-end',
-        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+        justifyContent: "flex-end",
+        backgroundColor: "rgba(0,0,0,0.40)",
     },
-    modalContent: {
-        backgroundColor: 'white',
-        padding: 20,
-        borderTopLeftRadius: 16,
-        borderTopRightRadius: 16,
-        minHeight: 180,
-        paddingBottom: 100
+    sheet: {
+        backgroundColor: "white",
+        borderTopLeftRadius: 18,
+        borderTopRightRadius: 18,
+        maxHeight: Math.round(screenHeight * 0.86),
+        overflow: "hidden",
+        paddingVertical: 10
     },
-    header: {
-        flexDirection: "row",
+    body: { flexGrow: 1 },
+    scrollContent: {
+        paddingTop: 0,
+        paddingBottom: 16,
+    },
+    actionSheet: {
+        backgroundColor: "rgba(255,255,255,0.98)",
+        borderTopWidth: 1,
+        borderTopColor: "rgba(0,0,0,0.08)",
+        shadowColor: "#000",
+        shadowOpacity: 0.10,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: -6 },
+        elevation: 18,
+    },
+    cancelRow: {
+        height: 54,
         alignItems: "center",
-        marginBottom: 10,
+        justifyContent: "center",
     },
-    modalTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginBottom: 10,
-    },
-    modalTime: {
-        fontSize: 14,
-        color: '#d32f2f',
-        fontWeight: '600',
-        marginBottom: 10,
-    },
-    modalNote: {
+    cancelRowText: {
         fontSize: 16,
-        color: '#666',
-    },
-    distance: {
-        fontSize: 12,
-        color: "#777",
-    },
-    businessName: {
-        fontSize: 15,
-        fontWeight: "600",
+        fontWeight: "900",
+        color: "#007bff",
     },
 });
-
-export default SuggestionDetailsModal;

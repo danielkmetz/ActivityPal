@@ -4,13 +4,15 @@ import { View, Image, StyleSheet, FlatList, Dimensions } from "react-native";
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const PHOTO_SIZE = SCREEN_WIDTH / 3; // Each photo is 1/3 of screen width
 
-const Photos = ({ photos }) => {  
+const Photos = ({ photos, ListHeaderComponent, ListFooterComponent }) => {  
   return (
     <FlatList
       data={photos}
       keyExtractor={(item) => item.url.split("?")[0]}
       numColumns={3} // ✅ Ensures 3 columns per row
       contentContainerStyle={styles.gridContainer}
+      ListHeaderComponent={ListHeaderComponent}
+      ListFooterComponent={ListFooterComponent}          
       renderItem={({ item }) => (
         <View style={styles.photoContainer}>
           <Image source={{ uri: item.url }} style={styles.photo} />

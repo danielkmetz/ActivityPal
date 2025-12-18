@@ -1,17 +1,11 @@
-import React, { useMemo, useState, useRef } from "react";
-import { View, Text, StyleSheet, Dimensions, TouchableWithoutFeedback, Animated } from "react-native";
-import { useNavigation } from "@react-navigation/native";
-import { Avatar } from "react-native-paper";
-import { useDispatch, useSelector } from "react-redux";
+import React, { useMemo, useRef } from "react";
+import { View, StyleSheet, Animated } from "react-native";
+import { useSelector } from "react-redux";
 import PhotoFeed from "../Photos/PhotoFeed";
-import profilePicPlaceholder from "../../../assets/pics/profile-pic-placeholder.jpg";
-import { logEngagementIfNeeded } from "../../../Slices/EngagementSlice";
 import { selectUserAndFriendsPosts } from "../../../Slices/PostsSelectors/postsSelectors";
 import { selectUser } from "../../../Slices/UserSlice";
-import { getTimeLabel } from "../../../utils/formatEventPromoTime";
-import InviteActionButton from '../Invites/InviteActionButton';
-
-const screenWidth = Dimensions.get("window").width;
+import { resolvePostContent } from "../../../utils/posts/resolvePostContent";
+import DetailsWrapper from "./DetailsWrapper";
 
 const isSameLocalDay = (a, b) => {
   const da = new Date(a);
@@ -41,41 +35,31 @@ const pickFallbackUrl = (s) =>
   s?.businessLogoUrl ||
   null;
 
-export default function SuggestionMedia({
-  suggestion,
-  scrollX,
-}) {
-  const navigation = useNavigation();
-  const dispatch = useDispatch();
-  const suggestionContent = suggestion?.original ?? suggestion ?? {};
-  const details = suggestionContent?.details;
-  const sharedPost = suggestion?.type === "sharedPost" || !!suggestion?.original;
+export default function SuggestionMedia({ suggestion, scrollX }) {
+  const suggestionContent = resolvePostContent(suggestion);
+
   const allPosts = useSelector(selectUserAndFriendsPosts);
   const me = useSelector(selectUser);
   const myUserId = me?._id || me?.id;
 
-  const {
-    businessName,
-    logoUrl,
-    businessLogoUrl,
-    distance,
-    placeId,
-    startTime,
-    endTime,
-    kind,
-  } = suggestionContent || {};
+  const { startTime, endTime, kind } = suggestionContent || {};
 
-  const resolvedLogoUrl = logoUrl || businessLogoUrl;
-  const title = details?.title || suggestionContent?.title;
-  const description = details?.description || suggestionContent?.description;
-  const overlayTextSize = sharedPost ? 14 : 16;
-  const [overlayVisible, setOverlayVisible] = useState(true);
   const internalScrollX = useRef(new Animated.Value(0)).current;
   const sx = scrollX || internalScrollX;
 
   const fallbackUrl = useMemo(
     () => pickFallbackUrl(suggestionContent),
-    [suggestionContent?._id, suggestionContent?.placeId, suggestionContent?.bannerUrl, suggestionContent?.coverUrl, suggestionContent?.imageUrl, suggestionContent?.photoUrl, suggestionContent?.url, suggestionContent?.logoUrl, suggestionContent?.businessLogoUrl]
+    [
+      suggestionContent?._id,
+      suggestionContent?.placeId,
+      suggestionContent?.bannerUrl,
+      suggestionContent?.coverUrl,
+      suggestionContent?.imageUrl,
+      suggestionContent?.photoUrl,
+      suggestionContent?.url,
+      suggestionContent?.logoUrl,
+      suggestionContent?.businessLogoUrl,
+    ]
   );
 
   const myInvites = useMemo(() => {
@@ -128,106 +112,15 @@ export default function SuggestionMedia({
   const wasSentToday = sentAt ? isSameLocalDay(sentAt, new Date()) : false;
   const existingInvite = rawInvite && wasSentToday ? { ...rawInvite, type: "invite" } : null;
 
-  const onNavigateBusiness = () => {
-    logEngagementIfNeeded(dispatch, {
-      targetType: "place",
-      targetId: placeId,
-      placeId,
-      engagementType: "click",
-    });
-    navigation.navigate("BusinessProfile", { business: suggestionContent });
-  };
-
   return (
-    <View style={styles.photoWrapper}>
-      <PhotoFeed
-        post={suggestion}
-        setOverlayVisible={setOverlayVisible}
-        scrollX={sx}
-        fallbackUrl={fallbackUrl} // ✅ NEW
-      />
-      {overlayVisible && (
-        <View style={styles.placeNameOverlay}>
-          <TouchableWithoutFeedback onPress={onNavigateBusiness}>
-            <View style={styles.overlayBusiness}>
-              <Avatar.Image
-                size={25}
-                source={resolvedLogoUrl ? { uri: resolvedLogoUrl } : profilePicPlaceholder}
-                style={styles.overlayAvatar}
-              />
-              <View style={styles.overlayTextContainer}>
-                <Text style={[styles.overlayText, { fontSize: overlayTextSize }]} numberOfLines={1}>
-                  {businessName}
-                </Text>
-                {distance && (
-                  <Text style={styles.overlaySubText}>
-                    {`${(distance / 1609).toFixed(1)} mi away`}
-                  </Text>
-                )}
-              </View>
-            </View>
-          </TouchableWithoutFeedback>
-        </View>
-      )}
-      {overlayVisible && (
-        <View style={styles.overlayTopText}>
-          <View style={styles.bottomTextContainer}>
-            <Text style={styles.eventPromoTitle} numberOfLines={1} ellipsizeMode="tail">
-              {title}
-            </Text>
-            <Text style={styles.eventPromoDescription} numberOfLines={2} ellipsizeMode="tail">
-              {description}
-            </Text>
-            <Text style={styles.eventPromoTime}>{getTimeLabel(suggestionContent)}</Text>
-          </View>
-          <InviteActionButton suggestion={suggestion} existingInvite={existingInvite} />
-        </View>
-      )}
+    <View style={styles.container}>
+      <DetailsWrapper suggestion={suggestion} existingInvite={existingInvite}>
+        <PhotoFeed post={suggestion} scrollX={sx} fallbackUrl={fallbackUrl} />
+      </DetailsWrapper>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  photoWrapper: { position: "relative", alignSelf: "center" },
-  placeNameOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    width: screenWidth,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    padding: 8,
-    zIndex: 2,
-  },
-  overlayTopText: {
-    position: "absolute",
-    bottom: 15,
-    left: 0,
-    right: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "rgba(0,0,0,0.65)",
-    padding: 8,
-    width: screenWidth,
-    zIndex: 2,
-  },
-  bottomTextContainer: { flex: 1, flexShrink: 1, marginRight: 8 },
-  overlayBusiness: { flexDirection: "row", alignItems: "center" },
-  overlayAvatar: { backgroundColor: "#ccc", marginRight: 10 },
-  overlayTextContainer: { flexShrink: 1, marginLeft: 5 },
-  eventPromoTitle: { color: "white", fontSize: 20, flexShrink: 1 },
-  eventPromoDescription: { color: "white", fontSize: 15, flexShrink: 1 },
-  overlayText: { color: "white", fontWeight: "bold" },
-  overlaySubText: { color: "white", fontSize: 13 },
-  inviteButton: {
-    backgroundColor: "#1E88E5",
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 15,
-    elevation: 2,
-    marginLeft: 8,
-  },
-  inviteText: { color: "#fff", fontWeight: "bold", fontSize: 14 },
-  eventPromoTime: { fontSize: 14, color: "#d32f2f", fontWeight: "600", marginTop: 4 },
+  container: { alignSelf: "center" },
 });

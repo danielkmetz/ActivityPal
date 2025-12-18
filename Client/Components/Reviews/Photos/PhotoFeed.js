@@ -7,6 +7,7 @@ import PhotoPaginationDots from "./PhotoPaginationDots";
 import { createPhotoFeedHandlers } from "./photoFeedHandlers";
 import { selectBanner } from "../../../Slices/PhotosSlice";
 import { resolveMediaList } from "../../../utils/Media/resolveMedia";
+import { resolvePostContent } from "../../../utils/posts/resolvePostContent";
 
 const screenWidth = Dimensions.get("window").width;
 
@@ -22,8 +23,6 @@ export default function PhotoFeed({
   photoTapped,
   setPhotoTapped,
   onActiveChange,
-  setOverlayVisible,
-  isCommentScreen = false,
   isMyEventsPromosPage = false,
   isInView = true,
   onIndexChange,
@@ -31,6 +30,7 @@ export default function PhotoFeed({
 }) {
   const dispatch = useDispatch();
   const navigation = useNavigation();
+  const postContent = resolvePostContent(post);
   const banner = useSelector(selectBanner);
   const media = useMemo(() => {
     return resolveMediaList(post, banner?.presignedUrl);
@@ -50,13 +50,11 @@ export default function PhotoFeed({
       createPhotoFeedHandlers({
         dispatch,
         navigation,
-        postContent: post?.original ?? post ?? {},
-        setOverlayVisible,
+        postContent,
         photoTapped,
-        isCommentScreen,
         isMyEventsPromosPage,
       }),
-    [dispatch, navigation, post?._id, photoTapped, setOverlayVisible, isCommentScreen, isMyEventsPromosPage]
+    [dispatch, navigation, post?._id, photoTapped, isMyEventsPromosPage]
   );
 
   const computeIndex = (e) => {

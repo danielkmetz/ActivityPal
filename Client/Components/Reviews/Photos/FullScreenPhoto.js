@@ -20,6 +20,7 @@ import { selectPromotionById } from '../../../Slices/PromotionsSlice';
 import { selectEventById } from '../../../Slices/EventsSlice';
 import { selectPostById } from '../../../Slices/PostsSelectors/postsSelectors';
 import PostActions from '../PostActions/PostActions';
+import { medium } from '../../../utils/Haptics/haptics';
 
 const { width, height } = Dimensions.get('window');
 
@@ -70,10 +71,35 @@ const FullScreenPhoto = () => {
 
   // ---- normalize files list (media/photos) ----
   const files = useMemo(() => {
-    if (!review) return [];
-    if (Array.isArray(review.media) && review.media.length) return review.media;
-    if (Array.isArray(review.photos) && review.photos.length) return review.photos;
-    return [];
+    const post = review?.original ?? review; // supports sharedPost wrappers too
+    if (!post) return [];
+
+    const media = Array.isArray(post.media) ? post.media : [];
+    const photos = Array.isArray(post.photos) ? post.photos : [];
+
+    if (media.length) return media;
+    if (photos.length) return photos;
+
+    // ✅ fallback for suggestions/events/promos that have a banner but no photos
+    const banner =
+      post.bannerUrl ||
+      post.details?.bannerUrl ||
+      post.banner?.url ||
+      post.banner?.uri ||
+      post.coverUrl ||
+      post.coverPhotoUrl;
+
+    if (!banner) return [];
+
+    return [
+      {
+        _id: `${post._id || post.placeId || 'post'}-banner`,
+        photoKey: 'banner',
+        url: banner,
+        uri: banner,
+        isBanner: true,
+      },
+    ];
   }, [review]);
 
   const flatListRef = useRef();
@@ -174,8 +200,7 @@ const FullScreenPhoto = () => {
     );
   }
 
-  const tagsForCurrent =
-    (taggedUsersByPhotoKey?.[currentFile?.photoKey] ?? currentFile?.taggedUsers ?? []) || [];
+  const tagsForCurrent = (taggedUsersByPhotoKey?.[currentFile?.photoKey] ?? currentFile?.taggedUsers ?? []) || [];
 
   return (
     <View style={{ flex: 1 }}>

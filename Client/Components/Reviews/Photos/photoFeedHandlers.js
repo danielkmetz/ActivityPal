@@ -9,9 +9,7 @@ export function createPhotoFeedHandlers({
   dispatch,
   navigation,
   postContent,
-  setOverlayVisible = () => {},
   photoTapped,
-  isCommentScreen = false,
   isMyEventsPromosPage = false,
 }) {
   const kind = normalizePostType(postContent); // may become 'event' or 'promotion' for suggestion wrappers
@@ -45,25 +43,20 @@ export function createPhotoFeedHandlers({
     });
   };
 
-  const toggleOverlay = () => {
-    if (typeof setOverlayVisible === 'function') setOverlayVisible((prev) => !prev);
-    const { targetType, targetId } = getEngagementTarget(postContent) || {};
-    logEngagementIfNeeded(dispatch, {
+  const handlePhotoTap = (photo, index) => {
+    if (isEventPromoOrSuggestion && !isMyEventsPromosPage) {
+      const { targetType, targetId } = getEngagementTarget(postContent) || {};
+    
+      logEngagementIfNeeded(dispatch, {
       targetType,
       targetId,
       placeId: postContent?.placeId,
       engagementType: 'click',
     });
-  };
-
-  const handlePhotoTap = (photo, index) => {
-    if (isEventPromoOrSuggestion && !isCommentScreen && !isMyEventsPromosPage) {
-      toggleOverlay();
-    } else {
-      onOpenFullScreen(photo, index);
     }
     if (typeof photoTapped === 'function') photoTapped(photo, index);
+    onOpenFullScreen(photo, index);
   };
 
-  return { onOpenFullScreen, toggleOverlay, handlePhotoTap };
+  return { onOpenFullScreen, handlePhotoTap };
 }

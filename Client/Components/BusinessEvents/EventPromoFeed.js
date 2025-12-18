@@ -75,7 +75,6 @@ export default function EventPromoFeed({
         ListFooterComponent={ListFooterComponent}
         renderItem={renderItem}
       />
-
       <SharePostModal
         visible={shareToFeedVisible}
         onClose={closeShareToFeed}
