@@ -3,16 +3,15 @@ import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import logoPlaceholder from '../../assets/pics/logo-placeholder.png';
 import RatingsData from '../Reviews/metricRatings/RatingsData';
+import FavoriteButton from './Favorites/FavoriteButton';
 
 export default function BusinessProfileHeader({
   logo,
   businessName,
   business,
   ratingData,
-  isFavorited,
   navgateToSettings,
   setEditModalVisible,
-  handleFavoritePress,
   handleSendMessage,
 }) {
   return (
@@ -39,15 +38,9 @@ export default function BusinessProfileHeader({
           </TouchableOpacity>
         ) : (
           <View style={styles.actionButtons}>
-            <TouchableOpacity
-              style={[styles.favoriteButton, isFavorited && styles.isFavorited]}
-              onPress={handleFavoritePress}
-            >
-              <Ionicons name="star" size={20} color="white" />
-              <Text style={styles.editProfileButtonText}>
-                {isFavorited ? 'Favorited' : 'Favorite'}
-              </Text>
-            </TouchableOpacity>
+            <FavoriteButton
+              business={business}
+            />
             <TouchableOpacity
               style={[styles.favoriteButton, { marginTop: 10 }]}
               onPress={handleSendMessage}
@@ -126,6 +119,7 @@ const styles = StyleSheet.create({
   },
   actionButtons: {
     justifyContent: 'flex-end',
+    alignItems: 'flex-end',
   },
   favoriteButton: {
     backgroundColor: 'teal',

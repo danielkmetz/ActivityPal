@@ -179,7 +179,7 @@ const typeDefs = gql`
 
   # -------- Shared building blocks --------
   type Request {
-    _id: ID!
+    _id: ID
     userId: ID!
     status: String!
     firstName: String

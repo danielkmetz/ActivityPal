@@ -24,7 +24,6 @@ function ProfileChrome({
   const banner = useSelector(selectBanner);
   const followingCount = useSelector((s) => (selectFollowing(s) || []).length);
   const followersCount = useSelector((s) => (selectFollowers(s) || []).length);
-
   const fullName = useMemo(() => {
     return `${user?.firstName || ""} ${user?.lastName || ""}`.trim();
   }, [user?.firstName, user?.lastName]);

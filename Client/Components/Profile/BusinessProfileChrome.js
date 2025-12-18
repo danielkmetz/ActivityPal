@@ -7,7 +7,6 @@ import bannerPlaceholder from "../../assets/pics/business-placeholder.png";
 import BusinessProfileHeader from "./BusinessProfileHeader";
 import BusinessNavTabs from "./BusinessNavTabs";
 import { selectUser, selectBusinessId, resetBusinessId } from "../../Slices/UserSlice";
-import { selectFavorites, addFavorite, removeFavorite } from "../../Slices/FavoritesSlice";
 import { selectConversations, chooseUserToMessage } from "../../Slices/DirectMessagingSlice";
 import { selectLogo, selectBusinessBanner, resetBusinessBanner, resetLogo } from "../../Slices/PhotosSlice";
 import { resetBusinessPosts } from "../../Slices/PostsSlice";
@@ -18,7 +17,6 @@ function BusinessProfileChrome({
   activeSection,
   setActiveSection,
   setEditModalVisible,      
-  setFavoriteModalVisible,  
 }) {
   const dispatch = useDispatch();
   const navigation = useNavigation();
@@ -36,11 +34,6 @@ function BusinessProfileChrome({
   const bannerUrl = banner?.presignedUrl || banner?.url || "";
   const ratingSelector = useMemo(() => selectRatingByPlaceId(placeId), [placeId]);
   const ratingData = useSelector(ratingSelector) || {};
-  const favorites = useSelector(selectFavorites) || [];
-  const isFavorited = useMemo(() => {
-    if (!placeId) return false;
-    return favorites.includes(placeId);
-  }, [favorites, placeId]);
   const conversations = useSelector(selectConversations) || [];
   const businessId = useSelector(selectBusinessId);
 
@@ -56,24 +49,8 @@ function BusinessProfileChrome({
     navigation.navigate("Settings");
   }, [navigation]);
 
-  const onToggleFavorite = useCallback(() => {
-    if (!placeId || !myId) return;
-
-    if (isFavorited) {
-      if (typeof setFavoriteModalVisible === "function") {
-        setFavoriteModalVisible(true);
-      } else {
-        dispatch(removeFavorite({ userId: myId, placeId }));
-      }
-      return;
-    }
-
-    dispatch(addFavorite({ userId: myId, placeId }));
-  }, [dispatch, isFavorited, myId, placeId, setFavoriteModalVisible]);
-
   const onSendMessage = useCallback(() => {
     if (!viewingOtherBusiness) return;
-
     const currentUserId = myId;
     const otherId = toId(businessId);
     if (!currentUserId || !otherId) return;
@@ -117,12 +94,10 @@ function BusinessProfileChrome({
       <BusinessProfileHeader
         logo={logo}
         businessName={businessName}
-        business={businessParam} // keep your “other business vs self” logic inside header
+        business={businessParam} 
         ratingData={ratingData}
-        isFavorited={isFavorited}
         navgateToSettings={onGoSettings}
         setEditModalVisible={setEditModalVisible}
-        handleFavoritePress={onToggleFavorite}
         handleSendMessage={onSendMessage}
       />
       <View style={styles.divider} />

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import profilePicPlaceholder from '../../../assets/pics/profile-pic-placeholder.jpg';
@@ -13,14 +13,18 @@ export default function OtherUserHeader({
   openFollowers,
   openFollowing,
 }) {
+  const bannerSource = useMemo(
+    () => (bannerUrl ? { uri: bannerUrl } : null),
+    [bannerUrl]
+  );
+
   return (
     <>
       <TouchableOpacity style={styles.backButton} onPress={onBack}>
         <Ionicons name="chevron-back" size={24} color="gray" />
       </TouchableOpacity>
-
-      {bannerUrl ? (
-        <Image source={{ uri: bannerUrl }} style={styles.coverPhoto} />
+      {!!bannerSource ? (
+        <Image source={bannerSource} style={styles.coverPhoto} />
       ) : (
         <View style={[styles.coverPhoto, { backgroundColor: 'teal' }]} />
       )}
