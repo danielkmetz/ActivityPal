@@ -5,8 +5,6 @@
     },
     "dependencies": {
         "@apollo/server": "^4.11.3",
-        "@aws-sdk/client-ivs": "^3.864.0",
-        "@aws-sdk/client-mediaconvert": "^3.812.0",
         "@aws-sdk/client-s3": "^3.730.0",
         "@aws-sdk/lib-storage": "^3.821.0",
         "@aws-sdk/s3-request-presigner": "^3.732.0",
@@ -21,8 +19,6 @@
         "dotenv": "^16.4.7",
         "express": "^4.21.2",
         "express-validator": "^7.2.0",
-        "ffmpeg-static": "^5.2.0",
-        "fluent-ffmpeg": "^2.1.3",
         "franc": "^6.2.0",
         "graphql": "^16.10.0",
         "graphql-depth-limit": "^1.1.0",

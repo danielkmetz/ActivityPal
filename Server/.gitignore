@@ -1,0 +1,14 @@
+# env files (never commit)
+.env
+.env.*
+*.env
+
+# Node/Express server junk
+logs/
+*.log
+coverage/
+.tmp/
+.cache/
+
+uploads/
+tmp/
