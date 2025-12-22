@@ -31,10 +31,12 @@ import hiddenPostsReducer from './Slices/HiddenPostsSlice';
 import BlocksReducer from './Slices/BlocksSlice';
 import uiReducer from './Slices/uiSlice';
 import invitesReducer from './Slices/InvitesSlice';
+import placePhotosReducer from './Slices/PlacePhotosSlice';
 
 const store = configureStore({
     reducer: combineReducers({
         location: locationReducer,
+        placePhotos: placePhotosReducer,
         places: placesReducer,
         preferences: preferencesReducer,
         user: userReducer,
