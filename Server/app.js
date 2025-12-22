@@ -41,6 +41,8 @@ const hiddenTags = require('./routes/hiddenTags');
 const hiddenPosts = require('./routes/hiddenPosts');
 const blocks = require('./routes/blocks');
 const conflicts = require('./routes/inviteConflicts');
+const location = require('./routes/location');
+const weather = require('./routes/weather');
 
 // Initialize app
 const app = express();
@@ -131,6 +133,9 @@ app.use('/api/hidden-tags', hiddenTags);
 app.use('/api/hidden-posts', hiddenPosts);
 app.use('/api/blocks', blocks);
 app.use('/api/conflicts', conflicts);
+app.use('/api/location', location);
+app.use('/api/weather', weather);
+app.use("/api/place-photos", require("./routes/placePhotos"));
 
 (async () => {
   const { io, liveBus } = await attachSocketServer(server); // await + correct key

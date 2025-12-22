@@ -4,7 +4,6 @@ import { getUserToken } from "../functions";
 import { GET_BUSINESS_RATING_SUMMARIES } from "./GraphqlQueries/Queries/businessRatingSummary";
 import axios from 'axios';
 import client from '../apolloClient';
-import { gql } from "@apollo/client";
 
 const apiKey = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
