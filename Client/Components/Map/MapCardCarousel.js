@@ -3,7 +3,7 @@ import { View, Text, Image, FlatList, StyleSheet, Dimensions, TouchableOpacity, 
 
 const { width } = Dimensions.get('window');
 
-const MapCardCarousel = ({ activities, onCardPress, carouselRef, onEndReached, loadingMore, }) => {
+const MapCardCarousel = ({ activities = [], onCardPress, carouselRef, onEndReached, loadingMore, }) => {
   const renderItem = ({ item }) => (
     <TouchableOpacity onPress={() => onCardPress?.(item.location, item.place_id)}>
         <View style={styles.card}>

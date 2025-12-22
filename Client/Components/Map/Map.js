@@ -7,7 +7,7 @@ import MapCardCarousel from './MapCardCarousel';
 
 const { width, height } = Dimensions.get('window');
 
-export default function Map({ activities = [], onEndReached, loadingMore }) {
+export default function ActivityMap({ activities = [], onEndReached, loadingMore }) {
     const coordinates = useSelector(selectCoordinates);
     const [activePlaceId, setActivePlaceId] = useState(null);
     const [zoomLevel, setZoomLevel] = useState(0.01);
@@ -51,7 +51,7 @@ export default function Map({ activities = [], onEndReached, loadingMore }) {
 
     const getZoomCenter = () => {
         if (activePlaceId) {
-            const active = activities.find(a => a.place_id === activePlaceId);
+            const active = activities?.find(a => a.place_id === activePlaceId);
             if (active?.location) {
                 return {
                     latitude: active.location.lat,
@@ -131,8 +131,7 @@ export default function Map({ activities = [], onEndReached, loadingMore }) {
                     pinColor="red"
                     title="You are here"
                 />
-
-                {activities.map((activity, index) => {
+                {activities?.map((activity, index) => {
                     const location = activity?.location;
                     if (!location) return null;
 
@@ -179,7 +178,6 @@ export default function Map({ activities = [], onEndReached, loadingMore }) {
                     );
                 })}
             </MapView>
-
             <MapCardCarousel
                 activities={activities}
                 onCardPress={handleCardPress}

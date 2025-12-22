@@ -32,12 +32,14 @@ import BlocksReducer from './Slices/BlocksSlice';
 import uiReducer from './Slices/uiSlice';
 import invitesReducer from './Slices/InvitesSlice';
 import placePhotosReducer from './Slices/PlacePhotosSlice';
+import placeSearchReducer from './Slices/placeSearchSlice';
 
 const store = configureStore({
     reducer: combineReducers({
         location: locationReducer,
         placePhotos: placePhotosReducer,
         places: placesReducer,
+        placeSearch: placeSearchReducer,
         preferences: preferencesReducer,
         user: userReducer,
         events: eventsReducer,

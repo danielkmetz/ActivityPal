@@ -54,6 +54,7 @@ app.use(express.json());
 app.use(morgan('dev'));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+app.set("trust proxy", 1);
 
 // MongoDB connection
 const dbURI = '***REMOVED***';
@@ -136,6 +137,7 @@ app.use('/api/conflicts', conflicts);
 app.use('/api/location', location);
 app.use('/api/weather', weather);
 app.use("/api/place-photos", require("./routes/placePhotos"));
+app.use("/api/places", require("./routes/places"));
 
 (async () => {
   const { io, liveBus } = await attachSocketServer(server); // await + correct key
