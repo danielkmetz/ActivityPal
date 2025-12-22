@@ -12,11 +12,10 @@ import { selectCoordinates, selectManualCoordinates } from "../../Slices/Locatio
 import { milesToMeters } from "../../functions";
 import { selectPagination, incrementPage, selectIsOpen, selectSortOptions, resetPage } from "../../Slices/PaginationSlice";
 import { useNavigation } from "@react-navigation/native";
-import Map from "../Map/Map";
+import ActivityMap from "../Map/Map";
 import SearchBar from "./SearchBar";
 import QuickFilters from "./QuickFilters";
 import sortActivities from "../../utils/sortActivities";
-import { fetchPlaceThumbnail, selectPlaceThumbnailsById } from "../../Slices/placePhotosSlice";
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
@@ -41,27 +40,18 @@ const ActivityPage = ({ scrollY, onScroll }) => {
   const activities = useSelector(selectGooglePlaces) || [];
   const events = useSelector(selectEvents) || [];
   const eventType = useSelector(selectEventType);
-
   const businessData = useSelector(selectBusinessData) || [];
   const isMapView = useSelector(selectIsMapView);
-
   const autoCoordinates = useSelector(selectCoordinates);
   const manualCoordinates = useSelector(selectManualCoordinates);
   const isOpenNow = useSelector(selectIsOpen);
-
   const sortOption = useSelector(selectSortOptions);
   const { currentPage, perPage, categoryFilter } = useSelector(selectPagination);
-
-  // NEW: place thumbnails stored in Redux, not local component state
-  const placeImages = useSelector(selectPlaceThumbnailsById);
-
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const listRef = useRef(null);
-
   const coordinates = manualCoordinates ? manualCoordinates : autoCoordinates;
   const lat = coordinates?.lat;
   const lng = coordinates?.lng;
-
   const manualDistance = milesToMeters(7);
   const manualDistanceDining = milesToMeters(5);
   const manualBudget = "$$$$";
@@ -139,28 +129,11 @@ const ActivityPage = ({ scrollY, onScroll }) => {
     [dispatch, lat, lng, manualDistance, manualDistanceDining, manualBudget]
   );
 
-  // NEW: this no longer calls Google. It dispatches a thunk that calls your backend.
-  const fetchPlaceImage = useCallback(
-    async (placeId) => {
-      if (!placeId) return null;
-      if (placeImages?.[placeId]) return placeImages[placeId];
-
-      try {
-        const out = await dispatch(fetchPlaceThumbnail(placeId)).unwrap();
-        return out?.url || null;
-      } catch {
-        return null;
-      }
-    },
-    [dispatch, placeImages]
-  );
-
   const paginateRegular = (full = [], pageNum, per) => {
     const endIndex = pageNum * per;
     return full.slice(0, endIndex);
   };
 
-  // SPEED: build a lookup map for businessData (kills the O(n^2) find loop)
   const businessByPlaceId = useMemo(() => {
     const map = new Map();
     (Array.isArray(businessData) ? businessData : []).forEach((b) => {
@@ -260,8 +233,8 @@ const ActivityPage = ({ scrollY, onScroll }) => {
     const categoryFiltered =
       Array.isArray(categoryFilter) && categoryFilter.length > 0
         ? combinedList.filter((item) =>
-            categoryFilter.some((filter) => item.cuisine?.toLowerCase() === filter.toLowerCase())
-          )
+          categoryFilter.some((filter) => item.cuisine?.toLowerCase() === filter.toLowerCase())
+        )
         : combinedList;
 
     const openNowFiltered = isOpenNow
@@ -314,7 +287,7 @@ const ActivityPage = ({ scrollY, onScroll }) => {
                         ListEmptyComponent={<Text style={{ textAlign: "center", marginTop: 20 }}>No results</Text>}
                       />
                     ) : (
-                      <Map
+                      <ActivityMap
                         activities={filteredDisplayList}
                         onEndReached={handleLoadMore}
                         loadingMore={filteredDisplayList.length < highlighted.length + regular.length}
@@ -327,8 +300,6 @@ const ActivityPage = ({ scrollY, onScroll }) => {
                       lat={lat}
                       lng={lng}
                       onSelectPlace={handlePress}
-                      fetchPlaceImage={fetchPlaceImage}
-                      placeImages={placeImages}
                     />
                     <QuickFilters keyboardOpen={keyboardOpen} onFilterPress={handleActivityFetch} icons={filterIcons} />
                   </>

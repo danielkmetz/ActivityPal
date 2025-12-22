@@ -21,6 +21,9 @@
         "NSPhotoLibraryUsageDescription": "We need access to your photo library to attach photos and videos.",
         "NSPhotoLibraryAddUsageDescription": "We need access to save media you create.",
         "NSLocationWhenInUseUsageDescription": "ActivityPal uses your location to show nearby activities and events on the map.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        },
         "ITSAppUsesNonExemptEncryption": false
       }
     },

@@ -1,37 +1,61 @@
 const express = require("express");
 const axios = require("axios");
 const router = express.Router();
+const { getThumbnailUrl, getThumbnailUrls } = require("../services/placeThumbnails");
 
 const GOOGLE_KEY = process.env.GOOGLE_KEY;
+const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL;
 
+function normalizeBase(baseUrl) {
+  const b = String(baseUrl || "").trim();
+  return b.endsWith("/") ? b.slice(0, -1) : b;
+}
+
+// ✅ Batch thumbnails (one request returns { [placeId]: url|null })
+router.post("/thumbnails", async (req, res) => {
+  try {
+    const placeIdsRaw = req.body?.placeIds;
+    if (!Array.isArray(placeIdsRaw)) {
+      return res.status(400).json({ error: "placeIds must be an array" });
+    }
+    if (!GOOGLE_KEY) {
+      return res.status(500).json({ error: "Server misconfigured (GOOGLE_KEY missing)" });
+    }
+
+    const placeIds = placeIdsRaw
+      .map((x) => (typeof x === "string" ? x.trim() : ""))
+      .filter(Boolean);
+
+    const MAX = 12;
+    const unique = Array.from(new Set(placeIds)).slice(0, MAX);
+    if (unique.length === 0) return res.json({ results: {} });
+
+    const base = normalizeBase(PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`);
+
+    const results = await getThumbnailUrls(unique, base, { limit: MAX, concurrency: 5 });
+    return res.json({ results });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to batch thumbnails" });
+  }
+});
+
+// ✅ Single thumbnail (kept for backwards compatibility)
 router.get("/thumbnail", async (req, res) => {
   try {
     const { placeId } = req.query;
     if (!placeId) return res.status(400).json({ error: "Missing placeId" });
-    if (!GOOGLE_KEY) return res.status(500).json({ error: "Server misconfigured (GOOGLE_MAPS_API_KEY missing)" });
+    if (!GOOGLE_KEY) return res.status(500).json({ error: "Server misconfigured (GOOGLE_KEY missing)" });
 
-    const detailsUrl = "https://maps.googleapis.com/maps/api/place/details/json";
-    const details = await axios.get(detailsUrl, {
-      params: { place_id: placeId, fields: "photos", key: GOOGLE_KEY },
-      timeout: 12000,
-    });
+    const base = normalizeBase(PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`);
+    const url = await getThumbnailUrl(placeId, base);
 
-    const photoRef = details.data?.result?.photos?.[0]?.photo_reference;
-    if (!photoRef) return res.json({ url: null });
-
-    // IMPORTANT: you can either:
-    // A) Return the Google photo URL (still uses your server key! not good)
-    // B) Proxy the image bytes through YOUR server (better)
-    //
-    // We'll do B: give back a proxied URL that your server can serve.
-    const proxiedUrl = `/api/places/photo?photoRef=${encodeURIComponent(photoRef)}&maxwidth=300`;
-    return res.json({ url: proxiedUrl });
+    return res.json({ url: url ?? null });
   } catch (err) {
     return res.status(500).json({ error: "Failed to get thumbnail" });
   }
 });
 
-// Optional: proxy the actual photo bytes
+// ✅ Proxy the actual photo bytes (unchanged, but slightly hardened)
 router.get("/photo", async (req, res) => {
   try {
     const { photoRef, maxwidth = 300 } = req.query;
@@ -49,7 +73,8 @@ router.get("/photo", async (req, res) => {
     if (r.status >= 400) return res.status(502).send("Photo fetch failed");
 
     res.set("Content-Type", r.headers["content-type"] || "image/jpeg");
-    res.set("Cache-Control", "public, max-age=86400"); // cache 1 day
+    res.set("Cache-Control", "public, max-age=604800, stale-while-revalidate=86400"); // 7d + SWR
+
     return res.send(Buffer.from(r.data));
   } catch (err) {
     return res.status(500).send("Photo proxy failed");
