@@ -1,25 +1,9 @@
-import React, { useRef, useMemo } from 'react';
-import {
-  View,
-  Text,
-  FlatList,
-  TouchableOpacity,
-  Image,
-  StyleSheet,
-} from 'react-native';
-import { FontAwesome, Feather } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
-
-// items shape:
-// {
-//   id: string,
-//   type: 'you' | 'invite' | 'friends' | 'hot',
-//   timeLabel: string,
-//   mainLabel: string,
-//   imageUrl?: string | null,
-//   badge?: string,
-//   ...meta
-// }
+import React, { useRef, useMemo, useCallback } from "react";
+import { View, Text, FlatList, StyleSheet } from "react-native";
+import { FontAwesome } from "@expo/vector-icons";
+import HappeningBubble from "./HappeningBubble";
+import MyPlansBubble from "./MyPlansBubble";
+import CreatePlanBubble from "./CreatePlanBubble";
 
 export default function WhatsHappeningStrip({
   items = [],
@@ -28,14 +12,11 @@ export default function WhatsHappeningStrip({
   onPressCreatePlan,
   onSeenFriendsItems,
 }) {
-  const navigation = useNavigation();
   const safeItems = Array.isArray(items) ? items : [];
-
-  const viewabilityConfig = { itemVisiblePercentThreshold: 60 };
-
-  const handlePressMyPlans = () => {
-    navigation.navigate('MyPlans');
-  };
+  const viewabilityConfig = useMemo(
+    () => ({ itemVisiblePercentThreshold: 60 }),
+    []
+  );
 
   const onViewableItemsChanged = useRef(({ viewableItems }) => {
     if (!onSeenFriendsItems) return;
@@ -43,119 +24,55 @@ export default function WhatsHappeningStrip({
     const list = Array.isArray(viewableItems) ? viewableItems : [];
 
     const seenFriendIds = list
-      .map(v => v.item)
-      .filter(
-        item => item && item.type === 'friends' && typeof item.id === 'string'
-      )
-      .map(item => item.id);
+      .map((v) => v && v.item)
+      .filter((item) => item && item.type === "friends" && typeof item.id === "string")
+      .map((item) => item.id);
 
     if (seenFriendIds.length > 0) {
       onSeenFriendsItems(seenFriendIds);
     }
   }).current;
 
-  // ---- NEW: derive a single "my plans" source and remove it from list ----
-  const { myPlansItem, otherItems } = useMemo(() => {
-    const youItem = safeItems.find(item => item && item.type === 'you');
-    const filtered = youItem
-      ? safeItems.filter(item => item !== youItem)
-      : safeItems;
-
-    return {
-      myPlansItem: youItem || null,
-      otherItems: filtered,
-    };
-  }, [safeItems]);
-
-  const renderCreateBubble = () => (
-    <TouchableOpacity
-      style={[styles.bubbleWrapper, styles.bubbleWrapperLast]}
-      onPress={onPressCreatePlan}
-      activeOpacity={0.8}
-    >
-      <View style={[styles.bubble, styles.createBubble]}>
-        <Feather name="plus" size={26} />
-      </View>
-      <Text style={styles.timeLabel}>Plan</Text>
-      <Text style={styles.subLabel}>something</Text>
-    </TouchableOpacity>
+  // If you still inject a `type: 'you'` item into items, strip it out here.
+  // If not, delete this filter entirely.
+  const otherItems = useMemo(
+    () => safeItems.filter((it) => it && it.type !== "you"),
+    [safeItems]
   );
 
-  // Single My Plans bubble, powered by myPlansItem if it exists
-  const renderMyPlansBubble = () => {
-    if (!handlePressMyPlans) return null;
+  const renderHeader = useCallback(() => {
+    const photoUrl = myPlansMeta?.imageUrl || null;
+    const badge = myPlansMeta?.badge || null;
+    return <MyPlansBubble imageUrl={photoUrl} badge={badge} />;
+  }, [myPlansMeta]);
 
-    const photoUrl = myPlansMeta?.imageUrl;
-    const badge = myPlansMeta?.badge;
-
+  const renderFooter = useCallback(() => {
     return (
-      <TouchableOpacity
-        style={styles.bubbleWrapper}
-        onPress={handlePressMyPlans}
-        activeOpacity={0.8}
-      >
-        <View style={[styles.bubble, styles.myPlansBubble]}>
-          {photoUrl ? (
-            <Image
-              source={{ uri: photoUrl }}
-              style={styles.bubbleImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.bubbleFallback}>
-              <Feather name="calendar" size={22} />
-            </View>
-          )}
-          {badge ? (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{badge}</Text>
-            </View>
-          ) : null}
-        </View>
-        <Text style={styles.timeLabel} numberOfLines={1}>
-          My plans
-        </Text>
-        <Text style={styles.subLabel} numberOfLines={2}>
-          Past &amp; upcoming
-        </Text>
-      </TouchableOpacity>
+      <CreatePlanBubble
+        onPressCreatePlan={onPressCreatePlan}
+        wrapperStyle={{ marginRight: 8 }}
+      />
     );
-  };
+  }, [onPressCreatePlan]);
 
-  const renderItem = ({ item }) => (
-    <TouchableOpacity
-      style={styles.bubbleWrapper}
-      onPress={() => onPressItem && onPressItem(item)}
-      activeOpacity={0.8}
-    >
-      <View style={styles.bubble}>
-        {item.imageUrl ? (
-          <Image
-            source={{ uri: item.imageUrl }}
-            style={styles.bubbleImage}
-            resizeMode="cover"
-          />
-        ) : (
-          <View style={styles.bubbleFallback}>
-            <FontAwesome name="map-marker" size={24} />
-          </View>
-        )}
-
-        {item.badge ? (
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>{item.badge}</Text>
-          </View>
-        ) : null}
-      </View>
-
-      <Text style={styles.timeLabel} numberOfLines={1}>
-        {item.timeLabel}
-      </Text>
-      <Text style={styles.subLabel} numberOfLines={2}>
-        {item.mainLabel}
-      </Text>
-    </TouchableOpacity>
+  const renderItem = useCallback(
+    ({ item }) => (
+      <HappeningBubble
+        imageUrl={item?.imageUrl || null}
+        badge={item?.badge || null}
+        timeLabel={item?.timeLabel || ""}
+        subLabel={item?.mainLabel || ""}
+        onPress={() => onPressItem && onPressItem(item)}
+        fallback={<FontAwesome name="map-marker" size={24} />}
+      />
+    ),
+    [onPressItem]
   );
+
+  const keyExtractor = useCallback((item, index) => {
+    const id = item && item.id;
+    return typeof id === "string" && id.length ? id : `item-${index}`;
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -164,15 +81,14 @@ export default function WhatsHappeningStrip({
           <Text style={styles.title}>What’s happening</Text>
         </View>
       </View>
-
       <FlatList
         horizontal
         showsHorizontalScrollIndicator={false}
         data={otherItems}
-        keyExtractor={item => String(item.id)}
+        keyExtractor={keyExtractor}
         renderItem={renderItem}
-        ListHeaderComponent={renderMyPlansBubble}
-        ListFooterComponent={renderCreateBubble}
+        ListHeaderComponent={renderHeader}
+        ListFooterComponent={renderFooter}
         contentContainerStyle={styles.listContent}
         viewabilityConfig={viewabilityConfig}
         onViewableItemsChanged={onViewableItemsChanged}
@@ -181,8 +97,6 @@ export default function WhatsHappeningStrip({
   );
 }
 
-const BUBBLE_SIZE = 68;
-
 const styles = StyleSheet.create({
   container: {
     paddingTop: 8,
@@ -190,88 +104,16 @@ const styles = StyleSheet.create({
   },
   headerRow: {
     paddingHorizontal: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
   },
   title: {
     fontSize: 18,
-    fontWeight: '700',
-  },
-  subtitle: {
-    marginTop: 2,
-    fontSize: 12,
-    color: '#777',
-  },
-  seeAllText: {
-    fontSize: 12,
-    color: '#4A8DFF',
+    fontWeight: "700",
   },
   listContent: {
     paddingHorizontal: 8,
     paddingTop: 8,
-  },
-  bubbleWrapper: {
-    width: BUBBLE_SIZE + 10,
-    marginHorizontal: 4,
-    alignItems: 'center',
-  },
-  bubbleWrapperLast: {
-    marginRight: 8,
-  },
-  bubble: {
-    width: BUBBLE_SIZE,
-    height: BUBBLE_SIZE,
-    borderRadius: BUBBLE_SIZE / 2,
-    backgroundColor: '#F3F4F6',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 4,
-    overflow: 'hidden',
-  },
-  bubbleImage: {
-    width: '100%',
-    height: '100%',
-  },
-  bubbleFallback: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  createBubble: {
-    backgroundColor: '#EEF2FF',
-  },
-  badge: {
-    position: 'absolute',
-    bottom: 2,
-    alignSelf: 'center',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 10,
-    backgroundColor: '#111',
-  },
-  badgeText: {
-    color: '#fff',
-    fontSize: 9,
-    fontWeight: '600',
-  },
-  timeLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  subLabel: {
-    fontSize: 11,
-    color: '#555',
-    textAlign: 'center',
-  },
-  hitSlop: {
-    top: 8,
-    bottom: 8,
-    left: 8,
-    right: 8,
-  },
-  myPlansBubble: {
-    backgroundColor: '#DBEAFE',
   },
 });

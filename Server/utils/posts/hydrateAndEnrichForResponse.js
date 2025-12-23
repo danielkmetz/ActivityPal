@@ -1,8 +1,7 @@
-const { Post } = require('../../models/Post'); // unified model
+const { Post } = require('../../models/Post'); 
 const Promotion = require('../../models/Promotions');
 const Event = require('../../models/Events');
-const LiveStream = require('../../models/LiveStream');
-const { enrichOneOrMany } = require('../enrichPosts'); // helper from above
+const { enrichOneOrMany } = require('../enrichPosts');
 const { filterHiddenPosts } = require('./filterHiddenPosts');
 
 /**
@@ -51,9 +50,7 @@ async function buildOriginalMapForIds(ids) {
   if (!uniqIds.length) return originalMap;
 
   const postOriginals = await Post.find({ _id: { $in: uniqIds } }).lean();
-  for (const o of postOriginals) {
-    originalMap.set(String(o._id), o);
-  }
+  for (const o of postOriginals) originalMap.set(String(o._id), o);
 
   const promoOriginals = await Promotion.find({ _id: { $in: uniqIds } }).lean();
   for (const o of promoOriginals) {
@@ -79,48 +76,193 @@ async function buildOriginalMapForIds(ids) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Invite filtering (NEW)                                             */
+/* ------------------------------------------------------------------ */
+
+function isInviteDoc(doc) {
+  if (!doc) return false;
+  const t = String(doc.type || doc.canonicalType || doc.kind || '').toLowerCase();
+  return t === 'invite';
+}
+
+function parseDateSafe(v) {
+  if (!v) return null;
+  const d = v instanceof Date ? v : new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Decide what timestamp makes an invite "past".
+ * Priority: endsAt/endTime -> startsAt/startTime -> date -> createdAt
+ */
+function getInviteEndDate(invite) {
+  // Your schema guarantees details.dateTime for invites
+  return parseDateSafe(invite?.details?.dateTime) || parseDateSafe(invite?.sortDate) || null;
+}
+
+function isPastInvite(invite, now = Date.now()) {
+  const end = getInviteEndDate(invite);
+  if (!end) return false;
+  return end.getTime() < now;
+}
+
+/**
+ * "Involved" = hosted OR went.
+ * Hosted: invite.userId OR invite.hostId OR details.hostId matches viewerId.
+ * Went: viewer is in details.recipients with an affirmative status.
+ */
+function isViewerInvolvedInInvite(invite, viewerId) {
+  if (!invite || !viewerId) return false;
+  const v = String(viewerId);
+
+  // Host is the post owner for invites
+  if (invite.ownerId && String(invite.ownerId) === v) return true;
+
+  const recipients = Array.isArray(invite.details?.recipients) ? invite.details.recipients : [];
+  const r = recipients.find((x) => x?.userId && String(x.userId) === v);
+  if (r && String(r.status).toLowerCase() === 'accepted') return true;
+
+  // If you allow “requests” to become accepted participation:
+  const requests = Array.isArray(invite.details?.requests) ? invite.details.requests : [];
+  const req = requests.find((x) => x?.userId && String(x.userId) === v);
+  if (req && String(req.status).toLowerCase() === 'accepted') return true;
+
+  return false;
+}
+
+function setNeedsRecapFlag(target, needsRecap) {
+  if (!target) return;
+  target.needsRecap = !!needsRecap;
+  if (target.details && typeof target.details === 'object') {
+    target.details = { ...target.details, needsRecap: !!needsRecap };
+  }
+}
+
+/**
+ * Find which inviteIds already have a recap by this viewer.
+ * Assumption: recap posts store refs.relatedInviteId = inviteId
+ * and are type/canonicalType in review/check-in variants.
+ */
+async function buildRecapInviteIdSet(inviteIds, viewerId) {
+  const out = new Set();
+  const ids = (inviteIds || []).map(String).filter(Boolean);
+  if (!viewerId || ids.length === 0) return out;
+
+  // Only recap-capable post types in your model
+  const recapTypes = ['review', 'check-in'];
+
+  // Fast: distinct uses your existing index:
+  // BasePostSchema.index({ 'refs.relatedInviteId': 1, ownerId: 1, type: 1 });
+  const raw = await Post.distinct('refs.relatedInviteId', {
+    ownerId: viewerId,
+    type: { $in: recapTypes },
+    'refs.relatedInviteId': { $in: ids },
+  });
+
+  for (const rid of raw || []) out.add(String(rid));
+  return out;
+}
+
+/**
+ * Filter logic described by you.
+ * - Past + not involved => drop
+ * - Past + involved + recap done => drop
+ * - Past + involved + recap NOT done => keep, mark needsRecap
+ */
+async function filterInvitesForViewer(posts, viewerId) {
+  if (!Array.isArray(posts) || posts.length === 0) return [];
+  const now = Date.now();
+
+  // Collect candidate invite IDs that might need recap-checking (past + involved).
+  const recapCheckIds = [];
+
+  for (const p of posts) {
+    const invite =
+      isInviteDoc(p) ? p :
+      (p?.type === 'sharedPost' && isInviteDoc(p?.original)) ? p.original :
+      null;
+
+    if (!invite) continue;
+    if (!isPastInvite(invite, now)) continue;
+
+    if (isViewerInvolvedInInvite(invite, viewerId)) {
+      recapCheckIds.push(String(invite._id));
+    }
+  }
+
+  const recapDoneSet = await buildRecapInviteIdSet(recapCheckIds, viewerId);
+
+  const filtered = [];
+
+  for (const p of posts) {
+    const isDirectInvite = isInviteDoc(p);
+    const isSharedInvite = p?.type === 'sharedPost' && isInviteDoc(p?.original);
+
+    if (!isDirectInvite && !isSharedInvite) {
+      filtered.push(p);
+      continue;
+    }
+
+    const invite = isDirectInvite ? p : p.original;
+    const past = isPastInvite(invite, now);
+
+    if (!past) {
+      // Future/current invites always keep
+      filtered.push(p);
+      continue;
+    }
+
+    const involved = isViewerInvolvedInInvite(invite, viewerId);
+
+    if (!involved) {
+      // Past + not involved => drop
+      continue;
+    }
+
+    const recapDone = recapDoneSet.has(String(invite._id));
+
+    if (recapDone) {
+      // Past + involved + recap submitted => drop
+      continue;
+    }
+
+    // Past + involved + recap NOT submitted => keep, mark needsRecap
+    setNeedsRecapFlag(p, true);
+    if (p?.original) setNeedsRecapFlag(p.original, true);
+    if (p?.shared?.snapshot) setNeedsRecapFlag(p.shared.snapshot, true);
+
+    filtered.push(p);
+  }
+
+  return filtered;
+}
+
+/* ------------------------------------------------------------------ */
 /* Promo / Event helpers                                              */
 /* ------------------------------------------------------------------ */
 
 function isPromoOrEventDoc(doc) {
   if (!doc) return false;
-  const t = String(
-    doc.canonicalType || doc.kind || doc.type || ''
-  ).toLowerCase();
+  const t = String(doc.canonicalType || doc.kind || doc.type || '').toLowerCase();
   return t === 'promotion' || t === 'event';
 }
 
-/**
- * Build EventDetails / PromotionDetails from the enriched promo/event doc.
- * Assumes businessAddress has already been injected via enrichPosts.
- */
 function hydratePromoOrEventDetails(doc) {
   if (!doc || !isPromoOrEventDoc(doc)) return doc;
 
   const businessAddress = doc.businessAddress || null;
 
-  // If details already exist with time info, don't overwrite those,
-  // but DO backfill address if coming from Business.
   if (doc.details && (doc.details.startsAt || doc.details.startTime)) {
     if (businessAddress && !doc.details.address) {
-      doc.details = {
-        ...doc.details,
-        address: businessAddress,
-      };
+      doc.details = { ...doc.details, address: businessAddress };
     }
     return doc;
   }
 
-  const canonical = String(
-    doc.canonicalType || doc.kind || doc.type || ''
-  ).toLowerCase();
+  const canonical = String(doc.canonicalType || doc.kind || doc.type || '').toLowerCase();
 
   const description = doc.description ?? doc.details?.description ?? null;
-
-  const recurring =
-    typeof doc.recurring === 'boolean'
-      ? doc.recurring
-      : doc.details?.recurring ?? false;
+  const recurring = typeof doc.recurring === 'boolean' ? doc.recurring : doc.details?.recurring ?? false;
 
   const recurringDays = Array.isArray(doc.recurringDays)
     ? doc.recurringDays
@@ -171,18 +313,12 @@ function hydratePromoOrEventDetails(doc) {
   return doc;
 }
 
-/**
- * Normalize shared promo/event to a "suggestion" wrapper while preserving canonicalType.
- */
 function normalizeSharedSuggestion(post) {
   if (!post || post.type !== 'sharedPost') return post;
 
   if (post.original && isPromoOrEventDoc(post.original)) {
     const canonical = String(
-      post.original.canonicalType ||
-        post.original.kind ||
-        post.original.type ||
-        ''
+      post.original.canonicalType || post.original.kind || post.original.type || ''
     ).toLowerCase();
 
     post.original = {
@@ -195,10 +331,7 @@ function normalizeSharedSuggestion(post) {
 
   if (post.shared?.snapshot && isPromoOrEventDoc(post.shared.snapshot)) {
     const snapCanonical = String(
-      post.shared.snapshot.canonicalType ||
-        post.shared.snapshot.kind ||
-        post.shared.snapshot.type ||
-        ''
+      post.shared.snapshot.canonicalType || post.shared.snapshot.kind || post.shared.snapshot.type || ''
     ).toLowerCase();
 
     post.shared = {
@@ -215,18 +348,11 @@ function normalizeSharedSuggestion(post) {
   return post;
 }
 
-/**
- * Apply promo/event hydration + suggestion normalization to shared posts.
- */
 function applySharedPromoEventHydration(post) {
   if (!post || post.type !== 'sharedPost') return post;
 
-  if (post.original && isPromoOrEventDoc(post.original)) {
-    hydratePromoOrEventDetails(post.original);
-  }
-  if (post.shared?.snapshot && isPromoOrEventDoc(post.shared.snapshot)) {
-    hydratePromoOrEventDetails(post.shared.snapshot);
-  }
+  if (post.original && isPromoOrEventDoc(post.original)) hydratePromoOrEventDetails(post.original);
+  if (post.shared?.snapshot && isPromoOrEventDoc(post.shared.snapshot)) hydratePromoOrEventDetails(post.shared.snapshot);
 
   normalizeSharedSuggestion(post);
   return post;
@@ -236,24 +362,28 @@ function applySharedPromoEventHydration(post) {
 /* Main hydration entry points                                        */
 /* ------------------------------------------------------------------ */
 
-/**
- * Hydrate + enrich ONE post for response.
- */
 async function hydratePostForResponse(raw, opts = {}) {
   const {
-    viewerId = null, // currently unused
+    viewerId = null,
     originalMap = null,
     attachBusinessNameIfMissing = null,
+    applyInviteFeedFilter = false,
   } = opts;
 
   if (!raw) return raw;
 
+  // load original for shared posts
   if (raw.type === 'sharedPost' && raw.shared?.originalPostId) {
     const id = String(raw.shared.originalPostId);
     const original = await loadOriginalById(id, originalMap);
-    if (original) {
-      raw.original = original;
-    }
+    if (original) raw.original = original;
+  }
+
+  // If this post is a past invite the viewer shouldn't see, return null.
+  if (applyInviteFeedFilter && raw.type === 'invite') {
+    const filtered = await filterInvitesForViewer([raw], viewerId);
+    if (!filtered.length) return null;
+    raw = filtered[0];
   }
 
   const items = [raw];
@@ -264,7 +394,7 @@ async function hydratePostForResponse(raw, opts = {}) {
   if (hasOriginal) items.push(raw.original);
 
   const enrichedItems = await enrichOneOrMany(items, viewerId);
-
+  
   let idx = 0;
   const enriched = enrichedItems[idx++];
 
@@ -281,23 +411,14 @@ async function hydratePostForResponse(raw, opts = {}) {
 
   if (attachBusinessNameIfMissing) {
     await attachBusinessNameIfMissing(enriched);
-    if (enriched.original) {
-      await attachBusinessNameIfMissing(enriched.original);
-    }
-    if (enriched.shared?.snapshot) {
-      await attachBusinessNameIfMissing(enriched.shared.snapshot);
-    }
+    if (enriched.original) await attachBusinessNameIfMissing(enriched.original);
+    if (enriched.shared?.snapshot) await attachBusinessNameIfMissing(enriched.shared.snapshot);
   }
 
-  // 🔹 hydrate promo/event originals & snapshots as suggestions with details
   applySharedPromoEventHydration(enriched);
-
   return enriched;
 }
 
-/**
- * Hydrate + enrich MANY posts for response (batch-optimized).
- */
 async function hydrateManyPostsForResponse(posts, opts = {}) {
   const { viewerId = null, attachBusinessNameIfMissing = null } = opts;
 
@@ -313,17 +434,22 @@ async function hydrateManyPostsForResponse(posts, opts = {}) {
 
   const originalMap = await buildOriginalMapForIds(originalIds);
 
+  // Attach originals before invite filtering (shared invites need their original to be evaluated)
+  for (const p of posts) {
+    if (p.type === 'sharedPost' && p?.shared?.originalPostId) {
+      const o = originalMap.get(String(p.shared.originalPostId));
+      if (o) p.original = o;
+    }
+  }
+
+  // ✅ NEW: invite filtering (batch)
+  posts = await filterInvitesForViewer(posts, viewerId);
+  if (!Array.isArray(posts) || posts.length === 0) return [];
+
   const flat = [];
   const structure = [];
 
   for (const p of posts) {
-    if (p.type === 'sharedPost' && p?.shared?.originalPostId) {
-      const o = originalMap.get(String(p.shared.originalPostId));
-      if (o) {
-        p.original = o;
-      }
-    }
-
     const hasSnapshot = !!p?.shared?.snapshot;
     const hasOriginal = !!p?.original;
 
@@ -334,7 +460,7 @@ async function hydrateManyPostsForResponse(posts, opts = {}) {
   }
 
   const enrichedFlat = await enrichOneOrMany(flat, viewerId);
-  
+
   let idx = 0;
   const out = [];
 
@@ -355,17 +481,11 @@ async function hydrateManyPostsForResponse(posts, opts = {}) {
 
     if (attachBusinessNameIfMissing) {
       await attachBusinessNameIfMissing(top);
-      if (top.original) {
-        await attachBusinessNameIfMissing(top.original);
-      }
-      if (top.shared?.snapshot) {
-        await attachBusinessNameIfMissing(top.shared.snapshot);
-      }
+      if (top.original) await attachBusinessNameIfMissing(top.original);
+      if (top.shared?.snapshot) await attachBusinessNameIfMissing(top.shared.snapshot);
     }
 
-    // 🔹 hydrate promo/event originals & snapshots as suggestions with details
     applySharedPromoEventHydration(top);
-
     out.push(top);
   }
 

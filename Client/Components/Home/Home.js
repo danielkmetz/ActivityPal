@@ -1,29 +1,23 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { View, StyleSheet } from 'react-native';
-import { useSelector, useDispatch } from 'react-redux';
-import { setHasFetchedOnce, setSuggestedPosts, fetchMyInvites } from '../../Slices/PostsSlice';
-import { selectSuggestedPosts, selectMyInvitesForRow } from '../../Slices/PostsSelectors/postsSelectors';
-import {
-  selectSuggestedUsers,
-  fetchFollowRequests,
-  fetchMutualFriends,
-  fetchFollowersAndFollowing,
-  selectFriends,
-} from '../../Slices/friendsSlice';
-import { selectUser } from '../../Slices/UserSlice';
-import { fetchFavorites } from '../../Slices/FavoritesSlice';
-import Reviews from '../Reviews/Reviews';
-import InviteModal from '../ActivityInvites/InviteModal';
-import { closeInviteModal, inviteModalStatus } from '../../Slices/ModalSlice';
-import { selectNearbySuggestions } from '../../Slices/GooglePlacesSlice';
-import { fetchConversations } from '../../Slices/DirectMessagingSlice';
-import ChangeLocationModal from '../Location/ChangeLocationModal';
-import { useUserFeed } from '../../Providers/UserFeedContext';
-import WhatsHappeningStrip from './WhatsHappeningStrip/WhatsHappeningStrip';
-import { useNavigation } from '@react-navigation/native';
-import { medium as hapticMedium } from '../../utils/Haptics/haptics';
-import { getBucketKeyFromMs } from '../../utils/buckets';
-import { selectProfilePic } from '../../Slices/PhotosSlice';
+import React, { useEffect, useState, useCallback, useMemo } from "react";
+import { View, StyleSheet } from "react-native";
+import { useSelector, useDispatch } from "react-redux";
+import { setHasFetchedOnce, setSuggestedPosts, fetchMyInvites, markInvitesOpenedFromRail } from "../../Slices/PostsSlice";
+import { selectSuggestedPosts, selectMyInvitesForRow, selectRailOpenedInviteMap } from "../../Slices/PostsSelectors/postsSelectors";
+import { selectSuggestedUsers, fetchFollowRequests, fetchMutualFriends, fetchFollowersAndFollowing, selectFriends } from "../../Slices/friendsSlice";
+import { selectUser } from "../../Slices/UserSlice";
+import { fetchFavorites } from "../../Slices/FavoritesSlice";
+import Reviews from "../Reviews/Reviews";
+import InviteModal from "../ActivityInvites/InviteModal";
+import { closeInviteModal, inviteModalStatus } from "../../Slices/ModalSlice";
+import { selectNearbySuggestions } from "../../Slices/GooglePlacesSlice";
+import { fetchConversations } from "../../Slices/DirectMessagingSlice";
+import ChangeLocationModal from "../Location/ChangeLocationModal";
+import { useUserFeed } from "../../Providers/UserFeedContext";
+import WhatsHappeningStrip from "./WhatsHappeningStrip/WhatsHappeningStrip";
+import { useNavigation } from "@react-navigation/native";
+import { medium as hapticMedium } from "../../utils/Haptics/haptics";
+import { getBucketKeyFromMs } from "../../utils/buckets";
+import { selectProfilePic } from "../../Slices/PhotosSlice";
 
 const Home = ({ scrollY, onScroll, isAtEnd }) => {
   const dispatch = useDispatch();
@@ -37,9 +31,12 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
   const suggestedPosts = useSelector(selectSuggestedPosts);
   const myInvites = useSelector(selectMyInvitesForRow);
   const profilePic = useSelector(selectProfilePic);
+  const railOpenedMap = useSelector(selectRailOpenedInviteMap);
   const [updatedFeed, setUpdatedFeed] = useState([]);
   const userId = user?.id;
   const profilePicUrl = profilePic?.url;
+
+  /* ------------------------ build rail items + my plans ------------------------ */
 
   const { orderedRowItems, myPlansMeta } = useMemo(() => {
     const base = Array.isArray(myInvites) ? myInvites : [];
@@ -55,9 +52,9 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
     };
 
     const getBucketRank = (item) => {
-      const key = getBucketKeyFromMs(item.startTimeMs);
+      const key = getBucketKeyFromMs(item?.startTimeMs);
       const rank = BUCKET_ORDER[key];
-      return typeof rank === 'number' ? rank : 99;
+      return typeof rank === "number" ? rank : 99;
     };
 
     const sortByBucketThenTime = (a, b) => {
@@ -65,8 +62,8 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
       const bb = getBucketRank(b);
       if (ab !== bb) return ab - bb;
 
-      const at = a.startTimeMs || 0;
-      const bt = b.startTimeMs || 0;
+      const at = a?.startTimeMs || 0;
+      const bt = b?.startTimeMs || 0;
       return at - bt;
     };
 
@@ -75,65 +72,66 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
 
     for (const item of base) {
       if (!item) continue;
-      const status = (item.statusForUser || '').toLowerCase();
+
+      const status = String(item.statusForUser || "").toLowerCase();
       const isHost = !!item.isHost;
 
       // "My Plans" = anything you're involved in:
-      // hosting OR going/accepted OR invited/pending
-      const isMine =
-        isHost ||
-        status === 'accepted' ||
-        status === 'pending';
-
-      if (isMine) {
-        myPlans.push(item);
-      }
+      const isMine = isHost || status === "accepted" || status === "pending";
+      if (isMine) myPlans.push(item);
 
       // "Other" bubbles:
-      // - pending invites (so they get their own circle)
-      // - friends’ public plans you're not in (no status + not host)
-      const isPending = status === 'pending';
+      const isPending = status === "pending";
       const isFriendOnly = !status && !isHost;
-
-      if (isPending || isFriendOnly) {
-        otherPlans.push(item);
-      }
+      if (isPending || isFriendOnly) otherPlans.push(item);
     }
 
     myPlans.sort(sortByBucketThenTime);
     otherPlans.sort(sortByBucketThenTime);
 
-    let myPlansMeta = null;
+    let meta = null;
     if (myPlans.length > 0) {
       const count = myPlans.length;
-      myPlansMeta = {
-        badge: count > 9 ? '9+' : String(count),
-        myPlanIds: myPlans.map((p) => p.postId),
+      meta = {
+        badge: count > 9 ? "9+" : String(count),
+        myPlanIds: myPlans.map((p) => p?.postId).filter(Boolean),
         imageUrl: profilePicUrl || null,
       };
     }
 
-    // 🔑 Only return "otherPlans" as items – no synthetic 'my-plans' bubble anymore
-    return { orderedRowItems: otherPlans, myPlansMeta };
+    return { orderedRowItems: otherPlans, myPlansMeta: meta };
   }, [myInvites, profilePicUrl]);
 
   const inviteIdsInRail = useMemo(() => {
     const set = new Set();
     const arr = Array.isArray(orderedRowItems) ? orderedRowItems : [];
     arr.forEach((item) => {
-      if (!item) return;
-      if (!item.postId) return;        // My Plans bubble has no postId, so it’s ignored
-      set.add(String(item.postId));
+      const id = item?.postId;
+      if (id) set.add(String(id));
     });
     return set;
   }, [orderedRowItems]);
 
+  /* ------------------------ rail-opened (intent) hide set ------------------------ */
+
+  const railOpenedSet = useMemo(() => {
+    const TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+    const now = Date.now();
+    const set = new Set();
+
+    Object.entries(railOpenedMap || {}).forEach(([id, ts]) => {
+      if (!id) return;
+      if (typeof ts !== "number") return;
+      if (now - ts < TTL_MS) set.add(String(id));
+    });
+
+    return set;
+  }, [railOpenedMap]);
 
   /* ------------------------ bootstrap peripheral data ------------------------ */
 
   useEffect(() => {
     if (!userId) return;
-
     dispatch(fetchFavorites(userId));
     dispatch(fetchFollowRequests(userId));
     dispatch(fetchMutualFriends(userId));
@@ -146,19 +144,21 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
   /* --------------------------- suggested follows → posts --------------------------- */
 
   function flattenSuggestedFollows(users) {
+    const list = Array.isArray(users) ? users : [];
     const out = [];
-    users.forEach((u) => {
-      const unified = Array.isArray(u.posts)
+    list.forEach((u) => {
+      const unified = Array.isArray(u?.posts)
         ? u.posts
-        : [...(u.reviews || []), ...(u.checkIns || [])];
+        : [...(u?.reviews || []), ...(u?.checkIns || [])];
       unified.forEach((p) => out.push({ ...p, isSuggestedFollowPost: true }));
     });
     return out;
   }
 
   useEffect(() => {
-    if (suggestedFollows.length > 0) {
-      const followPosts = flattenSuggestedFollows(suggestedFollows);
+    const list = Array.isArray(suggestedFollows) ? suggestedFollows : [];
+    if (list.length > 0) {
+      const followPosts = flattenSuggestedFollows(list);
       dispatch(setSuggestedPosts(followPosts));
     } else {
       dispatch(setSuggestedPosts([]));
@@ -168,58 +168,79 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
   /* --------------------------- inject nearby + suggested --------------------------- */
 
   function injectSuggestions(base, suggestions, interval = 3) {
+    const b = Array.isArray(base) ? base : [];
+    const s = Array.isArray(suggestions) ? suggestions : [];
+
     const result = [];
     let count = 0;
     let si = 0;
 
-    for (let i = 0; i < base.length; i++) {
-      result.push({ ...base[i], __wrapped: false });
+    for (let i = 0; i < b.length; i++) {
+      result.push({ ...b[i], __wrapped: false });
       count++;
-      if (count % interval === 0 && si < suggestions.length) {
-        const s = suggestions[si++];
-        result.push({ ...s, type: s.type ?? 'suggestion', __wrapped: true });
+      if (count % interval === 0 && si < s.length) {
+        const next = s[si++];
+        result.push({ ...next, type: next?.type ?? "suggestion", __wrapped: true });
       }
     }
-    while (si < suggestions.length) {
-      const s = suggestions[si++];
-      result.push({ ...s, type: s.type ?? 'suggestion', __wrapped: true });
+    while (si < s.length) {
+      const next = s[si++];
+      result.push({ ...next, type: next?.type ?? "suggestion", __wrapped: true });
     }
     return result;
   }
 
   useEffect(() => {
-    const suggestionCards = nearbySuggestions.map((s) => ({
-      ...s,
-      type: 'suggestion',
+    const suggestionCards = (Array.isArray(nearbySuggestions) ? nearbySuggestions : []).map((x) => ({
+      ...x,
+      type: "suggestion",
     }));
-    const allSuggestions = [...suggestionCards, ...(suggestedPosts || [])];
+    const allSuggestions = [...suggestionCards, ...((Array.isArray(suggestedPosts) ? suggestedPosts : []))];
 
     const merged = injectSuggestions(posts, allSuggestions, 3);
 
-    // How far down do we protect from rail-duplicate invites?
     const MAX_TOP_NON_RAIL_INVITES = 2;
 
     const isInvite = (post) => {
       const t =
-        (post?.type ||
-          post?.postType ||
-          post?.canonicalType ||
-          post?.kind ||
-          '') + '';
-      const normalized = t.trim().toLowerCase();
-      return normalized === 'invite';
+        (post?.type || post?.postType || post?.canonicalType || post?.kind || "") + "";
+      return t.trim().toLowerCase() === "invite";
     };
+
+    const shouldHideBecauseOpenedInRail = (post) => {
+      if (!post) return false;
+      if (!isInvite(post)) return false;
+
+      const pid = post?._id || post?.id;
+      if (!pid) return false;
+
+      const id = String(pid);
+      if (!railOpenedSet.has(id)) return false;
+
+      // Don’t hide invites that still need action
+      const status = String(post?.statusForUser || "").toLowerCase();
+      if (status === "pending") return false;
+
+      // Optional: don’t hide your own hosted invites
+      if (post?.isHost) return false;
+
+      return true;
+    };
+
+    // Filter rail-opened invites (intent-based) BEFORE doing top-zone logic
+    const filtered = [];
+    for (const post of merged) {
+      if (shouldHideBecauseOpenedInRail(post)) continue;
+      filtered.push(post);
+    }
 
     const top = [];
     const rest = [];
 
-    for (const post of merged) {
+    for (const post of filtered) {
       const pid = post?._id || post?.id;
-      const railInvite =
-        pid && isInvite(post) && inviteIdsInRail.has(String(pid));
+      const railInvite = pid && isInvite(post) && inviteIdsInRail.has(String(pid));
 
-      // While we still have room in the "top" zone,
-      // only allow items that are NOT invites already shown in the rail.
       if (top.length < MAX_TOP_NON_RAIL_INVITES && !railInvite) {
         top.push(post);
       } else {
@@ -228,7 +249,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
     }
 
     setUpdatedFeed([...top, ...rest]);
-  }, [posts, nearbySuggestions, suggestedPosts, inviteIdsInRail]);
+  }, [posts, nearbySuggestions, suggestedPosts, inviteIdsInRail, railOpenedSet]);
 
   /* ------------------------------ pagination handler ------------------------------ */
 
@@ -238,29 +259,27 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
 
   /* ------------------------ WhatsHappeningStrip handlers ------------------------ */
 
-  // 1 bubble = 1 plan → go straight to InviteDetails hero screen
   const handlePressItem = useCallback(
     (item) => {
       if (!item) return;
       if (hapticMedium) hapticMedium();
 
-      // Everything in the rail now represents a single invite
-      navigation.navigate('InviteDetails', {
-        postId: item.postId,
-      });
+      const id = item?.postId;
+      if (id) dispatch(markInvitesOpenedFromRail([id]));
+
+      navigation.navigate("InviteDetails", { postId: id });
     },
-    [navigation]
+    [navigation, dispatch]
   );
 
   const handlePressCreatePlan = useCallback(() => {
     if (hapticMedium) hapticMedium();
-    navigation.navigate('CreatePost', { postType: 'invite' });
+    navigation.navigate("CreatePost", { postType: "invite" });
   }, [navigation]);
 
   const listHeader = useMemo(
     () => (
       <View style={styles.headerContainer}>
-        {/* spacer so feed content doesn't sit under your animated header */}
         <View style={styles.topSpacer} />
         <WhatsHappeningStrip
           items={orderedRowItems}
@@ -268,13 +287,12 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
           onPressItem={handlePressItem}
           onPressCreatePlan={handlePressCreatePlan}
           onSeenFriendsItems={(ids) => {
-            // optional: mark those friend invites as “seen in strip” so you can
-            // hide/de-prioritize them in the main feed.
+            // optional: use this to de-prioritize (NOT hide) friend invites later
           }}
         />
       </View>
     ),
-    [orderedRowItems, handlePressItem, handlePressCreatePlan]
+    [orderedRowItems, myPlansMeta, handlePressItem, handlePressCreatePlan]
   );
 
   return (
@@ -285,7 +303,7 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
         onLoadMore={safeLoadMore}
         isLoadingMore={isLoading}
         hasMore={hasMore}
-        reviews={updatedFeed} // unified posts
+        reviews={updatedFeed}
         ListHeaderComponent={listHeader}
       />
       {isAtEnd && <View style={styles.bottom} />}
@@ -302,13 +320,11 @@ const Home = ({ scrollY, onScroll, isAtEnd }) => {
 export default Home;
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, backgroundColor: "#f5f5f5" },
   headerContainer: {
     paddingHorizontal: 0,
     paddingBottom: 8,
   },
-  topSpacer: {
-    height: 120, // adjust based on your animated header
-  },
+  topSpacer: { height: 120 },
   bottom: { marginBottom: 30 },
 });

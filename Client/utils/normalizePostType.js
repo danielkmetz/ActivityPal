@@ -54,6 +54,12 @@ export const normalizePostType = (input) => {
 
     suggestion: 'suggestion',
     suggestions: 'suggestion',
+
+    invites: 'invite',
+    invite: 'invite',
+    inv: 'invite',
+    activityInvite: 'invite',
+    activityInvites: 'invite',
   };
 
   // Special handling for kinds like "upcomingEvent", "activeEvent",

@@ -85,6 +85,7 @@ const getUserActivity = async (_, { types, limit = DEFAULT_LIMIT, after }, conte
   const enriched = await hydrateManyPostsForResponse(items, {
     viewerId: meId,
     attachBusinessNameIfMissing,
+    applyInviteFeedFilter: true,
   });
 
   return enriched;
