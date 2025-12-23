@@ -521,7 +521,6 @@ const InviteModal = ({
                     <Text style={styles.title}>
                       {isEditing ? 'Edit Vybe Invite' : 'Create Vybe Invite'}
                     </Text>
-
                     <Text style={styles.label}>Search for a Place</Text>
                     <GooglePlacesAutocomplete
                       ref={googleRef}
@@ -573,7 +572,6 @@ const InviteModal = ({
                       fetchDetails
                       {...googlePlacesDefaultProps}
                     />
-
                     <View style={styles.switchContainer}>
                       <Text style={styles.label}>
                         {isPublic ? 'Public Invite 🌍' : 'Private Invite 🔒'}
@@ -587,7 +585,6 @@ const InviteModal = ({
                         }
                       />
                     </View>
-
                     <View style={styles.dateTimeInput}>
                       <Text style={styles.label}>Select Date & Time</Text>
                       <DateTimePicker
@@ -601,7 +598,6 @@ const InviteModal = ({
                         }}
                       />
                     </View>
-
                     <View style={styles.noteContainer}>
                       <Text style={styles.label}>Add a Note (optional)</Text>
                       <TextInput
@@ -613,14 +609,12 @@ const InviteModal = ({
                         onChangeText={setNote}
                       />
                     </View>
-
                     <SelectFriendsPicker
                       selectedFriends={selectedFriends}
                       displayFriends={displayFriends}
                       onOpenModal={() => setShowFriendsModal(true)}
                       setSelectedFriends={setSelectedFriends}
                     />
-
                     <TouchableOpacity
                       style={styles.confirmButton}
                       onPress={handleConfirmInvite}
@@ -629,7 +623,6 @@ const InviteModal = ({
                         {isEditing ? 'Save Edit' : 'Send Invite'}
                       </Text>
                     </TouchableOpacity>
-
                     <TagFriendsModal
                       visible={showFriendsModal}
                       onClose={() => setShowFriendsModal(false)}

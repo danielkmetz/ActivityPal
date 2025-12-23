@@ -597,6 +597,7 @@ const postsSlice = createSlice({
     userAndFriendsPosts: [],
     userAndFriendsRefreshNonce: null,
     suggestedPosts: [],
+    railOpenedInviteIds: {}, // { [postId]: openedAtMs }
     hasFetchedOnce: false,
     selectedPost: null,
     loading: "idle",
@@ -794,6 +795,17 @@ const postsSlice = createSlice({
       if (!id) return;
       if (!Array.isArray(state.userAndFriendsPosts)) state.userAndFriendsPosts = [];
       _upsertInDateOrder(state.userAndFriendsPosts, post);
+    },
+    markInvitesOpenedFromRail(state, action) {
+      const ids = Array.isArray(action.payload) ? action.payload : [];
+      const now = Date.now();
+      ids.forEach((id) => {
+        if (!id) return;
+        state.railOpenedInviteIds[String(id)] = now;
+      });
+    },
+    clearRailOpenedInvites(state) {
+      state.railOpenedInviteIds = {};
     },
   },
   extraReducers: (builder) => {
@@ -1034,4 +1046,6 @@ export const {
   removeUserPostsFromUserAndFriends,
   addPostBackToUserAndFriendsByCreatedAt,
   addPostBackToProfileByCreatedAt,
+  markInvitesOpenedFromRail,
+  clearRailOpenedInvites,
 } = postsSlice.actions;

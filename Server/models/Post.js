@@ -96,10 +96,13 @@ const ReviewPost = Post.discriminator(
         // core recap
         rating: { type: Number, min: 1, max: 5, required: true },
 
-        // new required "would go back" field (yes/no)
+        // inside ReviewPost discriminator -> details
         wouldGoBack: {
-          type: Boolean,
+          type: String,
+          enum: ["yes", "maybe", "no"],
           required: true,
+          trim: true,
+          lowercase: true, // forces "Yes" -> "yes"
         },
 
         // optional text; rating-only reviews must be allowed

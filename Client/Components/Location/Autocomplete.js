@@ -1,28 +1,57 @@
-import React, { forwardRef } from 'react';
-import { StyleSheet, View } from 'react-native';
-import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
-import { googlePlacesDefaultProps } from '../../utils/googleplacesDefaults';
+import React, { forwardRef, useEffect, useState } from "react";
+import { StyleSheet, View } from "react-native";
+import { GooglePlacesAutocomplete } from "react-native-google-places-autocomplete";
+import { googlePlacesDefaultProps } from "../../utils/googleplacesDefaults";
+import { getUserToken } from "../../functions";
 
-const GOOGLE_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_KEY;
+const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
 
 const Autocomplete = forwardRef(({ onPlaceSelected, types }, ref) => {
+  const [token, setToken] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      try {
+        const t = await getUserToken(); // must return string token or null
+        if (mounted) setToken(t || null);
+      } catch (e) {
+        if (mounted) setToken(null);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   return (
-    <View style={{ zIndex: 999, position: 'relative', elevation: 10, }}>
+    <View style={{ zIndex: 999, position: "relative", elevation: 10 }}>
       <GooglePlacesAutocomplete
+        {...googlePlacesDefaultProps}
         ref={ref}
         placeholder="Search for a business"
         fetchDetails
-        onPress={(data, details) => onPlaceSelected(details)}
+        debounce={500}
+        minLength={3}
+        timeout={8000}
+        textInputProps={{ editable: !!token }}
         query={{
-          key: GOOGLE_API_KEY,
+          key: "unused",
           language: "en",
-          types: types,
+          types,
         }}
+        requestUrl={{
+          url: `${BASE_URL}/autocomplete/google-ap`,
+          useOnPlatform: "all",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        }}
+        onPress={(data, details) => onPlaceSelected(details)}
         styles={{
           textInput: styles.input,
           listView: styles.listView,
         }}
-        {...googlePlacesDefaultProps}
       />
     </View>
   );
@@ -41,10 +70,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   listView: {
-    backgroundColor: 'white',
-    position: 'relative',
+    backgroundColor: "white",
+    position: "relative",
     marginBottom: 30,
-    width: '100%',
+    width: "100%",
     zIndex: 9999,
     elevation: 10,
     maxHeight: 200,

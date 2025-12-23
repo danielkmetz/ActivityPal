@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import { useSelector } from 'react-redux';
-import { selectPostById } from '../Slices/PostsSelectors/postsSelectors';
+import { selectPostById, selectSelectedPost } from '../Slices/PostsSelectors/postsSelectors';
 import { selectUser } from '../Slices/UserSlice';
 import useInviteDetails from '../hooks/inviteDetails';
 import InviteHero from '../Components/InviteDetails/InviteHero';
@@ -19,9 +19,9 @@ export default function InviteDetailsScreen() {
   const [requested, setRequested] = useState(false);
   const currentUser = useSelector(selectUser);
   const currentUserId = currentUser?.id || currentUser?._id || currentUser?.userId || null;
-  const invite = useSelector((state) =>
-    postId ? selectPostById(state, postId) : null
-  );
+  const inviteFromFeed = useSelector((state) => postId ? selectPostById(state, postId) : null);
+  const selectedInvite = useSelector(selectSelectedPost);
+  const invite = inviteFromFeed || selectedInvite;
 
   const { acceptForMe, declineForMe, requestToJoin } = useInviteActions(invite);
 

@@ -70,6 +70,7 @@ const getUserPosts = async (_, { userId, types, limit = 15, after }, context) =>
     const enriched = await hydrateManyPostsForResponse(items, {
       viewerId: viewerIdStr || null,        // used by filterHiddenPostsForViewer
       attachBusinessNameIfMissing,
+      applyInviteFeedFilter: true,
     });
 
     return enriched;

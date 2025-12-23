@@ -43,6 +43,7 @@ const blocks = require('./routes/blocks');
 const conflicts = require('./routes/inviteConflicts');
 const location = require('./routes/location');
 const weather = require('./routes/weather');
+const verifyToken = require('./middleware/verifyToken');
 
 // Initialize app
 const app = express();
@@ -138,6 +139,7 @@ app.use('/api/location', location);
 app.use('/api/weather', weather);
 app.use("/api/place-photos", require("./routes/placePhotos"));
 app.use("/api/places", require("./routes/places"));
+app.use("/api/places-search", verifyToken, require('./routes/placesSearch'));
 
 (async () => {
   const { io, liveBus } = await attachSocketServer(server); // await + correct key
