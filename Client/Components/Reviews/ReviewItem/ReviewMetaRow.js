@@ -11,18 +11,15 @@ function dollars(n) {
 export default function ReviewMetaRow({ post }) {
   const postContent = post?.original ?? post ?? {};
   const details = postContent?.details || {};
-
   const rating = details?.rating;
   const priceRating = details?.priceRating;
   const wouldGoBack = details?.wouldGoBack;
   const vibeTags = Array.isArray(details?.vibeTags) ? details.vibeTags : [];
-
   const safeRating = Number.isFinite(rating)
     ? Math.min(5, Math.max(0, Math.floor(rating)))
     : 0;
 
   const price = useMemo(() => dollars(priceRating), [priceRating]);
-
   const shownTags = vibeTags.slice(0, 3);
   const extraCount = Math.max(0, vibeTags.length - shownTags.length);
 
@@ -33,17 +30,14 @@ export default function ReviewMetaRow({ post }) {
           <MaterialCommunityIcons key={i} name="star" size={18} color="gold" />
         ))}
       </View>
-
       {price ? <Text style={styles.price}>{price}</Text> : null}
-
-      {typeof wouldGoBack === "boolean" ? (
+      {typeof wouldGoBack === "string" ? (
         <View style={[styles.badge, wouldGoBack ? styles.badgeYes : styles.badgeNo]}>
           <Text style={styles.badgeText}>
             {wouldGoBack ? "Would go back" : "Wouldn’t go back"}
           </Text>
         </View>
       ) : null}
-
       <View style={styles.tags}>
         {shownTags.map((t) => (
           <View key={t} style={styles.tag}>

@@ -32,13 +32,14 @@ export const selectLoading = (state) =>
 export const selectError = (state) =>
   selectPostsState(state).error || null;
 
-export const selectSelectedPost = (state) =>
-  selectPostsState(state).selectedPost || null;
+export const selectSelectedPost = (state) => selectPostsState(state).selectedPost || null;
 
 export const selectUserAndFriendsRefreshNonce = (state) =>
   selectPostsState(state).userAndFriendsRefreshNonce ?? null;
 
 export const selectConflicts = (state) => selectPostsState(state).conflictCheck.conflicts;
+
+export const selectRailOpenedInviteMap = (state) => selectPostsState(state)?.railOpenedInviteIds || {};
 
 /* --------------------- combined / cross-collection selectors --------------------- */
 

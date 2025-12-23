@@ -90,7 +90,7 @@ export default function Notifications() {
 
   const handleNotificationPress = async (notification) => {
     if (!notification) return;
-
+    
     const {
       type,
       postType,
@@ -142,6 +142,7 @@ export default function Notifications() {
     if (!targetId) {
       return;
     }
+    console.log('[NotifPress]', { type, postType, normalizedPostType, targetId });
 
     try {
       const action = await dispatch(

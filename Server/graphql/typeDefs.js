@@ -83,7 +83,7 @@ const typeDefs = gql`
 
   type ReviewDetails {
     rating: Int!
-    wouldGoBack: Boolean!
+    wouldGoBack: String!
     reviewText: String
     priceRating: Int
     vibeTags: [String!]

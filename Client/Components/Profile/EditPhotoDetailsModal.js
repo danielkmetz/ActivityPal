@@ -35,7 +35,6 @@ export default function EditPhotoDetailsModal({
     } else {
       (async () => {
         await animateOut();
-        onClose?.();
       })();
     }
   }, [visible]);
@@ -58,7 +57,7 @@ export default function EditPhotoDetailsModal({
       taggedUsers: taggedUsers.map((t) => ({ ...t })),
     };
     onSave(JSON.parse(JSON.stringify(clonedPhoto)));
-    onClose();
+    animateOut?.();
   };
 
   const handleDelete = () => {
@@ -152,7 +151,7 @@ export default function EditPhotoDetailsModal({
   };
 
   return (
-    <Modal visible={visible} transparent>
+    <Modal visible={visible} transparent onRequestClose={animateOut}>
       <TouchableWithoutFeedback onPress={animateOut}>
         <View style={styles.overlay}>
           <KeyboardAvoidingView style={styles.modalContainer} behavior={Platform.OS === "ios" ? "padding" : undefined}>

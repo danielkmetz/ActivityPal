@@ -431,7 +431,6 @@ router.get('/:postId', async (req, res) => {
       viewerId,
       attachBusinessNameIfMissing,
     });
-
     return res.status(200).json(enriched);
   } catch (err) {
     console.error('[GET /posts/:postId] ❌', {
