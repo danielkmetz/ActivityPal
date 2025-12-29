@@ -1,16 +1,7 @@
 import { useCallback } from 'react';
 import { Alert } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
-import {
-  acceptInvite,
-  rejectInvite,
-  requestInvite,
-  acceptInviteRequest,
-  rejectInviteRequest,
-  sendInvite,
-  editInvite,
-  nudgeInviteRecipient,
-} from '../../Slices/PostsSlice';
+import { acceptInvite, rejectInvite, requestInvite, acceptInviteRequest, rejectInviteRequest, sendInvite, editInvite, nudgeInviteRecipient } from '../../Slices/PostsSlice';
 import { createNotification, setNotifications, selectNotifications } from '../../Slices/NotificationsSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { runConflictCheckBeforeAccept } from './runConflictCheck';
@@ -44,7 +35,6 @@ export default function useInviteActions(invite) {
   );
 
   /** -------------------- 1) Accept / decline for current user -------------------- */
-
   const isMyInviteNotification = (n, inviteId) =>
     n.targetId === inviteId &&
     (
@@ -110,7 +100,6 @@ export default function useInviteActions(invite) {
   }, [dispatch, inviteId, meId, notifications]);
 
   /** --------------------------- 2) Request to join --------------------------- */
-
   const requestToJoin = useCallback(async () => {
     if (!inviteId || !meId) return false;
     try {
@@ -151,7 +140,6 @@ export default function useInviteActions(invite) {
   ]);
 
   /** ----------------- 3) Host: accept / reject join requests ----------------- */
-
   const acceptJoinRequest = useCallback(
     async (relatedId) => {
       if (!inviteId || !relatedId) return;
@@ -245,7 +233,6 @@ export default function useInviteActions(invite) {
   );
 
   /** --------- 4) Create / edit helpers that ALSO use the conflict checker --------- */
-
   const sendInviteWithConflicts = useCallback(
     async ({
       recipientIds,

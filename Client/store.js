@@ -33,6 +33,7 @@ import uiReducer from './Slices/uiSlice';
 import invitesReducer from './Slices/InvitesSlice';
 import placePhotosReducer from './Slices/PlacePhotosSlice';
 import placeSearchReducer from './Slices/placeSearchSlice';
+import socialUiReducer from './Slices/socialUiSlice';
 
 const store = configureStore({
     reducer: combineReducers({
@@ -65,6 +66,7 @@ const store = configureStore({
         taggedPosts: taggedPostsReducer,
         hiddenPosts: hiddenPostsReducer,
         blocks: BlocksReducer,
+        socialUi: socialUiReducer,
         ui: uiReducer,
     }),
     middleware: (getDefault) =>

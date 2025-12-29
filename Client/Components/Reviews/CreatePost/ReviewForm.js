@@ -5,7 +5,6 @@ import SectionHeader from '../SectionHeader';
 import PriceRating from '../metricRatings/PriceRating';
 
 const MAX_VIBE_TAGS = 3;
-
 const VIBE_OPTIONS = [
   'Chill',
   'Lively',
@@ -141,7 +140,6 @@ export default function ReviewForm({
           </View>
         )}
       </View>
-
       {/* SHORT BLURB */}
       <SectionHeader title="What would you tell a friend? (optional)" />
       <TextInput
