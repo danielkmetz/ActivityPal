@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useCallback, useState } from "react";
 import { View, TextInput, FlatList, TouchableOpacity, Text, StyleSheet, Keyboard, ActivityIndicator } from "react-native";
+import PredictionRow from './PredictionRow';
 import api from "../../api";
 
 function useDebouncedValue(value, delay) {
@@ -213,27 +214,6 @@ export default function PlacesAutocomplete({
         [fetchPlaceDetailsApi, onPlaceSelected, closeDropdown]
     );
 
-    const renderItem = useCallback(
-        ({ item }) => {
-            const main = item?.structured_formatting?.main_text || item?.description || "";
-            const secondary = item?.structured_formatting?.secondary_text || "";
-
-            return (
-                <TouchableOpacity style={styles.row} onPress={() => onSelect(item)}>
-                    <Text style={styles.mainText} numberOfLines={1}>
-                        {main}
-                    </Text>
-                    {!!secondary && (
-                        <Text style={styles.secondaryText} numberOfLines={1}>
-                            {secondary}
-                        </Text>
-                    )}
-                </TouchableOpacity>
-            );
-        },
-        [onSelect]
-    );
-
     const showList = isFocused && visiblePredictions.length > 0;
 
     return (
@@ -268,26 +248,23 @@ export default function PlacesAutocomplete({
                     }}
                     returnKeyType="search"
                 />
-
                 {!!queryText && (
                     <TouchableOpacity onPress={handleClear} style={styles.clearBtn} hitSlop={12}>
                         <Text style={styles.clearText}>×</Text>
                     </TouchableOpacity>
                 )}
-
                 {isFocused && status === "loading" && (
                     <View style={styles.spinner}>
                         <ActivityIndicator size="small" />
                     </View>
                 )}
             </View>
-
             {showList && (
                 <View style={styles.listWrap}>
                     <FlatList
                         data={visiblePredictions}
                         keyExtractor={(item, idx) => item?.place_id || String(idx)}
-                        renderItem={renderItem}
+                        renderItem={({ item }) => <PredictionRow item={item} onSelect={onSelect} />}
                         keyboardShouldPersistTaps="always"
                         style={{ flexGrow: 0 }}
                     />
@@ -298,59 +275,51 @@ export default function PlacesAutocomplete({
 }
 
 const styles = StyleSheet.create({
-    wrap: { zIndex: 99999, elevation: 50, position: "relative" },
-    inputWrap: { position: "relative" },
-    input: {
-        backgroundColor: "#f5f5f5",
-        height: 50,
-        borderRadius: 5,
-        paddingHorizontal: 10,
-        paddingRight: 44, // room for X / spinner
-        borderWidth: 1,
-        borderColor: "#ccc",
-        fontSize: 16,
-    },
-    clearBtn: {
-        position: "absolute",
-        right: 10,
-        top: 0,
-        height: 50,
-        width: 34,
-        alignItems: "center",
-        justifyContent: "center",
-        opacity: 0.6,
-    },
-    clearText: { fontSize: 22, lineHeight: 22 },
-    spinner: {
-        position: "absolute",
-        right: 38,
-        top: 0,
-        height: 50,
-        width: 24,
-        alignItems: "center",
-        justifyContent: "center",
-        opacity: 0.6,
-    },
-    listWrap: {
-        position: "absolute",
-        top: 56,
-        left: 0,
-        right: 0,
-        backgroundColor: "white",
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: "#eee",
-        maxHeight: 6 * 52,
-        overflow: "hidden",
-        zIndex: 99999,
-        elevation: 60,
-    },
-    row: {
-        paddingVertical: 10,
-        paddingHorizontal: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: "#f1f1f1",
-    },
-    mainText: { fontSize: 15 },
-    secondaryText: { fontSize: 13, opacity: 0.6, marginTop: 2 },
+  wrap: { zIndex: 99999, elevation: 50, position: "relative" },
+  inputWrap: { position: "relative" },
+  input: {
+    backgroundColor: "#f5f5f5",
+    height: 50,
+    borderRadius: 5,
+    paddingHorizontal: 10,
+    paddingRight: 44,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    fontSize: 16,
+  },
+  clearBtn: {
+    position: "absolute",
+    right: 10,
+    top: 0,
+    height: 50,
+    width: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    opacity: 0.6,
+  },
+  clearText: { fontSize: 22, lineHeight: 22 },
+  spinner: {
+    position: "absolute",
+    right: 38,
+    top: 0,
+    height: 50,
+    width: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    opacity: 0.6,
+  },
+  listWrap: {
+    position: "absolute",
+    top: 56,
+    left: 0,
+    right: 0,
+    backgroundColor: "white",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#eee",
+    maxHeight: 6 * 52,
+    overflow: "hidden",
+    zIndex: 99999,
+    elevation: 60,
+  },
 });

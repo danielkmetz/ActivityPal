@@ -1,14 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import {
-  View,
-  TextInput,
-  StyleSheet,
-  FlatList,
-  Alert,
-  KeyboardAvoidingView,
-  Keyboard,
-  TouchableWithoutFeedback,
-} from "react-native";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { View, TextInput, StyleSheet, FlatList, Alert, KeyboardAvoidingView, Keyboard, TouchableWithoutFeedback } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { useDispatch, useSelector } from "react-redux";
 import EditPhotosModal from "../../Profile/EditPhotosModal";
@@ -496,7 +487,6 @@ export default function CreatePost() {
             keyboardShouldPersistTaps="handled"
           />
         </TouchableWithoutFeedback>
-        {/* Modals unchanged... */}
         <TagFriendsModal
           visible={tagFriendsModalVisible}
           onSave={setTaggedUsers}

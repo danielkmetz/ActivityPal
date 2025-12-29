@@ -38,8 +38,6 @@ const ensureInviteDetails = (post) => {
 
 /* -------------------------- small helpers -------------------------- */
 
-const toId = (x) => String(x?._id ?? x?.id ?? x ?? '');
-
 async function presignProfilePic(user) {
   const key = user?.profilePic?.photoKey;
   return key ? await getPresignedUrl(key) : null;
