@@ -34,6 +34,7 @@ import MyPlansScreen from '../../screens/MyPlansScreen';
 import InviteDetailsScreen from '../../screens/InviteDetailsScreen';
 import CreateEventOrPromoPage from '../BusinessEvents/CreateEventPromo/CreateEventOrPromoPage';
 import CameraPreview from '../../screens/CameraPreview';
+import SocialScreen from '../../screens/SocialScreen';
 
 enableScreens(true);
 const Tab = createBottomTabNavigator();
@@ -125,7 +126,7 @@ function TabNavigator({
                     } else if (route.name === "Insights") {
                         iconName = 'chart-bar';
                         IconComponent = MaterialCommunityIcons;
-                    } else if (route.name === "Friends") {
+                    } else if (route.name === "Social") {
                         iconName = 'account-multiple';
                         IconComponent = MaterialCommunityIcons;
                     } else if (route.name === "Reviews") {
@@ -208,7 +209,7 @@ function TabNavigator({
                             >
                                 {() => null}
                             </Tab.Screen>
-                            <Tab.Screen name="Friends" component={Friends} />
+                            <Tab.Screen name="Social" component={SocialScreen} />
                             <Tab.Screen name="Profile" component={UserProfile} />
                         </>
                     )}
