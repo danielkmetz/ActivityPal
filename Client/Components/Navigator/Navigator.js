@@ -35,6 +35,7 @@ import InviteDetailsScreen from '../../screens/InviteDetailsScreen';
 import CreateEventOrPromoPage from '../BusinessEvents/CreateEventPromo/CreateEventOrPromoPage';
 import CameraPreview from '../../screens/CameraPreview';
 import SocialScreen from '../../screens/SocialScreen';
+import FriendDiscoveryScreen from '../../screens/FriendDiscoveryScreen';
 
 enableScreens(true);
 const Tab = createBottomTabNavigator();
@@ -267,6 +268,7 @@ function AppNavigator({ scrollY, onScroll, customNavTranslateY, customHeaderTran
             <Stack.Screen name="MyPlans" component={MyPlansScreen} options={{ title: 'Plans'}} />
             <Stack.Screen name="InviteDetails" component={InviteDetailsScreen} options={{ title: 'Plan details'}} />
             <Stack.Screen name="CameraPreview" component={CameraPreview} />
+            <Stack.Screen name="FriendDiscovery" component={FriendDiscoveryScreen} />
         </Stack.Navigator>
     )
 }
