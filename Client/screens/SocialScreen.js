@@ -12,10 +12,8 @@ import { buildRequestsSections, buildPlansSections } from "../Components/Social/
 
 export default function SocialScreen() {
   const navigation = useNavigation();
-
   const friends = useSelector(selectFriends) || [];
   const followRequests = useSelector(selectFollowRequests) || { received: [], sent: [] };
-
   const activeTab = useSelector(selectSocialTab);
   const query = useSelector(selectSocialQuery);
 

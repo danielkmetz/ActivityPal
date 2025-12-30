@@ -1,6 +1,6 @@
 import React from 'react';
 import { Image, TouchableOpacity, StyleSheet, View } from 'react-native';
-import profilePicPlaceholder from '../../../assets/pics/profile-pic-placeholder.jpg'; // adjust path if needed
+import profilePicPlaceholder from '../../../assets/pics/profile-pic-placeholder.jpg'; 
 
 export default function ProfilePic({
   userId,
