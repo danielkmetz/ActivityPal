@@ -33,6 +33,8 @@ export function getHeaderTitle(currentRoute, { userToMessage } = {}) {
       return "My Plans";
     case "InviteDetails":
       return "Details";
+    case "FriendDiscovery":
+      return "Discover";
     case "MessageThread":
       return <MessageThreadTitle users={userToMessage || []} />;
     default:

@@ -68,8 +68,7 @@ const MessageItem = ({ item, onLongPress }) => {
       const originalTypePlural = pp.shared ? normalize(pp.shared.originalType) : undefined;
       const originalType = toSingular(originalTypePlural);
       const originalId = pp.shared?.originalId;
-      console.log(pp);
-
+      
       // 1) Shared posts → ALWAYS CommentScreen (by sharedId)
       if (topType === 'sharedPosts' && sharedId) {
         navigation.navigate('CommentScreen', {

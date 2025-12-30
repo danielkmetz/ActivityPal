@@ -5,7 +5,6 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigation } from "@react-navigation/native";
 import SearchModal from "../Home/SearchModal";
-import MessageThreadTitle from "./MessageThreadTitle";
 import SocialHeader from "../Social/SocialHeader";
 import { openSearchModal } from "../../Slices/ModalSlice";
 import { openLocationModal } from "../../Slices/LocationSlice";
@@ -67,7 +66,10 @@ export default function Header({
         currentRoute === "EventDetails" ||
         currentRoute === "Settings" ||
         currentRoute === "HiddenPosts" ||
-        currentRoute === "InviteDetails";
+        currentRoute === "InviteDetails" ||
+        currentRoute === "Social" ||
+        currentRoute === "FriendDiscovery" ||
+        currentRoute === "MyPlans"; 
 
     const handleOpenSearch = () => dispatch(openSearchModal());
     const handleOpenFollowingModal = () => navigation.navigate("SearchFollowing");

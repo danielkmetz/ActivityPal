@@ -1,14 +1,17 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { useSelector } from 'react-redux';
+import { useSelector, useDispatch } from 'react-redux';
 import { selectMyInvites } from '../Slices/InvitesSlice';
 import { selectUser } from '../Slices/UserSlice';
 import MyPlansFilterRow from '../Components/MyPlans/MyPlansFilterRow';
 import MyPlansList from '../Components/MyPlans/MyPlansList';
+import { markInvitesOpenedFromRail } from '../Slices/PostsSlice';
+import { toId } from '../utils/Formatting/toId';
 
 export default function MyPlansScreen() {
   const navigation = useNavigation();
+  const dispatch = useDispatch();
   const allInvites = useSelector(selectMyInvites);
   const currentUser = useSelector(selectUser);
   const currentUserId = currentUser?.id;
@@ -134,10 +137,17 @@ export default function MyPlansScreen() {
     });
   }, [items, filter]);
 
-  const handlePressItem = (item) => {
-    if (!item || !item.postId) return;
-    navigation.navigate('InviteDetails', { postId: item.postId });
-  };
+  const handlePressItem = useCallback(
+    (item) => {
+      const id = toId(item?.postId || item?._id || item?.id);
+      if (!id) return;
+
+      dispatch(markInvitesOpenedFromRail([id]));
+
+      navigation.navigate('InviteDetails', { postId: id });
+    },
+    [dispatch, navigation]
+  );
 
   return (
     <View style={styles.container}>

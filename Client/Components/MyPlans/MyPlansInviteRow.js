@@ -43,7 +43,6 @@ export default function MyPlansInviteRow({ item, onPress }) {
             </View>
           )}
         </View>
-
         <View style={styles.rowContent}>
           <Text style={styles.rowPlace} numberOfLines={1}>
             {placeText}

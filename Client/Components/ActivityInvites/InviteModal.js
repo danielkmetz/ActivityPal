@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet, TextInput, Dimensions, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Switch, Keyboard } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { GestureDetector } from 'react-native-gesture-handler';
-import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSelector } from 'react-redux';
 import TagFriendsModal from '../Reviews/TagFriendsModal';
@@ -10,12 +9,12 @@ import SelectFriendsPicker from './InviteModal/SelectFriendsPicker';
 import { selectFriends } from '../../Slices/friendsSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import useSlideDownDismiss from '../../utils/useSlideDown';
-import { googlePlacesDefaultProps } from '../../utils/googleplacesDefaults';
 import Notch from '../Notch/Notch';
 import { medium } from '../../utils/Haptics/haptics';
 import useInviteActions from '../../utils/UserInviteActions/userInviteActions';
+import LockedPlaceHeader from './InviteModal/LockedPlaceHeader';
+import PlacesAutocomplete from '../Location/PlacesAutocomplete';
 
-const google_key = process.env.EXPO_PUBLIC_GOOGLE_KEY;
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 const MAX_SHEET_HEIGHT = Math.round(SCREEN_HEIGHT * 0.9);
 
@@ -295,9 +294,8 @@ const InviteModal = ({
       name: suggestionContent.businessName,
       baseStart,
       baseEnd,
-      note: `Let's go to ${suggestionContent.businessName} for ${
-        details.title || suggestionContent.title
-      }`,
+      note: `Let's go to ${suggestionContent.businessName} for ${details.title || suggestionContent.title
+        }`,
       recurring,
       recurringDays,
     };
@@ -312,6 +310,18 @@ const InviteModal = ({
     suggestionContent?.recurring,
     suggestionContent?.recurringDays,
   ]);
+
+  const lockPlace = useMemo(() => {
+    if (isEditing) return false;
+    return !!suggestionContent?.placeId && !!suggestionContent?.businessName;
+  }, [isEditing, suggestionContent?.placeId, suggestionContent?.businessName]);
+
+  const lockedPlaceSubtitle = useMemo(() => {
+    if (!suggestionContent) return null;
+    const schedule = buildScheduleDescriptionFromSuggestion(suggestionContent);
+    // schedule already returns phrases like "on Friday at 7:00 PM"
+    return schedule ? `Available ${schedule}` : null;
+  }, [suggestionContent]);
 
   /* -------------------------- Prefill when editing -------------------------- */
 
@@ -521,57 +531,51 @@ const InviteModal = ({
                     <Text style={styles.title}>
                       {isEditing ? 'Edit Vybe Invite' : 'Create Vybe Invite'}
                     </Text>
-                    <Text style={styles.label}>Search for a Place</Text>
-                    <GooglePlacesAutocomplete
-                      ref={googleRef}
-                      placeholder="Search for a location"
-                      onPress={(data) => {
-                        setSelectedPlace({
-                          placeId: data?.place_id,
-                          name: data?.structured_formatting?.main_text,
-                        });
-                      }}
-                      query={{ key: google_key, language: 'en' }}
-                      styles={{
-                        container: {
-                          flex: 0,
-                          zIndex: 100,
-                          marginBottom: 20,
-                          paddingBottom: 0,
-                        },
-                        textInputContainer: {
-                          width: '100%',
-                          zIndex: 101,
-                          marginBottom: 0,
-                          paddingBottom: 0,
-                        },
-                        textInput: {
-                          backgroundColor: '#f5f5f5',
-                          height: 50,
-                          borderRadius: 5,
-                          paddingHorizontal: 10,
-                          borderWidth: 1,
-                          borderColor: '#ccc',
-                          fontSize: 16,
-                          marginBottom: 0,
-                          paddingBottom: 0,
-                        },
-                        listView: {
-                          position: 'absolute',
-                          top: 52,
-                          left: 0,
-                          right: 0,
-                          zIndex: 999,
-                          backgroundColor: '#fff',
-                          borderRadius: 5,
-                          elevation: 5,
-                          maxHeight: 300,
-                        },
-                        poweredContainer: { marginBottom: 0, paddingBottom: 0 },
-                      }}
-                      fetchDetails
-                      {...googlePlacesDefaultProps}
-                    />
+                    {lockPlace ? (
+                      <>
+                        <Text style={styles.label}>Place</Text>
+                        <LockedPlaceHeader
+                          label={fromSharedPost ? "From shared promo/event" : "Suggested"}
+                          title={selectedPlace?.name || suggestionContent?.businessName}
+                          subtitle={lockedPlaceSubtitle}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <Text style={styles.label}>Search for a Place</Text>
+                        <PlacesAutocomplete
+                          // If you have lat/lng available in this screen, pass them in.
+                          lat={null}
+                          lng={null}
+                          prefillLabel={selectedPlace?.name || ""}
+                          onClear={() => {
+                            setSelectedPlace(null);
+                          }}
+                          onPlaceSelected={(details) => {
+                            const placeId =
+                              details?.place_id ||
+                              details?.placeId ||
+                              details?.id ||
+                              details?.result?.place_id ||
+                              details?.result?.placeId ||
+                              null;
+
+                            const name =
+                              details?.name ||
+                              details?.businessName ||
+                              details?.result?.name ||
+                              "";
+
+                            if (!placeId && !name) return;
+
+                            setSelectedPlace({
+                              placeId: placeId || selectedPlace?.placeId || null,
+                              name: name || selectedPlace?.name || "",
+                            });
+                          }}
+                        />
+                      </>
+                    )}
                     <View style={styles.switchContainer}>
                       <Text style={styles.label}>
                         {isPublic ? 'Public Invite 🌍' : 'Private Invite 🔒'}
