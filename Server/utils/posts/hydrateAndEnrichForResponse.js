@@ -1,4 +1,4 @@
-const { Post } = require('../../models/Post'); 
+const { Post } = require('../../models/Post');
 const Promotion = require('../../models/Promotions');
 const Event = require('../../models/Events');
 const { enrichOneOrMany } = require('../enrichPosts');
@@ -76,7 +76,7 @@ async function buildOriginalMapForIds(ids) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Invite filtering (NEW)                                             */
+/* Invite filtering                                                   */
 /* ------------------------------------------------------------------ */
 
 function isInviteDoc(doc) {
@@ -151,7 +151,6 @@ async function buildRecapInviteIdSet(inviteIds, viewerId) {
   // Only recap-capable post types in your model
   const recapTypes = ['review', 'check-in'];
 
-  // Fast: distinct uses your existing index:
   // BasePostSchema.index({ 'refs.relatedInviteId': 1, ownerId: 1, type: 1 });
   const raw = await Post.distinct('refs.relatedInviteId', {
     ownerId: viewerId,
@@ -177,10 +176,11 @@ async function filterInvitesForViewer(posts, viewerId) {
   const recapCheckIds = [];
 
   for (const p of posts) {
-    const invite =
-      isInviteDoc(p) ? p :
-      (p?.type === 'sharedPost' && isInviteDoc(p?.original)) ? p.original :
-      null;
+    const invite = isInviteDoc(p)
+      ? p
+      : p?.type === 'sharedPost' && isInviteDoc(p?.original)
+        ? p.original
+        : null;
 
     if (!invite) continue;
     if (!isPastInvite(invite, now)) continue;
@@ -262,7 +262,8 @@ function hydratePromoOrEventDetails(doc) {
   const canonical = String(doc.canonicalType || doc.kind || doc.type || '').toLowerCase();
 
   const description = doc.description ?? doc.details?.description ?? null;
-  const recurring = typeof doc.recurring === 'boolean' ? doc.recurring : doc.details?.recurring ?? false;
+  const recurring =
+    typeof doc.recurring === 'boolean' ? doc.recurring : doc.details?.recurring ?? false;
 
   const recurringDays = Array.isArray(doc.recurringDays)
     ? doc.recurringDays
@@ -277,8 +278,8 @@ function hydratePromoOrEventDetails(doc) {
     typeof doc.allDay === 'boolean'
       ? doc.allDay
       : typeof doc.details?.allDay === 'boolean'
-      ? doc.details.allDay
-      : false;
+        ? doc.details.allDay
+        : false;
 
   const common = {
     description,
@@ -331,7 +332,10 @@ function normalizeSharedSuggestion(post) {
 
   if (post.shared?.snapshot && isPromoOrEventDoc(post.shared.snapshot)) {
     const snapCanonical = String(
-      post.shared.snapshot.canonicalType || post.shared.snapshot.kind || post.shared.snapshot.type || ''
+      post.shared.snapshot.canonicalType ||
+      post.shared.snapshot.kind ||
+      post.shared.snapshot.type ||
+      ''
     ).toLowerCase();
 
     post.shared = {
@@ -352,7 +356,9 @@ function applySharedPromoEventHydration(post) {
   if (!post || post.type !== 'sharedPost') return post;
 
   if (post.original && isPromoOrEventDoc(post.original)) hydratePromoOrEventDetails(post.original);
-  if (post.shared?.snapshot && isPromoOrEventDoc(post.shared.snapshot)) hydratePromoOrEventDetails(post.shared.snapshot);
+  if (post.shared?.snapshot && isPromoOrEventDoc(post.shared.snapshot)) {
+    hydratePromoOrEventDetails(post.shared.snapshot);
+  }
 
   normalizeSharedSuggestion(post);
   return post;
@@ -379,11 +385,16 @@ async function hydratePostForResponse(raw, opts = {}) {
     if (original) raw.original = original;
   }
 
-  // If this post is a past invite the viewer shouldn't see, return null.
-  if (applyInviteFeedFilter && raw.type === 'invite') {
-    const filtered = await filterInvitesForViewer([raw], viewerId);
-    if (!filtered.length) return null;
-    raw = filtered[0];
+  // ✅ Apply invite filter only when asked, and handle direct + shared invites
+  if (applyInviteFeedFilter) {
+    const isDirectInvite = raw?.type === 'invite';
+    const isSharedInvite = raw?.type === 'sharedPost' && isInviteDoc(raw?.original);
+
+    if (isDirectInvite || isSharedInvite) {
+      const filtered = await filterInvitesForViewer([raw], viewerId);
+      if (!filtered.length) return null;
+      raw = filtered[0];
+    }
   }
 
   const items = [raw];
@@ -394,7 +405,7 @@ async function hydratePostForResponse(raw, opts = {}) {
   if (hasOriginal) items.push(raw.original);
 
   const enrichedItems = await enrichOneOrMany(items, viewerId);
-  
+
   let idx = 0;
   const enriched = enrichedItems[idx++];
 
@@ -420,21 +431,23 @@ async function hydratePostForResponse(raw, opts = {}) {
 }
 
 async function hydrateManyPostsForResponse(posts, opts = {}) {
-  const { viewerId = null, attachBusinessNameIfMissing = null } = opts;
+  const {
+    viewerId = null,
+    attachBusinessNameIfMissing = null,
+    applyInviteFeedFilter = false, // ✅ respected now
+    debugTag = '[hydrateManyPostsForResponse]',
+  } = opts;
 
-  posts = await filterHiddenPosts(posts, viewerId, {
-    debugTag: '[hydrateManyPostsForResponse]',
-  });
-
+  posts = await filterHiddenPosts(posts, viewerId, { debugTag });
   if (!Array.isArray(posts) || posts.length === 0) return [];
 
+  // Attach originals before optional invite filtering (shared invites need original)
   const originalIds = posts
     .filter((p) => p?.type === 'sharedPost' && p?.shared?.originalPostId)
     .map((p) => String(p.shared.originalPostId));
 
   const originalMap = await buildOriginalMapForIds(originalIds);
 
-  // Attach originals before invite filtering (shared invites need their original to be evaluated)
   for (const p of posts) {
     if (p.type === 'sharedPost' && p?.shared?.originalPostId) {
       const o = originalMap.get(String(p.shared.originalPostId));
@@ -442,9 +455,11 @@ async function hydrateManyPostsForResponse(posts, opts = {}) {
     }
   }
 
-  // ✅ NEW: invite filtering (batch)
-  posts = await filterInvitesForViewer(posts, viewerId);
-  if (!Array.isArray(posts) || posts.length === 0) return [];
+  // ✅ only filter invites when asked
+  if (applyInviteFeedFilter) {
+    posts = await filterInvitesForViewer(posts, viewerId);
+    if (!Array.isArray(posts) || posts.length === 0) return [];
+  }
 
   const flat = [];
   const structure = [];
@@ -492,7 +507,40 @@ async function hydrateManyPostsForResponse(posts, opts = {}) {
   return out;
 }
 
+/**
+ * ✅ Prefilter-only helper (no enrichOneOrMany)
+ * Use this when you need to scan candidates cheaply (e.g., fill-to-limit pagination).
+ */
+async function prefilterPostsForViewer(posts, viewerId, opts = {}) {
+  const { applyInviteFeedFilter = false, debugTag = '[prefilterPostsForViewer]' } = opts;
+
+  posts = await filterHiddenPosts(posts, viewerId, { debugTag });
+  if (!Array.isArray(posts) || posts.length === 0) return [];
+
+  // attach originals so shared invites can be evaluated
+  const originalIds = posts
+    .filter((p) => p?.type === 'sharedPost' && p?.shared?.originalPostId)
+    .map((p) => String(p.shared.originalPostId));
+
+  const originalMap = await buildOriginalMapForIds(originalIds);
+
+  for (const p of posts) {
+    if (p.type === 'sharedPost' && p?.shared?.originalPostId) {
+      const o = originalMap.get(String(p.shared.originalPostId));
+      if (o) p.original = o;
+    }
+  }
+
+  if (applyInviteFeedFilter) {
+    posts = await filterInvitesForViewer(posts, viewerId);
+    if (!Array.isArray(posts) || posts.length === 0) return [];
+  }
+
+  return posts;
+}
+
 module.exports = {
   hydratePostForResponse,
   hydrateManyPostsForResponse,
+  prefilterPostsForViewer,
 };

@@ -14,7 +14,6 @@ function PredictionRow({ item, onSelect }) {
       <Text style={styles.mainText} numberOfLines={1}>
         {main}
       </Text>
-
       {!!secondary && (
         <Text style={styles.secondaryText} numberOfLines={1}>
           {secondary}

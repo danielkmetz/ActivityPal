@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Alert } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { View, Text, StyleSheet, Alert, Animated } from 'react-native';
 import InviteeModal from '../ActivityInvites/InviteeModal/InviteeModal';
 import { formatEventDate } from '../../functions';
 import { deleteInvite } from '../../Slices/PostsSlice';
@@ -18,8 +18,9 @@ import NonOwnerOptions from './PostOptionsMenu/NonOwnerPostOptions';
 import ViewerOptionsTrigger from './PostOptionsMenu/ViewerOptionsTrigger';
 import BusinessLink from './PostHeader/BusinessLink';
 import useInviteActions from '../../utils/UserInviteActions/userInviteActions';
+import PhotoFeed from './Photos/PhotoFeed';
 
-const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) => {
+const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared, photoTapped, setPhotoTapped }) => {
   const dispatch = useDispatch();
   const navigation = useNavigation();
   const postContent = invite?.original ?? invite ?? {};
@@ -29,18 +30,23 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
   const [isEditing, setIsEditing] = useState(false);
   const [dropdownVisible, setDropdownVisible] = useState(false);
   const [viewerOptionsVisible, setViewerOptionsVisible] = useState(false);
+  const [activeMediaItem, setActiveMediaItem] = useState(null);
   const user = useSelector(selectUser);
   const userId = user?.id || user?._id;
   const owner = postContent?.owner;
   const details = postContent?.details;
   const dateTime = details?.dateTime;
   const message = postContent?.message;
+  const isMedia =
+    (Array.isArray(postContent?.media) && postContent.media.length > 0) ||
+    (Array.isArray(postContent?.photos) && postContent.photos.length > 0);
+
   const totalInvited = Array.isArray(details?.recipients) ? details.recipients.length : 0;
   const senderId = owner?.id || owner?._id || owner?.userId || null;
-
   const [requested, setRequested] = useState(false);
   const hasRequested = requested || (details?.requests || []).some((r) => String(r.userId) === String(userId));
 
+  const scrollX = useRef(new Animated.Value(0)).current;
   const { timeLeft, isSender } = useInviteState(postContent, userId);
 
   // centralize invite actions for THIS invite
@@ -152,10 +158,19 @@ const InviteCard = ({ invite, handleOpenComments, onShare, embeddedInShared }) =
         />
         <BusinessLink post={invite} />
         {dateTime ? (
-          <Text style={styles.datetime}>On {formatEventDate(dateTime)}</Text>
+          <Text style={[styles.datetime, isMedia && !message && { marginBottom: 15 }]}>On {formatEventDate(dateTime)}</Text>
         ) : null}
-        {message ? <Text style={styles.note}>{message}</Text> : null}
-        <CountdownPill value={timeLeft} />
+        {message ? <Text style={[styles.note, isMedia && { marginBottom: 15 }]}>{message}</Text> : null}
+        {!isMedia && (
+          <CountdownPill value={timeLeft} />
+        )}
+        <PhotoFeed
+          scrollX={scrollX}
+          post={invite}
+          photoTapped={photoTapped}
+          setPhotoTapped={setPhotoTapped}
+          onActiveMediaChange={setActiveMediaItem} // ✅ PhotoFeed will set initial + on swipe
+        />
         {/* 🔹 The row that will now own both the request button AND recap badge */}
         <AttendanceRow
           hasRequested={hasRequested}

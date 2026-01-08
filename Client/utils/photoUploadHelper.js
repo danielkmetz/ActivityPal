@@ -19,10 +19,9 @@ const inferMime = ({ mediaType, uri, type, mimeType }) => {
 
   if (mt === "video") {
     if (ext === "mov") return "video/quicktime";
-    return "video/mp4"; // default
+    return "video/mp4";
   }
 
-  // image defaults
   if (ext === "png") return "image/png";
   if (ext === "heic") return "image/heic";
   if (ext === "webp") return "image/webp";
@@ -43,7 +42,6 @@ const inferName = ({ name, fileName, uri, mediaType }) => {
   return `upload_${Date.now()}.${ext}`;
 };
 
-// Improved helper to create a unique local key for matching
 const generateLocalKey = (m) =>
   m?.localKey ||
   m?.photoKey ||
@@ -54,7 +52,6 @@ const generateLocalKey = (m) =>
   m?._id ||
   `${Date.now()}_${Math.random()}`;
 
-// Tagged users normalization stays the same
 const normalizeTags = (taggedUsers) =>
   (Array.isArray(taggedUsers) ? taggedUsers : [])
     .map((user) => {
@@ -79,7 +76,6 @@ const normalizeMedia = (m) => {
     ...m,
     uri,
     mediaType,
-    // IMPORTANT: upload thunk likely expects these:
     type: mime,
     mimeType: mime,
     name,
@@ -89,26 +85,59 @@ const normalizeMedia = (m) => {
   };
 };
 
-// ----------------- main -----------------
-export const handlePhotoUpload = async ({ dispatch, userId, placeId, photos }) => {
-  const list = Array.isArray(photos) ? photos : [];
+const sanitizeVenueForUpload = (venue) => {
+  if (!venue || typeof venue !== "object") return null;
 
-  // Normalize everything (photos + videos) into a consistent shape
+  // Upload does NOT need address; avoid leaking it.
+  const kind = venue.kind;
+  const label = safeString(venue.label).trim();
+  const placeId = venue.placeId || null;
+
+  if (!kind || !label) return null;
+
+  if (kind === "place") {
+    return { kind: "place", label, placeId };
+  }
+
+  // custom
+  return { kind: "custom", label };
+};
+
+// ----------------- main -----------------
+export const handlePhotoUpload = async ({
+  dispatch,
+  userId,
+  placeId,
+  venue,     // ✅ NEW
+  postType,  // ✅ NEW (optional but useful)
+  photos,
+}) => {
+  const list = Array.isArray(photos) ? photos : [];
   const normalized = list.map(normalizeMedia);
 
-  // "New" = local uri only, not already uploaded
   const newFiles = normalized.filter((m) => m?.uri && !m?.url && !m?.photoKey);
   const existingFiles = normalized.filter((m) => m?.url || m?.photoKey);
 
   let uploaded = [];
 
   if (newFiles.length > 0) {
-    // uploadReviewPhotos must accept mixed media; it now receives { uri, name, type }
+    const v = sanitizeVenueForUpload(venue);
+
+    // pick an effective placeId only when it's a real place
+    const effectivePlaceId =
+      (typeof placeId === "string" && placeId.trim()) ? placeId.trim()
+      : (v?.kind === "place" ? v.placeId : null);
+
+    // ✅ THUNK/BACKEND must accept venue when effectivePlaceId is null
     const uploadResult = await dispatch(
-      uploadReviewPhotos({ placeId, files: newFiles })
+      uploadReviewPhotos({
+        placeId: effectivePlaceId, // can be null now
+        venue: v,                  // can be custom
+        postType: postType || null,
+        files: newFiles,
+      })
     ).unwrap();
 
-    // uploadResult assumed to be an array of keys in the SAME ORDER
     uploaded = (Array.isArray(uploadResult) ? uploadResult : []).map((photoKey, index) => {
       const original = newFiles[index] || {};
       return {
@@ -117,8 +146,7 @@ export const handlePhotoUpload = async ({ dispatch, userId, placeId, photos }) =
         uploadedBy: userId,
         description: original.description || "",
         taggedUsers: normalizeTags(original.taggedUsers),
-        mediaType: original.mediaType, // <-- keep video vs photo
-        // keep mime for rendering decisions if needed
+        mediaType: original.mediaType,
         type: original.type,
         mimeType: original.mimeType,
       };

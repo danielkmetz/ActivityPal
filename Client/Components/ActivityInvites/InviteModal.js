@@ -1,226 +1,29 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Modal, View, Text, TouchableOpacity, StyleSheet, TextInput, Dimensions, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Switch, Keyboard } from 'react-native';
-import Animated from 'react-native-reanimated';
-import { GestureDetector } from 'react-native-gesture-handler';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { useSelector } from 'react-redux';
-import TagFriendsModal from '../Reviews/TagFriendsModal';
-import SelectFriendsPicker from './InviteModal/SelectFriendsPicker';
-import { selectFriends } from '../../Slices/friendsSlice';
-import { selectUser } from '../../Slices/UserSlice';
-import useSlideDownDismiss from '../../utils/useSlideDown';
-import Notch from '../Notch/Notch';
-import { medium } from '../../utils/Haptics/haptics';
-import useInviteActions from '../../utils/UserInviteActions/userInviteActions';
-import LockedPlaceHeader from './InviteModal/LockedPlaceHeader';
-import PlacesAutocomplete from '../Location/PlacesAutocomplete';
+import React, { useEffect, useState, useCallback } from "react";
+import { Modal, View, Text, TouchableOpacity, StyleSheet, TextInput, Dimensions, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Switch, Keyboard, Alert } from "react-native";
+import Animated from "react-native-reanimated";
+import { GestureDetector } from "react-native-gesture-handler";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import { useSelector } from "react-redux";
+import TagFriendsModal from "../Reviews/TagFriendsModal";
+import { selectFriends } from "../../Slices/friendsSlice";
+import { selectUser } from "../../Slices/UserSlice";
+import useSlideDownDismiss from "../../utils/useSlideDown";
+import Notch from "../Notch/Notch";
+import { medium } from "../../utils/Haptics/haptics";
+import useInviteActions from "../../utils/UserInviteActions/userInviteActions";
+import LockedPlaceHeader from "./InviteModal/LockedPlaceHeader";
+import PlacesAutocomplete from "../Location/PlacesAutocomplete";
+import FriendPills from "../Reviews/FriendPills";
+import { venueFromBusiness } from "../../utils/posts/venueBuilder";
+import { extractFormattedAddress } from "../../utils/posts/extractFormattedAddress";
+import useSubmitInvite from "../../hooks/useSubmitInvite";
+import useInviteModalDraft from "../../hooks/useInviteModalDraft";
+import { validateAgainstSuggestionDateTime } from "../../utils/Invites/suggestionSchedule";
 
-const SCREEN_HEIGHT = Dimensions.get('window').height;
+const SCREEN_HEIGHT = Dimensions.get("window").height;
 const MAX_SHEET_HEIGHT = Math.round(SCREEN_HEIGHT * 0.9);
 
-/* ------------------------- helpers: recurring logic ------------------------ */
-
-const DAY_LOOKUP = {
-  sunday: 0,
-  sun: 0,
-  monday: 1,
-  mon: 1,
-  tuesday: 2,
-  tue: 2,
-  tues: 2,
-  wednesday: 3,
-  wed: 3,
-  thursday: 4,
-  thu: 4,
-  thurs: 4,
-  friday: 5,
-  fri: 5,
-  saturday: 6,
-  sat: 6,
-};
-
-function dayNameToIndex(name) {
-  if (!name) return null;
-  const lower = String(name).toLowerCase().trim();
-  return DAY_LOOKUP[lower] ?? null;
-}
-
-function formatTime(d) {
-  return d.toLocaleTimeString(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-}
-
-function buildTodayAtTime(baseTime) {
-  const now = new Date();
-  const dt = new Date(now);
-  dt.setHours(baseTime.getHours(), baseTime.getMinutes(), 0, 0);
-  return dt;
-}
-
-function getNextRecurringOccurrence(baseStart, recurringDays) {
-  if (!baseStart || !Array.isArray(recurringDays) || !recurringDays.length) {
-    return null;
-  }
-
-  const now = new Date();
-  const nowMs = now.getTime();
-  const baseHour = baseStart.getHours();
-  const baseMinute = baseStart.getMinutes();
-
-  const daySet = new Set(
-    recurringDays
-      .map(dayNameToIndex)
-      .filter((d) => d !== null && d !== undefined)
-  );
-  if (!daySet.size) return null;
-
-  // Look up to 14 days ahead for safety
-  for (let offset = 0; offset < 14; offset++) {
-    const candidate = new Date(now);
-    candidate.setDate(now.getDate() + offset);
-    const weekday = candidate.getDay();
-    if (!daySet.has(weekday)) continue;
-
-    candidate.setHours(baseHour, baseMinute, 0, 0);
-    if (candidate.getTime() > nowMs) {
-      return candidate;
-    }
-  }
-
-  return null;
-}
-
-/**
- * Build a human description of when the event/promo is held.
- */
-function buildScheduleDescriptionFromSuggestion(suggestionContent) {
-  if (!suggestionContent?.details) return null;
-
-  const { details } = suggestionContent;
-  const { startsAt, endsAt, recurring, recurringDays } = details;
-
-  if (!startsAt) return null;
-  const start = new Date(startsAt);
-  if (Number.isNaN(start.getTime())) return null;
-
-  const hasEnd = !!endsAt;
-  const end = hasEnd ? new Date(endsAt) : null;
-  const startTime = formatTime(start);
-  const endTime = hasEnd && !Number.isNaN(end.getTime()) ? formatTime(end) : null;
-
-  if (recurring && Array.isArray(recurringDays) && recurringDays.length) {
-    const dayLabels = recurringDays
-      .map((name) => {
-        const idx = dayNameToIndex(name);
-        if (idx == null) return String(name);
-        return [
-          'Sunday',
-          'Monday',
-          'Tuesday',
-          'Wednesday',
-          'Thursday',
-          'Friday',
-          'Saturday',
-        ][idx];
-      })
-      .filter(Boolean);
-
-    if (!dayLabels.length) return null;
-
-    let daysStr;
-    if (dayLabels.length === 1) {
-      daysStr = dayLabels[0];
-    } else if (dayLabels.length === 2) {
-      daysStr = `${dayLabels[0]} and ${dayLabels[1]}`;
-    } else {
-      daysStr =
-        dayLabels.slice(0, -1).join(', ') +
-        ' and ' +
-        dayLabels[dayLabels.length - 1];
-    }
-
-    if (endTime) {
-      return `on ${daysStr} between ${startTime} and ${endTime}`;
-    }
-    return `on ${daysStr} at ${startTime}`;
-  }
-
-  const dateLabel = start.toLocaleDateString(undefined, {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-  });
-
-  if (endTime) {
-    return `on ${dateLabel} between ${startTime} and ${endTime}`;
-  }
-  return `on ${dateLabel} at ${startTime}`;
-}
-
-/**
- * Returns `null` if dt is valid for this suggestion,
- * or a schedule string if the time is invalid (used in your alert).
- */
-function validateAgainstSuggestion(dt, suggestionContent) {
-  if (!suggestionContent?.details) return null;
-
-  const { details } = suggestionContent;
-  const { startsAt, endsAt, recurring, recurringDays } = details;
-
-  if (!startsAt) return null;
-
-  const baseStart = new Date(startsAt);
-  if (Number.isNaN(baseStart.getTime())) return null;
-
-  const baseEnd = endsAt ? new Date(endsAt) : null;
-  const schedule = buildScheduleDescriptionFromSuggestion(suggestionContent);
-
-  if (recurring && Array.isArray(recurringDays) && recurringDays.length) {
-    const indices = recurringDays
-      .map(dayNameToIndex)
-      .filter((i) => i !== null && i !== undefined);
-
-    if (indices.length) {
-      const chosenDay = dt.getDay();
-      if (!indices.includes(chosenDay)) {
-        return schedule;
-      }
-    }
-  }
-
-  if (!baseEnd || Number.isNaN(baseEnd.getTime())) {
-    return null;
-  }
-
-  const baseStartHour = baseStart.getHours();
-  const baseStartMinute = baseStart.getMinutes();
-  const baseEndHour = baseEnd.getHours();
-  const baseEndMinute = baseEnd.getMinutes();
-
-  const startWindow = new Date(dt);
-  startWindow.setHours(baseStartHour, baseStartMinute, 0, 0);
-
-  const endWindow = new Date(dt);
-  if (baseEnd.getTime() >= baseStart.getTime()) {
-    endWindow.setHours(baseEndHour, baseEndMinute, 0, 0);
-  } else {
-    endWindow.setDate(endWindow.getDate() + 1);
-    endWindow.setHours(baseEndHour, baseEndMinute, 0, 0);
-  }
-
-  const t = dt.getTime();
-  if (t < startWindow.getTime() || t > endWindow.getTime()) {
-    return schedule;
-  }
-
-  return null;
-}
-
-/* ------------------------------- component ------------------------------- */
-
-const InviteModal = ({
+export default function InviteModal({
   visible,
   onClose,
   isEditing,
@@ -228,298 +31,146 @@ const InviteModal = ({
   setIsEditing,
   setInviteToEdit,
   suggestion,
-}) => {
+}) {
   const user = useSelector(selectUser);
   const friends = useSelector(selectFriends);
-  const rawSuggestion = suggestion ?? null;
-  const suggestionContent = rawSuggestion?.original ?? rawSuggestion ?? null;
-  const fromSharedPost = !!rawSuggestion?.original;
-  const getUserId = (u) => u?._id || u?.id || u?.userId || u?.user?._id || u?.user?.id || null;
-  const [showFriendsModal, setShowFriendsModal] = useState(false);
-  const [selectedPlace, setSelectedPlace] = useState(null);
-  const [dateTime, setDateTime] = useState(null);
-  const [selectedFriends, setSelectedFriends] = useState([]); // array of IDs
-  const [isPublic, setIsPublic] = useState(true);
-  const [note, setNote] = useState('');
-  const googleRef = useRef(null);
   const { gesture, animateIn, animateOut, animatedStyle } = useSlideDownDismiss(onClose);
   const { sendInviteWithConflicts, editInviteWithConflicts } = useInviteActions(initialInvite);
+  const { submit, submitting } = useSubmitInvite();
+  const [showFriendsModal, setShowFriendsModal] = useState(false);
 
-  /* -------------------- suggestion → suggestedPlace -------------------- */
+  const {
+    suggestionContent,
+    fromSharedPost, // currently unused in UI, but kept for parity/debug
+    selectedVenue,
+    setSelectedVenue,
+    lockPlace,
+    lockedPlaceSubtitle,
+    venue,
+    message,
+    setMessage,
+    dateTime,
+    setDateTime,
+    isPublic,
+    setIsPublic,
+    effectiveIsPublic,
+    selectedFriends,
+    setSelectedFriends,
+    recipientIds,
+    removeFriendById,
+  } = useInviteModalDraft({
+    visible,
+    isEditing,
+    initialInvite,
+    suggestion,
+    friends,
+  });
 
-  const suggestedPlace = useMemo(() => {
-    if (!suggestionContent) return null;
-
-    const details = suggestionContent.details || {};
-
-    const rawStart =
-      details.startsAt ||
-      details.startTime ||
-      details.date ||
-      suggestionContent.startTime ||
-      suggestionContent.startsAt ||
-      suggestionContent.date ||
-      null;
-
-    const rawEnd = details.endsAt || details.endTime || null;
-
-    let baseStart = null;
-    if (rawStart) {
-      const t = Date.parse(rawStart);
-      if (Number.isFinite(t)) {
-        baseStart = new Date(t);
-      }
-    }
-
-    let baseEnd = null;
-    if (rawEnd) {
-      const t = Date.parse(rawEnd);
-      if (Number.isFinite(t)) {
-        baseEnd = new Date(t);
-      }
-    }
-
-    const recurring =
-      typeof details.recurring === 'boolean'
-        ? details.recurring
-        : !!suggestionContent.recurring;
-
-    const recurringDays =
-      Array.isArray(details.recurringDays) && details.recurringDays.length
-        ? details.recurringDays
-        : suggestionContent.recurringDays || [];
-
-    return {
-      placeId: suggestionContent.placeId,
-      name: suggestionContent.businessName,
-      baseStart,
-      baseEnd,
-      note: `Let's go to ${suggestionContent.businessName} for ${details.title || suggestionContent.title
-        }`,
-      recurring,
-      recurringDays,
-    };
-  }, [
-    suggestionContent?.placeId,
-    suggestionContent?.businessName,
-    suggestionContent?.details,
-    suggestionContent?.startTime,
-    suggestionContent?.startsAt,
-    suggestionContent?.date,
-    suggestionContent?.title,
-    suggestionContent?.recurring,
-    suggestionContent?.recurringDays,
-  ]);
-
-  const lockPlace = useMemo(() => {
-    if (isEditing) return false;
-    return !!suggestionContent?.placeId && !!suggestionContent?.businessName;
-  }, [isEditing, suggestionContent?.placeId, suggestionContent?.businessName]);
-
-  const lockedPlaceSubtitle = useMemo(() => {
-    if (!suggestionContent) return null;
-    const schedule = buildScheduleDescriptionFromSuggestion(suggestionContent);
-    // schedule already returns phrases like "on Friday at 7:00 PM"
-    return schedule ? `Available ${schedule}` : null;
-  }, [suggestionContent]);
-
-  /* -------------------------- Prefill when editing -------------------------- */
-
-  useEffect(() => {
-    if (!visible) return;
-    if (!isEditing || !initialInvite) return;
-
-    const placeId =
-      initialInvite.placeId || initialInvite.business?.placeId;
-    const name =
-      initialInvite.businessName || initialInvite.business?.businessName;
-
-    if (placeId && name) {
-      setSelectedPlace({ placeId, name });
-      googleRef.current?.setAddressText(name);
-    }
-
-    setNote(initialInvite.note || '');
-
-    const rawDt =
-      initialInvite.details?.dateTime ||
-      initialInvite.dateTime ||
-      initialInvite.detailsDateTime ||
-      null;
-
-    if (rawDt) {
-      const t = Date.parse(rawDt);
-      setDateTime(Number.isFinite(t) ? new Date(t) : new Date());
-    } else {
-      setDateTime(new Date());
-    }
-
-    const normalizedIds =
-      (initialInvite.details?.recipients || [])
-        .map((r) => getUserId(r.user || r))
-        .filter(Boolean) || [];
-    setSelectedFriends(normalizedIds);
-  }, [isEditing, initialInvite, visible]);
-
-  /* ---------------------- Prefill when from suggestion ---------------------- */
-
-  useEffect(() => {
-    if (!visible) return;
-    if (isEditing) return;
-    if (!suggestedPlace) return;
-
-    setSelectedPlace(
-      suggestedPlace.placeId && suggestedPlace.name
-        ? { placeId: suggestedPlace.placeId, name: suggestedPlace.name }
-        : null
-    );
-    if (suggestedPlace.name) {
-      googleRef.current?.setAddressText(suggestedPlace.name);
-    }
-
-    const { baseStart, recurring, recurringDays } = suggestedPlace;
-    const now = new Date();
-    let dt;
-
-    if (baseStart) {
-      if (
-        fromSharedPost &&
-        recurring &&
-        Array.isArray(recurringDays) &&
-        recurringDays.length
-      ) {
-        const next = getNextRecurringOccurrence(baseStart, recurringDays);
-        dt = next || baseStart;
-      } else if (!fromSharedPost) {
-        dt = buildTodayAtTime(baseStart);
-      } else {
-        dt = baseStart;
-      }
-    } else {
-      dt = now;
-    }
-
-    setDateTime(dt);
-    setNote(suggestedPlace.note || '');
-  }, [suggestedPlace, isEditing, visible, fromSharedPost]);
-
-  /* ---------------------- Animate modal in/out ---------------------- */
-
+  // modal animation
+  const [shouldRender, setShouldRender] = useState(visible);
   useEffect(() => {
     if (visible) {
+      setShouldRender(true);
       animateIn();
-    } else {
+      return;
+    }
+
+    if (shouldRender) {
       (async () => {
         await animateOut();
+        setShouldRender(false);
       })();
     }
-  }, [visible]);
+  }, [visible]); // intentionally minimal deps
 
-  /* -------------------------- Confirm invite -------------------------- */
+  const handleConfirmInvite = useCallback(async () => {
+    if (submitting) return;
 
-  const handleConfirmInvite = async () => {
-    if (!selectedPlace || !dateTime || selectedFriends.length === 0) {
-      alert('Please complete all invite details.');
+    if (!venue || !venue.label || !dateTime || recipientIds.length === 0) {
+      Alert.alert("Error", "Please complete all invite details.");
       return;
     }
 
-    let dt = dateTime;
-    if (!(dt instanceof Date)) {
-      dt = new Date(dateTime);
+    if (venue.kind === "place" && !venue.placeId) {
+      Alert.alert("Error", "Please choose a place.");
+      return;
     }
 
+    const dt = dateTime instanceof Date ? dateTime : new Date(dateTime);
     const ts = dt.getTime();
     if (!Number.isFinite(ts)) {
-      alert('Invalid date/time. Please pick a different time.');
+      Alert.alert("Error", "Invalid date/time. Please pick a different time.");
       return;
     }
 
-    // Validate against suggestion schedule if applicable
+    // Validate against suggestion schedule (create mode only)
     if (!isEditing && suggestionContent) {
-      const schedule = validateAgainstSuggestion(dt, suggestionContent);
+      const schedule = validateAgainstSuggestionDateTime(dt, suggestionContent);
       if (schedule) {
-        alert(
-          `Invalid date or time.\n\nThis event or promo is held ${schedule}.`
-        );
+        Alert.alert("Invalid date or time", `This event or promo is held ${schedule}.`);
         return;
       }
     }
 
-    const recipientIds = Array.from(new Set(selectedFriends.filter(Boolean)));
-
-    const invitePayload = {
-      senderId: user.id || user._id,
-      recipientIds,
-      placeId: selectedPlace.placeId,
-      businessName: selectedPlace.name,
-      dateTime: dt,
-      message: '',
-      note,
-      isPublic,
-    };
-
     try {
-      if (isEditing && initialInvite) {
-        const updates = {
-          placeId: selectedPlace.placeId,
-          businessName: selectedPlace.name,
-          dateTime: dt,
-          note,
-          isPublic,
-        };
+      const res = await submit({
+        mode: isEditing ? "edit" : "create",
+        inviteId: initialInvite?._id,
+        actions: { sendInviteWithConflicts, editInviteWithConflicts },
 
-        const { cancelled } = await editInviteWithConflicts({
-          inviteIdOverride: initialInvite._id,
-          updates,
-          recipientIds,
-        });
+        userId: user?.id || user?._id,
+        venue,
+        dateTime: dt,
+        message,
+        isPublic: effectiveIsPublic,
+        media: [], // modal doesn’t handle media here (keep empty)
+        recipientIds,
+      });
 
-        if (cancelled) return;
+      if (res?.cancelled) return;
 
-        medium();
+      medium();
+
+      if (isEditing) {
         setInviteToEdit?.(null);
         setIsEditing?.(false);
-        alert('Invite updated!');
+        Alert.alert("Success", "Invite updated!");
       } else {
-        const { cancelled } = await sendInviteWithConflicts(invitePayload);
-        if (cancelled) return;
-
-        medium();
-        alert('Invite sent!');
+        Alert.alert("Success", "Invite sent!");
       }
 
-      setSelectedFriends([]);
-      setNote('');
-      setSelectedPlace(null);
-      setDateTime(null);
       onClose?.();
     } catch (err) {
-      alert('Something went wrong. Please try again.');
+      Alert.alert("Error", err?.message || "Something went wrong. Please try again.");
     }
-  };
+  }, [
+    submitting,
+    venue,
+    dateTime,
+    recipientIds,
+    isEditing,
+    suggestionContent,
+    submit,
+    initialInvite?._id,
+    sendInviteWithConflicts,
+    editInviteWithConflicts,
+    user?.id,
+    user?._id,
+    message,
+    effectiveIsPublic,
+    onClose,
+    setInviteToEdit,
+    setIsEditing,
+  ]);
 
-  /* -------------------------- Friends display list -------------------------- */
-
-  if (!visible) return null;
-
-  const displayFriends = [
-    ...friends,
-    ...(initialInvite?.details?.recipients?.map((r) => r.user || r) || []),
-  ].filter((u, index, self) => {
-    const id = getUserId(u);
-    return (
-      id &&
-      selectedFriends.includes(id) &&
-      index === self.findIndex((x) => getUserId(x) === id)
-    );
-  });
+  if (!shouldRender) return null;
 
   return (
-    <Modal visible={visible} transparent onRequestClose={animateOut}>
+    <Modal visible={shouldRender} transparent onRequestClose={animateOut}>
       <TouchableWithoutFeedback onPress={animateOut}>
         <View style={styles.overlay}>
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'position' : 'height'}
+            behavior={Platform.OS === "ios" ? "position" : "height"}
             keyboardVerticalOffset={-80}
             style={styles.keyboardAvoiding}
           >
@@ -529,14 +180,15 @@ const InviteModal = ({
                   <View>
                     <Notch />
                     <Text style={styles.title}>
-                      {isEditing ? 'Edit Vybe Invite' : 'Create Vybe Invite'}
+                      {isEditing ? "Edit Vybe Invite" : "Create Vybe Invite"}
                     </Text>
+                    {/* Venue */}
                     {lockPlace ? (
                       <>
                         <Text style={styles.label}>Place</Text>
                         <LockedPlaceHeader
                           label={fromSharedPost ? "From shared promo/event" : "Suggested"}
-                          title={selectedPlace?.name || suggestionContent?.businessName}
+                          title={venue?.label || suggestionContent?.businessName}
                           subtitle={lockedPlaceSubtitle}
                         />
                       </>
@@ -544,51 +196,44 @@ const InviteModal = ({
                       <>
                         <Text style={styles.label}>Search for a Place</Text>
                         <PlacesAutocomplete
-                          // If you have lat/lng available in this screen, pass them in.
                           lat={null}
                           lng={null}
-                          prefillLabel={selectedPlace?.name || ""}
-                          onClear={() => {
-                            setSelectedPlace(null);
-                          }}
+                          prefillLabel={venue?.label || ""}
+                          onClear={() => setSelectedVenue(null)}
                           onPlaceSelected={(details) => {
-                            const placeId =
-                              details?.place_id ||
-                              details?.placeId ||
-                              details?.id ||
-                              details?.result?.place_id ||
-                              details?.result?.placeId ||
-                              null;
+                            let v = venueFromBusiness(details);
 
-                            const name =
-                              details?.name ||
-                              details?.businessName ||
-                              details?.result?.name ||
-                              "";
+                            if (v && !v.address) {
+                              v = {
+                                ...v,
+                                address:
+                                  extractFormattedAddress(details) ||
+                                  v?.geo?.formattedAddress ||
+                                  null,
+                              };
+                            }
 
-                            if (!placeId && !name) return;
+                            if (!v?.kind || !v?.label) return;
+                            if (v.kind === "place" && !v.placeId) return;
 
-                            setSelectedPlace({
-                              placeId: placeId || selectedPlace?.placeId || null,
-                              name: name || selectedPlace?.name || "",
-                            });
+                            setSelectedVenue(v);
                           }}
                         />
                       </>
                     )}
+                    {/* Visibility */}
                     <View style={styles.switchContainer}>
                       <Text style={styles.label}>
-                        {isPublic ? 'Public Invite 🌍' : 'Private Invite 🔒'}
+                        {effectiveIsPublic ? "Public Invite 🌍" : "Private Invite 🔒"}
                       </Text>
                       <Switch
-                        value={isPublic}
-                        onValueChange={setIsPublic}
-                        trackColor={{ false: '#ccc', true: '#4cd137' }}
-                        thumbColor={
-                          Platform.OS === 'android' ? '#fff' : undefined
-                        }
+                        value={effectiveIsPublic}
+                        onValueChange={(v) => setIsPublic(v)}
+                        trackColor={{ false: "#ccc", true: "#4cd137" }}
+                        thumbColor={Platform.OS === "android" ? "#fff" : undefined}
                       />
                     </View>
+                    {/* Date */}
                     <View style={styles.dateTimeInput}>
                       <Text style={styles.label}>Select Date & Time</Text>
                       <DateTimePicker
@@ -596,12 +241,11 @@ const InviteModal = ({
                         mode="datetime"
                         display="default"
                         onChange={(event, selectedDate) => {
-                          if (selectedDate) {
-                            setDateTime(selectedDate);
-                          }
+                          if (selectedDate) setDateTime(selectedDate);
                         }}
                       />
                     </View>
+                    {/* Message */}
                     <View style={styles.noteContainer}>
                       <Text style={styles.label}>Add a Note (optional)</Text>
                       <TextInput
@@ -609,35 +253,43 @@ const InviteModal = ({
                         placeholder="Let your friends know what's up..."
                         multiline
                         numberOfLines={3}
-                        value={note}
-                        onChangeText={setNote}
+                        value={message}
+                        onChangeText={setMessage}
                       />
                     </View>
-                    <SelectFriendsPicker
-                      selectedFriends={selectedFriends}
-                      displayFriends={displayFriends}
-                      onOpenModal={() => setShowFriendsModal(true)}
-                      setSelectedFriends={setSelectedFriends}
+                    {/* Recipients */}
+                    <TouchableOpacity
+                      style={styles.friendButton}
+                      onPress={() => setShowFriendsModal(true)}
+                    >
+                      <Text style={styles.friendButtonText}>
+                        {selectedFriends.length > 0
+                          ? `👥 ${selectedFriends.length} Selected`
+                          : "➕ Select Friends"}
+                      </Text>
+                    </TouchableOpacity>
+                    <FriendPills
+                      friends={selectedFriends}
+                      onRemove={(u) => removeFriendById(u)}
                     />
                     <TouchableOpacity
-                      style={styles.confirmButton}
+                      style={[styles.confirmButton, submitting && { opacity: 0.65 }]}
                       onPress={handleConfirmInvite}
+                      disabled={submitting}
                     >
                       <Text style={styles.confirmText}>
-                        {isEditing ? 'Save Edit' : 'Send Invite'}
+                        {submitting ? "Submitting..." : isEditing ? "Save Edit" : "Send Invite"}
                       </Text>
                     </TouchableOpacity>
                     <TagFriendsModal
                       visible={showFriendsModal}
                       onClose={() => setShowFriendsModal(false)}
                       onSave={(selected) => {
-                        const ids = selected.map(
-                          (friend) => friend._id || friend.id
-                        );
-                        setSelectedFriends(ids);
+                        setSelectedFriends(Array.isArray(selected) ? selected : []);
                         setShowFriendsModal(false);
                       }}
-                      isEventInvite={true}
+                      isEventInvite
+                      initialSelectedFriends={selectedFriends}
                     />
                   </View>
                 </TouchableWithoutFeedback>
@@ -648,65 +300,69 @@ const InviteModal = ({
       </TouchableWithoutFeedback>
     </Modal>
   );
-};
+}
 
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: '#00000088',
-    justifyContent: 'flex-end',
+    backgroundColor: "#00000088",
+    justifyContent: "flex-end",
+  },
+  keyboardAvoiding: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "transparent",
   },
   modalContainer: {
-    width: '100%',
+    width: "100%",
     maxHeight: MAX_SHEET_HEIGHT,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 20,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 10,
   },
-  title: { fontSize: 20, fontWeight: '600', marginBottom: 20 },
-  confirmButton: {
-    backgroundColor: '#009999',
-    padding: 14,
-    borderRadius: 8,
-    marginVertical: 16,
-    alignItems: 'center',
-  },
-  confirmText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  label: { fontSize: 14, fontWeight: '500', marginBottom: 4, color: '#555' },
-  dateTimeInput: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 25,
-  },
-  keyboardAvoiding: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'transparent',
-  },
+  title: { fontSize: 20, fontWeight: "600", marginBottom: 20 },
+  label: { fontSize: 14, fontWeight: "500", marginBottom: 4, color: "#555" },
   switchContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 20,
+  },
+  dateTimeInput: {
+    marginBottom: 25,
   },
   noteContainer: { marginBottom: 16 },
   noteInput: {
-    borderColor: '#ccc',
+    borderColor: "#ccc",
     borderWidth: 1,
     borderRadius: 8,
     padding: 10,
     fontSize: 15,
-    backgroundColor: '#f9f9f9',
-    textAlignVertical: 'top',
+    backgroundColor: "#f9f9f9",
+    textAlignVertical: "top",
   },
+  friendButton: {
+    backgroundColor: "#33cccc",
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  friendButtonText: { color: "#fff", fontSize: 15, fontWeight: "500" },
+  confirmButton: {
+    backgroundColor: "#009999",
+    padding: 14,
+    borderRadius: 8,
+    marginTop: 14,
+    alignItems: "center",
+  },
+  confirmText: { color: "#fff", fontSize: 16, fontWeight: "600" },
 });
-
-export default InviteModal;

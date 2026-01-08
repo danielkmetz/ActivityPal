@@ -1,6 +1,7 @@
 import { gql } from '@apollo/client';
 import { TAGGED_USER_FRAGMENT } from './taggedUserFragment';
 import { USER_CORE_FIELDS } from './userFragment';
+import { VENUE_FIELDS } from './venueFragment';
 
 /**
  * For nested posts (shared original, snapshotPost).
@@ -10,6 +11,7 @@ import { USER_CORE_FIELDS } from './userFragment';
 export const NESTED_POST_FIELDS = gql`
   ${TAGGED_USER_FRAGMENT}
   ${USER_CORE_FIELDS}
+  ${VENUE_FIELDS}
 
   fragment NestedPostFields on Post {
     _id
@@ -35,6 +37,10 @@ export const NESTED_POST_FIELDS = gql`
         logoUrl
         placeId
       }
+    }
+
+    venue {
+      ...VenueFields
     }
 
     taggedUsers {

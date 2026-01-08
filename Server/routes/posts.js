@@ -10,6 +10,7 @@ const { normalizePoint } = require('../utils/posts/normalizePoint.js');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl.js');
 const { hydratePostForResponse } = require('../utils/posts/hydrateAndEnrichForResponse.js');
 const { extractTaggedUserIds } = require('../utils/enrichPosts');
+const { buildMediaFromPhotos } = require('../utils/posts/buildMediaFromPhotos.js');
 const { clearOldestNeedsRecapNotification } = require('../utils/posts/removeRecapNotification.js');
 
 // -------------------- constants --------------------
@@ -55,27 +56,6 @@ async function upsertBusinessIfNeeded(placeId, businessName, location) {
       },
     },
     { upsert: true, new: true }
-  );
-}
-
-async function buildMediaFromPhotos(photos = [], uploadedBy) {
-  return Promise.all(
-    photos.map(async (p) => {
-      const formattedTagged = Array.isArray(p.taggedUsers)
-        ? p.taggedUsers.map((tag) => ({
-          userId: oid(tag.userId),
-          x: tag.x,
-          y: tag.y,
-        }))
-        : [];
-      return {
-        photoKey: p.photoKey,
-        uploadedBy: oid(uploadedBy),
-        description: p.description || null,
-        taggedUsers: formattedTagged,
-        uploadDate: new Date(),
-      };
-    })
   );
 }
 

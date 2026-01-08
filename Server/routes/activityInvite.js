@@ -1,34 +1,41 @@
 const express = require('express');
 const router = express.Router();
-const mongoose = require('mongoose');
 const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
-
 const User = require('../models/User');
 const Business = require('../models/Business');
-const { Post, InvitePost } = require('../models/Post');   // ⬅️ use InvitePost
-const { getPresignedUrl } = require('../utils/cachePresignedUrl');
+const { Post, InvitePost } = require('../models/Post');
+const { buildMediaFromPhotos } = require('../utils/posts/buildMediaFromPhotos');
+const { hydratePostForResponse } = require('../utils/posts/hydrateAndEnrichForResponse');
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const DISPLAY_TZ = 'America/Chicago';
 
-const fmtWhen = (iso, tz = DISPLAY_TZ) =>
-  iso ? dayjs.utc(iso).tz(tz).format('MMMM D [at] h:mm A') : '';
+const fmtWhen = (isoOrDate, tz = DISPLAY_TZ) => {
+  if (!isoOrDate) return '';
+  const iso = isoOrDate instanceof Date ? isoOrDate.toISOString() : isoOrDate;
+  return dayjs.utc(iso).tz(tz).format('MMMM D [at] h:mm A');
+};
 
 const ensureInviteDetails = (post) => {
   if (!post.details) post.details = {};
   if (!Array.isArray(post.details.recipients)) post.details.recipients = [];
   if (!Array.isArray(post.details.requests)) post.details.requests = [];
 
-  // default timezone on the invite if missing
-  if (typeof post.details.timezone !== 'string' || !post.details.timezone.trim()) {
-    post.details.timezone = DISPLAY_TZ;
-  }
+  // ✅ schema uses timeZone (camel-case Z)
+  const tz =
+    (typeof post.details.timeZone === 'string' && post.details.timeZone.trim())
+      ? post.details.timeZone.trim()
+      : (typeof post.details.timezone === 'string' && post.details.timezone.trim())
+        ? post.details.timezone.trim()
+        : DISPLAY_TZ;
 
-  // recap worker will set this when it fires
+  post.details.timeZone = tz;
+  delete post.details.timezone;
+
   if (typeof post.details.recapReminderSentAt === 'undefined') {
     post.details.recapReminderSentAt = null;
   }
@@ -36,193 +43,119 @@ const ensureInviteDetails = (post) => {
   return post.details;
 };
 
-/* -------------------------- small helpers -------------------------- */
+/**
+ * Normalize client input into VenueSchema shape:
+ * - Place venue: { kind:'place', label, placeId, geo }
+ * - Custom venue: { kind:'custom', label, geo? }
+ *
+ * Accepts either:
+ * - req.body.venue (preferred)
+ * - legacy: placeId/businessName/location
+ */
+function normalizeVenueInput(body) {
+  const v = body?.venue;
 
-async function presignProfilePic(user) {
-  const key = user?.profilePic?.photoKey;
-  return key ? await getPresignedUrl(key) : null;
-}
+  // Preferred: explicit venue object
+  if (v && typeof v === 'object') {
+    const kind = String(v.kind || '').trim();
 
-async function loadUsersMap(userIds = []) {
-  const ids = [...new Set(userIds.map(String))];
-  if (!ids.length) return new Map();
+    if (kind === 'place') {
+      const label = String(v.label || body.businessName || '').trim();
+      const placeId = String(v.placeId || body.placeId || '').trim();
+      const address = String(v.address || body.address || '').trim();
+      if (!label) return { error: 'venue.kind="place" requires label' };
+      if (!placeId) return { error: 'venue.kind="place" requires placeId' };
 
-  const users = await User.find({ _id: { $in: ids } })
-    .select('_id firstName lastName profilePic')
-    .lean();
-
-  const entries = await Promise.all(
-    users.map(async (u) => {
-      const url = await presignProfilePic(u);
-      return [
-        String(u._id),
-        {
-          id: String(u._id),
-          firstName: u.firstName || '',
-          lastName: u.lastName || '',
-          profilePicUrl: url,
+      return {
+        venueKind: 'place',
+        venue: {
+          kind: 'place',
+          label,
+          placeId,
+          address,
+          geo: v.geo || body.location || undefined,
         },
-      ];
-    })
-  );
+      };
+    }
 
-  return new Map(entries);
-}
+    if (kind === 'custom') {
+      const label = String(v.label || '').trim();
+      if (!label) return { error: 'venue.kind="custom" requires label' };
 
-function mapRecipient(r, usersMap) {
-  const u = usersMap.get(String(r.userId));
-  return {
-    userId: String(r.userId),
-    status: r.status || 'pending',
-    firstName: u?.firstName || '',
-    lastName: u?.lastName || '',
-    profilePicUrl: u?.profilePicUrl || null,
-  };
-}
+      return {
+        venueKind: 'custom',
+        venue: {
+          kind: 'custom',
+          label,
+          placeId: null,
+          address: v.address != null ? String(v.address).trim() : null,
+          geo: v.geo || undefined,
+        },
+      };
+    }
 
-function mapRequest(r, usersMap) {
-  const u = usersMap.get(String(r.userId));
-  return {
-    _id: r?._id ? String(r._id) : undefined,
-    userId: String(r.userId),
-    status: r?.status || 'pending',
-    firstName: u?.firstName || '',
-    lastName: u?.lastName || '',
-    profilePicUrl: u?.profilePicUrl || null,
-  };
+    return { error: 'venue.kind must be "place" or "custom"' };
+  }
+
+  // ✅ Legacy fallback (Google place only)
+  if (typeof body?.placeId === 'string' && body.placeId.trim()) {
+    const placeId = body.placeId.trim();
+    const label = String(body.businessName || '').trim() || 'Place';
+
+    return {
+      venueKind: 'place',
+      venue: {
+        kind: 'place',
+        label,
+        placeId,
+        address: null,
+        geo: body.location || undefined,
+      },
+    };
+  }
+
+  // No legacy custom support
+  return { error: 'Missing venue. Provide venue OR placeId for Google Places.' };
 }
 
 /**
- * Serialize a Post (type: 'invite') into the GraphQL Post shape.
+ * For Google places only: ensure a Business exists (your current app still relies on it).
+ * For custom venues: never create Business.
  */
-async function serializeInvitePost(postDoc) {
-  const post = postDoc.toObject ? postDoc.toObject() : postDoc;
-  const details = post.details || {};
+async function ensureBusinessForPlaceVenue(placeId, label, geo) {
+  if (!placeId) return null;
 
-  // --- Business snapshot ---
-  let businessName = post.businessName || null;
-  let businessLogoUrl = post.businessLogoUrl || null;
-  let business = null;
+  let business = await Business.findOne({ placeId }).lean();
+  if (business) return business;
 
-  if (post.placeId) {
-    business = await Business.findOne({ placeId: post.placeId }).lean();
-    if (business) {
-      if (!businessName) {
-        businessName = business.businessName || 'Unknown Business';
-      }
-      if (business.logoKey && !businessLogoUrl) {
-        businessLogoUrl = await getPresignedUrl(business.logoKey);
-      }
-    }
-  }
+  const coords = Array.isArray(geo?.coordinates) ? geo.coordinates : [0, 0];
 
-  // --- Resolve all users involved (owner + recipients + requests) ---
-  const ownerId = post.ownerId ? String(post.ownerId) : null;
-  const allUserIds = [
-    ownerId,
-    ...(details.recipients || []).map((r) => r.userId),
-    ...(details.requests || []).map((r) => r.userId),
-  ].filter(Boolean);
-
-  const usersMap = await loadUsersMap(allUserIds);
-
-  // Owner = sender (User)
-  const senderUser = ownerId ? usersMap.get(ownerId) : null;
-  const owner =
-    senderUser && ownerId
-      ? {
-        __typename: 'User',
-        id: ownerId,
-        firstName: senderUser.firstName || '',
-        lastName: senderUser.lastName || '',
-        fullName: `${senderUser.firstName || ''} ${senderUser.lastName || ''}`.trim(),
-        profilePicUrl: senderUser.profilePicUrl || null,
-      }
-      : null;
-
-  // --- InviteDetails.recipients ---
-  const recipients = (details.recipients || []).map((r) => {
-    const u = usersMap.get(String(r.userId));
-    return {
-      __typename: 'InviteRecipient',
-      status: r.status || 'pending',
-      nudgedAt: r.nudgedAt || null,
-      user: {
-        __typename: 'InviteUser',
-        id: String(r.userId),
-        firstName: u?.firstName || '',
-        lastName: u?.lastName || '',
-        profilePicUrl: u?.profilePicUrl || null,
-      },
-    };
+  const created = await Business.create({
+    placeId,
+    businessName: label || 'Unknown Business',
+    location: {
+      type: 'Point',
+      coordinates: coords,
+      formattedAddress: geo?.formattedAddress || 'Unknown Address',
+    },
+    firstName: 'N/A',
+    lastName: 'N/A',
+    email: 'N/A',
+    password: 'N/A',
+    events: [],
+    reviews: [],
   });
 
-  // --- InviteDetails.requests ---
-  const requests = (details.requests || []).map((r) => mapRequest(r, usersMap));
-
-  // --- Likes / comments / stats ---
-  const likes = Array.isArray(post.likes) ? post.likes : [];
-  const comments = Array.isArray(post.comments) ? post.comments : [];
-
-  const nowIso = new Date().toISOString();
-  const createdAtIso = post.createdAt ? String(post.createdAt) : nowIso;
-  const updatedAtIso = post.updatedAt ? String(post.updatedAt) : createdAtIso;
-
-  return {
-    __typename: 'Post',
-    _id: String(post._id),
-    type: 'invite',
-
-    owner,
-    ownerId,
-    ownerModel: 'User',
-
-    message: post.message || null,
-    placeId: post.placeId ? String(post.placeId) : null,
-    location: post.location || null,
-    media: post.media || [],
-    taggedUsers: post.taggedUsers || [],
-
-    likes,
-    comments,
-    stats: {
-      likeCount: likes.length,
-      commentCount: comments.length,
-      shareCount: post.stats?.shareCount ?? 0,
-    },
-
-    privacy: post.privacy || 'public',
-    visibility: post.visibility || 'visible',
-    sortDate: post.sortDate || post.createdAt || post.date || nowIso,
-    createdAt: createdAtIso,
-    updatedAt: updatedAtIso,
-
-    details: {
-      __typename: 'InviteDetails',
-      dateTime: details.dateTime || null,
-      recipients,
-      requests,
-    },
-
-    shared: post.shared || null,
-    refs: post.refs || null,
-
-    businessName,
-    businessLogoUrl,
-    original: null,
-  };
+  return created.toObject();
 }
 
-/* ------------------------ core invariants ------------------------- */
-
-function computeInviteStatus(recipients = []) {
-  const allAccepted = recipients.length > 0 && recipients.every((r) => r.status === 'accepted');
-  const anyDeclined = recipients.some((r) => r.status === 'declined');
-  const anyPending = recipients.some((r) => r.status === 'pending');
-
-  if (allAccepted) return 'accepted';
-  if (anyDeclined && !anyPending) return 'declined';
-  return 'pending';
+function getVenueLabel(post, business) {
+  return (
+    post?.venue?.label ||
+    business?.businessName ||
+    post?.businessName ||
+    'a place'
+  );
 }
 
 /* --------------------------- /send --------------------------- */
@@ -231,74 +164,90 @@ router.post('/send', async (req, res) => {
   const {
     senderId,
     recipientIds = [],
-    placeId,
     dateTime,
     message,
-    isPublic,
     note,
-    businessName,
-    location,
-    timezone,           // 👈 from client (event timezone)
+    isPublic,
+    photos,
+    timezone, // client input
   } = req.body;
 
   try {
     const sender = await User.findById(senderId);
     if (!sender) return res.status(404).json({ error: 'Sender not found' });
 
-    // Ensure business exists (unchanged)
-    let business = await Business.findOne({ placeId }).lean();
-    if (!business) {
-      const created = await Business.create({
-        placeId,
-        businessName: businessName || 'Unknown Business',
-        location: {
-          type: 'Point',
-          coordinates: [0, 0],
-          formattedAddress: location?.formattedAddress || 'Unknown Address',
-        },
-        firstName: 'N/A',
-        lastName: 'N/A',
-        email: 'N/A',
-        password: 'N/A',
-        events: [],
-        reviews: [],
-      });
-      business = created.toObject();
+    const venueResult = normalizeVenueInput(req.body);
+    if (venueResult.error) return res.status(400).json({ error: venueResult.error });
+
+    const { venue: normalizedVenue, venueKind } = venueResult;
+
+    // Only for Google places
+    let business = null;
+    if (venueKind === 'place') {
+      business = await Business.findOne({ placeId: normalizedVenue.placeId }).lean();
+      if (!business) {
+        const created = await Business.create({
+          placeId: normalizedVenue.placeId,
+          businessName: normalizedVenue.label || 'Unknown Business',
+          location: normalizedVenue.geo || {
+            type: 'Point',
+            coordinates: [0, 0],
+            formattedAddress: 'Unknown Address',
+          },
+          firstName: 'N/A',
+          lastName: 'N/A',
+          email: 'N/A',
+          password: 'N/A',
+          events: [],
+          reviews: [],
+        });
+        business = created.toObject();
+      }
     }
 
     const createdAt = new Date();
     const when = dateTime ? new Date(dateTime) : new Date();
     const text = message ?? note ?? '';
-    const privacy = isPublic ? 'public' : 'followers';
 
-    const eventTimezone = (typeof timezone === 'string' && timezone.trim())
-      ? timezone.trim()
-      : DISPLAY_TZ;
+    // Custom venues must not be discoverable
+    const privacy =
+      venueKind === 'custom'
+        ? 'private'
+        : (isPublic ? 'public' : 'followers');
+
+    const eventTimeZone =
+      (typeof timezone === 'string' && timezone.trim())
+        ? timezone.trim()
+        : DISPLAY_TZ;
+
+    const MAX_INVITE_PHOTOS = 6;
+    const safePhotos = Array.isArray(photos) ? photos.slice(0, MAX_INVITE_PHOTOS) : [];
+    const media = await buildMediaFromPhotos(safePhotos, senderId);
 
     const post = await InvitePost.create({
       ownerId: senderId,
       ownerModel: 'User',
       type: 'invite',
       message: text,
-      placeId,
-      businessName: business.businessName,
-      location: business.location || location,
       privacy,
+      venue: normalizedVenue, // ✅ required now
+      media,
       details: {
         dateTime: when,
-        timezone: eventTimezone,           // 👈 store event tz
+        timeZone: eventTimeZone, // ✅ schema key
         recipients: recipientIds.map((id) => ({ userId: id, status: 'pending' })),
         requests: [],
-        recapReminderSentAt: null,        // 👈 worker will set later
+        recapReminderSentAt: null,
       },
       sortDate: createdAt,
     });
 
-    // Notifications (use event timezone for messaging)
-    const formattedDateTime = fmtWhen(when.toISOString(), eventTimezone);
+    const placeLabel = normalizedVenue.label || business?.businessName || 'a place';
+    const formattedDateTime = fmtWhen(when.toISOString(), eventTimeZone);
+
     const baseNotif = {
       type: 'activityInvite',
-      message: `${sender.firstName} invited you to ${business.businessName} on ${formattedDateTime}`,
+      message: `${sender.firstName} invited you to ${placeLabel} on ${formattedDateTime}`,
       relatedId: sender._id,
       targetId: post._id,
       typeRef: 'User',
@@ -307,21 +256,19 @@ router.post('/send', async (req, res) => {
       createdAt: new Date(),
     };
 
-    const recipientOps = recipientIds.map((uid) =>
-      User.findByIdAndUpdate(uid, {
-        $addToSet: { activityInvites: post._id },
-        $push: { notifications: baseNotif },
-      })
-    );
+    await Promise.all([
+      ...recipientIds.map((uid) =>
+        User.findByIdAndUpdate(uid, {
+          $addToSet: { activityInvites: post._id },
+          $push: { notifications: baseNotif },
+        })
+      ),
+      User.findByIdAndUpdate(senderId, { $addToSet: { activityInvites: post._id } }),
+    ]);
 
-    const senderOp = User.findByIdAndUpdate(senderId, {
-      $addToSet: { activityInvites: post._id },
-    });
-
-    await Promise.all([...recipientOps, senderOp]);
-
-    const out = await serializeInvitePost(post);
-    return res.status(200).json({ success: true, message: 'Invite sent!', invite: out });
+    const raw = post.toObject ? post.toObject() : post;
+    const invite = await hydratePostForResponse(raw, { viewerId: senderId });
+    return res.status(200).json({ success: true, message: 'Invite sent!', invite });
   } catch (err) {
     console.error('❌ Failed to send invite:', err);
     return res.status(500).json({ error: 'Failed to send invite', details: err.message });
@@ -342,19 +289,16 @@ router.post('/accept', async (req, res) => {
 
     const details = ensureInviteDetails(post);
 
-    const row = (details.recipients || []).find(
-      (r) => String(r.userId) === String(recipientId)
-    );
+    const row = (details.recipients || []).find((r) => String(r.userId) === String(recipientId));
     if (row) row.status = 'accepted';
 
     await post.save();
 
-    // Remove original invite *and reminder* notifications for THIS invite
+    // Remove original invite + reminder notifications for THIS invite
     recipient.notifications = (recipient.notifications || []).filter(
       (n) =>
         !(
-          (n.type === 'activityInvite' ||
-            n.type === 'activityInviteReminder') &&           // 👈 include reminder
+          (n.type === 'activityInvite' || n.type === 'activityInviteReminder') &&
           String(n.relatedId) === String(post.ownerId) &&
           String(n.targetId) === String(post._id) &&
           n.postType === 'invite'
@@ -362,18 +306,16 @@ router.post('/accept', async (req, res) => {
     );
     await recipient.save();
 
-    const business = await Business.findOne({ placeId: post.placeId }).lean();
-    const tz = details.timezone || DISPLAY_TZ;
+    const business = post.placeId ? await Business.findOne({ placeId: post.placeId }).lean() : null;
+    const tz = details.timeZone || DISPLAY_TZ;
     const formattedDate = fmtWhen(details.dateTime, tz);
-    const acceptedCount = (details.recipients || []).filter(
-      (r) => r.status === 'accepted'
-    ).length;
+    const acceptedCount = (details.recipients || []).filter((r) => r.status === 'accepted').length;
+
+    const placeLabel = getVenueLabel(post, business);
 
     const senderNotification = {
       type: 'activityInviteAccepted',
-      message: business
-        ? `🎉 Your activity invite for ${business.businessName} now has ${acceptedCount} accepted.`
-        : `🎉 Your activity invite now has ${acceptedCount} accepted.`,
+      message: `🎉 Your activity invite for ${placeLabel} now has ${acceptedCount} accepted.`,
       relatedId: recipient._id,
       typeRef: 'User',
       targetId: post._id,
@@ -384,9 +326,7 @@ router.post('/accept', async (req, res) => {
 
     const recipientConfirmation = {
       type: 'activityInviteAccepted',
-      message: business
-        ? `You accepted the invite to ${business.businessName} on ${formattedDate}`
-        : `You accepted the invite on ${formattedDate}`,
+      message: `You accepted the invite to ${placeLabel} on ${formattedDate}`,
       relatedId: post._id,
       typeRef: 'Post',
       targetId: post._id,
@@ -396,20 +336,17 @@ router.post('/accept', async (req, res) => {
     };
 
     await Promise.all([
-      User.findByIdAndUpdate(post.ownerId, {
-        $push: { notifications: senderNotification },
-      }),
-      User.findByIdAndUpdate(recipientId, {
-        $push: { notifications: recipientConfirmation },
-      }),
+      User.findByIdAndUpdate(post.ownerId, { $push: { notifications: senderNotification } }),
+      User.findByIdAndUpdate(recipientId, { $push: { notifications: recipientConfirmation } }),
     ]);
 
-    if (acceptedCount >= 5 && business?._id) {
+    // Only notify a Business for real Google place venues
+    if (acceptedCount >= 5 && business?._id && post?.venue?.kind === 'place') {
       await Business.findByIdAndUpdate(business._id, {
         $push: {
           notifications: {
             type: 'activityInvite',
-            message: `🎉 A group event at your business (${business.businessName}) just reached ${acceptedCount} attendees!`,
+            message: `🎉 A group event at your business (${placeLabel}) just reached ${acceptedCount} attendees!`,
             relatedId: post._id,
             typeRef: 'Post',
             targetId: post._id,
@@ -421,15 +358,12 @@ router.post('/accept', async (req, res) => {
       });
     }
 
-    const out = await serializeInvitePost(post);
-    return res
-      .status(200)
-      .json({ success: true, message: 'Invite accepted!', invite: out });
+    const raw = post.toObject ? post.toObject() : post;
+    const invite = await hydratePostForResponse(raw, { viewerId: recipientId });
+    return res.status(200).json({ success: true, message: 'Invite accepted!', invite });
   } catch (err) {
     console.error('❌ Error in /accept:', err);
-    return res
-      .status(500)
-      .json({ error: 'Failed to accept invite', details: err.message });
+    return res.status(500).json({ error: 'Failed to accept invite', details: err.message });
   }
 });
 
@@ -446,19 +380,17 @@ router.post('/reject', async (req, res) => {
     if (!post) return res.status(404).json({ error: 'Invite not found' });
 
     const details = ensureInviteDetails(post);
-    const row = (details.recipients || []).find(
-      (r) => String(r.userId) === String(recipientId)
-    );
+
+    const row = (details.recipients || []).find((r) => String(r.userId) === String(recipientId));
     if (row) row.status = 'declined';
 
     await post.save();
 
-    // Remove original invite *and reminder* notifications for THIS invite
+    // Remove original invite + reminder notifications for THIS invite
     recipient.notifications = (recipient.notifications || []).filter(
       (n) =>
         !(
-          (n.type === 'activityInvite' ||
-            n.type === 'activityInviteReminder') &&           // 👈 include reminder
+          (n.type === 'activityInvite' || n.type === 'activityInviteReminder') &&
           String(n.relatedId) === String(post.ownerId) &&
           String(n.targetId) === String(post._id) &&
           n.postType === 'invite'
@@ -466,15 +398,14 @@ router.post('/reject', async (req, res) => {
     );
     await recipient.save();
 
-    const business = await Business.findOne({ placeId: post.placeId }).lean();
-    const tz = details.timezone || DISPLAY_TZ;
+    const business = post.placeId ? await Business.findOne({ placeId: post.placeId }).lean() : null;
+    const tz = details.timeZone || DISPLAY_TZ;
     const formattedDate = fmtWhen(details.dateTime, tz);
+    const placeLabel = getVenueLabel(post, business);
 
     const senderNotification = {
       type: 'activityInviteDeclined',
-      message: business
-        ? `${recipient.firstName} declined your activity invite to ${business.businessName} on ${formattedDate}`
-        : `${recipient.firstName} declined your activity invite on ${formattedDate}`,
+      message: `${recipient.firstName} declined your activity invite to ${placeLabel} on ${formattedDate}`,
       relatedId: recipient._id,
       typeRef: 'User',
       targetId: post._id,
@@ -485,9 +416,7 @@ router.post('/reject', async (req, res) => {
 
     const recipientConfirmation = {
       type: 'activityInviteDeclined',
-      message: business
-        ? `You declined the invite to ${business.businessName} on ${formattedDate}`
-        : `You declined the invite on ${formattedDate}`,
+      message: `You declined the invite to ${placeLabel} on ${formattedDate}`,
       relatedId: post._id,
       typeRef: 'Post',
       targetId: post._id,
@@ -497,36 +426,30 @@ router.post('/reject', async (req, res) => {
     };
 
     await Promise.all([
-      User.findByIdAndUpdate(post.ownerId, {
-        $push: { notifications: senderNotification },
-      }),
-      User.findByIdAndUpdate(recipientId, {
-        $push: { notifications: recipientConfirmation },
-      }),
+      User.findByIdAndUpdate(post.ownerId, { $push: { notifications: senderNotification } }),
+      User.findByIdAndUpdate(recipientId, { $push: { notifications: recipientConfirmation } }),
     ]);
 
-    const out = await serializeInvitePost(post);
-    return res.status(200).json({
-      success: true,
-      message: 'Invite declined, sender notified.',
-      invite: out,
-    });
+    const raw = post.toObject ? post.toObject() : post;
+    const invite = await hydratePostForResponse(raw, { viewerId: recipientId });
+    return res.status(200).json({ success: true, message: 'Invite declined', invite });
   } catch (err) {
     console.error('❌ Error in /reject:', err);
-    return res
-      .status(500)
-      .json({ error: 'Failed to decline invite', details: err.message });
+    return res.status(500).json({ error: 'Failed to decline invite', details: err.message });
   }
 });
 
 /* --------------------------- /edit --------------------------- */
 
 router.put('/edit', async (req, res) => {
-  const { recipientId: senderId, inviteId, updates = {}, recipientIds = [] } = req.body;
+  const senderId = req.body.senderId || req.body.recipientId;
+  const { inviteId, updates = {}, recipientIds = [] } = req.body;
 
   try {
     const post = await InvitePost.findOne({ _id: inviteId, type: 'invite' });
     if (!post) return res.status(404).json({ error: 'Invite not found' });
+
+    if (!senderId) return res.status(400).json({ error: 'Missing senderId' });
 
     if (String(post.ownerId) !== String(senderId)) {
       return res.status(400).json({ error: 'Only the sender can edit this invite' });
@@ -535,76 +458,142 @@ router.put('/edit', async (req, res) => {
     const sender = await User.findById(senderId);
     if (!sender) return res.status(404).json({ error: 'Sender not found' });
 
+    // ---- media (optional) ----
+    const MAX_INVITE_PHOTOS = 6;
+    if (updates.photos !== undefined) {
+      const nextPhotos = Array.isArray(updates.photos)
+        ? updates.photos.slice(0, MAX_INVITE_PHOTOS)
+        : [];
+      post.media = await buildMediaFromPhotos(nextPhotos, senderId);
+    }
+
+    // ---- details defaults + timezone fix (timeZone) ----
     const details = ensureInviteDetails(post);
 
+    // ---- recipients merge (preserve status/nudgedAt for existing) ----
     const prevRecipients = Array.isArray(details.recipients) ? details.recipients : [];
     const prevRequests = Array.isArray(details.requests) ? details.requests : [];
 
     const prevById = new Map(
-      prevRecipients.map((r) => [String(r.userId), { userId: r.userId, status: r.status }])
+      prevRecipients.map((r) => [
+        String(r.userId),
+        { userId: r.userId, status: r.status, nudgedAt: r.nudgedAt || null },
+      ])
     );
-    const nextIds = (recipientIds || []).map(String);
+
+    const nextIds = (Array.isArray(recipientIds) ? recipientIds : []).map(String);
     const nextSet = new Set(nextIds);
     const prevSet = new Set(prevRecipients.map((r) => String(r.userId)));
 
     const mergedRecipients = nextIds.map((id) => {
       const prev = prevById.get(id);
-      return prev ? { userId: prev.userId, status: prev.status } : { userId: id, status: 'pending' };
+      return prev
+        ? { userId: prev.userId, status: prev.status, nudgedAt: prev.nudgedAt }
+        : { userId: id, status: 'pending', nudgedAt: null };
     });
 
-    // Core post fields
-    post.message = updates.message ?? post.message;
-    post.placeId = updates.placeId ?? post.placeId;
+    // ---- core post fields ----
+    if (updates.message !== undefined) {
+      post.message = updates.message ?? '';
+    }
 
-    if (updates.dateTime !== undefined) {
-      const newWhen = updates.dateTime ? new Date(updates.dateTime) : null;
-      if (newWhen) {
-        details.dateTime = newWhen;
+    // ---- venue updates (preferred: updates.venue) ----
+    // Legacy invites are Google Places, so legacy fallback is "placeId => place venue".
+    if (updates.venue || updates.placeId || updates.businessName || updates.location) {
+      const venueResult = normalizeVenueInput({
+        venue: updates.venue || null,
+        placeId: updates.placeId || null,
+        businessName: updates.businessName || null,
+        location: updates.location || null,
+      });
+
+      if (venueResult.error) {
+        return res.status(400).json({ error: venueResult.error });
+      }
+
+      post.venue = venueResult.venue;
+
+      // If switched to custom, force private (schema also enforces, but do it here)
+      if (venueResult.venueKind === 'custom') {
+        post.privacy = 'private';
       }
     }
 
-    // NEW: allow timezone update if provided
-    if (typeof updates.timezone === 'string' && updates.timezone.trim()) {
-      details.timezone = updates.timezone.trim();
+    // Optional: allow changing public/followers only for place venues
+    if (typeof updates.isPublic === 'boolean') {
+      if (post.venue?.kind === 'custom') {
+        post.privacy = 'private';
+      } else {
+        post.privacy = updates.isPublic ? 'public' : 'followers';
+      }
     }
 
-    // Invite-specific
+    // ---- date/time updates ----
+    if (updates.dateTime !== undefined) {
+      const newWhen = updates.dateTime ? new Date(updates.dateTime) : null;
+      if (newWhen) details.dateTime = newWhen;
+    }
+
+    // ✅ schema uses timeZone (camel-case Z); tolerate legacy "timezone"
+    if (typeof updates.timeZone === 'string' && updates.timeZone.trim()) {
+      details.timeZone = updates.timeZone.trim();
+    } else if (typeof updates.timezone === 'string' && updates.timezone.trim()) {
+      details.timeZone = updates.timezone.trim();
+    }
+
+    // ---- invite-specific arrays ----
     details.recipients = mergedRecipients;
-    details.requests = prevRequests.filter((r) => !nextSet.has(String(r.userId)));
+
+    // Remove any "requests" that belong to users no longer in recipients
+    details.requests = prevRequests.filter((r) => nextSet.has(String(r.userId)));
+
     post.details = details;
 
     await post.save();
 
-    const business = await Business.findOne({ placeId: post.placeId }).lean();
-    const tz = details.timezone || DISPLAY_TZ;
+    // ---- notification message text ----
+    const tz = details.timeZone || DISPLAY_TZ;
     const formattedDateTime = fmtWhen(details.dateTime, tz);
-    const updatedMessage = `${sender.firstName} invited you to ${
-      business?.businessName || 'a place'
-    } on ${formattedDateTime}`;
 
-    // Upsert/update recipient notifications (unchanged except message uses tz now)
+    // Prefer venue label. Business is only meaningful for "place" venues.
+    let business = null;
+    if (post.venue?.kind === 'place' && post.venue?.placeId) {
+      business = await Business.findOne({ placeId: post.venue.placeId }).lean();
+    }
+
+    const placeLabel =
+      post.venue?.label ||
+      business?.businessName ||
+      'a place';
+
+    const updatedMessage = `${sender.firstName} invited you to ${placeLabel} on ${formattedDateTime}`;
+
+    // ---- upsert/update recipient notifications (scoped to THIS invite) ----
     await Promise.all(
       nextIds.map(async (uid) => {
         const user = await User.findById(uid);
         if (!user) return;
 
-        if (!user.activityInvites?.some((id) => String(id) === String(inviteId))) {
-          user.activityInvites = user.activityInvites || [];
+        if (!Array.isArray(user.activityInvites)) user.activityInvites = [];
+        if (!user.activityInvites.some((id) => String(id) === String(inviteId))) {
           user.activityInvites.push(post._id);
         }
 
-        const existing = (user.notifications || []).find(
+        if (!Array.isArray(user.notifications)) user.notifications = [];
+
+        // Update whichever exists for this invite (invite or reminder), but DO NOT match "any invite from sender".
+        const existing = user.notifications.find(
           (n) =>
-            n.type === 'activityInvite' &&
-            String(n.relatedId) === String(sender._id) &&
-            n.postType === 'invite'
+            String(n.targetId) === String(post._id) &&
+            n.postType === 'invite' &&
+            (n.type === 'activityInvite' || n.type === 'activityInviteReminder') &&
+            String(n.relatedId) === String(sender._id)
         );
 
         if (existing) {
           existing.message = updatedMessage;
           existing.createdAt = new Date();
         } else {
-          user.notifications = user.notifications || [];
           user.notifications.push({
             type: 'activityInvite',
             message: updatedMessage,
@@ -616,30 +605,37 @@ router.put('/edit', async (req, res) => {
             createdAt: new Date(),
           });
         }
+
         await user.save();
       })
     );
 
-    // Remove notifications from removed recipients (unchanged)
+    // ---- remove notifications + activityInvites from removed recipients ----
     const removedIds = [...prevSet].filter((id) => !nextSet.has(id));
+
     await Promise.all(
       removedIds.map((rid) =>
         User.findByIdAndUpdate(rid, {
           $pull: {
             activityInvites: post._id,
             notifications: {
-              type: 'activityInvite',
-              relatedId: sender._id,
               targetId: post._id,
               postType: 'invite',
+              type: { $in: ['activityInvite', 'activityInviteReminder'] },
             },
           },
         })
       )
     );
 
-    const out = await serializeInvitePost(post);
-    return res.status(200).json({ success: true, message: 'Invite updated', updatedInvite: out });
+    const raw = post.toObject ? post.toObject() : post;
+    const invite = await hydratePostForResponse(raw, { viewerId: senderId });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Invite updated',
+      updatedInvite: invite,
+    });
   } catch (err) {
     console.error('❌ Error editing invite:', err);
     return res.status(500).json({ error: 'Failed to edit invite', details: err.message });
@@ -700,12 +696,8 @@ router.post('/request', async (req, res) => {
 
     const details = ensureInviteDetails(post);
 
-    const alreadyRequested = (details.requests || []).some(
-      (r) => String(r.userId) === String(userId)
-    );
-    const alreadyInvited = (details.recipients || []).some(
-      (r) => String(r.userId) === String(userId)
-    );
+    const alreadyRequested = (details.requests || []).some((r) => String(r.userId) === String(userId));
+    const alreadyInvited = (details.recipients || []).some((r) => String(r.userId) === String(userId));
     if (alreadyRequested || alreadyInvited) {
       return res.status(400).json({ error: 'You have already requested or been invited' });
     }
@@ -714,8 +706,9 @@ router.post('/request', async (req, res) => {
     post.details = details;
     await post.save();
 
-    const out = await serializeInvitePost(post);
-    return res.status(200).json({ success: true, message: 'Request sent!', invite: out });
+    const raw = post.toObject ? post.toObject() : post;
+    const invite = await hydratePostForResponse(raw, { viewerId: userId });
+    return res.status(200).json({ success: true, message: 'Request sent!', invite });
   } catch (err) {
     console.error('❌ Failed to request invite:', err);
     return res.status(500).json({ error: 'Failed to request invite', details: err.message });
@@ -733,9 +726,7 @@ router.post('/accept-user-request', async (req, res) => {
 
     const details = ensureInviteDetails(post);
 
-    const idx = (details.requests || []).findIndex(
-      (r) => String(r.userId) === String(userId)
-    );
+    const idx = (details.requests || []).findIndex((r) => String(r.userId) === String(userId));
     if (idx === -1) return res.status(400).json({ error: 'Request not found' });
 
     details.requests.splice(idx, 1);
@@ -761,11 +752,12 @@ router.post('/accept-user-request', async (req, res) => {
       }
     );
 
-    const out = await serializeInvitePost(post);
-    return res.status(200).json({ success: true, message: 'Request accepted', invite: out });
+    const raw = post.toObject ? post.toObject() : post;
+    const invite = await hydratePostForResponse(raw, { viewerId: String(post.ownerId) });
+    return res.status(200).json({ success: true, message: 'Request accepted', invite });
   } catch (err) {
     console.error('❌ Failed to accept request:', err);
-    return res.status(500).json({ error: 'Failed to accept request' });
+    return res.status(500).json({ error: 'Failed to accept request', details: err.message });
   }
 });
 
@@ -781,9 +773,7 @@ router.post('/reject-user-request', async (req, res) => {
     const details = ensureInviteDetails(post);
     const before = (details.requests || []).length;
 
-    details.requests = (details.requests || []).filter(
-      (r) => String(r.userId) !== String(userId)
-    );
+    details.requests = (details.requests || []).filter((r) => String(r.userId) !== String(userId));
     post.details = details;
 
     if ((details.requests || []).length === before) {
@@ -806,8 +796,9 @@ router.post('/reject-user-request', async (req, res) => {
       }
     );
 
-    const out = await serializeInvitePost(post);
-    return res.status(200).json({ success: true, message: 'Request rejected', invite: out });
+    const raw = post.toObject ? post.toObject() : post;
+    const invite = await hydratePostForResponse(raw, { viewerId: String(post.ownerId) });
+    return res.status(200).json({ success: true, message: 'Invite rejected', invite });
   } catch (err) {
     console.error('❌ Failed to reject request:', err);
     return res.status(500).json({ error: 'Failed to reject request', details: err.message });
@@ -821,101 +812,56 @@ router.post('/nudge', async (req, res) => {
 
   try {
     const sender = await User.findById(senderId);
-    if (!sender) {
-      return res.status(404).json({ error: 'Sender not found' });
-    }
+    if (!sender) return res.status(404).json({ error: 'Sender not found' });
 
     const post = await InvitePost.findOne({ _id: inviteId, type: 'invite' });
-    if (!post) {
-      return res.status(404).json({ error: 'Invite not found' });
-    }
+    if (!post) return res.status(404).json({ error: 'Invite not found' });
 
-    // Only the host/sender can nudge
     if (String(post.ownerId) !== String(senderId)) {
-      return res
-        .status(400)
-        .json({ error: 'Only the sender can nudge recipients' });
+      return res.status(400).json({ error: 'Only the sender can nudge recipients' });
     }
 
     const details = ensureInviteDetails(post);
 
-    const row = (details.recipients || []).find(
-      (r) => String(r.userId) === String(recipientId)
-    );
-    if (!row) {
-      return res
-        .status(404)
-        .json({ error: 'Recipient not found on this invite' });
-    }
+    const row = (details.recipients || []).find((r) => String(r.userId) === String(recipientId));
+    if (!row) return res.status(404).json({ error: 'Recipient not found on this invite' });
 
-    // Only pending recipients get nudged
     if (row.status !== 'pending') {
-      return res
-        .status(400)
-        .json({ error: 'Only pending recipients can be nudged' });
+      return res.status(400).json({ error: 'Only pending recipients can be nudged' });
     }
 
-    // Enforce one-nudge-per-user-per-invite
     if (row.nudgedAt) {
-      return res
-        .status(400)
-        .json({ error: 'Recipient has already been nudged for this invite' });
+      return res.status(400).json({ error: 'Recipient has already been nudged for this invite' });
     }
 
     row.nudgedAt = new Date();
     await post.save();
 
-    const business = await Business.findOne({ placeId: post.placeId }).lean();
-    const tz = details.timezone || DISPLAY_TZ;
+    const business = post.placeId ? await Business.findOne({ placeId: post.placeId }).lean() : null;
+    const tz = details.timeZone || DISPLAY_TZ;
     const formattedDateTime = fmtWhen(details.dateTime, tz);
+    const placeLabel = getVenueLabel(post, business);
 
-    const nudgeMessage = business
-      ? `${sender.firstName} sent you a reminder about ${business.businessName} on ${formattedDateTime}`
-      : `${sender.firstName} sent you a reminder about an invite on ${formattedDateTime}`;
+    const nudgeMessage = `${sender.firstName} sent you a reminder about ${placeLabel} on ${formattedDateTime}`;
 
-    const nudgeNotification = {
-      type: 'activityInviteReminder', // new notification type
-      message: nudgeMessage,
-      relatedId: sender._id,          // who nudged you
-      typeRef: 'User',
-      targetId: post._id,             // the invite
-      targetRef: 'Post',
-      postType: 'invite',
-      createdAt: new Date(),
-    };
-
-    // 🔻 NEW: update existing notification instead of blindly pushing
     const recipient = await User.findById(recipientId);
-    if (!recipient) {
-      return res.status(404).json({ error: 'Recipient user not found' });
-    }
+    if (!recipient) return res.status(404).json({ error: 'Recipient user not found' });
 
-    // Make sure the invite is tracked on the user (previously $addToSet)
-    if (!Array.isArray(recipient.activityInvites)) {
-      recipient.activityInvites = [];
-    }
-    const alreadyHasInvite = recipient.activityInvites.some(
-      (id) => String(id) === String(post._id)
-    );
-    if (!alreadyHasInvite) {
+    if (!Array.isArray(recipient.activityInvites)) recipient.activityInvites = [];
+    if (!recipient.activityInvites.some((id) => String(id) === String(post._id))) {
       recipient.activityInvites.push(post._id);
     }
 
-    if (!Array.isArray(recipient.notifications)) {
-      recipient.notifications = [];
-    }
+    if (!Array.isArray(recipient.notifications)) recipient.notifications = [];
 
-    // Find an existing invite notification to transform into a reminder
     const idx = recipient.notifications.findIndex(
       (n) =>
         String(n.targetId) === String(post._id) &&
         n.postType === 'invite' &&
-        (n.type === 'activityInvite' ||
-          n.type === 'activityInviteReminder')
+        (n.type === 'activityInvite' || n.type === 'activityInviteReminder')
     );
 
     if (idx >= 0) {
-      // Update the existing notification in place -> becomes the reminder
       const existing = recipient.notifications[idx];
       existing.type = 'activityInviteReminder';
       existing.message = nudgeMessage;
@@ -923,25 +869,28 @@ router.post('/nudge', async (req, res) => {
       existing.typeRef = 'User';
       existing.targetRef = 'Post';
       existing.postType = 'invite';
-      existing.createdAt = new Date(); // bump to top if you sort by createdAt
+      existing.createdAt = new Date();
     } else {
-      // No existing invite notification? Fallback: push a new reminder notification
-      recipient.notifications.push(nudgeNotification);
+      recipient.notifications.push({
+        type: 'activityInviteReminder',
+        message: nudgeMessage,
+        relatedId: sender._id,
+        typeRef: 'User',
+        targetId: post._id,
+        targetRef: 'Post',
+        postType: 'invite',
+        createdAt: new Date(),
+      });
     }
 
     await recipient.save();
 
-    const out = await serializeInvitePost(post);
-    return res.status(200).json({
-      success: true,
-      message: 'Recipient nudged',
-      invite: out,
-    });
+    const raw = post.toObject ? post.toObject() : post;
+    const invite = await hydratePostForResponse(raw, { viewerId: senderId });
+    return res.status(200).json({ success: true, message: 'Recipient nudged', invite });
   } catch (err) {
     console.error('❌ Error in /nudge:', err);
-    return res
-      .status(500)
-      .json({ error: 'Failed to nudge recipient', details: err.message });
+    return res.status(500).json({ error: 'Failed to nudge recipient', details: err.message });
   }
 });
 

@@ -4,7 +4,7 @@ import { AntDesign, FontAwesome } from '@expo/vector-icons';
 
 export default function PostExtrasRow({
   taggedUsers = [],      
-  selectedPhotos = [],   
+  media = [],   
   onOpenTagModal,
   onOpenCamera,
   onOpenLibrary,

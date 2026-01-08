@@ -1,23 +1,16 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Image,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
 import { FontAwesome } from '@expo/vector-icons';
 import VideoThumbnail from '../VideoThumbnail';
 import { isVideo } from '../../../utils/isVideo';
 
 export default function MediaPreview({
-  selectedPhotos = [],
+  media = [],
   onOpenPhotoDetails,
   onOpenEditPhotos,   // 👈 new prop
   containerStyle,
 }) {
-  const hasMedia = Array.isArray(selectedPhotos) && selectedPhotos.length > 0;
+  const hasMedia = Array.isArray(media) && media.length > 0;
   if (!hasMedia) return null;
 
   return (
@@ -36,7 +29,6 @@ export default function MediaPreview({
           </TouchableOpacity>
         )}
       </View>
-
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View style={styles.mediaRow}>
           {selectedPhotos.map((item, i) => (
