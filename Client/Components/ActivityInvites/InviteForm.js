@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Switch, Platform } from "react-native";
+import React, { useMemo, useCallback, useState } from "react";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Switch, Platform, Alert } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useSelector } from "react-redux";
 import { selectFriends } from "../../Slices/friendsSlice";
@@ -11,143 +11,98 @@ import FriendPills from "../Reviews/FriendPills";
 import { medium } from "../../utils/Haptics/haptics";
 import useInviteActions from "../../utils/UserInviteActions/userInviteActions";
 import { toId } from "../../utils/Formatting/toId";
-
-function normalizePlace(selectedBusiness, initialInvite) {
-  // Parent (CreatePost) business shape: { place_id, name, formatted_address, ... }
-  const fromParent = selectedBusiness
-    ? {
-        placeId: selectedBusiness.place_id || selectedBusiness.placeId || null,
-        businessName: selectedBusiness.name || selectedBusiness.businessName || null,
-      }
-    : null;
-
-  if (fromParent?.placeId && fromParent?.businessName) return fromParent;
-
-  // Fallback for edit mode if parent hasn't populated business yet
-  const placeId = initialInvite?.placeId || initialInvite?.business?.placeId || null;
-  const businessName = initialInvite?.businessName || initialInvite?.business?.businessName || null;
-
-  return placeId && businessName ? { placeId, businessName } : { placeId: null, businessName: null };
-}
-
-function recipientsToFriendObjects({ recipients, friends }) {
-  const list = Array.isArray(recipients) ? recipients : [];
-  const friendList = Array.isArray(friends) ? friends : [];
-
-  return list
-    .map((r) => {
-      const src = r?.user || r;
-      const id = toId(src);
-      if (!id) return null;
-
-      const fromFriends = friendList.find((f) => toId(f) === id);
-      if (fromFriends) return fromFriends;
-
-      return {
-        _id: id,
-        id,
-        userId: id,
-        firstName: src?.firstName,
-        lastName: src?.lastName,
-        username: src?.username || src?.fullName || src?.firstName || "Unknown",
-        profilePicUrl: src?.profilePicUrl || src?.presignedProfileUrl || null,
-      };
-    })
-    .filter(Boolean);
-}
+import { selectUser } from "../../Slices/UserSlice";
+import useSubmitInvite from "../../hooks/useSubmitInvite";
+import useInviteDraft from "../../hooks/useInviteDraft";
 
 export default function InviteForm({
   isEditing = false,
   initialInvite = null,
-  selectedBusiness = null, 
+  selectedVenue = null,
+  selectedMedia = [],
 }) {
   const navigation = useNavigation();
   const friends = useSelector(selectFriends);
+  const user = useSelector(selectUser);
   const { sendInviteWithConflicts, editInviteWithConflicts } = useInviteActions(initialInvite);
+  const { submit, submitting } = useSubmitInvite();
   const [showFriendsModal, setShowFriendsModal] = useState(false);
-  const [dateTime, setDateTime] = useState(null);
-  const [selectedFriends, setSelectedFriends] = useState([]);
-  const [isPublic, setIsPublic] = useState(true);
-  const [note, setNote] = useState("");
-  const place = useMemo(() => normalizePlace(selectedBusiness, initialInvite), [selectedBusiness, initialInvite]);
-  const placeId = place.placeId;
-  const businessName = place.businessName;
+  const meId = useMemo(() => toId(user?.id || user?._id), [user?.id, user?._id]);
 
-  useEffect(() => {
-    if (!isEditing || !initialInvite) return;
-
-    setNote(initialInvite.note || "");
-
-    const rawDate =
-      initialInvite.details?.dateTime ||
-      initialInvite.dateTime ||
-      initialInvite.sortDate ||
-      initialInvite.createdAt;
-
-    setDateTime(rawDate ? new Date(rawDate) : new Date());
-
-    // if you store isPublic on invite, hydrate it (supports either location)
-    const existingPublic =
-      initialInvite.details?.isPublic ??
-      initialInvite.isPublic ??
-      true;
-
-    setIsPublic(!!existingPublic);
-
-    const recipients = initialInvite.details?.recipients || [];
-    setSelectedFriends(recipientsToFriendObjects({ recipients, friends }));
-  }, [isEditing, initialInvite, friends]);
-
-  const recipientIds = useMemo(() => {
-    return Array.from(new Set((selectedFriends || []).map((f) => toId(f)).filter(Boolean)));
-  }, [selectedFriends]);
+  const {
+    venue,
+    privacyLocked,
+    effectiveIsPublic,
+    isPublic,
+    setIsPublic,
+    message,
+    setMessage,
+    dateTime,
+    setDateTime,
+    selectedFriends,
+    setSelectedFriends,
+    recipientIds,
+    removeFriendById,
+  } = useInviteDraft({
+    isEditing,
+    initialInvite,
+    selectedVenue,
+    friends,
+  });
 
   const handleConfirmInvite = useCallback(async () => {
-    if (!placeId || !businessName || !dateTime || recipientIds.length === 0) {
-      alert("Please complete all invite details.");
+    if (submitting) return;
+
+    if (!meId) {
+      Alert.alert("Error", "User not loaded. Please try again.");
       return;
     }
 
-    const base = { placeId, businessName, dateTime, note, isPublic };
+    if (!venue || !venue.label || !dateTime || recipientIds.length === 0) {
+      Alert.alert("Error", "Please complete all invite details.");
+      return;
+    }
+    if (venue.kind === "place" && !venue.placeId) {
+      Alert.alert("Error", "Please choose a place.");
+      return;
+    }
 
     try {
-      if (isEditing && initialInvite) {
-        const { cancelled } = await editInviteWithConflicts({
-          inviteIdOverride: initialInvite._id,
-          updates: base,
-          recipientIds,
-        });
-        if (cancelled) return;
+      const res = await submit({
+        mode: isEditing ? "edit" : "create",
+        inviteId: initialInvite?._id,
+        actions: { sendInviteWithConflicts, editInviteWithConflicts },
+        userId: meId,
+        venue,
+        dateTime,
+        message,
+        isPublic: effectiveIsPublic,
+        media: selectedMedia,
+        recipientIds,
+      });
 
-        medium();
-        alert("Invite updated!");
-      } else {
-        const { cancelled } = await sendInviteWithConflicts({
-          ...base,
-          recipientIds,
-        });
-        if (cancelled) return;
+      if (res?.cancelled) return;
 
-        medium();
-        alert("Invite sent!");
-      }
-
+      medium();
+      Alert.alert("Success", isEditing ? "Invite updated!" : "Invite sent!");
       navigation.goBack();
     } catch (err) {
-      console.error(err);
-      alert("Something went wrong. Please try again.");
+      Alert.alert("Error", err?.message || "Something went wrong. Please try again.");
     }
   }, [
-    placeId,
-    businessName,
+    submitting,
+    meId,
+    venue,
     dateTime,
     recipientIds,
-    note,
-    isPublic,
+    message,
+    effectiveIsPublic,
+    selectedMedia,
+    submit,
     isEditing,
-    initialInvite,
-    editInviteWithConflicts,
+    initialInvite?._id,
     sendInviteWithConflicts,
+    editInviteWithConflicts,
     navigation,
   ]);
 
@@ -156,16 +111,32 @@ export default function InviteForm({
       <SectionHeader title="Visibility" />
       <View style={styles.switchContainer}>
         <View style={styles.switchLabelContainer}>
-          <FontAwesome name={isPublic ? "globe" : "lock"} size={20} color="black" style={styles.icon} />
-          <Text style={styles.label}>{isPublic ? "Public" : "Private"}</Text>
+          <FontAwesome
+            name={effectiveIsPublic ? "globe" : "lock"}
+            size={20}
+            color="black"
+            style={styles.icon}
+          />
+          <Text style={styles.label}>
+            {privacyLocked ? "Private (Custom)" : effectiveIsPublic ? "Public" : "Private"}
+          </Text>
         </View>
         <Switch
-          value={isPublic}
-          onValueChange={setIsPublic}
+          value={effectiveIsPublic}
+          onValueChange={(v) => {
+            if (privacyLocked) return;
+            setIsPublic(v);
+          }}
+          disabled={privacyLocked}
           trackColor={{ false: "#ccc", true: "#009999" }}
           thumbColor={Platform.OS === "android" ? "#fff" : undefined}
         />
       </View>
+      {privacyLocked && (
+        <Text style={styles.privacyHint}>
+          Custom locations are private and won’t appear in discovery.
+        </Text>
+      )}
       <View style={{ marginTop: 10 }}>
         <SectionHeader title="Date & Time" />
         <View style={{ marginTop: 5, marginLeft: -10 }}>
@@ -183,8 +154,8 @@ export default function InviteForm({
           style={styles.noteInput}
           placeholder="Let your friends know what's up..."
           multiline
-          value={note}
-          onChangeText={setNote}
+          value={message}
+          onChangeText={setMessage}
         />
       </View>
       <TouchableOpacity style={styles.friendButton} onPress={() => setShowFriendsModal(true)}>
@@ -192,15 +163,15 @@ export default function InviteForm({
           {selectedFriends.length > 0 ? `👥 ${selectedFriends.length} Selected` : "➕ Select Friends"}
         </Text>
       </TouchableOpacity>
-      <FriendPills
-        friends={selectedFriends}
-        onRemove={(userToRemove) => {
-          const id = toId(userToRemove);
-          setSelectedFriends((prev) => prev.filter((u) => toId(u) !== id));
-        }}
-      />
-      <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmInvite}>
-        <Text style={styles.confirmText}>{isEditing ? "Save Edit" : "Send Invite"}</Text>
+      <FriendPills friends={selectedFriends} onRemove={(u) => removeFriendById(u)} />
+      <TouchableOpacity
+        style={[styles.confirmButton, submitting && { opacity: 0.65 }]}
+        onPress={handleConfirmInvite}
+        disabled={submitting}
+      >
+        <Text style={styles.confirmText}>
+          {submitting ? "Submitting..." : isEditing ? "Save Edit" : "Send Invite"}
+        </Text>
       </TouchableOpacity>
       <TagFriendsModal
         visible={showFriendsModal}
@@ -218,12 +189,6 @@ export default function InviteForm({
 
 const styles = StyleSheet.create({
   container: { paddingBottom: 100, backgroundColor: "#fff" },
-  locationText: {
-    marginTop: 6,
-    marginBottom: 8,
-    opacity: 0.7,
-    fontSize: 14,
-  },
   label: { fontSize: 14, fontWeight: "500", marginVertical: 10 },
   noteInput: {
     borderColor: "#ccc",
@@ -256,4 +221,10 @@ const styles = StyleSheet.create({
   switchContainer: { flexDirection: "row", alignItems: "center" },
   switchLabelContainer: { flexDirection: "row", alignItems: "center", marginRight: 10 },
   icon: { marginRight: 8 },
+  privacyHint: {
+    marginTop: -6,
+    marginBottom: 6,
+    opacity: 0.7,
+    fontSize: 12,
+  },
 });

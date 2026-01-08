@@ -4,7 +4,7 @@ const { CommentSchema } = require('./Comment');
 const { LikeSchema } = require('./Likes');
 const { PhotoSchema } = require('./Photos');
 const { GeoPointSchema } = require('./GeoPoint');
-const { User } = require('../models/User');
+const { VenueSchema } = require('./Venue');
 
 const BasePostSchema = new Schema(
   {
@@ -31,6 +31,7 @@ const BasePostSchema = new Schema(
     businessName: { type: String, default: null },
     placeId: { type: String, index: true, default: null },
     location: { type: GeoPointSchema, default: undefined },
+    venue: { type: VenueSchema, default: null },
 
     media: [PhotoSchema],
     taggedUsers: [{ type: Types.ObjectId, ref: 'User' }],
@@ -40,6 +41,7 @@ const BasePostSchema = new Schema(
     stats: {
       likeCount: { type: Number, default: 0 },
       commentCount: { type: Number, default: 0 },
+      
       shareCount: { type: Number, default: 0 },
     },
 
@@ -72,6 +74,48 @@ const BasePostSchema = new Schema(
   },
   { timestamps: true, discriminatorKey: 'type' }
 );
+
+BasePostSchema.pre('validate', function (next) {
+  // Backfill venue from legacy fields for old docs / old clients
+  if (!this.venue && (this.placeId || this.businessName || this.location)) {
+    const label = (this.businessName || '').trim() || 'Place';
+    if (this.placeId) {
+      this.venue = {
+        kind: 'place',
+        label,
+        placeId: this.placeId,
+        geo: this.location,
+      };
+    }
+  }
+
+  // Sync legacy top-level fields from venue for new writes
+  if (this.venue) {
+    const v = this.venue;
+
+    if (v.kind === 'place') {
+      this.businessName = v.label;
+      this.placeId = v.placeId || this.placeId || null;
+
+      // Top-level `location` is ONLY for public place geo (2dsphere index)
+      this.location = v.geo || this.location;
+    } else {
+      // custom venue: do not populate `placeId`
+      this.businessName = v.label;
+      this.placeId = null;
+
+      // IMPORTANT: keep custom geo OUT of top-level geospatial index
+      this.location = undefined;
+
+      // Hard safety: custom locations should not be public in phase 1
+      if (this.privacy === 'public' || this.privacy === 'followers') {
+        this.privacy = 'private';
+      }
+    }
+  }
+
+  next();
+});
 
 BasePostSchema.path('createdAt').immutable(true);
 BasePostSchema.index({ visibility: 1, sortDate: -1 });
@@ -225,7 +269,7 @@ const EventPost = Post.discriminator(
       details: {
         startsAt: Date,
         endsAt: Date,
-        hostId: { type: Types.ObjectId, ref: 'Business' },
+        // hostId: { type: Types.ObjectId, ref: 'Business' },
       },
     },
     { _id: false }
@@ -248,6 +292,16 @@ const PromotionPost = Post.discriminator(
 );
 
 const SharedPost = Post.discriminator('sharedPost', new Schema({}));
+
+InvitePost.schema.pre('validate', function (next) {
+  if (!this.venue) this.invalidate('venue', 'Invite requires venue');
+  next();
+});
+
+EventPost.schema.pre('validate', function (next) {
+  if (!this.venue) this.invalidate('venue', 'Event requires venue');
+  next();
+});
 
 module.exports = {
   Post,

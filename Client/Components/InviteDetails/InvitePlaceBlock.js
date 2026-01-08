@@ -7,6 +7,7 @@ export default function InvitePlaceBlock({
   businessName,
   businessLogoUrl,
   fullDateLabel,
+  address = null,
   clockLabel,
 }) {
   const iconSource = businessLogoUrl
@@ -23,6 +24,11 @@ export default function InvitePlaceBlock({
           <Text style={styles.placeName} numberOfLines={2}>
             {businessName}
           </Text>
+          {address && (
+            <Text style={styles.fullDateText} numberOfLines={2}>
+              {address}
+            </Text>
+          )}
           {!!fullDateLabel && (
             <Text style={styles.fullDateText}>{fullDateLabel}</Text>
           )}

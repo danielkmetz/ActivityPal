@@ -1,26 +1,138 @@
 import { useCallback } from 'react';
 import { Alert } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
-import { acceptInvite, rejectInvite, requestInvite, acceptInviteRequest, rejectInviteRequest, sendInvite, editInvite, nudgeInviteRecipient } from '../../Slices/PostsSlice';
+import {
+  acceptInvite,
+  rejectInvite,
+  requestInvite,
+  acceptInviteRequest,
+  rejectInviteRequest,
+  sendInvite,
+  editInvite,
+  nudgeInviteRecipient,
+} from '../../Slices/PostsSlice';
 import { createNotification, setNotifications, selectNotifications } from '../../Slices/NotificationsSlice';
 import { selectUser } from '../../Slices/UserSlice';
 import { runConflictCheckBeforeAccept } from './runConflictCheck';
 import { toId } from '../Formatting/toId';
 
+function normalizePhotos(input) {
+  const list = Array.isArray(input) ? input.filter(Boolean) : [];
+  if (!list.length) return [];
+
+  const seen = new Set();
+  const out = [];
+
+  for (const p of list) {
+    const k = p?.photoKey || p?.videoKey || p?.key || p?.localKey || p?.uri || p?._id;
+    const key = k ? String(k) : null;
+
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+
+    out.push(p);
+  }
+
+  return out;
+}
+
+function sameId(a, b) {
+  if (a == null || b == null) return false;
+  return String(a) === String(b);
+}
+
+/**
+ * Build a VenueSchema-compatible payload for the backend.
+ * Supports:
+ *  - explicit venue object (place/custom)
+ *  - legacy google place fields (placeId + businessName + location)
+ *
+ * VenueSchema:
+ *   { kind:'place'|'custom', label, placeId?, address?, geo? }
+ */
+function buildVenuePayload({
+  venue = null,
+  placeId = null,
+  businessName = null,
+  location = null,
+  address = null,
+}) {
+  // Explicit venue (preferred)
+  if (venue && typeof venue === 'object') {
+    const kind = String(venue.kind || '').trim();
+    const label = String(venue.label || '').trim();
+
+    if (kind !== 'place' && kind !== 'custom') {
+      return { error: 'venue.kind must be "place" or "custom"' };
+    }
+    if (!label) {
+      return { error: 'venue.label is required' };
+    }
+
+    if (kind === 'place') {
+      const pid = String(venue.placeId || placeId || '').trim();
+      if (!pid) return { error: 'venue.placeId is required for place venues' };
+
+      return {
+        venue: {
+          kind: 'place',
+          label,
+          placeId: pid,
+          address: null,
+          geo: venue.geo || location || undefined,
+        },
+      };
+    }
+
+    // custom
+    return {
+      venue: {
+        kind: 'custom',
+        label,
+        placeId: null,
+        address: venue.address != null ? String(venue.address).trim() : (address != null ? String(address).trim() : null),
+        geo: venue.geo || location || undefined,
+      },
+    };
+  }
+
+  // Legacy fallback (google places)
+  const pid = typeof placeId === 'string' ? placeId.trim() : '';
+  if (pid) {
+    const label = String(businessName || '').trim() || 'Place';
+    return {
+      venue: {
+        kind: 'place',
+        label,
+        placeId: pid,
+        address: null,
+        geo: location || undefined,
+      },
+    };
+  }
+
+  // No way to construct a valid venue
+  return { error: 'Missing venue: provide venue OR placeId' };
+}
+
 export default function useInviteActions(invite) {
   const dispatch = useDispatch();
   const user = useSelector(selectUser);
   const notifications = useSelector(selectNotifications) || [];
+
   const meId = toId(user?.id || user?._id);
 
   const postContent = invite?.original ?? invite ?? {};
   const inviteId = postContent?._id || invite?._id;
+
   const owner = postContent?.owner;
   const senderId = owner?.id || owner?._id || owner?.userId || null;
 
-  const businessName =
-    postContent.businessName ||
-    postContent.business?.businessName ||
+  // ✅ Use new schema field first
+  const venueLabel =
+    postContent?.venue?.label ||
+    postContent?.businessName ||
+    postContent?.business?.businessName ||
     'this event';
 
   /** -------- shared conflict-check wrapper for this invite/user -------- */
@@ -35,13 +147,9 @@ export default function useInviteActions(invite) {
   );
 
   /** -------------------- 1) Accept / decline for current user -------------------- */
-  const isMyInviteNotification = (n, inviteId) =>
-    n.targetId === inviteId &&
-    (
-      n.type === 'activityInvite' ||
-      n.type === 'activityInviteReminder'
-      // add more here if needed
-    );
+  const isMyInviteNotification = (n, id) =>
+    sameId(n?.targetId, id) &&
+    (n?.type === 'activityInvite' || n?.type === 'activityInviteReminder');
 
   const acceptForMe = useCallback(async () => {
     if (!inviteId || !meId) return;
@@ -50,17 +158,12 @@ export default function useInviteActions(invite) {
     if (!ok) return;
 
     try {
-      await dispatch(
-        acceptInvite({ recipientId: meId, inviteId })
-      ).unwrap();
+      await dispatch(acceptInvite({ recipientId: meId, inviteId })).unwrap();
 
+      // Local UX patch (still okay, but not authoritative)
       const updated = notifications.map((n) =>
         isMyInviteNotification(n, inviteId)
-          ? {
-            ...n,
-            type: 'activityInviteAccepted',
-            message: 'You accepted the invite!',
-          }
+          ? { ...n, type: 'activityInviteAccepted', message: 'You accepted the invite!' }
           : n
       );
       dispatch(setNotifications(updated));
@@ -68,28 +171,17 @@ export default function useInviteActions(invite) {
       console.warn('Failed to accept invite:', e?.message || e);
       Alert.alert('Error', 'Could not accept invite.');
     }
-  }, [
-    dispatch,
-    inviteId,
-    meId,
-    checkForConflictsBeforeAccept,
-    notifications,
-  ]);
+  }, [dispatch, inviteId, meId, checkForConflictsBeforeAccept, notifications]);
 
   const declineForMe = useCallback(async () => {
     if (!inviteId || !meId) return;
+
     try {
-      await dispatch(
-        rejectInvite({ recipientId: meId, inviteId })
-      ).unwrap();
+      await dispatch(rejectInvite({ recipientId: meId, inviteId })).unwrap();
 
       const updated = notifications.map((n) =>
         isMyInviteNotification(n, inviteId)
-          ? {
-            ...n,
-            type: 'activityInviteDeclined',
-            message: 'You declined the invite.',
-          }
+          ? { ...n, type: 'activityInviteDeclined', message: 'You declined the invite.' }
           : n
       );
       dispatch(setNotifications(updated));
@@ -102,18 +194,16 @@ export default function useInviteActions(invite) {
   /** --------------------------- 2) Request to join --------------------------- */
   const requestToJoin = useCallback(async () => {
     if (!inviteId || !meId) return false;
+
     try {
-      await dispatch(
-        requestInvite({ userId: meId, inviteId })
-      ).unwrap();
+      await dispatch(requestInvite({ userId: meId, inviteId })).unwrap();
 
       if (senderId) {
         await dispatch(
           createNotification({
             userId: senderId,
             type: 'requestInvite',
-            message: `${user?.firstName || 'Someone'
-              } wants to join your event at ${businessName}`,
+            message: `${user?.firstName || 'Someone'} wants to join your event at ${venueLabel}`,
             relatedId: meId,
             typeRef: 'User',
             targetId: inviteId,
@@ -130,117 +220,89 @@ export default function useInviteActions(invite) {
       Alert.alert('Error', err?.message || 'Something went wrong.');
       return false;
     }
-  }, [
-    dispatch,
-    inviteId,
-    meId,
-    senderId,
-    businessName,
-    user?.firstName,
-  ]);
+  }, [dispatch, inviteId, meId, senderId, venueLabel, user?.firstName]);
 
   /** ----------------- 3) Host: accept / reject join requests ----------------- */
   const acceptJoinRequest = useCallback(
     async (relatedId) => {
       if (!inviteId || !relatedId) return;
-      try {
-        await dispatch(
-          acceptInviteRequest({ userId: relatedId, inviteId })
-        ).unwrap();
 
-        // 🔁 mirror old handleAcceptJoinRequest notification payload
+      try {
+        await dispatch(acceptInviteRequest({ userId: relatedId, inviteId })).unwrap();
+
+        // NOTE: Your typeRef/targetRef usage is inconsistent elsewhere.
+        // If your backend expects targetRef:'Post', keep it consistent.
         await dispatch(
           createNotification({
             userId: relatedId,
             type: 'activityInviteAccepted',
-            message: `${user?.firstName || ''} ${user?.lastName || ''
-              } accepted your request to join the event.`,
+            message: `${user?.firstName || ''} ${user?.lastName || ''} accepted your request to join the event.`,
             relatedId: meId,
-            typeRef: 'ActivityInvite',
+            typeRef: 'User',
             targetId: inviteId,
-            targetRef: 'ActivityInvite',
+            targetRef: 'Post',
             postType: 'invite',
           })
         ).unwrap();
 
-        // 🔁 mirror old filtering of requestInvite notification
         const filtered = notifications.filter(
-          (n) =>
-            !(
-              n.type === 'requestInvite' &&
-              n.relatedId === relatedId &&
-              n.targetId === inviteId
-            )
+          (n) => !(n.type === 'requestInvite' && sameId(n.relatedId, relatedId) && sameId(n.targetId, inviteId))
         );
         dispatch(setNotifications(filtered));
       } catch (err) {
         console.error('❌ Error accepting join request:', err);
       }
     },
-    [
-      dispatch,
-      inviteId,
-      meId,
-      notifications,
-      user?.firstName,
-      user?.lastName,
-    ]
+    [dispatch, inviteId, meId, notifications, user?.firstName, user?.lastName]
   );
 
   const rejectJoinRequest = useCallback(
     async (relatedId) => {
       if (!inviteId || !relatedId) return;
-      try {
-        await dispatch(
-          rejectInviteRequest({ userId: relatedId, inviteId })
-        ).unwrap();
 
-        // 🔁 mirror old handleRejectJoinRequest notification payload
+      try {
+        await dispatch(rejectInviteRequest({ userId: relatedId, inviteId })).unwrap();
+
         await dispatch(
           createNotification({
             userId: relatedId,
             type: 'activityInviteDeclined',
-            message: `${user?.firstName || ''} ${user?.lastName || ''
-              } declined your request to join the event.`,
+            message: `${user?.firstName || ''} ${user?.lastName || ''} declined your request to join the event.`,
             relatedId: meId,
             typeRef: 'User',
             targetId: inviteId,
+            targetRef: 'Post',
             postType: 'invite',
           })
         ).unwrap();
 
         const filtered = notifications.filter(
-          (n) =>
-            !(
-              n.type === 'requestInvite' &&
-              n.relatedId === relatedId &&
-              n.targetId === inviteId
-            )
+          (n) => !(n.type === 'requestInvite' && sameId(n.relatedId, relatedId) && sameId(n.targetId, inviteId))
         );
         dispatch(setNotifications(filtered));
       } catch (err) {
         console.error('❌ Error rejecting join request:', err);
       }
     },
-    [
-      dispatch,
-      inviteId,
-      meId,
-      notifications,
-      user?.firstName,
-      user?.lastName,
-    ]
+    [dispatch, inviteId, meId, notifications, user?.firstName, user?.lastName]
   );
 
-  /** --------- 4) Create / edit helpers that ALSO use the conflict checker --------- */
+  /** --------- 4) Create / edit helpers (NOW SUPPORT VENUE) --------- */
   const sendInviteWithConflicts = useCallback(
     async ({
       recipientIds,
+      // legacy google place inputs (current UI)
       placeId,
       businessName: nameFromForm,
+      location,
+      // future: allow passing explicit venue
+      venue,
+      address, // future: custom venue address string
       dateTime,
       note,
       isPublic,
+      photos,
+      timeZone, // optional, if your form includes it
     }) => {
       if (!meId) return { cancelled: true };
 
@@ -249,21 +311,33 @@ export default function useInviteActions(invite) {
         userId: meId,
         dateTime,
       });
-
       if (!ok) return { cancelled: true };
 
-      const result = await dispatch(
-        sendInvite({
-          senderId: meId,
-          recipientIds,
-          placeId,
-          businessName: nameFromForm,
-          dateTime,
-          note,
-          isPublic,
-        })
-      ).unwrap();
+      const venueResult = buildVenuePayload({
+        venue,
+        placeId,
+        businessName: nameFromForm,
+        location,
+        address,
+      });
 
+      if (venueResult.error) {
+        Alert.alert('Missing location', venueResult.error);
+        return { cancelled: true };
+      }
+
+      const payload = {
+        senderId: meId,
+        recipientIds,
+        dateTime,
+        note,
+        isPublic,
+        timeZone,
+        photos: normalizePhotos(photos),
+        venue: venueResult.venue, // ✅ backend-ready
+      };
+
+      const result = await dispatch(sendInvite(payload)).unwrap();
       return { cancelled: false, result };
     },
     [dispatch, meId]
@@ -272,7 +346,7 @@ export default function useInviteActions(invite) {
   const editInviteWithConflicts = useCallback(
     async ({
       inviteIdOverride,
-      updates, // { placeId, businessName, dateTime, note, isPublic }
+      updates, // can include: venue OR legacy placeId/businessName/location, plus dateTime/note/isPublic/photos/timeZone
       recipientIds,
     }) => {
       const targetInviteId = inviteIdOverride || inviteId;
@@ -282,16 +356,52 @@ export default function useInviteActions(invite) {
         dispatch,
         userId: meId,
         inviteId: targetInviteId,
-        dateTime: updates.dateTime,
+        dateTime: updates?.dateTime,
       });
-
       if (!ok) return { cancelled: true };
+
+      const cleanedUpdates = { ...(updates || {}) };
+
+      // photos
+      if (cleanedUpdates.photos) {
+        cleanedUpdates.photos = normalizePhotos(cleanedUpdates.photos);
+      }
+
+      // venue (preferred) OR legacy place fields -> venue
+      if (
+        cleanedUpdates.venue ||
+        cleanedUpdates.placeId ||
+        cleanedUpdates.businessName ||
+        cleanedUpdates.location ||
+        cleanedUpdates.address
+      ) {
+        const venueResult = buildVenuePayload({
+          venue: cleanedUpdates.venue || null,
+          placeId: cleanedUpdates.placeId || null,
+          businessName: cleanedUpdates.businessName || null,
+          location: cleanedUpdates.location || null,
+          address: cleanedUpdates.address || null,
+        });
+
+        if (venueResult.error) {
+          Alert.alert('Invalid location', venueResult.error);
+          return { cancelled: true };
+        }
+
+        cleanedUpdates.venue = venueResult.venue;
+
+        // optional: stop sending legacy keys once venue is present
+        delete cleanedUpdates.placeId;
+        delete cleanedUpdates.businessName;
+        delete cleanedUpdates.location;
+        delete cleanedUpdates.address;
+      }
 
       const result = await dispatch(
         editInvite({
-          recipientId: meId,
+          recipientId: meId, // your backend treats this as senderId in edit; keep until you rename
           inviteId: targetInviteId,
-          updates,
+          updates: cleanedUpdates,
           recipientIds,
         })
       ).unwrap();
@@ -302,7 +412,6 @@ export default function useInviteActions(invite) {
   );
 
   /** --------------------------- 5) Host: nudge recipient --------------------------- */
-
   const nudgeRecipient = useCallback(
     async (recipientId) => {
       if (!inviteId || !recipientId) return;
@@ -311,21 +420,11 @@ export default function useInviteActions(invite) {
       if (!hostId) return;
 
       try {
-        await dispatch(
-          nudgeInviteRecipient({
-            inviteId,
-            recipientId,
-            senderId: hostId,
-          })
-        ).unwrap();
-
+        await dispatch(nudgeInviteRecipient({ inviteId, recipientId, senderId: hostId })).unwrap();
         Alert.alert('Reminder sent', 'We nudged them about this plan.');
       } catch (err) {
         console.error('❌ Failed to nudge recipient:', err);
-        const msg =
-          (typeof err === 'string' && err) ||
-          err?.message ||
-          'Could not send reminder.';
+        const msg = (typeof err === 'string' && err) || err?.message || 'Could not send reminder.';
         Alert.alert('Error', msg);
       }
     },
@@ -333,18 +432,13 @@ export default function useInviteActions(invite) {
   );
 
   return {
-    // existing flows
     acceptForMe,
     declineForMe,
     requestToJoin,
     acceptJoinRequest,
     rejectJoinRequest,
-
-    // new centralized helpers
     sendInviteWithConflicts,
     editInviteWithConflicts,
-
-    // host only
     nudgeRecipient,
   };
 }

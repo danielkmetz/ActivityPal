@@ -3,6 +3,7 @@ import { COMMENTS_REPLIES_FRAGMENT } from './commentsRepliesFragment';
 import { TAGGED_USER_FRAGMENT } from './taggedUserFragment';
 import { NESTED_POST_FIELDS, SHARED_META_FIELDS } from './nestedPostFields';
 import { USER_CORE_FIELDS } from './userFragment';
+import { VENUE_FIELDS } from './venueFragment';
 
 export const POST_FIELDS = gql`
   ${COMMENTS_REPLIES_FRAGMENT}
@@ -10,6 +11,7 @@ export const POST_FIELDS = gql`
   ${NESTED_POST_FIELDS}
   ${SHARED_META_FIELDS}
   ${USER_CORE_FIELDS}
+  ${VENUE_FIELDS}
 
   fragment PostFields on Post {
     _id
@@ -23,6 +25,10 @@ export const POST_FIELDS = gql`
     updatedAt
     businessName
     businessLogoUrl
+
+    venue{
+      ...VenueFields
+    }
 
     taggedUsers {
       ...TaggedUserFields

@@ -1,16 +1,12 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { View, TextInput, StyleSheet, FlatList, Alert, KeyboardAvoidingView, Keyboard, TouchableWithoutFeedback } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import { useDispatch, useSelector } from "react-redux";
+import { useSelector } from "react-redux";
 import EditPhotosModal from "../../Profile/EditPhotosModal";
 import EditPhotoDetailsModal from "../../Profile/EditPhotoDetailsModal";
 import TagFriendsModal from "../TagFriendsModal";
 import { selectUser } from "../../../Slices/UserSlice";
-import { createPost, updatePost } from "../../../Slices/PostsSlice";
-import { createNotification } from "../../../Slices/NotificationsSlice";
-import { createBusinessNotification } from "../../../Slices/BusNotificationsSlice";
 import { selectMediaFromGallery } from "../../../utils/selectPhotos";
-import { handlePhotoUpload } from "../../../utils/photoUploadHelper";
 import { mergeMedia } from "../../../utils/CameraScreen/mergeMedia";
 import InviteForm from "../../ActivityInvites/InviteForm";
 import SectionHeader from "../SectionHeader";
@@ -21,22 +17,22 @@ import RecapHeader from "./RecapHeader";
 import PostExtrasRow from "./PostExtrasSection";
 import TaggedFriendsPreview from "./TaggedFriendsPreview";
 import MediaPreview from "./MediaPreview";
-import PlacesAutocomplete from "../../Location/PlacesAutocomplete";
+import useSubmitPost from "../../../hooks/useSubmitPost";
+import useVenueSelection from "../../../hooks/useVenueSelection";
+import VenuePicker from "./VenuePicker";
 
 export default function CreatePost() {
   const navigation = useNavigation();
   const route = useRoute();
-  const dispatch = useDispatch();
   const user = useSelector(selectUser);
-  const [business, setBusiness] = useState(null);
+  const { submit, submitting } = useSubmitPost();
   const [rating, setRating] = useState(3);
   const [wouldGoBack, setWouldGoBack] = useState(null);
   const [vibeTags, setVibeTags] = useState([]);
   const [priceRating, setPriceRating] = useState(null);
   const [review, setReview] = useState("");
   const [checkInMessage, setCheckInMessage] = useState("");
-  const [selectedPhotos, setSelectedPhotos] = useState([]);
-  const [photoList, setPhotoList] = useState([]);
+  const [media, setMedia] = useState([]);
   const [taggedUsers, setTaggedUsers] = useState([]);
   const [previewPhoto, setPreviewPhoto] = useState(null);
   const [editPhotosModalVisible, setEditPhotosModalVisible] = useState(false);
@@ -47,45 +43,47 @@ export default function CreatePost() {
   const relatedInviteId = route.params?.relatedInviteId || null;
   const initialBusinessFromRoute = route.params?.initialBusiness || null;
   const inviteDateTimeLabel = route.params?.inviteDateTimeLabel || null;
-  const fullName = `${user.firstName} ${user?.lastName}`;
+  const isRecap = !!relatedInviteId && !isEditing;
   const initialType = route.params?.isEditing
     ? route.params?.initialPost?.type
     : route.params?.postType;
 
   const [postType, setPostType] = useState(initialType);
 
-  const isRecap = !!relatedInviteId && !isEditing;
+  // ✅ venue logic isolated
+  const {
+    business,
+    inviteVenueMode,
+    customVenue,
+    setCustomVenue,
+    inviteVenue,
+    prefillLabel,
+    placesKey,
+    handlePlaceSelected,
+    clearBusiness,
+    selectInvitePlaceVenue,
+    selectInviteCustomVenue,
+  } = useVenueSelection({
+    navigation,
+    routeKey: route.key,
+    postType,
+    isEditing,
+    initialPost,
+    initialBusinessFromRoute,
+  });
 
-  // ✅ Reset place state when this screen is actually removed (pop/reset).
-  // This will NOT fire when you push CameraScreen on top.
-  const resetPlaceState = useCallback(() => {
-    setBusiness(null);
-  }, []);
-
-  useEffect(() => {
-    const unsub = navigation.addListener("beforeRemove", resetPlaceState);
-    return unsub;
-  }, [navigation, resetPlaceState]);
-
-  // also safe on unmount
-  useEffect(() => {
-    return () => {
-      resetPlaceState();
-    };
-  }, [resetPlaceState]);
-
-  // --- hydrate form when editing ---
+  // --- hydrate non-venue fields when editing ---
   useEffect(() => {
     if (!isEditing || !initialPost) return;
 
     setReview(initialPost.message || "");
     setCheckInMessage(initialPost.message || "");
     setTaggedUsers(initialPost.taggedUsers || []);
-    setSelectedPhotos(initialPost.media || []);
-    setPhotoList(initialPost.media || []);
+
+    // ✅ single media hydration
+    setMedia(Array.isArray(initialPost.media) ? initialPost.media : []);
 
     const details = initialPost.details || {};
-
     setPriceRating(details.priceRating != null ? details.priceRating : null);
 
     const existingWouldGoBack =
@@ -99,273 +97,110 @@ export default function CreatePost() {
     setWouldGoBack(existingWouldGoBack);
     setVibeTags(Array.isArray(details.vibeTags) ? details.vibeTags : []);
     setRating(details.rating || 3);
+  }, [isEditing, initialPost?._id]);
 
-    // ✅ This is the only thing you need for the autocomplete:
-    setBusiness({
-      place_id: initialPost.placeId,
-      name: initialPost.businessName,
-      formatted_address: initialPost.location || "",
-    });
-  }, [isEditing, initialPost]);
-
-  // --- hydrate for NEW posts that came from recap badge ---
-  useEffect(() => {
-    if (isEditing) return;
-    if (!initialBusinessFromRoute) return;
-    if (business) return;
-
-    setBusiness(initialBusinessFromRoute);
-  }, [isEditing, initialBusinessFromRoute, business]);
-
+  // --- merge captured media from camera ---
   useEffect(() => {
     const incoming = route.params?.capturedMedia;
     if (!Array.isArray(incoming) || incoming.length === 0) return;
 
-    setSelectedPhotos((prev) => mergeMedia(prev, incoming));
+    setMedia((prev) => mergeMedia(Array.isArray(prev) ? prev : [], incoming));
     navigation.setParams({ capturedMedia: null });
-  }, [route.params?.capturedMedia]);
+  }, [route.params?.capturedMedia, navigation]);
 
-  useEffect(() => {
-    setPhotoList(selectedPhotos);
-  }, [selectedPhotos]);
-
-  const handlePlaceSelected = useCallback((details) => {
-    if (!details) return;
-
-    setBusiness({
-      place_id: details.place_id,
-      name: details.name || "",
-      formatted_address: details.formatted_address || "",
-      geometry: details.geometry || null,
-      types: details.types || [],
-    });
-  }, []);
-
-  // ✅ Autocomplete prefill contract:
-  // - prefer live selected business name
-  // - otherwise prefer edit initialPost businessName
-  // - otherwise recap/route business name
-  const prefillLabel = useMemo(() => {
-    return (
-      business?.name ||
-      (isEditing ? initialPost?.businessName : "") ||
-      (!isEditing ? initialBusinessFromRoute?.name : "") ||
-      ""
-    );
-  }, [business?.name, isEditing, initialPost?.businessName, initialBusinessFromRoute?.name]);
-
-  // ✅ force a fresh autocomplete instance if you edit a different post in the same mounted screen
-  const placesKey = useMemo(() => {
-    const editId = isEditing ? initialPost?._id || "edit" : "new";
-    return `places:${route.key}:${editId}`;
-  }, [route.key, isEditing, initialPost?._id]);
-
-  // ------------ helpers -------------
-  const normalizeId = (u) => u?._id || u?.userId || u?.id;
-
-  const uploadDedupPhotos = async ({ dispatch, userId, placeId, photos }) => {
-    if (!Array.isArray(photos) || photos.length === 0) return [];
-    const seen = new Set();
-    const deduped = [];
-    for (const p of photos) {
-      const k = p.photoKey || p.uri || p.localKey || JSON.stringify(p);
-      if (!seen.has(k)) {
-        seen.add(k);
-        deduped.push(p);
-      }
-    }
-    return handlePhotoUpload({ dispatch, userId, placeId, photos: deduped });
-  };
-
-  const notifyAll = async ({
-    dispatch,
-    fullName,
-    currentUserId,
-    placeId,
-    businessName,
-    postType,
-    postId,
-    taggedUsers,
-    uploadedPhotos,
-  }) => {
-    const postTagPromises = (taggedUsers || []).map((tu) =>
-      dispatch(
-        createNotification({
-          userId: normalizeId(tu),
-          type: "tag",
-          message: `${fullName} tagged you in a ${postType}!`,
-          relatedId: currentUserId,
-          typeRef: "User",
-          targetId: postId,
-          postType,
-        })
-      )
-    );
-
-    const photoTagPromises = (uploadedPhotos || []).flatMap((photo) =>
-      (photo.taggedUsers || []).map((u) =>
-        dispatch(
-          createNotification({
-            userId: normalizeId(u),
-            type: "photoTag",
-            message: `${fullName} tagged you in a photo!`,
-            relatedId: currentUserId,
-            typeRef: "User",
-            targetId: postId,
-            postType,
-          })
-        )
-      )
-    );
-
-    const businessPromise = dispatch(
-      createBusinessNotification({
-        placeId,
-        postType,
-        type: postType,
-        message: `${fullName} ${
-          postType === "review" ? "left a review on" : "checked in at"
-        } ${businessName}`,
-        relatedId: currentUserId,
-        typeRef: "User",
-        targetId: postId,
-        targetRef: "Post",
-      })
-    );
-
-    return Promise.all([...postTagPromises, ...photoTagPromises, businessPromise]);
-  };
-
-  const handleSubmit = async () => {
+  const handleSubmit = useCallback(async () => {
     const isReview = postType === "review";
-    const trimmedReview = (review || "").trim();
-    const trimmedCheckIn = (checkInMessage || "").trim();
-
-    const safeStringify = (v) => {
-      try {
-        return JSON.stringify(v, null, 2);
-      } catch {
-        return String(v);
-      }
-    };
-
-    const extractErrMessage = (err) => {
-      if (!err) return null;
-      if (typeof err === "string") return err;
-      if (err?.message) return err.message;
-
-      const axiosMsg =
-        err?.response?.data?.message ||
-        err?.response?.data?.error ||
-        err?.response?.data ||
-        err?.response?.statusText;
-
-      if (axiosMsg) return typeof axiosMsg === "string" ? axiosMsg : safeStringify(axiosMsg);
-
-      if (err?.payload) {
-        if (typeof err.payload === "string") return err.payload;
-        if (err.payload?.message) return err.payload.message;
-        return safeStringify(err.payload);
-      }
-
-      if (err?.error) return typeof err.error === "string" ? err.error : safeStringify(err.error);
-      return safeStringify(err);
-    };
-
-    if (!business) {
-      Alert.alert("Error", "Please choose a place.");
-      return;
-    }
-
-    if (isReview && (!rating || !wouldGoBack)) {
-      Alert.alert("Error", "Please add an overall rating and whether you'd go back.");
-      return;
-    }
+    const safeMedia = Array.isArray(media) ? media : [];
 
     try {
-      const currentUserId = user?.id || user?._id;
-      const placeId = business.place_id;
-      const businessName = business.name || "";
-      const location = business.formatted_address || "";
-
-      const rawPhotos =
-        (Array.isArray(photoList) && photoList.length > 0 ? photoList : selectedPhotos) || [];
-
-      const uploadedPhotos = await uploadDedupPhotos({
-        dispatch,
-        userId: currentUserId,
-        placeId,
-        photos: rawPhotos,
-      });
-
-      const taggedUserIds = (taggedUsers || []).map(normalizeId).filter(Boolean);
-
-      let postId;
-
-      if (isEditing && initialPost) {
-        const base = { placeId, taggedUsers: taggedUserIds, photos: uploadedPhotos };
-
-        const updates = isReview
-          ? {
-              ...base,
-              rating,
-              wouldGoBack,
-              priceRating,
-              vibeTags,
-              reviewText: trimmedReview || null,
-              message: trimmedReview || null,
-            }
-          : {
-              ...base,
-              message: trimmedCheckIn || null,
-            };
-
-        await dispatch(updatePost({ postId: initialPost._id, updates })).unwrap();
-        postId = initialPost._id;
-        Alert.alert("Success", `Your ${postType} has been updated!`);
-      } else {
-        const payload = {
-          type: postType,
-          userId: currentUserId,
-          placeId,
-          location,
-          businessName,
-          photos: uploadedPhotos,
-          taggedUsers: taggedUserIds,
-          ...(relatedInviteId ? { relatedInviteId } : {}),
-          ...(isReview
-            ? {
-                message: trimmedReview || null,
-                reviewText: trimmedReview || null,
-                rating,
-                wouldGoBack,
-                priceRating,
-                vibeTags,
-              }
-            : { message: trimmedCheckIn || null }),
-        };
-
-        const created = await dispatch(createPost(payload)).unwrap();
-        postId = created._id;
-        Alert.alert("Success", `Your ${postType} has been posted!`);
-      }
-
-      await notifyAll({
-        dispatch,
-        fullName,
-        currentUserId,
-        placeId,
-        businessName,
+      const res = await submit({
+        user,
+        isEditing,
+        initialPost,
         postType,
-        postId,
+        business,
+        inviteVenue, // custom invites handled in submitPost already
+        media: safeMedia,
         taggedUsers,
-        uploadedPhotos,
+        rating,
+        wouldGoBack,
+        priceRating,
+        vibeTags,
+        reviewText: isReview ? review : null,
+        checkInMessage: !isReview ? checkInMessage : null,
+        relatedInviteId,
       });
 
+      Alert.alert(
+        "Success",
+        `Your ${postType} has been ${res.mode === "update" ? "updated" : "posted"}!`
+      );
       navigation.goBack();
     } catch (err) {
-      Alert.alert("Error", extractErrMessage(err) || "Failed to submit.");
+      Alert.alert("Error", err?.message || "Failed to submit.");
     }
+  }, [
+    submit,
+    user,
+    isEditing,
+    initialPost,
+    postType,
+    business,
+    inviteVenue,
+    media,
+    taggedUsers,
+    rating,
+    wouldGoBack,
+    priceRating,
+    vibeTags,
+    review,
+    checkInMessage,
+    relatedInviteId,
+    navigation,
+  ]);
+
+  const handlePhotoAlbumSelection = async () => {
+    const newFiles = await selectMediaFromGallery();
+    if (!Array.isArray(newFiles) || newFiles.length === 0) return;
+
+    const getKey = (p) => p?.photoKey || p?.localKey || p?.uri || p?._id;
+
+    // 1) Ensure existing media has stable order
+    const existing = Array.isArray(media) ? media : [];
+    const existingWithOrder = existing.map((p, idx) =>
+      p?.order != null ? p : { ...p, order: idx }
+    );
+
+    const maxOrder =
+      existingWithOrder.length > 0
+        ? Math.max(...existingWithOrder.map((p) => p.order ?? 0))
+        : -1;
+
+    // 2) Stamp `order` onto new files
+    const prepared = newFiles.map((file, i) => ({
+      ...file,
+      taggedUsers: [],
+      description: file?.description || "",
+      uri: file?.uri,
+      order: maxOrder + 1 + i,
+    }));
+
+    // 3) Merge + dedupe + sort
+    const seen = new Set();
+    const merged = [...existingWithOrder, ...prepared];
+
+    const deduped = merged.filter((p) => {
+      const key = getKey(p);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    const ordered = deduped.sort((a, b) => (a?.order ?? 0) - (b?.order ?? 0));
+
+    setMedia(ordered);
+    setEditPhotosModalVisible(true);
+    setPreviewPhoto(null);
   };
 
   const handleOpenPhotoDetails = (item) => {
@@ -385,6 +220,14 @@ export default function CreatePost() {
       returnMode: "post",
     });
   };
+
+  const recapNeedsPlaceSelection =
+    isRecap &&
+    (postType === "review" || postType === "check-in") &&
+    !business?.place_id &&
+    !initialBusinessFromRoute?.place_id;
+
+  const showLocationPicker = !isRecap || recapNeedsPlaceSelection;
 
   if (!postType) return null;
 
@@ -427,30 +270,34 @@ export default function CreatePost() {
                   <InviteForm
                     isEditing={isEditing}
                     initialInvite={initialPost}
-                    selectedBusiness={business}
+                    selectedVenue={inviteVenue || initialPost?.venue || null}
+                    selectedMedia={media}
+                    setSelectedMedia={setMedia}
                   />
                 )}
+                <PostExtrasRow
+                  taggedUsers={taggedUsers}
+                  media={media}
+                  onOpenTagModal={() => setTagFriendsModalVisible(true)}
+                  onOpenCamera={openCamera}
+                  onOpenLibrary={handlePhotoAlbumSelection}
+                />
+                <MediaPreview
+                  media={media}
+                  onOpenPhotoDetails={handleOpenPhotoDetails}
+                  onOpenEditPhotos={() => setEditPhotosModalVisible(true)}
+                />
                 {postType !== "invite" && (
                   <>
-                    <PostExtrasRow
-                      taggedUsers={taggedUsers}
-                      selectedPhotos={selectedPhotos}
-                      onOpenTagModal={() => setTagFriendsModalVisible(true)}
-                      onOpenCamera={openCamera}
-                      onOpenLibrary={async () => {
-                        // keep your existing implementation
-                      }}
-                    />
                     <TaggedFriendsPreview
                       taggedUsers={taggedUsers}
                       onOpenTagModal={() => setTagFriendsModalVisible(true)}
                     />
-                    <MediaPreview
-                      selectedPhotos={selectedPhotos}
-                      onOpenPhotoDetails={handleOpenPhotoDetails}
-                      onOpenEditPhotos={() => setEditPhotosModalVisible(true)}
+                    <SubmitButton
+                      label={!isEditing ? "Post" : "Save changes"}
+                      onPress={handleSubmit}
+                      disabled={submitting}
                     />
-                    <SubmitButton label={!isEditing ? "Post" : "Save changes"} onPress={handleSubmit} />
                   </>
                 )}
               </>
@@ -471,16 +318,19 @@ export default function CreatePost() {
                     inviteDateTimeLabel={inviteDateTimeLabel}
                   />
                 )}
-                {!isRecap && (
-                  <View style={{ zIndex: 999, position: "relative" }}>
-                    <PlacesAutocomplete
-                      key={placesKey}
-                      onPlaceSelected={handlePlaceSelected}
-                      prefillLabel={prefillLabel}
-                      onClear={() => setBusiness(null)}
-                    />
-                  </View>
-                )}
+                <VenuePicker
+                  postType={postType}
+                  show={showLocationPicker}
+                  inviteVenueMode={inviteVenueMode}
+                  onSelectInvitePlace={selectInvitePlaceVenue}
+                  onSelectInviteCustom={selectInviteCustomVenue}
+                  customVenue={customVenue}
+                  setCustomVenue={setCustomVenue}
+                  placesKey={placesKey}
+                  prefillLabel={prefillLabel}
+                  onPlaceSelected={handlePlaceSelected}
+                  onClearPlace={clearBusiness}
+                />
               </>
             }
             contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 140, marginTop: 120 }}
@@ -494,24 +344,23 @@ export default function CreatePost() {
           initialSelectedFriends={taggedUsers}
           isTagging={true}
         />
+        {/* ✅ updated modal API (see below) */}
         <EditPhotosModal
           visible={editPhotosModalVisible}
-          photos={selectedPhotos}
-          onSave={setSelectedPhotos}
-          photoList={photoList}
-          setPhotoList={setPhotoList}
+          media={media}
+          setMedia={setMedia}
           onClose={() => setEditPhotosModalVisible(false)}
-          onDelete={() => {}}
+          isPromotion={false}
+          onDelete={() => { }}
         />
         {previewPhoto && (
           <EditPhotoDetailsModal
             visible={photoDetailsEditing}
             photo={previewPhoto}
+            media={media}
+            setMedia={setMedia}
             onClose={handleClosePhotoDetails}
-            onSave={() => {}}
-            setPhotoList={setPhotoList}
-            setSelectedPhotos={setSelectedPhotos}
-            onDelete={() => {}}
+            onDelete={() => { }}
             isPromotion={false}
           />
         )}

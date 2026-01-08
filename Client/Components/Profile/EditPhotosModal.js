@@ -1,4 +1,4 @@
-import React, { useState, useEffect, } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { View, Text, Image, Modal, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, Dimensions } from "react-native";
 import { GestureDetector, Gesture } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, runOnJS } from "react-native-reanimated";
@@ -10,7 +10,9 @@ const columnMargin = 5;
 const numColumns = 3;
 const columnWidth = (screenWidth - columnMargin * (numColumns + 1)) / numColumns;
 
-function DraggablePhoto({ photo, index, positions, onSwap, onPress }) {
+const keyOf = (p) => p?._id || p?.photoKey || p?.localKey || p?.uri || "";
+
+function DraggableMedia({ item, index, positions, onSwap, onPress }) {
   if (!positions[index]) return null;
 
   const translateX = useSharedValue(0);
@@ -21,49 +23,59 @@ function DraggablePhoto({ photo, index, positions, onSwap, onPress }) {
       translateX.value = withSpring(positions[index].x);
       translateY.value = withSpring(positions[index].y);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [positions, index]);
 
-  const gesture = Gesture.Pan()
-    .onUpdate((e) => {
-      translateX.value = e.translationX + positions[index].x;
-      translateY.value = e.translationY + positions[index].y;
-    })
-    .onEnd(() => {
-      const newIndex = positions.findIndex(
-        (pos) =>
-          Math.abs(pos.x - translateX.value) < columnWidth / 2 &&
-          Math.abs(pos.y - translateY.value) < columnWidth / 2
-      );
-      if (newIndex !== -1 && newIndex !== index) {
-        runOnJS(onSwap)(index, newIndex);
-      } else {
-        translateX.value = withSpring(positions[index].x);
-        translateY.value = withSpring(positions[index].y);
-      }
-    });
+  const gesture = useMemo(() => {
+    return Gesture.Pan()
+      .onUpdate((e) => {
+        const base = positions[index];
+        if (!base) return;
+        translateX.value = e.translationX + base.x;
+        translateY.value = e.translationY + base.y;
+      })
+      .onEnd(() => {
+        const base = positions[index];
+        if (!base) return;
+
+        const newIndex = positions.findIndex((pos) => {
+          if (!pos) return false;
+          return (
+            Math.abs(pos.x - translateX.value) < columnWidth / 2 &&
+            Math.abs(pos.y - translateY.value) < columnWidth / 2
+          );
+        });
+
+        if (newIndex !== -1 && newIndex !== index) {
+          runOnJS(onSwap)(index, newIndex);
+        } else {
+          translateX.value = withSpring(base.x);
+          translateY.value = withSpring(base.y);
+        }
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [positions, index, onSwap]);
 
   const animatedStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: translateX.value },
-      { translateY: translateY.value },
-    ],
+    transform: [{ translateX: translateX.value }, { translateY: translateY.value }],
   }));
 
-  const cleanUrl = (photo.uri || photo.url || photo.photoKey || "").split("?")[0];
-  const isVideo = cleanUrl.toLowerCase().endsWith(".mp4") || cleanUrl.toLowerCase().endsWith(".mov");
+  const cleanUrl = (item?.uri || item?.url || item?.photoKey || "").split("?")[0];
+  const isVideo =
+    cleanUrl.toLowerCase().endsWith(".mp4") || cleanUrl.toLowerCase().endsWith(".mov");
 
   return (
     <GestureDetector gesture={gesture}>
       <Animated.View style={[styles.draggableItem, animatedStyle]}>
-        <TouchableWithoutFeedback onPress={() => onPress(photo)}>
+        <TouchableWithoutFeedback onPress={() => onPress(item)}>
           {isVideo ? (
             <View>
-              <VideoThumbnail file={photo} width={columnWidth} height={columnWidth} />
+              <VideoThumbnail file={item} width={columnWidth} height={columnWidth} />
             </View>
           ) : (
             <Image
-              source={{ uri: photo.uri || photo.url }}
-              style={styles.photoThumbnail}
+              source={{ uri: item?.uri || item?.url }}
+              style={styles.mediaThumbnail}
               resizeMode="cover"
             />
           )}
@@ -75,36 +87,55 @@ function DraggablePhoto({ photo, index, positions, onSwap, onPress }) {
 
 export default function EditPhotosModal({
   visible,
-  photos,
-  onSave,
+  media,
+  setMedia,     // preferred
+  onSave,       // legacy fallback
   onClose,
-  photoList,
-  setPhotoList,
   isPromotion,
-  onDelete,
+  onDelete,     // optional external side-effect
 }) {
-  const [selectedPhoto, setSelectedPhoto] = useState(null);
+  const baseMedia = useMemo(() => (Array.isArray(media) ? media : []), [media]);
+  const [draftMedia, setDraftMedia] = useState(baseMedia);
+  const [selectedItem, setSelectedItem] = useState(null);
   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
   const [shouldRenderGrid, setShouldRenderGrid] = useState(false);
   const [positions, setPositions] = useState([]);
 
+  const commitToParent = useCallback(
+    (next) => {
+      const normalized = Array.isArray(next) ? next : [];
+      // stamp order so downstream is deterministic
+      const stamped = normalized.map((m, idx) => ({
+        ...m,
+        order: m?.order != null ? m.order : idx,
+      }));
+
+      // Prefer setMedia if provided; otherwise use onSave.
+      if (typeof setMedia === "function") setMedia(stamped);
+      else if (typeof onSave === "function") onSave(stamped);
+    },
+    [setMedia, onSave]
+  );
+
+  // when opening, take a fresh snapshot into draft
   useEffect(() => {
-    if (visible) {
-      const timeout = setTimeout(() => setShouldRenderGrid(true), 100);
-      return () => clearTimeout(timeout);
-    } else {
+    if (!visible) {
       setShouldRenderGrid(false);
+      setSelectedItem(null);
+      setDetailsModalVisible(false);
+      return;
     }
-  }, [visible]);
 
-  useEffect(() => {
-    if (photos) {
-      setPhotoList(photos);
-    }
-  }, [photos]);
+    setDraftMedia(baseMedia);
 
+    const t = setTimeout(() => setShouldRenderGrid(true), 100);
+    return () => clearTimeout(t);
+  }, [visible, baseMedia]);
+
+  // compute grid positions from draft length
   useEffect(() => {
-    const updatedPositions = photoList.map((_, index) => {
+    const list = Array.isArray(draftMedia) ? draftMedia : [];
+    const updatedPositions = list.map((_, index) => {
       const row = Math.floor(index / numColumns);
       const col = index % numColumns;
       return {
@@ -113,35 +144,62 @@ export default function EditPhotosModal({
       };
     });
     setPositions(updatedPositions);
-  }, [photoList]);
+  }, [draftMedia]);
 
-  const handlePhotoClick = (photo) => {
-    setSelectedPhoto(photo);
+  const handleItemClick = (item) => {
+    setSelectedItem(item);
     setDetailsModalVisible(true);
   };
 
-  const handlePhotoSave = (updatedPhoto) => {
-    setPhotoList((prev) =>
-      prev.map((photo) => {
-        const isSamePhoto =
-          (photo._id && updatedPhoto._id && photo._id === updatedPhoto._id) ||
-          (photo.photoKey && updatedPhoto.photoKey && photo.photoKey === updatedPhoto.photoKey) ||
-          (photo.uri && updatedPhoto.uri && photo.uri === updatedPhoto.uri);
-        return isSamePhoto ? updatedPhoto : photo;
-      })
-    );
+  const handleItemSave = (updatedItem) => {
+    setDraftMedia((prev) => {
+      const list = Array.isArray(prev) ? prev : [];
+      const updatedKey = keyOf(updatedItem);
+
+      return list.map((m) => {
+        const same =
+          (m?._id && updatedItem?._id && String(m._id) === String(updatedItem._id)) ||
+          (m?.photoKey && updatedItem?.photoKey && String(m.photoKey) === String(updatedItem.photoKey)) ||
+          (m?.uri && updatedItem?.uri && String(m.uri) === String(updatedItem.uri)) ||
+          (updatedKey && keyOf(m) === updatedKey);
+
+        return same ? { ...m, ...updatedItem } : m;
+      });
+    });
   };
 
-  const swapPhotos = (fromIndex, toIndex) => {
-    const updatedList = [...photoList];
-    const moved = updatedList.splice(fromIndex, 1)[0];
-    updatedList.splice(toIndex, 0, moved);
-    setPhotoList(updatedList);
+  const handleRemoveItem = (item) => {
+    const removeKey = keyOf(item);
+
+    setDraftMedia((prev) => {
+      const list = Array.isArray(prev) ? prev : [];
+      return list.filter((m) => keyOf(m) !== removeKey);
+    });
+
+    if (typeof onDelete === "function") {
+      onDelete(item);
+    }
+
+    setDetailsModalVisible(false);
+    setSelectedItem(null);
   };
 
-  const handleSavePhotos = () => {
-    onSave(photoList); // this now reflects the correct order AND updates
-    onClose();
+  const swapItems = (fromIndex, toIndex) => {
+    setDraftMedia((prev) => {
+      const list = Array.isArray(prev) ? [...prev] : [];
+      if (!list[fromIndex] || !list[toIndex]) return list;
+
+      const moved = list.splice(fromIndex, 1)[0];
+      list.splice(toIndex, 0, moved);
+
+      // update order to match new array order
+      return list.map((m, idx) => ({ ...m, order: idx }));
+    });
+  };
+
+  const handleSaveAll = () => {
+    commitToParent(draftMedia);
+    onClose?.();
   };
 
   return (
@@ -150,14 +208,14 @@ export default function EditPhotosModal({
         <Text style={styles.title}>Edit Photos</Text>
         {shouldRenderGrid && (
           <View style={styles.gridContainer}>
-            {photoList.map((photo, index) => (
-              <DraggablePhoto
-                key={photo._id || photo.photoKey || photo.uri || index}
-                photo={photo}
+            {(Array.isArray(draftMedia) ? draftMedia : []).map((item, index) => (
+              <DraggableMedia
+                key={keyOf(item) || String(index)}
+                item={item}
                 index={index}
                 positions={positions}
-                onSwap={swapPhotos}
-                onPress={handlePhotoClick}
+                onSwap={swapItems}
+                onPress={handleItemClick}
               />
             ))}
           </View>
@@ -166,18 +224,18 @@ export default function EditPhotosModal({
           <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
             <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.saveButton} onPress={handleSavePhotos}>
+          <TouchableOpacity style={styles.saveButton} onPress={handleSaveAll}>
             <Text style={styles.saveButtonText}>Save Photos</Text>
           </TouchableOpacity>
         </View>
-        {selectedPhoto && (
+        {selectedItem && (
           <EditPhotoDetailsModal
             visible={detailsModalVisible}
-            photo={selectedPhoto}
-            onSave={handlePhotoSave}
+            photo={selectedItem}
+            onSave={handleItemSave}
             onClose={() => setDetailsModalVisible(false)}
             isPromotion={isPromotion}
-            onDelete={onDelete}
+            onDelete={handleRemoveItem} // ✅ delete removes from draft
           />
         )}
       </View>
@@ -201,7 +259,7 @@ const styles = StyleSheet.create({
     flex: 1,
     position: "relative",
   },
-  photoThumbnail: {
+  mediaThumbnail: {
     width: columnWidth,
     height: columnWidth,
     borderRadius: 8,

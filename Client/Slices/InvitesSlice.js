@@ -1,7 +1,20 @@
-import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import { createSlice, createAsyncThunk, createSelector } from '@reduxjs/toolkit';
 import client from '../apolloClient';
 import { GET_USER_INVITES_QUERY } from './GraphqlQueries/Queries/getUserInvites';
 import { nudgeInviteRecipient } from './PostsSlice';
+
+const EMPTY_ARRAY = [];
+const EMPTY_OBJECT = Object.freeze({});
+
+// If you have invitesSlice initialState exported, use that instead of this.
+const FALLBACK_INVITES_STATE = Object.freeze({
+  ids: EMPTY_ARRAY,
+  byId: EMPTY_OBJECT,
+  activeId: null,
+  status: 'idle',
+  error: null,
+  cursor: null,
+});
 
 /**
  * Thunk: fetch all invites involving the current user via GraphQL getUserInvites.
@@ -194,52 +207,38 @@ export default invitesSlice.reducer;
 
 /* ---------------------- selectors ---------------------- */
 
-const selectInvitesState = (state) =>
-  state.invites || {
-    ids: [],
-    byId: {},
-    activeId: null,
-    status: 'idle',
-    error: null,
-    cursor: null,
-  };
+const selectInvitesState = (state) => state.invites || FALLBACK_INVITES_STATE;
 
-export const selectInviteIds = (state) => selectInvitesState(state).ids || [];
-
-export const selectActiveInviteId = (state) =>
-  selectInvitesState(state).activeId;
-
-export const selectInvitesStatus = (state) =>
-  selectInvitesState(state).status;
-
-export const selectInvitesError = (state) =>
-  selectInvitesState(state).error;
-
-export const selectInvitesCursor = (state) =>
-  selectInvitesState(state).cursor;
+export const selectInviteIds = (state) => selectInvitesState(state).ids || EMPTY_ARRAY;
+export const selectInvitesById = (state) => selectInvitesState(state).byId || EMPTY_OBJECT;
+export const selectActiveInviteId = (state) => selectInvitesState(state).activeId;
+export const selectInvitesStatus = (state) => selectInvitesState(state).status;
+export const selectInvitesError = (state) => selectInvitesState(state).error;
+export const selectInvitesCursor = (state) => selectInvitesState(state).cursor;
 
 /**
- * All invite objects in slice order.
+ * All invite objects in slice order. (Memoized)
  */
-export const selectMyInvites = (state) => {
-  const { ids, byId } = selectInvitesState(state);
-  if (!Array.isArray(ids)) return [];
-  return ids
-    .map((id) => byId[id])
-    .filter(Boolean);
-};
+export const selectMyInvites = createSelector(
+  [selectInviteIds, selectInvitesById],
+  (ids, byId) => {
+    if (!Array.isArray(ids) || !byId) return EMPTY_ARRAY;
+
+    // creates a new array ONLY when ids/byId references change
+    const out = [];
+    for (let i = 0; i < ids.length; i++) {
+      const v = byId[ids[i]];
+      if (v) out.push(v);
+    }
+    return out;
+  }
+);
 
 /**
- * Recap-candidate invites:
- * - type === 'invite'
- * - details.needsRecap === true
+ * Recap-candidate invites (Memoized)
  */
-export const selectRecapCandidateInvites = (state) => {
-  const invites = selectMyInvites(state);
-  return invites.filter((p) => {
-    if (!p || p.type !== 'invite') return false;
-    const details = p.details;
-    if (!details) return false;
-    return details.needsRecap === true;
-  });
-};
+export const selectRecapCandidateInvites = createSelector(
+  [selectMyInvites],
+  (invites) =>
+    invites.filter((p) => p?.type === 'invite' && p?.details?.needsRecap === true)
+);

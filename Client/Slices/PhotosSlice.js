@@ -219,27 +219,63 @@ export const uploadPhotos = createAsyncThunk(
 // Thunk to upload review photos and then fetch presigned URLs
 export const uploadReviewPhotos = createAsyncThunk(
   "photos/uploadReviewPhotos",
-  async ({ placeId, files }, { rejectWithValue }) => {
+  async ({ placeId = null, venue = null, postType = null, files }, { rejectWithValue }) => {
     try {
-      const response = await axios.post(`${BASE_URL}/photos/upload/${placeId}`, {
-        files: files.map((file) => ({
-          name: file.name,
-          type: getMimeType(file.name),
-        })),
+      const list = Array.isArray(files) ? files : [];
+
+      const safeVenue = venue && typeof venue === "object"
+        ? {
+            kind: venue.kind,
+            label: typeof venue.label === "string" ? venue.label.trim() : "",
+            placeId: venue.kind === "place" ? (venue.placeId || placeId || null) : null,
+            // DO NOT send address/geo in upload payload (sensitive + unnecessary)
+          }
+        : null;
+
+      const effectivePlaceId =
+        (typeof placeId === "string" && placeId.trim()) ? placeId.trim()
+        : (safeVenue?.kind === "place" ? safeVenue.placeId : null);
+
+      // Guard: must have either a placeId (place venue) OR a custom venue label
+      const hasPlace = !!effectivePlaceId;
+      const hasCustom = safeVenue?.kind === "custom" && !!safeVenue.label;
+
+      if (!hasPlace && !hasCustom) {
+        return rejectWithValue("Missing placeId/venue for upload.");
+      }
+
+      // IMPORTANT: use file.type if present; getMimeType(file.name) is a fallback
+      const payloadFiles = list.map((file) => ({
+        name: file.name,
+        type: file.type || file.mimeType || getMimeType(file.name),
+      }));
+
+      // ✅ New backend endpoint (venue-aware)
+      const response = await axios.post(`${BASE_URL}/photos/upload`, {
+        placeId: effectivePlaceId,  // can be null for custom
+        venue: safeVenue,           // {kind,label,placeId?}
+        postType: postType || null, // e.g. "invite" | "review" | "check-in" (optional)
+        files: payloadFiles,
       });
 
-      const { presignedUrls } = response.data;
+      const { presignedUrls } = response.data || {};
+      const urls = Array.isArray(presignedUrls) ? presignedUrls : [];
 
+      // Preserve index alignment: return [photoKey|null] with same length as files
       const uploadResults = await Promise.all(
-        files.map(async (file, index) => {
-          const { url, photoKey } = presignedUrls[index];
+        list.map(async (file, index) => {
+          const row = urls[index];
+          const url = row?.url;
+          const photoKey = row?.photoKey;
+
+          if (!url || !photoKey) return null;
+
           const success = await uploadFileToS3(file, url);
           return success ? photoKey : null;
         })
       );
 
-      const uploadedPhotoKeys = uploadResults.filter(Boolean);
-      return uploadedPhotoKeys;
+      return uploadResults; // DO NOT filter(Boolean) here (keeps index alignment)
     } catch (error) {
       return rejectWithValue(error.response?.data || error.message);
     }

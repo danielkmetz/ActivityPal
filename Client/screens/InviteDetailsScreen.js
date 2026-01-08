@@ -55,7 +55,10 @@ export default function InviteDetailsScreen() {
   const avatarUri = owner?.profilePicUrl || owner?.avatarUrl || null;
 
   const details = postContent?.details || {};
+  const address = postContent?.venue?.address;
   const requestsArr = Array.isArray(details.requests) ? details.requests : [];
+
+  console.log(postContent)
 
   const hasRequestedFromServer =
     currentUserId &&
@@ -101,6 +104,7 @@ export default function InviteDetailsScreen() {
         businessLogoUrl={businessLogoUrl}
         fullDateLabel={fullDateLabel}
         clockLabel={clockLabel}
+        address={address}
       />
       {/* Attendance / who’s invited */}
       <InviteAttendanceSection

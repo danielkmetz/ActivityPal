@@ -33,6 +33,23 @@ const typeDefs = gql`
     formattedAddress: String
   }
 
+  enum VenueKind {
+    place
+    custom
+  }
+
+  type Venue {
+    kind: VenueKind!
+    label: String!              # "Dan's House", "Trailhead", "Starbucks"
+    placeId: String             # only for kind=place
+
+    # Sensitive: only return for host/recipients; otherwise null
+    address: String
+
+    # Optional pin (also sensitive for custom): only return when authorized
+    geo: Location
+  }
+
   # -------- One Post model --------
   type Post {
     _id: ID!
@@ -43,6 +60,7 @@ const typeDefs = gql`
     message: String               # canonical user-authored post text
     placeId: String
     location: Location
+    venue: Venue
     media: [Photo!]
     taggedUsers: [TaggedUser]
     likes: [Like]
