@@ -113,5 +113,6 @@ const BusinessSchema = new mongoose.Schema({
 });
 
 BusinessSchema.index({ location: "2dsphere" });
+BusinessSchema.index({ placeId: 1 }, { unique: true });
 
 module.exports = mongoose.model('Business', BusinessSchema);

@@ -20,30 +20,25 @@ export default function InviteHero({
       <View style={styles.avatarWrapper}>
         <Image source={avatarSource} style={styles.avatar} />
       </View>
-
       <View style={styles.nameRow}>
         <Text style={styles.nameText} numberOfLines={1}>
           {fullName}
         </Text>
       </View>
-
       <View style={styles.heroSublineRow}>
         <Text style={styles.heroSublineText}>
           {isYou ? 'You are hosting this' : 'Hosting this plan'}
         </Text>
       </View>
-
       <View style={styles.heroPillsRow}>
         <View style={styles.pill}>
           <Text style={styles.pillText}>{isYou ? 'YOU' : 'HOST'}</Text>
         </View>
-
         {viewerStatusText && !isYou ? (
           <View style={[styles.pill, styles.secondaryPill]}>
             <Text style={styles.secondaryPillText}>{viewerStatusText}</Text>
           </View>
         ) : null}
-
         {privacyText ? (
           <View style={[styles.pill, styles.secondaryPill]}>
             <Text style={styles.secondaryPillText}>{privacyText}</Text>

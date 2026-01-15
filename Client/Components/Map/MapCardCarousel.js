@@ -3,7 +3,7 @@ import { View, Text, Image, FlatList, StyleSheet, Dimensions, TouchableOpacity, 
 
 const { width } = Dimensions.get('window');
 
-const MapCardCarousel = ({ activities = [], onCardPress, carouselRef, onEndReached, loadingMore, }) => {
+const MapCardCarousel = ({ activities = [], onCardPress, carouselRef, onEndReached, loadingMore, onViewableItemsChanged, viewabilityConfig }) => {
   const renderItem = ({ item }) => (
     <TouchableOpacity onPress={() => onCardPress?.(item.location, item.place_id)}>
         <View style={styles.card}>
@@ -26,6 +26,8 @@ const MapCardCarousel = ({ activities = [], onCardPress, carouselRef, onEndReach
         data={activities}
         horizontal
         keyExtractor={(item, index) => item.place_id || index.toString()}
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
         renderItem={renderItem}
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 10 }}

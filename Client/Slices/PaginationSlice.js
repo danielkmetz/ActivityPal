@@ -33,7 +33,7 @@ const paginationSlice = createSlice({
   },
 });
 
-export const { incrementPage, setSortOptions, toggleOpenNow, setCategoryFilter, resetPage } = paginationSlice.actions;
+export const { incrementPage, setSortOptions, toggleOpenNow, setCategoryFilter, resetPage, resetPagination } = paginationSlice.actions;
 export const selectPagination = (state) => state.pagination;
 export const selectCategoryFilter = (state) => state.pagination.categoryFilter;
 export const selectIsOpen = (state) => state.pagination.openNow;

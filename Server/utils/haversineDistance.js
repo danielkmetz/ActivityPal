@@ -1,5 +1,3 @@
-// utils/haversineDistance.js
-
 const EARTH_RADIUS_M = 6371000; // Earth's radius in meters
 
 const toRad = (deg) => (deg * Math.PI) / 180;
@@ -34,4 +32,4 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
   return distance;
 }
 
-module.exports = haversineDistance;
+module.exports = { haversineDistance };

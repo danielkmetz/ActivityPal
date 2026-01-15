@@ -1,22 +1,8 @@
 import React, { useState } from 'react';
-import {
-    View,
-    Text,
-    TouchableOpacity,
-    FlatList,
-    StyleSheet,
-    Switch, s
-} from 'react-native';
+import { View, Text, TouchableOpacity, FlatList, StyleSheet, Switch } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import {
-    setCategoryFilter,
-    selectCategoryFilter,
-    toggleOpenNow,
-    selectIsOpen,
-    setSortOptions,
-    selectSortOptions,
-} from '../../Slices/PaginationSlice';
+import { setCategoryFilter, selectCategoryFilter, toggleOpenNow, selectIsOpen, setSortOptions, selectSortOptions } from '../../Slices/PaginationSlice';
 import { useRoute } from '@react-navigation/native';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigation } from '@react-navigation/native';

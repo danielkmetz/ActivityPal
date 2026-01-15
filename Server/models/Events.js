@@ -1,28 +1,27 @@
-const mongoose = require('mongoose');
-const { CommentSchema } = require('./Comment.js');
-const { LikeSchema } = require('./Likes.js');
-const { PhotoSchema } = require('./Photos.js');
+const mongoose = require("mongoose");
+const { CommentSchema } = require("./Comment.js");
+const { LikeSchema } = require("./Likes.js");
+const { PhotoSchema } = require("./Photos.js");
 
 const EventSchema = new mongoose.Schema({
   title: { type: String, required: true },
   description: { type: String, required: true },
   date: { type: Date, default: null },
   allDay: { type: Boolean, default: true },
-  startTime: { type: String, default: null }, // e.g., "17:00"
-  endTime: { type: String, default: null },   // e.g., "19:00"
+  startTime: { type: String, default: null },
+  endTime: { type: String, default: null },
 
   recurring: { type: Boolean, default: false },
-  recurringDays: [{
-    type: String,
-    enum: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-  }],
+  recurringDays: [
+    {
+      type: String,
+      enum: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+    },
+  ],
 
   photos: [PhotoSchema],
 
-  placeId: {
-    type: String,
-    required: true
-  },
+  placeId: { type: String, required: true },
 
   likes: [LikeSchema],
   comments: [CommentSchema],
@@ -31,5 +30,9 @@ const EventSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 });
 
-const Event = mongoose.model('Event', EventSchema);
+EventSchema.index({ placeId: 1 });
+EventSchema.index({ placeId: 1, date: 1 });
+EventSchema.index({ placeId: 1, recurring: 1, recurringDays: 1 });
+
+const Event = mongoose.model("Event", EventSchema);
 module.exports = Event;

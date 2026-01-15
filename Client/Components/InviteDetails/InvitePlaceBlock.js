@@ -1,7 +1,8 @@
-import React from 'react';
-import { View, Text, StyleSheet, Image } from 'react-native';
+import React from "react";
+import { View, Text, StyleSheet, Image } from "react-native";
+import DirectionsBubble from './DirectionsBubble';
 
-const pinPic = 'https://cdn-icons-png.flaticon.com/512/684/684908.png';
+const pinPic = "https://cdn-icons-png.flaticon.com/512/684/684908.png";
 
 export default function InvitePlaceBlock({
   businessName,
@@ -9,11 +10,10 @@ export default function InvitePlaceBlock({
   fullDateLabel,
   address = null,
   clockLabel,
+  placeId = null,
 }) {
-  const iconSource = businessLogoUrl
-    ? { uri: businessLogoUrl }
-    : { uri: pinPic };
-
+  const iconSource = businessLogoUrl ? { uri: businessLogoUrl } : { uri: pinPic };
+  
   return (
     <View style={styles.placeBlock}>
       <View style={styles.placeRow}>
@@ -24,17 +24,17 @@ export default function InvitePlaceBlock({
           <Text style={styles.placeName} numberOfLines={2}>
             {businessName}
           </Text>
-          {address && (
-            <Text style={styles.fullDateText} numberOfLines={2}>
-              {address}
-            </Text>
+           {!!address && (
+            <DirectionsBubble
+              address={address}
+              businessName={businessName}
+              placeId={placeId}
+              bubbleTop={26}
+              bubbleLeft={0}
+            />
           )}
-          {!!fullDateLabel && (
-            <Text style={styles.fullDateText}>{fullDateLabel}</Text>
-          )}
-          {!!clockLabel && !fullDateLabel && (
-            <Text style={styles.fullDateText}>{clockLabel}</Text>
-          )}
+          {!!fullDateLabel && <Text style={styles.metaText}>{fullDateLabel}</Text>}
+          {!!clockLabel && !fullDateLabel && <Text style={styles.metaText}>{clockLabel}</Text>}
         </View>
       </View>
     </View>
@@ -42,34 +42,17 @@ export default function InvitePlaceBlock({
 }
 
 const styles = StyleSheet.create({
-  placeBlock: {
-    marginTop: 8,
-    marginBottom: 24,
-  },
-  placeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+  placeBlock: { marginTop: 8, marginBottom: 24 },
+  placeRow: { flexDirection: "row", alignItems: "center" },
   placeIconWrapper: {
     width: 52,
     height: 52,
     borderRadius: 12,
-    overflow: 'hidden',
+    overflow: "hidden",
     marginRight: 12,
-    backgroundColor: '#f2f2f2',
+    backgroundColor: "#f2f2f2",
   },
-  placeIcon: {
-    width: '100%',
-    height: '100%',
-  },
-  placeName: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  fullDateText: {
-    fontSize: 14,
-    color: '#555',
-    marginTop: 4,
-  },
+  placeIcon: { width: "100%", height: "100%" },
+  placeName: { flex: 1, fontSize: 18, fontWeight: "700" },
+  metaText: { fontSize: 14, color: "#555", marginTop: 4 },
 });

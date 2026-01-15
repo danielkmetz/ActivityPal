@@ -1,37 +1,27 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, { useMemo, useRef } from "react";
 import { View, FlatList, StyleSheet, Text, ActivityIndicator, TouchableWithoutFeedback, Keyboard, Animated } from "react-native";
 import PreferencesModal from "../Preferences/Preferences";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { selectEvents, selectBusinessData, fetchBusinessData, selectIsMapView } from "../../Slices/PlacesSlice";
-import { fetchGooglePlaces, selectGooglePlaces, selectGoogleStatus, fetchDining } from "../../Slices/GooglePlacesSlice";
+import { selectEvents, selectBusinessData, selectIsMapView } from "../../Slices/PlacesSlice";
+import { selectGooglePlaces, selectGoogleStatus, selectGoogleMeta, selectGooglePage, selectGoogleLastQuery, selectGoogleLoadingMore } from "../../Slices/GooglePlacesSlice";
 import Activities from "./Activities";
 import Events from "./Events";
 import { useSelector, useDispatch } from "react-redux";
 import { selectEventType } from "../../Slices/PreferencesSlice";
 import { selectCoordinates, selectManualCoordinates } from "../../Slices/LocationSlice";
 import { milesToMeters } from "../../functions";
-import { selectPagination, incrementPage, selectIsOpen, selectSortOptions, resetPage } from "../../Slices/PaginationSlice";
+import { selectPagination, selectSortOptions } from "../../Slices/PaginationSlice";
+import usePlacePhotoQueue from '../../utils/Photos/usePlacePhotoQueue';
 import { useNavigation } from "@react-navigation/native";
 import ActivityMap from "../Map/Map";
 import SearchBar from "./SearchBar";
 import QuickFilters from "./QuickFilters";
-import sortActivities from "../../utils/sortActivities";
+import useActivitySearchController from './hooks/useActivitySearchController';
+import buildDisplayList from '../../utils/Activities/buildDisplayList';
+import useFetchBusinessForResults from './hooks/useFetchBusinessForResults';
+import useKeyboardOpen from '../../utils/ui/useKeyboardOpen';
+import { filterIcons } from './filterIcons';
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
-
-const filterIcons = {
-  dateNight: (p) => <MaterialCommunityIcons name="heart-outline" {...p} />,
-  drinksAndDining: (p) => <MaterialCommunityIcons name="silverware-fork-knife" {...p} />,
-  outdoor: (p) => <MaterialCommunityIcons name="pine-tree" {...p} />,
-  movieNight: (p) => <MaterialCommunityIcons name="movie-outline" {...p} />,
-  gaming: (p) => <MaterialCommunityIcons name="gamepad-variant-outline" {...p} />,
-  artAndCulture: (p) => <MaterialCommunityIcons name="palette-outline" {...p} />,
-  familyFun: (p) => <MaterialCommunityIcons name="account-group-outline" {...p} />,
-  petFriendly: (p) => <MaterialCommunityIcons name="dog" {...p} />,
-  liveMusic: (p) => <MaterialCommunityIcons name="music-note-outline" {...p} />,
-  whatsClose: (p) => <MaterialCommunityIcons name="map-marker-radius-outline" {...p} />,
-  Dining: (p) => <MaterialCommunityIcons name="silverware" {...p} />,
-};
 
 const ActivityPage = ({ scrollY, onScroll }) => {
   const dispatch = useDispatch();
@@ -44,10 +34,12 @@ const ActivityPage = ({ scrollY, onScroll }) => {
   const isMapView = useSelector(selectIsMapView);
   const autoCoordinates = useSelector(selectCoordinates);
   const manualCoordinates = useSelector(selectManualCoordinates);
-  const isOpenNow = useSelector(selectIsOpen);
   const sortOption = useSelector(selectSortOptions);
-  const { currentPage, perPage, categoryFilter } = useSelector(selectPagination);
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const meta = useSelector(selectGoogleMeta);
+  const serverPage = useSelector(selectGooglePage);
+  const lastQuery = useSelector(selectGoogleLastQuery);
+  const loadingMore = useSelector(selectGoogleLoadingMore);
+  const { perPage, categoryFilter, openNow: isOpenNow } = useSelector(selectPagination);
   const listRef = useRef(null);
   const coordinates = manualCoordinates ? manualCoordinates : autoCoordinates;
   const lat = coordinates?.lat;
@@ -55,158 +47,32 @@ const ActivityPage = ({ scrollY, onScroll }) => {
   const manualDistance = milesToMeters(7);
   const manualDistanceDining = milesToMeters(5);
   const manualBudget = "$$$$";
+  const rawCount = Array.isArray(activities) ? activities.length : 0;
+  const total = typeof meta?.total === "number" ? meta.total : null;
+  const hasMore = total != null ? rawCount < total : false;
 
-  useEffect(() => {
-    const show = Keyboard.addListener("keyboardDidShow", () => setKeyboardOpen(true));
-    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardOpen(false));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
+  const { viewabilityConfig, onViewableItemsChanged, resetPhotoQueue } = usePlacePhotoQueue({ dispatch });
 
-  // Make sure you don’t spam fetchBusinessData with duplicates.
-  const lastBizIdsRef = useRef(new Set());
+  const keyboardOpen = useKeyboardOpen();
 
-  useEffect(() => {
-    if (!Array.isArray(activities) || activities.length === 0) return;
-
-    const ids = activities
-      .map((a) => a?.place_id)
-      .filter(Boolean);
-
-    const unique = Array.from(new Set(ids));
-    const missing = unique.filter((id) => !lastBizIdsRef.current.has(id));
-
-    if (missing.length === 0) return;
-
-    missing.forEach((id) => lastBizIdsRef.current.add(id));
-    dispatch(fetchBusinessData(missing));
-  }, [activities, dispatch]);
-
-  const handleActivityFetch = useCallback(
-    (type, isCustom = false, customParams = {}) => {
-      if (!lat || !lng) return;
-
-      dispatch(resetPage());
-
-      const isQuickFilter = [
-        "dateNight",
-        "drinksAndDining",
-        "outdoor",
-        "movieNight",
-        "gaming",
-        "artAndCulture",
-        "familyFun",
-        "petFriendly",
-        "liveMusic",
-        "whatsClose",
-      ].includes(type);
-
-      if (type !== "Dining") {
-        dispatch(
-          fetchGooglePlaces({
-            lat,
-            lng,
-            radius: isCustom ? customParams.radius : manualDistance,
-            budget: isCustom ? customParams.budget : manualBudget,
-            ...(isQuickFilter ? { quickFilter: type } : { activityType: type }),
-          })
-        );
-      } else {
-        dispatch(
-          fetchDining({
-            lat,
-            lng,
-            activityType: type,
-            radius: isCustom ? customParams.radius : manualDistanceDining,
-            budget: isCustom ? customParams.budget : manualBudget,
-            isCustom,
-          })
-        );
-      }
+  const { handleActivityFetch, handleLoadMore } = useActivitySearchController({
+    dispatch,
+    lat,
+    lng,
+    perPage,
+    manualDistance,
+    manualDistanceDining,
+    manualBudget,
+    status,
+    loadingMore,
+    hasMore,
+    lastQuery,
+    serverPage,
+    onNewSearchReset: () => {
+      resetPhotoQueue();        // from usePlacePhotoQueue
+      // resetFetchedIds();
     },
-    [dispatch, lat, lng, manualDistance, manualDistanceDining, manualBudget]
-  );
-
-  const paginateRegular = (full = [], pageNum, per) => {
-    const endIndex = pageNum * per;
-    return full.slice(0, endIndex);
-  };
-
-  const businessByPlaceId = useMemo(() => {
-    const map = new Map();
-    (Array.isArray(businessData) ? businessData : []).forEach((b) => {
-      if (b?.placeId) map.set(b.placeId, b);
-    });
-    return map;
-  }, [businessData]);
-
-  const mergedSorted = useMemo(() => {
-    const today = new Date();
-    const todayStr = today.toISOString().split("T")[0];
-    const weekday = today.toLocaleDateString("en-US", { weekday: "long" });
-
-    if (!Array.isArray(activities)) return { highlighted: [], regular: [] };
-
-    const merged = activities.map((activity) => {
-      const business = businessByPlaceId.get(activity.place_id);
-
-      if (business) {
-        const validEvents = (business.events || []).filter((event) => {
-          const isOneTimeToday = event.date === todayStr;
-          const isRecurringToday = event.recurringDays?.includes(weekday);
-          return isOneTimeToday || isRecurringToday;
-        });
-
-        const validPromotions = (business.promotions || []).filter((promo) =>
-          promo.recurringDays?.includes(weekday)
-        );
-
-        return {
-          ...activity,
-          events: validEvents,
-          promotions: validPromotions,
-          business: {
-            ...business,
-            logoFallback: activity.photoUrl,
-          },
-        };
-      }
-
-      // fallback: don’t lie with open_now: true
-      return {
-        ...activity,
-        events: [],
-        promotions: [],
-        opening_hours: { open_now: null },
-        business: {
-          placeId: activity.place_id,
-          businessName: activity.name,
-          location: activity.address || activity.formatted_address || "",
-          logoFallback: activity.photoUrl,
-          phone: "",
-          description: "",
-          events: [],
-          promotions: [],
-        },
-      };
-    });
-
-    const highlighted = merged.filter((i) => (i.events?.length || 0) > 0 || (i.promotions?.length || 0) > 0);
-
-    const regular = merged
-      .filter((i) => (i.events?.length || 0) === 0 && (i.promotions?.length || 0) === 0)
-      .sort((a, b) => {
-        const aDist = typeof a.distance === "number" ? a.distance : Infinity;
-        const bDist = typeof b.distance === "number" ? b.distance : Infinity;
-        return aDist - bDist;
-      });
-
-    return { highlighted, regular };
-  }, [activities, businessByPlaceId]);
-
-  const { highlighted, regular } = mergedSorted;
+  });
 
   const handlePress = (data, details) => {
     const formattedBusiness = {
@@ -222,29 +88,20 @@ const ActivityPage = ({ scrollY, onScroll }) => {
     navigation.navigate("BusinessProfile", { business: formattedBusiness });
   };
 
-  const handleLoadMore = () => dispatch(incrementPage());
+  const displayList = useMemo(() => {
+    return buildDisplayList({
+      activities,
+      businessData,
+      categoryFilter,
+      openNowOnly: isOpenNow,
+      sortOption,
+    });
+  }, [activities, businessData, categoryFilter, isOpenNow, sortOption]);
 
-  const filteredDisplayList = useMemo(() => {
-    const safeRegular = Array.isArray(regular) ? regular : [];
-    const safeHighlighted = Array.isArray(highlighted) ? highlighted : [];
-
-    const combinedList = [...safeHighlighted, ...safeRegular].filter((item) => item && typeof item === "object");
-
-    const categoryFiltered =
-      Array.isArray(categoryFilter) && categoryFilter.length > 0
-        ? combinedList.filter((item) =>
-          categoryFilter.some((filter) => item.cuisine?.toLowerCase() === filter.toLowerCase())
-        )
-        : combinedList;
-
-    const openNowFiltered = isOpenNow
-      ? categoryFiltered.filter((item) => item.opening_hours?.open_now === true)
-      : categoryFiltered;
-
-    const sorted = sortOption ? sortActivities(openNowFiltered, sortOption) : openNowFiltered;
-
-    return paginateRegular(sorted, currentPage, perPage);
-  }, [highlighted, regular, currentPage, perPage, categoryFilter, isOpenNow, sortOption]);
+  // const { resetFetchedIds } = useFetchBusinessForResults({
+  //   dispatch,
+  //   results: displayList, // whatever you call the final list
+  // });
 
   return (
     <View style={styles.safeArea}>
@@ -261,12 +118,14 @@ const ActivityPage = ({ scrollY, onScroll }) => {
                   <View style={{ flex: 1 }}>
                     {!isMapView && scrollY instanceof Animated.Value && typeof onScroll === "function" ? (
                       <AnimatedFlatList
-                        data={filteredDisplayList}
+                        data={displayList}
                         keyExtractor={(item) => item.place_id ?? item.id ?? item.reference}
                         renderItem={({ item }) =>
                           eventType !== "Event" ? <Activities activity={item} /> : <Events event={item} />
                         }
                         initialNumToRender={perPage}
+                        onViewableItemsChanged={onViewableItemsChanged}
+                        viewabilityConfig={viewabilityConfig}
                         ref={listRef}
                         windowSize={5}
                         contentContainerStyle={styles.list}
@@ -280,7 +139,7 @@ const ActivityPage = ({ scrollY, onScroll }) => {
                         scrollEventThrottle={16}
                         ListHeaderComponent={<View style={styles.scrollSpacer} />}
                         ListFooterComponent={
-                          !categoryFilter && filteredDisplayList.length < highlighted.length + regular.length ? (
+                          loadingMore ? (
                             <ActivityIndicator size="small" color="#2196F3" style={{ marginVertical: 10 }} />
                           ) : null
                         }
@@ -288,9 +147,11 @@ const ActivityPage = ({ scrollY, onScroll }) => {
                       />
                     ) : (
                       <ActivityMap
-                        activities={filteredDisplayList}
+                        activities={displayList}
                         onEndReached={handleLoadMore}
-                        loadingMore={filteredDisplayList.length < highlighted.length + regular.length}
+                        loadingMore={loadingMore}
+                        onViewableItemsChanged={onViewableItemsChanged}
+                        viewabilityConfig={viewabilityConfig}
                       />
                     )}
                   </View>

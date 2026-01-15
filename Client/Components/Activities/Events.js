@@ -20,16 +20,12 @@ const Events = ({ event }) => {
             {images && images.length > 0 && (
                 <Image source={{ uri: images[0].url }} style={styles.photo} />
             )}
-
             {/* Event Name */}
             {name && <Text style={styles.name}>{name}</Text>}
-
             {/* Venue */}
             {venue && <Text style={styles.vicinity}>Venue: {venue}</Text>}
-
             {/* Distance */}
             {distance && <Text style={styles.vicinity}>{distance.toFixed(1)} miles away</Text>}
-
             {/* Event Link */}
             {url && (
                 <TouchableOpacity onPress={() => Linking.openURL(url)}>
@@ -60,16 +56,8 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         marginBottom: 8,
     },
-    name: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        marginBottom: 4,
-    },
-    vicinity: {
-        fontSize: 14,
-        color: '#666',
-        marginBottom: 4,
-    },
+    name: { fontSize: 16, fontWeight: 'bold', marginBottom: 4 },
+    vicinity: { fontSize: 14, color: '#666', marginBottom: 4 },
     link: {
         fontSize: 14,
         color: '#2196F3',

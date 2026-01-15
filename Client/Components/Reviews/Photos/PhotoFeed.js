@@ -27,6 +27,7 @@ export default function PhotoFeed({
   isInView = true,
   onIndexChange,
   onActiveMediaChange,
+  isSuggestion = false,
 }) {
   const dispatch = useDispatch();
   const navigation = useNavigation();
@@ -121,7 +122,7 @@ export default function PhotoFeed({
           );
         }}
       />
-      {media.length > 1 && <PhotoPaginationDots photos={media} scrollX={sx} />}
+      {media.length > 1 && !isSuggestion && <PhotoPaginationDots photos={media} scrollX={sx} />}
     </View>
   );
 }

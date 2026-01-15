@@ -58,9 +58,15 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.set("trust proxy", 1);
 
 // MongoDB connection
-const dbURI = '***REMOVED***';
+const mongoUser = encodeURIComponent(process.env.MONGO_USER || "");
+const mongoPass = encodeURIComponent(process.env.MONGO_PASS || "");
+const host = process.env.MONGO_HOST || "";
+const db = process.env.MONGO_DB || "";
+const opts = process.env.MONGO_OPTIONS || "retryWrites=true&w=majority";
+
+const dbURI = `mongodb+srv://${mongoUser}:${mongoPass}@${host}/${db}?${opts}`;
 mongoose
-  .connect(dbURI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .connect(dbURI, { useNewUrlParser: true, useUnifiedTopology: true, autoIndex: false })
   .then(() => console.log('MongoDB connected successfully'))
   .catch((err) => console.error('MongoDB connection error:', err));
 

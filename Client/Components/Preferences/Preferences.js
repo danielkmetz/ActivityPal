@@ -1,28 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import {
-    View,
-    Text,
-    Modal,
-    StyleSheet,
-    TouchableOpacity,
-    Switch,
-    ActivityIndicator,
-    TouchableWithoutFeedback,
-} from 'react-native';
+import { View, Text, Modal, StyleSheet, TouchableOpacity, Switch, ActivityIndicator, TouchableWithoutFeedback } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { selectCoordinates, selectLocation } from '../../Slices/LocationSlice';
 import { useSelector, useDispatch } from 'react-redux';
 import { milesToMeters } from '../../functions';
-import {
-    setDistance,
-    setBudget,
-    setIsFamilyFriendly,
-    selectDistance,
-    selectBudget,
-    selectFamilyFriendly,
-    selectEventType,
-    setEventType,
-} from '../../Slices/PreferencesSlice';
+import { setDistance, setBudget, setIsFamilyFriendly, selectDistance, selectBudget, selectFamilyFriendly, selectEventType, setEventType } from '../../Slices/PreferencesSlice';
 import { GestureDetector } from 'react-native-gesture-handler';
 import Slider from '@react-native-community/slider';
 import WheelPicker from '../CustomePicker/CustomPicker';
@@ -76,7 +58,6 @@ const PreferencesModal = ({ onSubmitCustomSearch }) => {
     return (
         <Modal
             visible={visible}
-            animationType="slide"
             transparent
         >
             <TouchableWithoutFeedback onPress={animateOut}>

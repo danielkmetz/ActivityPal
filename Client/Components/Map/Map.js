@@ -7,10 +7,9 @@ import MapCardCarousel from './MapCardCarousel';
 
 const { width, height } = Dimensions.get('window');
 
-export default function ActivityMap({ activities = [], onEndReached, loadingMore }) {
+export default function ActivityMap({ activities = [], onEndReached, loadingMore, onViewableItemsChanged, viewabilityConfig }) {
     const coordinates = useSelector(selectCoordinates);
     const [activePlaceId, setActivePlaceId] = useState(null);
-    const [zoomLevel, setZoomLevel] = useState(0.01);
     const [zoomRegion, setZoomRegion] = useState({
         latitudeDelta: 0.01,
         longitudeDelta: 0.01,
@@ -160,7 +159,6 @@ export default function ActivityMap({ activities = [], onEndReached, loadingMore
                                     </View>
                                     <View style={styles.pointer} />
                                 </View>
-
                                 <View style={styles.markerPin}>
                                     <View style={[
                                         styles.pinHead,
@@ -184,6 +182,8 @@ export default function ActivityMap({ activities = [], onEndReached, loadingMore
                 carouselRef={carouselRef}
                 onEndReached={onEndReached}
                 loadingMore={loadingMore}
+                onViewableItemsChanged={onViewableItemsChanged}
+                viewabilityConfig={viewabilityConfig}
             />
         </View>
     );

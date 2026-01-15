@@ -22,7 +22,6 @@ export default function InviteDetailsScreen() {
   const inviteFromFeed = useSelector((state) => postId ? selectPostById(state, postId) : null);
   const selectedInvite = useSelector(selectSelectedPost);
   const invite = inviteFromFeed || selectedInvite;
-
   const { acceptForMe, declineForMe, requestToJoin } = useInviteActions(invite);
 
   const {
@@ -55,10 +54,9 @@ export default function InviteDetailsScreen() {
   const avatarUri = owner?.profilePicUrl || owner?.avatarUrl || null;
 
   const details = postContent?.details || {};
-  const address = postContent?.venue?.address;
+  const address = postContent?.venue?.address || postContent?.venue?.geo?.formattedAddress;
+  const placeId = postContent?.placeId;
   const requestsArr = Array.isArray(details.requests) ? details.requests : [];
-
-  console.log(postContent)
 
   const hasRequestedFromServer =
     currentUserId &&
@@ -105,6 +103,7 @@ export default function InviteDetailsScreen() {
         fullDateLabel={fullDateLabel}
         clockLabel={clockLabel}
         address={address}
+        placeId={placeId}
       />
       {/* Attendance / who’s invited */}
       <InviteAttendanceSection
@@ -112,6 +111,8 @@ export default function InviteDetailsScreen() {
         currentUserId={currentUserId}
         onAcceptSelf={acceptForMe}
         onDeclineSelf={declineForMe}
+        isSender={isYou}
+        invite={invite}
       />
       {/* RSVP controls for current user (only for invited / pending) */}
       <InviteRSVPControls

@@ -4,11 +4,11 @@ const Business = require('../models/Business');
 const Event = require('../models/Events');
 const Promotion = require('../models/Promotions');
 const verifyToken = require('../middleware/verifyToken');
-const { 
-    isPromoLaterToday,
-    isPromoActive,
-    isEventLaterToday,
-    isEventActive
+const {
+  isPromoLaterToday,
+  isPromoActive,
+  isEventLaterToday,
+  isEventActive
 } = require('../utils/enrichBusinesses');
 
 router.post('/check-businesses', verifyToken, async (req, res) => {
@@ -36,13 +36,16 @@ router.post('/check-businesses', verifyToken, async (req, res) => {
 
     // Step 3: Create map to group events/promos under business
     const businessMap = {};
-    businesses.forEach(biz => {
-      businessMap[biz.placeId] = {
-        ...biz,
-        events: [],
-        promotions: [],
-      };
-    });
+    for (const pid of placeIds) {
+      const key = String(pid);
+      businessMap[key] = { placeId: key, businessName: null, events: [], promotions: [] };
+    }
+
+    // ✅ Overlay real business docs (if any) onto the placeholders
+    for (const biz of businesses) {
+      const key = String(biz.placeId);
+      businessMap[key] = { ...businessMap[key], ...biz };
+    }
 
     // Step 4: Assign kind and attach to businesses
     events.forEach(event => {
@@ -53,9 +56,8 @@ router.post('/check-businesses', verifyToken, async (req, res) => {
         kind = 'upcomingEvent';
       }
       const enrichedEvent = { ...event, kind };
-      if (businessMap[event.placeId]) {
-        businessMap[event.placeId].events.push(enrichedEvent);
-      }
+      const eKey = String(event.placeId);
+      if (businessMap[eKey]) businessMap[eKey].events.push(enrichedEvent);
     });
 
     promotions.forEach(promo => {
@@ -66,9 +68,8 @@ router.post('/check-businesses', verifyToken, async (req, res) => {
         kind = 'upcomingPromo';
       }
       const enrichedPromo = { ...promo, kind };
-      if (businessMap[promo.placeId]) {
-        businessMap[promo.placeId].promotions.push(enrichedPromo);
-      }
+      const pKey = String(promo.placeId);
+      if (businessMap[pKey]) businessMap[pKey].promotions.push(enrichedPromo);
     });
 
     const enrichedBusinesses = Object.values(businessMap);

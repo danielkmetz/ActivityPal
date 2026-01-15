@@ -6,6 +6,9 @@ import { selectUserAndFriendsPosts } from "../../../Slices/PostsSelectors/postsS
 import { selectUser } from "../../../Slices/UserSlice";
 import { resolvePostContent } from "../../../utils/posts/resolvePostContent";
 import DetailsWrapper from "./DetailsWrapper";
+import PhotoPaginationDots from "../Photos/PhotoPaginationDots";
+import { resolveMediaList } from "../../../utils/Media/resolveMedia";
+import { selectBanner } from "../../../Slices/PhotosSlice";
 
 const isSameLocalDay = (a, b) => {
   const da = new Date(a);
@@ -37,15 +40,23 @@ const pickFallbackUrl = (s) =>
 
 export default function SuggestionMedia({ suggestion, scrollX }) {
   const suggestionContent = resolvePostContent(suggestion);
-
   const allPosts = useSelector(selectUserAndFriendsPosts);
   const me = useSelector(selectUser);
+  const banner = useSelector(selectBanner);
   const myUserId = me?._id || me?.id;
-
   const { startTime, endTime, kind } = suggestionContent || {};
-
   const internalScrollX = useRef(new Animated.Value(0)).current;
   const sx = scrollX || internalScrollX;
+
+  const media = useMemo(() => {
+    return resolveMediaList(suggestion, banner?.presignedUrl);
+  }, [
+    suggestion?._id,
+    suggestion?.updatedAt,
+    suggestion?.original?._id,
+    suggestion?.original?.updatedAt,
+    banner?.presignedUrl,
+  ]);
 
   const fallbackUrl = useMemo(
     () => pickFallbackUrl(suggestionContent),
@@ -115,8 +126,9 @@ export default function SuggestionMedia({ suggestion, scrollX }) {
   return (
     <View style={styles.container}>
       <DetailsWrapper suggestion={suggestion} existingInvite={existingInvite}>
-        <PhotoFeed post={suggestion} scrollX={sx} fallbackUrl={fallbackUrl} />
+        <PhotoFeed post={suggestion} scrollX={sx} fallbackUrl={fallbackUrl} isSuggestion={true} />
       </DetailsWrapper>
+      <PhotoPaginationDots photos={media} scrollX={sx} />
     </View>
   );
 }

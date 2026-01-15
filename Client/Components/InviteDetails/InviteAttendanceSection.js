@@ -1,17 +1,20 @@
-import React from 'react';
-import { View, Text, StyleSheet, Image } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, Image, TouchableWithoutFeedback } from 'react-native';
 import PersonRow from '../ActivityInvites/InviteeModal/PersonRow'; // adjust path
+import InviteeModal from '../ActivityInvites/InviteeModal/InviteeModal';
 
-const ensureStatus = (rec, fallback) =>
-  rec && rec.status ? rec : { ...rec, status: fallback };
+const ensureStatus = (rec, fallback) => rec && rec.status ? rec : { ...rec, status: fallback };
 
 export default function InviteAttendanceSection({
   attendance,
   currentUserId,
   onAcceptSelf,
   onDeclineSelf,
+  isSender= false,
+  invite,
 }) {
   if (!attendance) return null;
+  const [ inviteeModalVisible, setInviteeModalVisible ] = useState(false);
 
   const {
     goingCount,
@@ -35,11 +38,16 @@ export default function InviteAttendanceSection({
       : total > 0
       ? `${total} invited`
       : 'No attendees yet';
+  
+  const openInviteeModal = () => {
+    setInviteeModalVisible(true);
+  }
 
   return (
     <View style={styles.attendanceBlock}>
       <Text style={styles.sectionTitle}>Who’s invited</Text>
       {/* preview row stays simple */}
+      <TouchableWithoutFeedback onPress={openInviteeModal}>
       <View style={styles.attendanceRow}>
         {preview.map((p) => {
           const initial = p?.name ? p.name[0] : '?';
@@ -57,16 +65,14 @@ export default function InviteAttendanceSection({
             </View>
           );
         })}
-
         {total > preview.length ? (
           <Text style={styles.moreInvitedText}>
             +{total - preview.length} more
           </Text>
         ) : null}
       </View>
-
+      </TouchableWithoutFeedback>
       <Text style={styles.attendanceSummaryText}>{attendanceSummary}</Text>
-
       {/* Going list */}
       {goingPeople.length > 0 && (
         <View style={styles.subSection}>
@@ -82,7 +88,6 @@ export default function InviteAttendanceSection({
           ))}
         </View>
       )}
-
       {/* Declined list */}
       {declinedPeople.length > 0 && (
         <View style={styles.subSection}>
@@ -98,6 +103,12 @@ export default function InviteAttendanceSection({
           ))}
         </View>
       )}
+      <InviteeModal 
+        visible={inviteeModalVisible}
+        onClose={() => setInviteeModalVisible(false)}
+        isSender={isSender}
+        invite={invite}
+      />
     </View>
   );
 }

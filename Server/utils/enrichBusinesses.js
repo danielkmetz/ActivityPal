@@ -1,8 +1,6 @@
-const haversineDistance = require('./haversineDistance');
+const { haversineDistance } = require('./haversineDistance');
 const { getPresignedUrl } = require('../utils/cachePresignedUrl');
 const { DateTime } = require("luxon");
-const Event = require('../models/Events');
-const Promotion = require('../models/Promotions');
 const { enrichComments } = require('./userPosts');
 
 /**
@@ -188,40 +186,48 @@ function leanObject(obj) {
   return obj?.toObject?.() ?? obj;
 }
 
-async function enrichBusinessWithPromosAndEvents(biz, userLat, userLng, now = new Date()) {
-  if (!biz?.placeId || !biz?.location) {
-    return null;
-  }
+async function enrichBusinessWithPromosAndEvents(
+  biz,
+  userLat,
+  userLng,
+  promosForBiz,
+  eventsForBiz,
+  now = new Date(),
+  { logoCache, bannerCache } = {}
+) {
+  if (!biz?.placeId || !biz?.location) return null;
 
   const [bizLng, bizLat] = biz.location.coordinates || [];
-  if (isNaN(bizLat) || isNaN(bizLng)) {
-    return null;
-  }
+  if (isNaN(bizLat) || isNaN(bizLng)) return null;
 
   const distance = haversineDistance(userLat, userLng, bizLat, bizLng);
   const nowLocal = DateTime.fromJSDate(now).toLocal();
   const nowMinutes = nowLocal.hour * 60 + nowLocal.minute;
 
-  const [promotionsRaw, eventsRaw] = await Promise.all([
-    Promotion.find({ placeId: biz.placeId }).lean(),
-    Event.find({ placeId: biz.placeId }).lean(),
-  ]);
-
-  const promotions = Array.isArray(promotionsRaw) ? promotionsRaw : [];
-  const events = Array.isArray(eventsRaw) ? eventsRaw : [];
+  const promotions = Array.isArray(promosForBiz) ? promosForBiz : [];
+  const events = Array.isArray(eventsForBiz) ? eventsForBiz : [];
 
   const activePromos = promotions.filter((p) => isPromoActive(p, nowMinutes, now));
   const upcomingPromos = promotions.filter((p) => isPromoLaterToday(p, nowMinutes, now));
   const activeEvents = events.filter((e) => isEventActive(e, nowMinutes, now));
   const upcomingEvents = events.filter((e) => isEventLaterToday(e, nowMinutes, now));
 
-  if (!activePromos && !upcomingPromos && !activeEvents && !upcomingEvents) {
+  // ✅ real early exit
+  if (
+    activePromos.length === 0 &&
+    upcomingPromos.length === 0 &&
+    activeEvents.length === 0 &&
+    upcomingEvents.length === 0
+  ) {
     return null;
   }
 
-  const { businessName, placeId, location } = biz;
-  const logoUrl = await getCachedUrl(logoUrlCache, biz.logoKey);
-  const bannerUrl = await getCachedUrl(bannerUrlCache, biz.bannerKey);
+  // Prefer per-request caches so you don't leak memory across days of traffic
+  const lCache = logoCache || new Map();
+  const bCache = bannerCache || new Map();
+
+  const logoUrl = await getCachedUrl(lCache, biz.logoKey);
+  const bannerUrl = await getCachedUrl(bCache, biz.bannerKey);
 
   const cleanAndEnrichMany = async (entries = []) =>
     Promise.all(
@@ -233,10 +239,10 @@ async function enrichBusinessWithPromosAndEvents(biz, userLat, userLng, now = ne
       }))
     );
 
-  const result = {
-    businessName,
-    placeId,
-    location,
+  return {
+    businessName: biz.businessName,
+    placeId: biz.placeId,
+    location: biz.location,
     logoUrl,
     bannerUrl,
     distance,
@@ -245,8 +251,6 @@ async function enrichBusinessWithPromosAndEvents(biz, userLat, userLng, now = ne
     activeEvents: await cleanAndEnrichMany(activeEvents),
     upcomingEvents: await cleanAndEnrichMany(upcomingEvents),
   };
-
-  return result;
 }
 
 module.exports = {
