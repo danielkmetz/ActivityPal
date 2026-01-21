@@ -72,34 +72,7 @@ const activityTypeKeywords = {
 };
 
 router.post("/places", async (req, res) => {
-  const reqId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   const t0 = Date.now();
-
-  const log = (...args) => console.log(`[places][${reqId}]`, ...args);
-  const warn = (...args) => console.warn(`[places][${reqId}]`, ...args);
-  const errlog = (...args) => console.error(`[places][${reqId}]`, ...args);
-
-  // 🔥 TARGET PLACE to trace end-to-end
-  const TRACE_PLACE_ID = "ChIJC-gx3K4CD4gRdihO2jMKjRM";
-  const trace = {
-    placeId: TRACE_PLACE_ID,
-    stage: {
-      seenInGoogle: false,
-      seenInGoogleCombos: [],
-      filteredOut: false,
-      filteredReason: null,
-      builtOut: false,
-      builtReason: null,
-      madeCurated: false,
-      inPageSlice: false,
-      pageIndex: null,
-      distanceMiles: null,
-      openNow: null,
-      price_level: null,
-      types: null,
-      name: null,
-    },
-  };
 
   const { lat, lng, activityType, radius, budget, isCustom } = req.body;
 
@@ -110,24 +83,10 @@ router.post("/places", async (req, res) => {
   const lngNum = Number(lng);
   const radiusMeters = Number(radius);
 
-  log("request", {
-    activityType,
-    isCustom: !!isCustom,
-    budget,
-    page: pageNum,
-    perPage: perPageNum,
-    radiusMeters,
-    lat: Number.isFinite(latNum) ? +latNum.toFixed(5) : lat,
-    lng: Number.isFinite(lngNum) ? +lngNum.toFixed(5) : lng,
-    tracePlaceId: TRACE_PLACE_ID,
-  });
-
   if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) {
-    warn("invalid coords", { lat, lng });
     return res.status(400).json({ error: "Invalid lat/lng" });
   }
   if (!Number.isFinite(radiusMeters) || radiusMeters <= 0 || radiusMeters > 50000) {
-    warn("invalid radius", { radius });
     return res
       .status(400)
       .json({ error: "Invalid radius (meters). Must be 0 < radius <= 50000" });
@@ -140,34 +99,17 @@ router.post("/places", async (req, res) => {
         keyword: k,
       }));
 
-  log("searchCombos", {
-    count: Array.isArray(searchCombos) ? searchCombos.length : 0,
-    sample: (searchCombos || []).slice(0, 10),
-  });
-
   if (!Array.isArray(searchCombos) || searchCombos.length === 0) {
-    warn("NO searchCombos (activityType/quickFilters mismatch)", { activityType, isCustom });
-    log("TRACE final", trace);
-    return res.json({ curatedPlaces: [], meta: { page: pageNum, perPage: perPageNum, total: 0 } });
+    return res.json({
+      curatedPlaces: [],
+      meta: { page: pageNum, perPage: perPageNum, total: 0 },
+    });
   }
 
   const allResults = new Map();
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  const fetchStats = {
-    calls: 0,
-    pages: 0,
-    ok: 0,
-    zeroResults: 0,
-    otherStatus: 0,
-    added: 0,
-    dupes: 0,
-    errors: 0,
-  };
-
   const fetchPlaces = async (type, keyword) => {
-    fetchStats.calls += 1;
-
     const keywordParam = keyword ? `&keyword=${encodeURIComponent(keyword)}` : "";
     const urlBase =
       `https://maps.googleapis.com/maps/api/place/nearbysearch/json` +
@@ -182,87 +124,29 @@ router.post("/places", async (req, res) => {
 
     do {
       const fullUrl = `${urlBase}${pageToken ? `&pagetoken=${pageToken}` : ""}`;
-      const tPage = Date.now();
 
       try {
         const response = await axios.get(fullUrl);
         const data = response?.data || {};
         const status = data?.status;
-        const errorMessage = data?.error_message;
 
-        fetchStats.pages += 1;
-        pages += 1;
-
-        if (status === "OK") fetchStats.ok += 1;
-        else if (status === "ZERO_RESULTS") fetchStats.zeroResults += 1;
-        else fetchStats.otherStatus += 1;
-
-        if (status !== "OK") {
-          warn("google status not OK", {
-            type,
-            keyword: keyword || null,
-            status,
-            errorMessage: errorMessage || null,
-            elapsedMs: Date.now() - tPage,
-          });
-          break;
-        }
+        if (status !== "OK") break;
 
         const results = Array.isArray(data?.results) ? data.results : [];
         const next = data?.next_page_token || null;
 
-        // 🔎 TRACE: did this page contain the target placeId?
-        const traceHit = results.find((p) => p?.place_id === TRACE_PLACE_ID);
-        if (traceHit) {
-          trace.stage.seenInGoogle = true;
-          trace.stage.seenInGoogleCombos.push({ type, keyword: keyword || null, page: pages });
-          trace.stage.name = traceHit?.name || null;
-          trace.stage.types = traceHit?.types || null;
-          trace.stage.price_level = traceHit?.price_level ?? null;
-          trace.stage.openNow =
-            typeof traceHit?.opening_hours?.open_now === "boolean"
-              ? traceHit.opening_hours.open_now
-              : null;
-
-          log("TRACE google hit", {
-            combo: { type, keyword: keyword || null, page: pages },
-            name: trace.stage.name,
-            types: trace.stage.types,
-            price_level: trace.stage.price_level,
-            open_now: trace.stage.openNow,
-            hasGeom: !!traceHit?.geometry?.location,
-          });
-        }
-
-        let addedThisPage = 0;
-        let dupedThisPage = 0;
-
         for (const place of results) {
           const id = place?.place_id;
           if (!id) continue;
-          if (allResults.has(id)) {
-            dupedThisPage += 1;
-            continue;
-          }
+          if (allResults.has(id)) continue;
           allResults.set(id, place);
-          addedThisPage += 1;
         }
 
-        fetchStats.added += addedThisPage;
-        fetchStats.dupes += dupedThisPage;
-
         pageToken = next;
+        pages += 1;
+
         if (pageToken) await delay(2000);
-      } catch (error) {
-        fetchStats.errors += 1;
-        errlog("fetch error", {
-          type,
-          keyword: keyword || null,
-          message: error?.message,
-          status: error?.response?.status,
-          googleDataStatus: error?.response?.data?.status,
-          googleErrorMessage: error?.response?.data?.error_message,
-        });
+      } catch {
         break;
       }
     } while (pageToken && pages < 3);
@@ -271,76 +155,37 @@ router.post("/places", async (req, res) => {
   try {
     await Promise.all(searchCombos.map(({ type, keyword }) => fetchPlaces(type, keyword)));
 
-    log("fetch summary", {
-      unique: allResults.size,
-      fetchStats,
-      elapsedMs: Date.now() - t0,
-      traceSeenInGoogle: trace.stage.seenInGoogle,
-      traceCombos: trace.stage.seenInGoogleCombos,
-    });
-
     if (allResults.size === 0) {
-      warn("ZERO unique results from Google before filtering");
-      log("TRACE final", trace);
-      return res.json({ curatedPlaces: [], meta: { page: pageNum, perPage: perPageNum, total: 0 } });
+      return res.json({
+        curatedPlaces: [],
+        meta: { page: pageNum, perPage: perPageNum, total: 0 },
+      });
     }
 
     const gasStationNamePattern =
       /speedy|speedway|bp|shell|mobil|exxon|citgo|chevron|circle\s?k|thorntons|amoco|7-eleven|7 eleven|casey's|caseys|kum\s?&\s?go|love's|loves|pilot|sunoco|marathon|quiktrip|qt|valero|conoco/i;
 
-    const filterCounts = {
-      start: allResults.size,
-      excludedByType: 0,
-      excludedByGasName: 0,
-      excludedByCountryClub: 0,
-      excludedFastFood: 0,
-      excludedBudget: 0,
-      kept: 0,
-    };
-
     const filtered = Array.from(allResults.values()).filter((place) => {
-      const id = place?.place_id;
       const name = place?.name || "";
 
       const hasExcludedType = place.types?.some((t) =>
-        ["school", "doctor", "hospital", "lodging", "airport", "store", "storage", "golf_course", "casino", "gas_station"].includes(t)
+        [
+          "school",
+          "doctor",
+          "hospital",
+          "lodging",
+          "airport",
+          "store",
+          "storage",
+          "golf_course",
+          "casino",
+          "gas_station",
+        ].includes(t)
       );
-      if (hasExcludedType) {
-        filterCounts.excludedByType += 1;
-        if (id === TRACE_PLACE_ID) {
-          trace.stage.filteredOut = true;
-          trace.stage.filteredReason = { reason: "excludedByType", types: place?.types || [] };
-          log("TRACE filtered OUT", trace.stage.filteredReason);
-        }
-        return false;
-      }
-      if (gasStationNamePattern.test(name)) {
-        filterCounts.excludedByGasName += 1;
-        if (id === TRACE_PLACE_ID) {
-          trace.stage.filteredOut = true;
-          trace.stage.filteredReason = { reason: "excludedByGasName", name };
-          log("TRACE filtered OUT", trace.stage.filteredReason);
-        }
-        return false;
-      }
-      if (/Country Club|Golf Course|Golf Club|Links/i.test(name)) {
-        filterCounts.excludedByCountryClub += 1;
-        if (id === TRACE_PLACE_ID) {
-          trace.stage.filteredOut = true;
-          trace.stage.filteredReason = { reason: "excludedByCountryClub", name };
-          log("TRACE filtered OUT", trace.stage.filteredReason);
-        }
-        return false;
-      }
-      if (isFastFood(name)) {
-        filterCounts.excludedFastFood += 1;
-        if (id === TRACE_PLACE_ID) {
-          trace.stage.filteredOut = true;
-          trace.stage.filteredReason = { reason: "excludedFastFood", name };
-          log("TRACE filtered OUT", trace.stage.filteredReason);
-        }
-        return false;
-      }
+      if (hasExcludedType) return false;
+      if (gasStationNamePattern.test(name)) return false;
+      if (/Country Club|Golf Course|Golf Club|Links/i.test(name)) return false;
+      if (isFastFood(name)) return false;
 
       const budgetFiltered =
         (budget === "$" && !(place.price_level === 0 || place.price_level === 1)) ||
@@ -348,48 +193,10 @@ router.post("/places", async (req, res) => {
         (budget === "$$$" && !(place.price_level <= 3)) ||
         (budget === "$$$$" && place.price_level > 4);
 
-      if (budgetFiltered) {
-        filterCounts.excludedBudget += 1;
-        if (id === TRACE_PLACE_ID) {
-          trace.stage.filteredOut = true;
-          trace.stage.filteredReason = { reason: "excludedBudget", price_level: place?.price_level ?? null, budget };
-          log("TRACE filtered OUT", trace.stage.filteredReason);
-        }
-        return false;
-      }
-
-      filterCounts.kept += 1;
-
-      if (id === TRACE_PLACE_ID) {
-        log("TRACE passed filter", {
-          name,
-          types: place?.types || [],
-          price_level: place?.price_level ?? null,
-        });
-      }
+      if (budgetFiltered) return false;
 
       return true;
     });
-
-    log("filter summary", filterCounts);
-
-    // If TRACE place was seen in Google but not in filtered, explain explicitly
-    if (trace.stage.seenInGoogle && !filtered.some((p) => p?.place_id === TRACE_PLACE_ID)) {
-      log("TRACE result", {
-        seenInGoogle: true,
-        madeFiltered: false,
-        filteredReason: trace.stage.filteredReason,
-      });
-    }
-
-    const buildCounts = {
-      filteredCount: filtered.length,
-      missingGeom: 0,
-      outsideRadius: 0,
-      built: 0,
-      openNowKnown: 0,
-      photoKnown: 0,
-    };
 
     const curatedPlaces = [];
     for (const place of filtered) {
@@ -397,27 +204,10 @@ router.post("/places", async (req, res) => {
       const pLat = Number(place?.geometry?.location?.lat);
       const pLng = Number(place?.geometry?.location?.lng);
 
-      if (!Number.isFinite(pLat) || !Number.isFinite(pLng)) {
-        buildCounts.missingGeom += 1;
-        if (id === TRACE_PLACE_ID) {
-          trace.stage.builtOut = true;
-          trace.stage.builtReason = { reason: "missingGeom", hasGeom: !!place?.geometry?.location };
-          log("TRACE build OUT", trace.stage.builtReason);
-        }
-        continue;
-      }
+      if (!Number.isFinite(pLat) || !Number.isFinite(pLng)) continue;
 
       const distanceMeters = haversineDistance(latNum, lngNum, pLat, pLng);
-
-      if (distanceMeters > radiusMeters) {
-        buildCounts.outsideRadius += 1;
-        if (id === TRACE_PLACE_ID) {
-          trace.stage.builtOut = true;
-          trace.stage.builtReason = { reason: "outsideRadius", distanceMeters, radiusMeters };
-          log("TRACE build OUT", trace.stage.builtReason);
-        }
-        continue;
-      }
+      if (distanceMeters > radiusMeters) continue;
 
       const distanceMiles = distanceMeters / 1609.34;
 
@@ -428,10 +218,7 @@ router.post("/places", async (req, res) => {
 
       const photoName = place?.photos?.[0]?.photo_reference || null;
 
-      if (openNow !== null) buildCounts.openNowKnown += 1;
-      if (photoName) buildCounts.photoKnown += 1;
-
-      const built = {
+      curatedPlaces.push({
         name: place?.name || null,
         types: place?.types || [],
         address: place?.vicinity || null,
@@ -442,90 +229,21 @@ router.post("/places", async (req, res) => {
         distance: +distanceMiles.toFixed(2),
         location: { lat: pLat, lng: pLng },
         cuisine: "unknown",
-      };
-
-      curatedPlaces.push(built);
-      buildCounts.built += 1;
-
-      if (id === TRACE_PLACE_ID) {
-        trace.stage.madeCurated = true;
-        trace.stage.distanceMiles = built.distance;
-        trace.stage.openNow = built.openNow;
-        trace.stage.types = built.types;
-        trace.stage.name = built.name;
-        log("TRACE built curated", {
-          name: built.name,
-          distanceMiles: built.distance,
-          openNow: built.openNow,
-          types: (built.types || []).slice(0, 10),
-        });
-      }
+      });
     }
 
-    log("build summary", buildCounts);
-
-    // keep distance sort as a stable baseline (tie-breaker later)
     curatedPlaces.sort((a, b) => a.distance - b.distance);
 
-    // ============================
-    // ✅ HYDRATE + PRIORITIZE (via helper)
-    // ============================
+    // ✅ HYDRATE + PRIORITIZE
     const now = new Date();
-
-    const { hydrated } = await hydratePlacesWithPromosEvents({
-      places: curatedPlaces,
-      now,
-    });
-
+    const { hydrated } = await hydratePlacesWithPromosEvents({ places: curatedPlaces, now });
     const curatedWithPromosEvents = sortPlacesByPromoThenDistance(hydrated);
-
-    log("promo sort summary", {
-      total: curatedWithPromosEvents.length,
-      withRank2: curatedWithPromosEvents.filter((p) => p.promoRank === 2).length,
-      withRank1: curatedWithPromosEvents.filter((p) => p.promoRank === 1).length,
-      top5: curatedWithPromosEvents.slice(0, 5).map((p) => ({
-        name: p.name,
-        promoRank: p.promoRank,
-        distance: p.distance,
-        events: (p.events || []).map((x) => x.kind),
-        promos: (p.promotions || []).map((x) => x.kind),
-      })),
-    });
 
     // pagination AFTER promo sort
     const start = (pageNum - 1) * perPageNum;
     const pageSlice = curatedWithPromosEvents.slice(start, start + perPageNum);
 
-    const traceIndexInCurated = curatedWithPromosEvents.findIndex(
-      (p) => p?.place_id === TRACE_PLACE_ID
-    );
-    const traceIndexInPage = pageSlice.findIndex((p) => p?.place_id === TRACE_PLACE_ID);
-
-    if (traceIndexInCurated >= 0) {
-      trace.stage.inPageSlice = traceIndexInPage >= 0;
-      trace.stage.pageIndex = traceIndexInCurated;
-      log("TRACE pagination presence", {
-        inCurated: true,
-        curatedIndex: traceIndexInCurated,
-        inPageSlice: traceIndexInPage >= 0,
-        page: pageNum,
-        perPage: perPageNum,
-        pageRange: { start, endExclusive: start + perPageNum },
-        traceDistance: curatedWithPromosEvents[traceIndexInCurated]?.distance,
-      });
-    } else {
-      log("TRACE pagination presence", { inCurated: false });
-    }
-
-    log("pagination", {
-      totalCurated: curatedWithPromosEvents.length,
-      page: pageNum,
-      perPage: perPageNum,
-      startIndex: start,
-      pageCount: pageSlice.length,
-    });
-
-    // keep your cuisine enrichment step intact
+    // cuisine enrichment
     const enriched = await Promise.all(
       pageSlice.map(async (p) => {
         try {
@@ -542,34 +260,18 @@ router.post("/places", async (req, res) => {
           let cuisine = keywordCuisine || languageCuisine || reviewCuisine || "unknown";
           if (cuisine === "unknown" && (p.types || []).includes("bar")) cuisine = "bar_food";
 
-          if (p?.place_id === TRACE_PLACE_ID) {
-            log("TRACE enrich", { place_id: p.place_id, name: p.name, cuisine });
-          }
-
           return { ...p, cuisine };
-        } catch (e) {
-          warn("enrich failed", { place_id: p?.place_id, name: p?.name, message: e?.message });
+        } catch {
           return p;
         }
       })
     );
 
-    log("TRACE final", trace);
-
-    log("response", {
-      returned: enriched.length,
-      meta: { page: pageNum, perPage: perPageNum, total: curatedWithPromosEvents.length },
-      elapsedMs: Date.now() - t0,
-      traceInResponse: enriched.some((p) => p?.place_id === TRACE_PLACE_ID),
-    });
-
     return res.json({
       curatedPlaces: enriched,
       meta: { page: pageNum, perPage: perPageNum, total: curatedWithPromosEvents.length },
     });
-  } catch (error) {
-    errlog("endpoint ERROR", { message: error?.message, elapsedMs: Date.now() - t0 });
-    log("TRACE final (error)", trace);
+  } catch {
     return res.status(500).json({ error: "Something went wrong fetching nearby places." });
   }
 });

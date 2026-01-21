@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { View, Text, StyleSheet, Image, TouchableWithoutFeedback, TouchableOpacity, Animated, Easing } from "react-native";
+import { View, Text, StyleSheet, Image, TouchableWithoutFeedback, Animated, Easing } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { fetchEventById } from "../../Slices/EventsSlice";
 import { fetchPromotionById } from "../../Slices/PromotionsSlice";
 import { useDispatch } from "react-redux";
 import { logEngagementIfNeeded, getEngagementTarget } from "../../Slices/EngagementSlice";
+import EventDropdown from './EventDropdown';
+import PromoDropdown from './PromoDropdown';
 
 const API_URL = process.env.EXPO_PUBLIC_SERVER_URL || "";
 
@@ -79,6 +81,8 @@ const Activities = ({ activity }) => {
 
   if (!activity) return null;
 
+  //console.log(activity)
+
   return (
     <TouchableWithoutFeedback onPress={handlePress}>
       <View style={styles.container}>
@@ -101,66 +105,22 @@ const Activities = ({ activity }) => {
             <Text style={styles.vicinity}>{Number(activity.distance).toFixed(3)} miles</Text>
           )}
         </View>
-        {/* EVENTS DROPDOWN */}
-        {events.length > 0 && (
-          <View style={styles.dropdownContainer}>
-            <TouchableOpacity
-              onPress={() => setShowEvents((s) => !s)}
-              style={styles.dropdownHeader}
-              activeOpacity={0.8}
-            >
-              <View style={styles.starRow}>
-                <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-                  <Text style={styles.star}>⭐</Text>
-                </Animated.View>
-                <Text style={styles.dropdownTitle}>Events Today!</Text>
-              </View>
-              <Text style={styles.dropIcon}>{showEvents ? "▲" : "▼"}</Text>
-            </TouchableOpacity>
-            {showEvents && (
-              <View style={styles.dropdownContent}>
-                {events.map((event) => (
-                  <View key={event?._id || event?.id || event?.title} style={styles.dropdownItem}>
-                    <Text style={styles.itemText}>{event.title}</Text>
-                    <TouchableOpacity onPress={() => handleEventPromoPress(event, "event")}>
-                      <Text style={styles.detailsButton}>Details</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </View>
-            )}
-          </View>
-        )}
-        {/* PROMOTIONS DROPDOWN */}
-        {promotions.length > 0 && (
-          <View style={styles.dropdownContainer}>
-            <TouchableOpacity
-              onPress={() => setShowPromotions((s) => !s)}
-              style={styles.dropdownHeader}
-              activeOpacity={0.8}
-            >
-              <View style={styles.starRow}>
-                <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-                  <Text style={styles.star}>⭐</Text>
-                </Animated.View>
-                <Text style={styles.dropdownTitle}>Promotions Today!</Text>
-              </View>
-              <Text style={styles.dropIcon}>{showPromotions ? "▲" : "▼"}</Text>
-            </TouchableOpacity>
-            {showPromotions && (
-              <View style={styles.dropdownContent}>
-                {promotions.map((promo) => (
-                  <View key={promo?._id || promo?.id || promo?.title} style={styles.dropdownItem}>
-                    <Text style={styles.itemText}>{promo.title}</Text>
-                    <TouchableOpacity onPress={() => handleEventPromoPress(promo, "promo")}>
-                      <Text style={styles.detailsButton}>Details</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </View>
-            )}
-          </View>
-        )}
+        {/* Events */}
+        <EventDropdown
+          events={events}
+          show={showEvents}
+          onToggle={() => setShowEvents((s) => !s)}
+          onDetails={(event) => handleEventPromoPress(event, "event")}
+          scaleAnim={scaleAnim}
+        />
+        {/* Promotions */}
+        <PromoDropdown
+          promotions={promotions}
+          show={showPromotions}
+          onToggle={() => setShowPromotions((s) => !s)}
+          onDetails={(promo) => handleEventPromoPress(promo, "promo")}
+          scaleAnim={scaleAnim}
+        />
       </View>
     </TouchableWithoutFeedback>
   );
@@ -219,52 +179,5 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 5,
     transform: [{ rotate: "-20deg" }],
-  },
-  dropdownContainer: {
-    paddingHorizontal: 10,
-    paddingBottom: 10,
-  },
-  dropdownHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 6,
-    borderTopWidth: 1,
-    borderColor: "#ccc",
-  },
-  dropdownTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  dropIcon: {
-    marginRight: 10,
-  },
-  dropdownContent: {
-    paddingVertical: 6,
-  },
-  dropdownItem: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 4,
-  },
-  itemText: {
-    fontSize: 14,
-    color: "#333",
-    flex: 1,
-    marginRight: 10,
-  },
-  detailsButton: {
-    fontSize: 14,
-    color: "#007AFF",
-    fontWeight: "600",
-  },
-  starRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  star: {
-    fontSize: 18,
-    marginRight: 10,
   },
 });
