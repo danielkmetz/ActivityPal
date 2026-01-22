@@ -41,6 +41,45 @@ function buildBusinessByPlaceId(businessData) {
   return map;
 }
 
+/**
+ * Prefer the first NON-EMPTY array from candidates.
+ * Critical: an empty [] should NOT block fallback to business data.
+ */
+function pickNonEmptyArray(...candidates) {
+  for (const c of candidates) {
+    if (Array.isArray(c) && c.length > 0) return c;
+  }
+  return [];
+}
+
+/**
+ * Merge arrays with de-dupe by _id/id when present.
+ * Keeps stable order: earlier sources win ordering.
+ */
+function mergeArraysDedup(...candidates) {
+  const out = [];
+  const seen = new Set();
+
+  for (const arr of candidates) {
+    if (!Array.isArray(arr) || arr.length === 0) continue;
+
+    for (const item of arr) {
+      const key = item?._id || item?.id || null;
+      if (key) {
+        if (seen.has(String(key))) continue;
+        seen.add(String(key));
+      }
+      out.push(item);
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Optional "today" filter helpers (left here because you had them),
+ * but this file does NOT force "today only" unless you explicitly use them.
+ */
 function filterBusinessEventsForToday(events, todayStr, weekday) {
   const list = Array.isArray(events) ? events : [];
   return list.filter((event) => {
@@ -64,11 +103,12 @@ function filterBusinessPromosForToday(promotions, weekday) {
  * Ensures we always return stable fields used by rendering/filters.
  */
 function mergeOne({ activity, business }) {
+  const openNow = getOpenNow(activity);
+
   if (business) {
     return {
       ...activity,
-      // keep an explicit normalized openNow for filtering/sorting
-      openNow: getOpenNow(activity),
+      openNow,
       business: {
         ...business,
         logoFallback: activity?.photoUrl || null,
@@ -79,9 +119,9 @@ function mergeOne({ activity, business }) {
   // fallback business shape if none exists in DB
   return {
     ...activity,
-    openNow: getOpenNow(activity),
-    events: [],
-    promotions: [],
+    openNow,
+    events: Array.isArray(activity?.events) ? activity.events : [],
+    promotions: Array.isArray(activity?.promotions) ? activity.promotions : [],
     business: {
       placeId: activity?.place_id || null,
       businessName: activity?.name || "",
@@ -98,12 +138,9 @@ function mergeOne({ activity, business }) {
 /**
  * Main function: given activities + businessData + filters, return list ready for UI.
  *
- * @param {Object} args
- * @param {Array} args.activities - google places-like results
- * @param {Array} args.businessData - DB business objects (events/promotions)
- * @param {Array} args.categoryFilter - cuisines selected
- * @param {boolean} args.openNowOnly - filter to open now
- * @param {string|null} args.sortOption - your sort key
+ * NOTE: This is refactored for your new architecture where the FIRST call can
+ * already include promos/events. The key fix is: an empty [] from the activity
+ * must NOT block fallback to business data.
  */
 export default function buildDisplayList({
   activities,
@@ -117,55 +154,72 @@ export default function buildDisplayList({
 
   const businessByPlaceId = buildBusinessByPlaceId(businessData);
 
+  // computed but not forced into filtering unless you choose to use the helpers
   const todayStr = localYMD(new Date());
   const weekday = weekdayName(new Date());
 
-  // merge + compute today’s promos/events
   const merged = safeActivities.map((activity) => {
     const placeId = activity?.place_id;
     const business = placeId ? businessByPlaceId.get(placeId) : null;
 
-    // ✅ preserve backend-enriched arrays if they exist
-    const events = Array.isArray(activity?.events)
-      ? activity.events
-      : Array.isArray(business?.events)
-        ? business.events
-        : [];
+    // --- EVENTS/PROMOS RESOLUTION ---
+    // Prefer backend-enriched arrays if they have items.
+    // Fall back to business DB arrays if the activity arrays are missing OR EMPTY.
+    //
+    // Also support your newer hydrate shape (active/upcoming) if present.
+    const resolvedEvents = pickNonEmptyArray(
+      activity?.events,
+      activity?.activeEvents,
+      activity?.upcomingEvents,
+      business?.events
+    );
 
-    const promotions = Array.isArray(activity?.promotions)
-      ? activity.promotions
-      : Array.isArray(business?.promotions)
-        ? business.promotions
-        : [];
+    const resolvedPromotions = pickNonEmptyArray(
+      activity?.promotions,
+      activity?.activePromos,
+      activity?.upcomingPromos,
+      business?.promotions
+    );
+
+    // If you ever want to MERGE instead of pick:
+    // const resolvedEvents = mergeArraysDedup(activity?.events, activity?.activeEvents, activity?.upcomingEvents, business?.events);
+    // const resolvedPromotions = mergeArraysDedup(activity?.promotions, activity?.activePromos, activity?.upcomingPromos, business?.promotions);
+
+    // Keep today helpers available (unused by default)
+    // const todaysEvents = filterBusinessEventsForToday(resolvedEvents, todayStr, weekday);
+    // const todaysPromos = filterBusinessPromosForToday(resolvedPromotions, weekday);
 
     return mergeOne({
-      activity: { ...activity, events, promotions },
+      activity: { ...activity, events: resolvedEvents, promotions: resolvedPromotions },
       business,
     });
   });
 
-  // highlighted first, then regular sorted by distance
+  // highlighted first, then regular (keeps current order within each bucket)
   const highlighted = [];
   const regular = [];
 
   for (const item of merged) {
-    const hasHighlight = (item?.events?.length || 0) > 0 || (item?.promotions?.length || 0) > 0;
+    const hasHighlight =
+      (Array.isArray(item?.events) ? item.events.length : 0) > 0 ||
+      (Array.isArray(item?.promotions) ? item.promotions.length : 0) > 0;
+
     (hasHighlight ? highlighted : regular).push(item);
   }
 
-  const combined = [...highlighted, ...regular]; // ✅ preserves backend order within each bucket
+  const combined = [...highlighted, ...regular];
 
   // category filter (cuisine match)
   const hasCategoryFilter = Array.isArray(categoryFilter) && categoryFilter.length > 0;
   const categoryFiltered = hasCategoryFilter
     ? combined.filter((item) => {
-      const cuisine = toLower(item?.cuisine);
-      if (!cuisine) return false;
-      return categoryFilter.some((f) => cuisine === toLower(f));
-    })
+        const cuisine = toLower(item?.cuisine);
+        if (!cuisine) return false;
+        return categoryFilter.some((f) => cuisine === toLower(f));
+      })
     : combined;
 
-  // open-now filter (uses normalized openNow from mergeOne)
+  // open-now filter (uses normalized openNow)
   const openFiltered = openNowOnly
     ? categoryFiltered.filter((item) => item?.openNow === true)
     : categoryFiltered;

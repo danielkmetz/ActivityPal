@@ -81,8 +81,6 @@ const Activities = ({ activity }) => {
 
   if (!activity) return null;
 
-  //console.log(activity)
-
   return (
     <TouchableWithoutFeedback onPress={handlePress}>
       <View style={styles.container}>

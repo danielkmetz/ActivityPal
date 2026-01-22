@@ -1,25 +1,32 @@
 import React, { useMemo, useRef } from "react";
-import { View, FlatList, StyleSheet, Text, ActivityIndicator, TouchableWithoutFeedback, Keyboard, Animated } from "react-native";
+import {
+  View,
+  FlatList,
+  StyleSheet,
+  Text,
+  ActivityIndicator,
+  TouchableWithoutFeedback,
+  Keyboard,
+  Animated,
+} from "react-native";
 import PreferencesModal from "../Preferences/Preferences";
+import { useSelector, useDispatch } from "react-redux";
+import { useNavigation } from "@react-navigation/native";
 import { selectEvents, selectBusinessData, selectIsMapView } from "../../Slices/PlacesSlice";
 import { selectGooglePlaces, selectGoogleStatus, selectGoogleMeta, selectGooglePage, selectGoogleLastQuery, selectGoogleLoadingMore } from "../../Slices/GooglePlacesSlice";
-import Activities from "./Activities";
-import Events from "./Events";
-import { useSelector, useDispatch } from "react-redux";
 import { selectEventType } from "../../Slices/PreferencesSlice";
 import { selectCoordinates, selectManualCoordinates } from "../../Slices/LocationSlice";
 import { milesToMeters } from "../../functions";
 import { selectPagination, selectSortOptions } from "../../Slices/PaginationSlice";
-import usePlacePhotoQueue from '../../utils/Photos/usePlacePhotoQueue';
-import { useNavigation } from "@react-navigation/native";
+import Activities from "./Activities";
+import Events from "./Events";
 import ActivityMap from "../Map/Map";
 import SearchBar from "./SearchBar";
 import QuickFilters from "./QuickFilters";
-import useActivitySearchController from './hooks/useActivitySearchController';
-import buildDisplayList from '../../utils/Activities/buildDisplayList';
-import useFetchBusinessForResults from './hooks/useFetchBusinessForResults';
-import useKeyboardOpen from '../../utils/ui/useKeyboardOpen';
-import { filterIcons } from './filterIcons';
+import useActivitySearchController from "./hooks/useActivitySearchController";
+import buildDisplayList from "../../utils/Activities/buildDisplayList";
+import useKeyboardOpen from "../../utils/ui/useKeyboardOpen";
+import { filterIcons } from "./filterIcons";
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
@@ -36,7 +43,7 @@ const ActivityPage = ({ scrollY, onScroll }) => {
   const manualCoordinates = useSelector(selectManualCoordinates);
   const sortOption = useSelector(selectSortOptions);
   const meta = useSelector(selectGoogleMeta);
-  const serverPage = useSelector(selectGooglePage);
+  const serverPage = useSelector(selectGooglePage); // still used for /places2 offset pagination
   const lastQuery = useSelector(selectGoogleLastQuery);
   const loadingMore = useSelector(selectGoogleLoadingMore);
   const { perPage, categoryFilter, openNow: isOpenNow } = useSelector(selectPagination);
@@ -48,10 +55,16 @@ const ActivityPage = ({ scrollY, onScroll }) => {
   const manualDistanceDining = milesToMeters(5);
   const manualBudget = "$$$$";
   const rawCount = Array.isArray(activities) ? activities.length : 0;
-  const total = typeof meta?.total === "number" ? meta.total : null;
-  const hasMore = total != null ? rawCount < total : false;
 
-  const { viewabilityConfig, onViewableItemsChanged, resetPhotoQueue } = usePlacePhotoQueue({ dispatch });
+  // Cursor-based pagination (Dining) OR legacy total-based pagination (places2)
+  const cursor = typeof meta?.cursor === "string" && meta.cursor.trim() ? meta.cursor.trim() : null;
+
+  const hasMore =
+    typeof meta?.hasMore === "boolean"
+      ? meta.hasMore
+      : typeof meta?.total === "number"
+        ? rawCount < meta.total
+        : false;
 
   const keyboardOpen = useKeyboardOpen();
 
@@ -66,10 +79,12 @@ const ActivityPage = ({ scrollY, onScroll }) => {
     status,
     loadingMore,
     hasMore,
+    cursor, // NEW: used for Dining cursor pagination
     lastQuery,
     serverPage,
     onNewSearchReset: () => {
-      resetPhotoQueue();        // from usePlacePhotoQueue
+      // If you bring these back, this is still the right place to reset them
+      // resetPhotoQueue();
       // resetFetchedIds();
     },
   });
@@ -98,11 +113,6 @@ const ActivityPage = ({ scrollY, onScroll }) => {
     });
   }, [activities, businessData, categoryFilter, isOpenNow, sortOption]);
 
-  // const { resetFetchedIds } = useFetchBusinessForResults({
-  //   dispatch,
-  //   results: displayList, // whatever you call the final list
-  // });
-
   return (
     <View style={styles.safeArea}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
@@ -124,8 +134,6 @@ const ActivityPage = ({ scrollY, onScroll }) => {
                           eventType !== "Event" ? <Activities activity={item} /> : <Events event={item} />
                         }
                         initialNumToRender={perPage}
-                        onViewableItemsChanged={onViewableItemsChanged}
-                        viewabilityConfig={viewabilityConfig}
                         ref={listRef}
                         windowSize={5}
                         contentContainerStyle={styles.list}
@@ -146,22 +154,12 @@ const ActivityPage = ({ scrollY, onScroll }) => {
                         ListEmptyComponent={<Text style={{ textAlign: "center", marginTop: 20 }}>No results</Text>}
                       />
                     ) : (
-                      <ActivityMap
-                        activities={displayList}
-                        onEndReached={handleLoadMore}
-                        loadingMore={loadingMore}
-                        onViewableItemsChanged={onViewableItemsChanged}
-                        viewabilityConfig={viewabilityConfig}
-                      />
+                      <ActivityMap activities={displayList} onEndReached={handleLoadMore} loadingMore={loadingMore} />
                     )}
                   </View>
                 ) : (
                   <>
-                    <SearchBar
-                      lat={lat}
-                      lng={lng}
-                      onSelectPlace={handlePress}
-                    />
+                    <SearchBar lat={lat} lng={lng} onSelectPlace={handlePress} />
                     <QuickFilters keyboardOpen={keyboardOpen} onFilterPress={handleActivityFetch} icons={filterIcons} />
                   </>
                 )}

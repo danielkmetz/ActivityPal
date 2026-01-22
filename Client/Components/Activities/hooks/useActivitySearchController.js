@@ -8,7 +8,9 @@ import { resetPage } from "../../../Slices/PaginationSlice";
  * - reset server-paged list state
  * - load-more for server paged results
  *
- * Pass `onNewSearchReset` to clear view refs / photo queue / etc.
+ * Cursor pagination:
+ * - Dining now uses cursor-based paging from meta.cursor/meta.hasMore
+ * - places2 can stay offset/page-based (serverPage + 1)
  */
 export default function useActivitySearchController({
   dispatch,
@@ -21,9 +23,10 @@ export default function useActivitySearchController({
   status,
   loadingMore,
   hasMore,
+  cursor, // NEW: Dining cursor from meta.cursor
   lastQuery,
-  serverPage,
-  onNewSearchReset, // optional callback: resetPhotoQueue(), clear refs, etc.
+  serverPage, // still used for places2 offset pagination
+  onNewSearchReset,
 } = {}) {
   const quickFilterTypes = useMemo(
     () =>
@@ -46,27 +49,25 @@ export default function useActivitySearchController({
     (type, isCustom = false, customParams = {}) => {
       if (!lat || !lng) return;
 
-      // Let the screen clear photo queues / biz dedupe refs / timers, etc.
       if (typeof onNewSearchReset === "function") onNewSearchReset();
 
-      // Reset server-paged list
+      // Reset list state
       dispatch(clearGooglePlaces());
       dispatch(resetPage());
 
       const isQuickFilter = quickFilterTypes.has(type);
 
-      // Shared params for server-paged endpoint
       const common = {
         lat,
         lng,
         radius: isCustom ? customParams.radius : manualDistance,
         budget: isCustom ? customParams.budget : manualBudget,
-        page: 1,
+        page: 1, // only relevant for places2 endpoint
         perPage,
       };
 
       if (type === "Dining") {
-        // Dining path isn't server-paged in your current setup
+        // Dining is now cursor-paged: starting a new session => cursor: null
         dispatch(
           fetchDining({
             lat,
@@ -75,8 +76,8 @@ export default function useActivitySearchController({
             radius: isCustom ? customParams.radius : manualDistanceDining,
             budget: isCustom ? customParams.budget : manualBudget,
             isCustom,
-            page: 1,
             perPage,
+            cursor: null,
           })
         );
         return;
@@ -106,24 +107,33 @@ export default function useActivitySearchController({
     if (status === "loading") return;
     if (loadingMore) return;
     if (!hasMore) return;
-    if (!lastQuery?.lat || !lastQuery?.lng) return;
 
-    const nextPage = (serverPage || 1) + 1;
+    // Need a prior query to know which endpoint to continue
+    if (!lastQuery) return;
+
     const perPageToUse = lastQuery?.perPage || perPage;
 
-    // ✅ If the last search was Dining, paginate Dining
+    // ---- Dining: cursor-based pagination ----
     if (lastQuery?.activityType === "Dining" && !lastQuery?.quickFilter) {
+      // If cursor is missing, there is nothing to continue
+      if (!cursor) return;
+
+      // Send cursor + (optionally) lastQuery fields; backend ignores them when cursor is present
       dispatch(
         fetchDining({
           ...lastQuery,
-          page: nextPage,
+          cursor,
           perPage: perPageToUse,
         })
       );
       return;
     }
 
-    // ✅ Otherwise paginate the server-paged endpoint
+    // ---- places2: offset/page-based pagination ----
+    if (!lastQuery?.lat || !lastQuery?.lng) return;
+
+    const nextPage = (serverPage || 1) + 1;
+
     dispatch(
       fetchGooglePlaces({
         ...lastQuery,
@@ -131,7 +141,7 @@ export default function useActivitySearchController({
         perPage: perPageToUse,
       })
     );
-  }, [status, loadingMore, hasMore, lastQuery, serverPage, perPage, dispatch]);
+  }, [status, loadingMore, hasMore, lastQuery, cursor, serverPage, perPage, dispatch]);
 
   return {
     handleActivityFetch,

@@ -1,57 +1,13 @@
-// helpers/enrichBusinesses.js
 const { haversineDistance } = require("./haversineDistance");
 const { getPresignedUrl } = require("../utils/cachePresignedUrl");
 const { DateTime } = require("luxon");
 const { enrichComments } = require("./userPosts");
-
-// =====================
-// LOGGING (always on)
-// =====================
-// Change this if you want to trace a different place. No env vars.
-const TRACE_PLACE_ID = "ChIJC-gx3K4CD4gRdihO2jMKjRM";
-const LOG_ENRICH = true;
-
-const log = (...args) => {
-  if (!LOG_ENRICH) return;
-  console.log("[enrichBusinesses]", ...args);
-};
-
-const traceLog = (placeId, ...args) => {
-  if (!LOG_ENRICH) return;
-  if (String(placeId) !== String(TRACE_PLACE_ID)) return;
-  console.log("[enrichBusinesses][TRACE]", ...args);
-};
 
 /**
  * Cache to avoid redundant URL generations per request context.
  */
 const logoUrlCache = new Map();
 const bannerUrlCache = new Map();
-
-function safeToISOString(d) {
-  try {
-    if (!d) return null;
-    const dd = d instanceof Date ? d : new Date(d);
-    return Number.isNaN(dd.getTime()) ? null : dd.toISOString();
-  } catch {
-    return null;
-  }
-}
-
-function summarizeEntry(e) {
-  const obj = e?.toObject?.() ?? e;
-  return {
-    id: obj?._id ? String(obj._id) : null,
-    title: obj?.title || null,
-    placeId: obj?.placeId || null,
-    recurring: !!obj?.recurring,
-    recurringDays: Array.isArray(obj?.recurringDays) ? obj.recurringDays : [],
-    allDay: obj?.allDay !== false, // default true in your schemas
-    dateISO: safeToISOString(obj?.date),
-    startTime: obj?.startTime ?? null,
-    endTime: obj?.endTime ?? null,
-  };
-}
 
 // =====================
 // Time parsing
@@ -283,51 +239,12 @@ const explainEventActive = (event, nowMinutes, now) => {
 };
 
 // =====================
-// Public API (with TRACE logging built-in)
+// Public API
 // =====================
-const isPromoLaterToday = (promo, nowMinutes, now) => {
-  const out = explainPromoLaterToday(promo, nowMinutes, now);
-  traceLog(promo?.placeId, "isPromoLaterToday", {
-    promo: summarizeEntry(promo),
-    nowISO: safeToISOString(now),
-    nowMinutes,
-    out,
-  });
-  return out.ok;
-};
-
-const isEventLaterToday = (event, nowMinutes, now) => {
-  const out = explainEventLaterToday(event, nowMinutes, now);
-  traceLog(event?.placeId, "isEventLaterToday", {
-    event: summarizeEntry(event),
-    nowISO: safeToISOString(now),
-    nowMinutes,
-    out,
-  });
-  return out.ok;
-};
-
-const isPromoActive = (promo, nowMinutes, now) => {
-  const out = explainPromoActive(promo, nowMinutes, now);
-  traceLog(promo?.placeId, "isPromoActive", {
-    promo: summarizeEntry(promo),
-    nowISO: safeToISOString(now),
-    nowMinutes,
-    out,
-  });
-  return out.ok;
-};
-
-const isEventActive = (event, nowMinutes, now) => {
-  const out = explainEventActive(event, nowMinutes, now);
-  traceLog(event?.placeId, "isEventActive", {
-    event: summarizeEntry(event),
-    nowISO: safeToISOString(now),
-    nowMinutes,
-    out,
-  });
-  return out.ok;
-};
+const isPromoLaterToday = (promo, nowMinutes, now) => explainPromoLaterToday(promo, nowMinutes, now).ok;
+const isEventLaterToday = (event, nowMinutes, now) => explainEventLaterToday(event, nowMinutes, now).ok;
+const isPromoActive = (promo, nowMinutes, now) => explainPromoActive(promo, nowMinutes, now).ok;
+const isEventActive = (event, nowMinutes, now) => explainEventActive(event, nowMinutes, now).ok;
 
 // =====================
 // URL / enrichment helpers
@@ -372,22 +289,10 @@ async function enrichBusinessWithPromosAndEvents(
   now = new Date(),
   { logoCache, bannerCache } = {}
 ) {
-  if (!biz?.placeId || !biz?.location) {
-    log("skip enrichBusinessWithPromosAndEvents: missing placeId/location", {
-      hasPlaceId: !!biz?.placeId,
-      hasLocation: !!biz?.location,
-    });
-    return null;
-  }
+  if (!biz?.placeId || !biz?.location) return null;
 
   const [bizLng, bizLat] = biz.location.coordinates || [];
-  if (isNaN(bizLat) || isNaN(bizLng)) {
-    log("skip enrichBusinessWithPromosAndEvents: invalid coordinates", {
-      placeId: biz.placeId,
-      coords: biz.location.coordinates,
-    });
-    return null;
-  }
+  if (isNaN(bizLat) || isNaN(bizLng)) return null;
 
   const distance = haversineDistance(userLat, userLng, bizLat, bizLng);
 
@@ -397,30 +302,14 @@ async function enrichBusinessWithPromosAndEvents(
   const promotions = Array.isArray(promosForBiz) ? promosForBiz : [];
   const events = Array.isArray(eventsForBiz) ? eventsForBiz : [];
 
-  traceLog(biz.placeId, "context", {
-    placeId: biz.placeId,
-    businessName: biz.businessName,
-    nowISO: safeToISOString(now),
-    luxonNowLocalISO: nowLocal.toISO(),
-    nowMinutes,
-    promosIncoming: promotions.length,
-    eventsIncoming: events.length,
-  });
-
-  traceLog(biz.placeId, "incoming promos sample", promotions.slice(0, 5).map(summarizeEntry));
-  traceLog(biz.placeId, "incoming events sample", events.slice(0, 5).map(summarizeEntry));
-
   const activePromos = promotions.filter((p) => isPromoActive(p, nowMinutes, now));
-  const upcomingPromos = promotions.filter((p) => !isPromoActive(p, nowMinutes, now) && isPromoLaterToday(p, nowMinutes, now));
+  const upcomingPromos = promotions.filter(
+    (p) => !isPromoActive(p, nowMinutes, now) && isPromoLaterToday(p, nowMinutes, now)
+  );
   const activeEvents = events.filter((e) => isEventActive(e, nowMinutes, now));
-  const upcomingEvents = events.filter((e) => !isEventActive(e, nowMinutes, now) && isEventLaterToday(e, nowMinutes, now));
-
-  traceLog(biz.placeId, "results", {
-    activePromos: activePromos.length,
-    upcomingPromos: upcomingPromos.length,
-    activeEvents: activeEvents.length,
-    upcomingEvents: upcomingEvents.length,
-  });
+  const upcomingEvents = events.filter(
+    (e) => !isEventActive(e, nowMinutes, now) && isEventLaterToday(e, nowMinutes, now)
+  );
 
   if (
     activePromos.length === 0 &&
@@ -428,10 +317,6 @@ async function enrichBusinessWithPromosAndEvents(
     activeEvents.length === 0 &&
     upcomingEvents.length === 0
   ) {
-    traceLog(biz.placeId, "EARLY EXIT (no active/upcoming promos/events)", {
-      promosIncoming: promotions.length,
-      eventsIncoming: events.length,
-    });
     return null;
   }
 
@@ -451,7 +336,7 @@ async function enrichBusinessWithPromosAndEvents(
       }))
     );
 
-  const result = {
+  return {
     businessName: biz.businessName,
     placeId: biz.placeId,
     location: biz.location,
@@ -463,16 +348,6 @@ async function enrichBusinessWithPromosAndEvents(
     activeEvents: await cleanAndEnrichMany(activeEvents),
     upcomingEvents: await cleanAndEnrichMany(upcomingEvents),
   };
-
-  traceLog(biz.placeId, "RETURNING enriched business", {
-    placeId: biz.placeId,
-    activePromos: result.activePromos.length,
-    upcomingPromos: result.upcomingPromos.length,
-    activeEvents: result.activeEvents.length,
-    upcomingEvents: result.upcomingEvents.length,
-  });
-
-  return result;
 }
 
 module.exports = {

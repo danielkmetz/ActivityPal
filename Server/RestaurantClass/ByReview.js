@@ -1,4 +1,3 @@
-// Classify reviews by evaluating reviews
 const axios = require('axios');
 const { scoreCuisineCategories } = require('./Keywords/Keywords');
 
@@ -21,7 +20,7 @@ const classifyCuisineFromReviews = async (placeId) => {
     }
 
     const scored = scoreCuisineCategories(textBlob);
-    console.log("📊 Scoring breakdown:", scored);
+    // console.log("📊 Scoring breakdown:", scored);
 
     const [topCategory, topScore] = scored[0] || [];
 
