@@ -1,7 +1,11 @@
-const { hydratePlacesWithPromosEvents, sortPlacesByPromoThenDistance } =
-  require("../../../utils/PromosEvents/hydratePromosEvents");
+const {
+  hydratePlacesWithPromosEvents,
+  sortPlacesByPromoThenDistance,
+} = require("../../../utils/PromosEvents/hydratePromosEvents");
 
-function ensureArray(v) { return Array.isArray(v) ? v : []; }
+function ensureArray(v) {
+  return Array.isArray(v) ? v : [];
+}
 
 function promoCount(p) {
   const promos = Array.isArray(p?.promotions) ? p.promotions.length : 0;
@@ -10,23 +14,39 @@ function promoCount(p) {
 }
 
 function countPromoHits(list) {
-  return (Array.isArray(list) ? list : []).reduce((n, p) => n + (promoCount(p) > 0 ? 1 : 0), 0);
+  return (Array.isArray(list) ? list : []).reduce(
+    (n, p) => n + (promoCount(p) > 0 ? 1 : 0),
+    0
+  );
 }
 
-async function hydrateAndSortPending(state, log) {
+async function hydrateAndSortPending(state) {
   const pending = Array.isArray(state.pending) ? state.pending : [];
   if (!pending.length) return state;
 
   const toHydrate = pending.filter((p) => !p?._peHydrated);
+
   if (toHydrate.length) {
     const now = new Date();
-    const { hydrated } = await hydratePlacesWithPromosEvents({ places: toHydrate, now });
+    const { hydrated } = await hydratePlacesWithPromosEvents({
+      places: toHydrate,
+      now,
+    });
+
     const hydratedList = Array.isArray(hydrated) ? hydrated : [];
 
     const byId = new Map(
       hydratedList
         .filter((x) => x?.place_id)
-        .map((x) => [x.place_id, { ...x, promotions: ensureArray(x.promotions), events: ensureArray(x.events), _peHydrated: true }])
+        .map((x) => [
+          x.place_id,
+          {
+            ...x,
+            promotions: ensureArray(x.promotions),
+            events: ensureArray(x.events),
+            _peHydrated: true,
+          },
+        ])
     );
 
     state.pending = pending.map((p) => byId.get(p.place_id) || p);
@@ -36,7 +56,14 @@ async function hydrateAndSortPending(state, log) {
   return state;
 }
 
-async function fillHydrateSortWithPromoSeek({ state, fillPending, want, apiKey, log, diag, parseDiningMode }) {
+async function fillHydrateSortWithPromoSeek({
+  state,
+  fillPending,
+  want,
+  apiKey,
+  diag,
+  parseDiningMode,
+}) {
   const MIN_PROMO_HITS = 2;
   const EXTRA_PER_SEEK = 20;
   const MAX_SEEKS = 2;
@@ -44,11 +71,12 @@ async function fillHydrateSortWithPromoSeek({ state, fillPending, want, apiKey, 
   let target = want;
 
   for (let attempt = 0; attempt <= MAX_SEEKS; attempt++) {
-    state = await fillPending(state, target, { apiKey, log, diag, parseDiningMode });
-    state = await hydrateAndSortPending(state, log);
+    // no log passed
+    state = await fillPending(state, target, { apiKey, diag, parseDiningMode });
+    state = await hydrateAndSortPending(state);
 
     const hits = countPromoHits(state.pending);
-    const canFetchMore = (diag?.fetch?.googleCalls || 0) < 6; // keep aligned with constants in caller if you prefer
+    const canFetchMore = (diag?.fetch?.googleCalls || 0) < 6;
 
     if (hits >= MIN_PROMO_HITS || !canFetchMore) break;
     target += EXTRA_PER_SEEK;
@@ -57,4 +85,8 @@ async function fillHydrateSortWithPromoSeek({ state, fillPending, want, apiKey, 
   return state;
 }
 
-module.exports = { hydrateAndSortPending, fillHydrateSortWithPromoSeek, sortPlacesByPromoThenDistance };
+module.exports = {
+  hydrateAndSortPending,
+  fillHydrateSortWithPromoSeek,
+  sortPlacesByPromoThenDistance,
+};

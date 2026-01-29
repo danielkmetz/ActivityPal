@@ -1,15 +1,15 @@
 const express = require("express");
 const axios = require("axios");
 const router = express.Router();
-const Business = require('../models/Business');
-const { Post } = require('../models/Post');           
-const User = require('../models/User');
+const Business = require("../models/Business");
+const { Post } = require("../models/Post");
+const User = require("../models/User");
 const { enrichBusinessWithPromosAndEvents } = require("../utils/enrichBusinesses");
 const pLimitPkg = require("p-limit");
 const pLimit = pLimitPkg.default || pLimitPkg;
-const Event = require('../models/Events');
-const Promotion = require('../models/Promotions');
-const { getCuratedPlacesNearbyV1 } = require('../services/places/v1/curatePlacesNearby');
+const Event = require("../models/Events");
+const Promotion = require("../models/Promotions");
+const { getCuratedPlacesNearbyV1 } = require("../services/places/v1/curatePlacesNearby");
 
 const googleApiKey = process.env.GOOGLE_PLACES2;
 
@@ -33,8 +33,24 @@ function cacheSet(key, url) {
 }
 
 const isV1PhotoName = (s) => /^places\/[^/]+\/photos\/[^/]+$/.test(s);
-
 const isLegacyPhotoRef = (s) => /^[A-Za-z0-9_-]{10,}$/.test(s);
+
+// ---- Canonical query extraction ----
+// Frontend sometimes sends { query: {...} } and sometimes sends fields top-level.
+// Normalize to one query object.
+function getIncomingQuery(body) {
+  const q =
+    body && typeof body.query === "object" && body.query
+      ? body.query
+      : body || {};
+  return q;
+}
+
+function normalizeRadiusMeters(q) {
+  const r = q.radiusMeters ?? q.radius;
+  const n = Number(r);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 
 async function resolvePhotoUrl({ name, max = 400 }, ctx = {}) {
   const rawName = String(name || "").trim();
@@ -48,8 +64,8 @@ async function resolvePhotoUrl({ name, max = 400 }, ctx = {}) {
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
 
-  const isV1 = /^places\/[^/]+\/photos\/[^/]+$/.test(rawName);
-  const isLegacy = /^[A-Za-z0-9_-]{10,}$/.test(rawName);
+  const isV1 = isV1PhotoName(rawName);
+  const isLegacy = isLegacyPhotoRef(rawName);
 
   if (!isV1 && !isLegacy) return null;
 
@@ -85,35 +101,102 @@ async function resolvePhotoUrl({ name, max = 400 }, ctx = {}) {
 
 router.post("/places-nearby", async (req, res) => {
   try {
-    const { activityType, quickFilter, lat, lng, radius = 10000, budget } = req.body;
-
-    const page = req.body.page || 1;
-    const perPage = req.body.perPage || 15;
-
     const apiKey = process.env.GOOGLE_PLACES2;
-    if (!apiKey) return res.status(500).json({ error: "Server misconfigured (Google Places key missing)." });
+    if (!apiKey) {
+      return res
+        .status(500)
+        .json({ error: "Server misconfigured (Google Places key missing)." });
+    }
 
-    const DEBUG = false; // flip if needed
-    const log = DEBUG ? (...args) => console.log("[places-nearby]", ...args) : null;
+    // normalize incoming request into a canonical query object
+    const qRaw = getIncomingQuery(req.body);
+
+    const lat = Number(qRaw.lat);
+    const lng = Number(qRaw.lng);
+
+    const radiusMeters = normalizeRadiusMeters(qRaw) ?? 10000;
+    const page = Number(qRaw.page ?? req.body.page ?? 1);
+    const perPage = Number(qRaw.perPage ?? req.body.perPage ?? 15);
+
+    const activityType = qRaw.activityType ?? null;
+    const quickFilter = qRaw.quickFilter ?? null;
+    const placeCategory = qRaw.placeCategory ?? null;
+    const keyword = qRaw.keyword ?? null;
+
+    const vibes = qRaw.vibes ?? null;
+    const familyFriendly = qRaw.familyFriendly ?? null;
+    const placesFilters = qRaw.placesFilters ?? null;
+    const budget = qRaw.budget ?? null;
+
+    const whenAtISO = qRaw.whenAtISO ?? null;
+
+    // Validate whenAtISO if present
+    if (whenAtISO && Number.isNaN(new Date(whenAtISO).getTime())) {
+      return res.status(400).json({ error: "Invalid whenAtISO" });
+    }
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.status(400).json({ error: "Missing or invalid lat/lng" });
+    }
+
+    if (!Number.isFinite(radiusMeters) || radiusMeters <= 0 || radiusMeters > 50000) {
+      return res.status(400).json({
+        error: "Invalid radius (meters). Must be 0 < radius <= 50000",
+      });
+    }
+
+    const canonicalQuery = {
+      ...qRaw,
+      whenAtISO,
+      lat,
+      lng,
+      radius: radiusMeters, // canonical
+      radiusMeters,
+      page,
+      perPage,
+      activityType,
+      quickFilter,
+      placeCategory,
+      keyword,
+      vibes,
+      familyFriendly,
+      placesFilters,
+      budget,
+    };
 
     const out = await getCuratedPlacesNearbyV1({
       apiKey,
+      query: canonicalQuery,
+
+      // legacy
       activityType,
       quickFilter,
+      placeCategory,
+      keyword,
+      vibes,
+      familyFriendly,
+      placesFilters,
+
       lat,
       lng,
-      radiusMeters: radius,
+      radiusMeters,
       budget,
       page,
       perPage,
-      log,
+      log: null,
     });
 
-    if (out?.error) return res.status(out.error.status || 500).json({ error: out.error.message || "Error" });
+    if (out?.error) {
+      return res
+        .status(out.error.status || 500)
+        .json({ error: out.error.message || "Error" });
+    }
 
     return res.json(out);
   } catch (e) {
-    return res.status(500).json({ error: "Something went wrong with the nearby search." });
+    return res
+      .status(500)
+      .json({ error: "Something went wrong with the nearby search." });
   }
 });
 
@@ -135,7 +218,10 @@ router.post("/place-photos/resolve", async (req, res) => {
     }
 
     if (!photos.length) {
-      if (DEBUG) console.log(`[place-photos][${reqId}] empty -> 200`, { ms: Date.now() - startedAt });
+      if (DEBUG)
+        console.log(`[place-photos][${reqId}] empty -> 200`, {
+          ms: Date.now() - startedAt,
+        });
       return res.json({ items: [] });
     }
 
@@ -143,7 +229,9 @@ router.post("/place-photos/resolve", async (req, res) => {
     const capped = photos.slice(0, 50);
 
     // basic stats: unique names + validity
-    const names = capped.map((p) => String(p?.name || "").trim()).filter(Boolean);
+    const names = capped
+      .map((p) => String(p?.name || "").trim())
+      .filter(Boolean);
     const uniqueNames = new Set(names);
 
     if (DEBUG) {
@@ -190,7 +278,9 @@ router.post("/place-photos/resolve", async (req, res) => {
 
           valid += 1;
 
-          const safeMax = Number.isFinite(maxIn) ? Math.min(1600, Math.max(50, maxIn)) : 400;
+          const safeMax = Number.isFinite(maxIn)
+            ? Math.min(1600, Math.max(50, maxIn))
+            : 400;
 
           const url = await resolvePhotoUrl({ name: rawName, max: safeMax });
 
@@ -245,14 +335,10 @@ router.post("/events-and-promos-nearby", async (req, res) => {
     return res.status(400).json({ error: "Missing or invalid lat/lng" });
   }
 
-  // Avoid ReferenceError if MAX_DISTANCE_METERS is not declared in this module.
   const maxDistanceMeters =
     typeof MAX_DISTANCE_METERS !== "undefined" ? MAX_DISTANCE_METERS : 0;
 
   try {
-    // ----------------------------
-    // User personalization inputs
-    // ----------------------------
     let userFavorites = new Set();
     let reviewCounts = {};
     let checkInCounts = {};
@@ -262,7 +348,9 @@ router.post("/events-and-promos-nearby", async (req, res) => {
       const user = await User.findById(userId).lean();
 
       if (user?.favorites?.length > 0) {
-        userFavorites = new Set(user.favorites.map((fav) => String(fav.placeId)));
+        userFavorites = new Set(
+          user.favorites.map((fav) => String(fav.placeId))
+        );
       }
 
       const [reviews, checkIns, invites] = await Promise.all([
@@ -270,14 +358,22 @@ router.post("/events-and-promos-nearby", async (req, res) => {
           { type: "review", ownerId: userId, placeId: { $exists: true } },
           { placeId: 1, "details.rating": 1 }
         ).lean(),
-        Post.find({ type: "check-in", ownerId: userId, placeId: { $exists: true } }, { placeId: 1 }).lean(),
-        Post.find({ type: "invite", ownerId: userId, placeId: { $exists: true } }, { placeId: 1 }).lean(),
+        Post.find(
+          { type: "check-in", ownerId: userId, placeId: { $exists: true } },
+          { placeId: 1 }
+        ).lean(),
+        Post.find(
+          { type: "invite", ownerId: userId, placeId: { $exists: true } },
+          { placeId: 1 }
+        ).lean(),
       ]);
 
       for (const r of reviews || []) {
         const pid = String(r.placeId);
-        const rating = typeof r?.details?.rating === "number" ? r.details.rating : null;
-        if (!reviewCounts[pid]) reviewCounts[pid] = { positive: 0, neutral: 0, negative: 0 };
+        const rating =
+          typeof r?.details?.rating === "number" ? r.details.rating : null;
+        if (!reviewCounts[pid])
+          reviewCounts[pid] = { positive: 0, neutral: 0, negative: 0 };
         if (rating != null) {
           if (rating >= 4) reviewCounts[pid].positive += 1;
           else if (rating === 3) reviewCounts[pid].neutral += 1;
@@ -296,9 +392,6 @@ router.post("/events-and-promos-nearby", async (req, res) => {
       }
     }
 
-    // ----------------------------
-    // Nearby businesses by geo query
-    // ----------------------------
     const nearbyBusinesses = await Business.find({
       location: {
         $near: {
@@ -320,15 +413,14 @@ router.post("/events-and-promos-nearby", async (req, res) => {
       return res.json({ suggestions: [] });
     }
 
-    // ----------------------------
-    // Batch fetch promos/events once
-    // ----------------------------
     const now = new Date();
     const weekday = now.toLocaleString("en-US", { weekday: "long" });
 
     const yesterday = new Date(now);
     yesterday.setDate(now.getDate() - 1);
-    const yesterdayWeekday = yesterday.toLocaleString("en-US", { weekday: "long" });
+    const yesterdayWeekday = yesterday.toLocaleString("en-US", {
+      weekday: "long",
+    });
 
     const startOfYesterday = new Date(yesterday);
     startOfYesterday.setHours(0, 0, 0, 0);
@@ -354,7 +446,6 @@ router.post("/events-and-promos-nearby", async (req, res) => {
       }).lean(),
     ]);
 
-    // Group by placeId
     const promosByPlaceId = new Map();
     for (const p of Array.isArray(allPromos) ? allPromos : []) {
       const pid = String(p?.placeId || "");
@@ -371,13 +462,9 @@ router.post("/events-and-promos-nearby", async (req, res) => {
       eventsByPlaceId.get(pid).push(e);
     }
 
-    // Per-request caches (do NOT use global Maps here)
     const logoCache = new Map();
     const bannerCache = new Map();
 
-    // ----------------------------
-    // Enrich + flatten
-    // ----------------------------
     const flattenedSuggestions = [];
 
     for (const biz of nearbyBusinesses) {
@@ -437,7 +524,7 @@ router.post("/events-and-promos-nearby", async (req, res) => {
         pushMany(activeEvents, "activeEvent");
         pushMany(upcomingEvents, "upcomingEvent");
       } catch {
-        // intentionally swallow per-biz errors to preserve partial results
+        // swallow per-biz errors
       }
     }
 
@@ -445,9 +532,6 @@ router.post("/events-and-promos-nearby", async (req, res) => {
       return res.json({ suggestions: [] });
     }
 
-    // ----------------------------
-    // Score + rank suggestions
-    // ----------------------------
     const scoredSuggestions = [];
 
     for (const suggestion of flattenedSuggestions) {

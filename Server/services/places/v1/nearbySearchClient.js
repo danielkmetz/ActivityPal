@@ -1,15 +1,8 @@
 const axios = require("axios");
 
-function roundCoord(n) {
-  return typeof n === "number" ? Math.round(n * 10000) / 10000 : n;
-}
-
-function safeName(s) {
-  const t = String(s || "").trim();
-  return t.length > 60 ? t.slice(0, 57) + "..." : t;
-}
-
-const DEFAULT_FIELD_MASK = [
+// ---- Field masks ----
+// You need: regularOpeningHours (periods) + timezone/offset so you can evaluate "open at target time".
+const BASE_FIELD_MASK_FIELDS = [
   "places.id",
   "places.displayName",
   "places.types",
@@ -19,76 +12,112 @@ const DEFAULT_FIELD_MASK = [
   "places.photos",
   "places.priceLevel",
   "places.allowsDogs",
-  "places.currentOpeningHours",
-  "places.regularOpeningHours",
+  "places.regularOpeningHours",  // contains periods/weekdayDescriptions
+  "places.rating",
+  "places.userRatingCount",
+
+  // For correct "targetAt" evaluation, especially near timezone boundaries
+  "places.utcOffsetMinutes",
+  "places.timeZone",
 ].join(",");
 
+// Only useful for "When = now" UX + openNowOnly filter
+const NOW_FIELD_MASK_FIELDS = ["places.currentOpeningHours"].join(",");
+
+function buildNearbyFieldMask({ includeCurrentOpeningHours = true } = {}) {
+  return includeCurrentOpeningHours
+    ? `${BASE_FIELD_MASK_FIELDS},${NOW_FIELD_MASK_FIELDS}`
+    : BASE_FIELD_MASK_FIELDS;
+}
+
+function normalizeRankPreference(v) {
+  const s = String(v || "").toUpperCase().trim();
+  if (s === "DISTANCE" || s === "POPULARITY") return s;
+  return null;
+}
+
+function clampMaxResultCount(n, fallback = 20) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return fallback;
+  return Math.min(20, Math.max(1, Math.floor(x)));
+}
+
+/**
+ * Places API (New): nearby search (one-shot, no page tokens like legacy).
+ */
 async function fetchNearbyPlacesV1({
   apiKey,
   lat,
   lng,
   radiusMeters,
+
+  // Back-compat: allow either `type` or `includedTypes`
   type,
+  includedTypes,
+
   excludedTypes = [],
-  fieldMask = DEFAULT_FIELD_MASK,
+  maxResultCount = 20,
+  rankPreference = null,
+
+  // NEW: let caller control whether currentOpeningHours is fetched
+  includeCurrentOpeningHours, // boolean | undefined
+  when, // optional string (e.g., "now", "tonight", "custom") to infer includeCurrentOpeningHours
+
+  fieldMask, // optional override
   timeoutMs = 15000,
-  log = null,
-}) {
-  const reqId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+} = {}) {
+  const typesArr = Array.isArray(includedTypes)
+    ? includedTypes.filter(Boolean)
+    : type
+      ? [type]
+      : [];
 
   const body = {
-    includedTypes: [type],
-    excludedTypes,
-    maxResultCount: 20,
+    maxResultCount: clampMaxResultCount(maxResultCount, 20),
     locationRestriction: {
       circle: {
-        center: { latitude: lat, longitude: lng },
+        center: { latitude: Number(lat), longitude: Number(lng) },
         radius: Number(radiusMeters),
       },
     },
+    ...(typesArr.length ? { includedTypes: typesArr } : {}),
+    excludedTypes: Array.isArray(excludedTypes) ? excludedTypes : [],
   };
 
-  log?.(`[${reqId}] request`, {
-    type,
-    excludedCount: excludedTypes.length,
-    radiusMeters: body.locationRestriction.circle.radius,
-    lat: roundCoord(lat),
-    lng: roundCoord(lng),
+  const rp = normalizeRankPreference(rankPreference);
+  if (rp) body.rankPreference = rp;
+
+  // Decide if we should request currentOpeningHours.
+  // Only really needed for "When = now" features (openNowOnly, badges).
+  const includeCurrent =
+    typeof includeCurrentOpeningHours === "boolean"
+      ? includeCurrentOpeningHours
+      : String(when || "").toLowerCase() === "now";
+
+  const effectiveFieldMask = fieldMask || buildNearbyFieldMask({
+    includeCurrentOpeningHours: includeCurrent,
   });
 
-  try {
-    const response = await axios.post("https://places.googleapis.com/v1/places:searchNearby", body, {
+  const response = await axios.post(
+    "https://places.googleapis.com/v1/places:searchNearby",
+    body,
+    {
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": fieldMask,
+        "X-Goog-FieldMask": effectiveFieldMask,
       },
       timeout: timeoutMs,
-    });
-
-    const places = response?.data?.places || [];
-
-    if (log) {
-      const sample = places.slice(0, 3).map((p) => ({
-        id: p?.id,
-        name: safeName(p?.displayName?.text),
-        primaryType: p?.primaryType || null,
-        openNow:
-          typeof p?.currentOpeningHours?.openNow === "boolean" ? p.currentOpeningHours.openNow : null,
-      }));
-
-      log?.(`[${reqId}] response`, { count: places.length, sample });
+      validateStatus: (s) => s >= 200 && s < 300,
     }
+  );
 
-    return places;
-  } catch (err) {
-    log?.(`[${reqId}] ERROR`, {
-      status: err?.response?.status,
-      message: err?.message,
-      data: err?.response?.data,
-    });
-    throw err;
-  }
+  const data = response?.data;
+  return Array.isArray(data?.places) ? data.places : [];
 }
 
-module.exports = { fetchNearbyPlacesV1, DEFAULT_FIELD_MASK };
+module.exports = {
+  fetchNearbyPlacesV1,
+  buildNearbyFieldMask,
+  BASE_FIELD_MASK_FIELDS,
+};

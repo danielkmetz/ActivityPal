@@ -4,7 +4,7 @@ export const preferencesSlice = createSlice({
     name: 'preferences',
     initialState: {
         distance: 5,
-        budget: "$",
+        budget: null,
         eventType: null,
         familyFriendly: false,
     },

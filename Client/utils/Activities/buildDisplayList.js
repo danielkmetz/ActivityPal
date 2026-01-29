@@ -1,29 +1,17 @@
 import sortActivities from "../sortActivities";
 
 /**
- * Normalize a date string to YYYY-MM-DD in local time.
- * Avoids UTC drift from toISOString() for "today".
- */
-function localYMD(d = new Date()) {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function weekdayName(d = new Date()) {
-  return d.toLocaleDateString("en-US", { weekday: "long" });
-}
-
-/**
  * Best-effort open-now resolution across possible shapes.
- * Your data layer should normalize this, but this keeps UI safe.
  */
 function getOpenNow(item) {
   if (item?.openNow === true) return true;
   if (item?.open_now === true) return true;
   if (item?.opening_hours?.open_now === true) return true;
   if (item?.opening_hours?.openNow === true) return true;
+
+  // Places v1 shapes (you already include currentOpeningHours)
+  if (item?.currentOpeningHours?.openNow === true) return true;
+
   return false;
 }
 
@@ -42,17 +30,6 @@ function buildBusinessByPlaceId(businessData) {
 }
 
 /**
- * Prefer the first NON-EMPTY array from candidates.
- * Critical: an empty [] should NOT block fallback to business data.
- */
-function pickNonEmptyArray(...candidates) {
-  for (const c of candidates) {
-    if (Array.isArray(c) && c.length > 0) return c;
-  }
-  return [];
-}
-
-/**
  * Merge arrays with de-dupe by _id/id when present.
  * Keeps stable order: earlier sources win ordering.
  */
@@ -66,8 +43,9 @@ function mergeArraysDedup(...candidates) {
     for (const item of arr) {
       const key = item?._id || item?.id || null;
       if (key) {
-        if (seen.has(String(key))) continue;
-        seen.add(String(key));
+        const k = String(key);
+        if (seen.has(k)) continue;
+        seen.add(k);
       }
       out.push(item);
     }
@@ -77,38 +55,118 @@ function mergeArraysDedup(...candidates) {
 }
 
 /**
- * Optional "today" filter helpers (left here because you had them),
- * but this file does NOT force "today only" unless you explicitly use them.
+ * Places v1 regularOpeningHours periods parsing:
+ * period.open / period.close are usually { day, hour, minute }
+ * where day can be number (0-6) or string (MONDAY..)
  */
-function filterBusinessEventsForToday(events, todayStr, weekday) {
-  const list = Array.isArray(events) ? events : [];
-  return list.filter((event) => {
-    const isOneTimeToday = event?.date === todayStr;
-    const isRecurringToday = Array.isArray(event?.recurringDays)
-      ? event.recurringDays.includes(weekday)
-      : false;
-    return isOneTimeToday || isRecurringToday;
-  });
+const DOW = {
+  SUNDAY: 0,
+  MONDAY: 1,
+  TUESDAY: 2,
+  WEDNESDAY: 3,
+  THURSDAY: 4,
+  FRIDAY: 5,
+  SATURDAY: 6,
+};
+
+function toDowIndex(day) {
+  if (typeof day === "number" && day >= 0 && day <= 6) return day;
+  const s = String(day || "").trim().toUpperCase();
+  if (s in DOW) return DOW[s];
+  // sometimes APIs use 1-7; if you ever see that:
+  const n = Number(s);
+  if (Number.isFinite(n) && n >= 0 && n <= 6) return n;
+  if (Number.isFinite(n) && n >= 1 && n <= 7) return n % 7; // 7->0
+  return null;
 }
 
-function filterBusinessPromosForToday(promotions, weekday) {
-  const list = Array.isArray(promotions) ? promotions : [];
-  return list.filter((promo) =>
-    Array.isArray(promo?.recurringDays) ? promo.recurringDays.includes(weekday) : false
-  );
+function minutesSinceWeekStart(date) {
+  const dow = date.getDay(); // 0 Sun .. 6 Sat
+  return dow * 1440 + date.getHours() * 60 + date.getMinutes();
+}
+
+function periodToRange(period) {
+  const open = period?.open || null;
+  const close = period?.close || null;
+
+  const oDay = toDowIndex(open?.day);
+  const oHour = Number(open?.hour);
+  const oMin = Number(open?.minute ?? 0);
+
+  if (oDay == null || !Number.isFinite(oHour) || !Number.isFinite(oMin)) return null;
+
+  const start = oDay * 1440 + oHour * 60 + oMin;
+
+  // If no close, treat as open until end of the day (best-effort)
+  if (!close) return { start, end: start + 24 * 60 };
+
+  const cDay = toDowIndex(close?.day);
+  const cHour = Number(close?.hour);
+  const cMin = Number(close?.minute ?? 0);
+
+  if (cDay == null || !Number.isFinite(cHour) || !Number.isFinite(cMin)) {
+    return { start, end: start + 24 * 60 };
+  }
+
+  let end = cDay * 1440 + cHour * 60 + cMin;
+
+  // Overnight wrap
+  if (end <= start) end += 7 * 1440;
+
+  return { start, end };
+}
+
+/**
+ * Returns:
+ * - true/false when determinable
+ * - null when we don't have enough info
+ */
+function isOpenAtISO(activity, whenAtISO) {
+  if (!whenAtISO) return null;
+  const t = new Date(whenAtISO);
+  if (Number.isNaN(t.getTime())) return null;
+
+  const oh =
+    activity?.openingHours ||
+    activity?.regularOpeningHours ||
+    activity?.regular_opening_hours ||
+    null;
+
+  const periods = Array.isArray(oh?.periods) ? oh.periods : null;
+  if (!periods || periods.length === 0) return null;
+
+  let target = minutesSinceWeekStart(t);
+
+  for (const p of periods) {
+    const r = periodToRange(p);
+    if (!r) continue;
+
+    const { start, end } = r;
+    const target2 = target + 7 * 1440;
+
+    if ((target >= start && target < end) || (target2 >= start && target2 < end)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**
  * Merge a single activity with optional business.
  * Ensures we always return stable fields used by rendering/filters.
  */
-function mergeOne({ activity, business }) {
-  const openNow = getOpenNow(activity);
+function mergeOne({ activity, business, whenAtISO, openNowOnly }) {
+  const effectiveISO = whenAtISO || (openNowOnly ? new Date().toISOString() : null);
+  const openAtTarget = effectiveISO ? isOpenAtISO(activity, effectiveISO) : null;
+
+  const openResolved = openAtTarget === null ? getOpenNow(activity) : openAtTarget;
 
   if (business) {
     return {
       ...activity,
-      openNow,
+      openNow: openResolved,
+      _openNowSource: openAtTarget === null ? "api" : "periods",
       business: {
         ...business,
         logoFallback: activity?.photoUrl || null,
@@ -116,10 +174,10 @@ function mergeOne({ activity, business }) {
     };
   }
 
-  // fallback business shape if none exists in DB
   return {
     ...activity,
-    openNow,
+    openNow: openResolved,
+    _openNowSource: openAtTarget === null ? "api" : "periods",
     events: Array.isArray(activity?.events) ? activity.events : [],
     promotions: Array.isArray(activity?.promotions) ? activity.promotions : [],
     business: {
@@ -136,11 +194,7 @@ function mergeOne({ activity, business }) {
 }
 
 /**
- * Main function: given activities + businessData + filters, return list ready for UI.
- *
- * NOTE: This is refactored for your new architecture where the FIRST call can
- * already include promos/events. The key fix is: an empty [] from the activity
- * must NOT block fallback to business data.
+ * Main function
  */
 export default function buildDisplayList({
   activities,
@@ -148,54 +202,41 @@ export default function buildDisplayList({
   categoryFilter,
   openNowOnly,
   sortOption,
+
+  // ✅ NEW
+  whenAtISO = null,
 }) {
   const safeActivities = Array.isArray(activities) ? activities : [];
   if (!safeActivities.length) return [];
 
   const businessByPlaceId = buildBusinessByPlaceId(businessData);
 
-  // computed but not forced into filtering unless you choose to use the helpers
-  const todayStr = localYMD(new Date());
-  const weekday = weekdayName(new Date());
-
   const merged = safeActivities.map((activity) => {
     const placeId = activity?.place_id;
     const business = placeId ? businessByPlaceId.get(placeId) : null;
 
-    // --- EVENTS/PROMOS RESOLUTION ---
-    // Prefer backend-enriched arrays if they have items.
-    // Fall back to business DB arrays if the activity arrays are missing OR EMPTY.
-    //
-    // Also support your newer hydrate shape (active/upcoming) if present.
-    const resolvedEvents = pickNonEmptyArray(
+    const resolvedEvents = mergeArraysDedup(
       activity?.events,
       activity?.activeEvents,
       activity?.upcomingEvents,
       business?.events
     );
 
-    const resolvedPromotions = pickNonEmptyArray(
+    const resolvedPromotions = mergeArraysDedup(
       activity?.promotions,
       activity?.activePromos,
       activity?.upcomingPromos,
       business?.promotions
     );
 
-    // If you ever want to MERGE instead of pick:
-    // const resolvedEvents = mergeArraysDedup(activity?.events, activity?.activeEvents, activity?.upcomingEvents, business?.events);
-    // const resolvedPromotions = mergeArraysDedup(activity?.promotions, activity?.activePromos, activity?.upcomingPromos, business?.promotions);
-
-    // Keep today helpers available (unused by default)
-    // const todaysEvents = filterBusinessEventsForToday(resolvedEvents, todayStr, weekday);
-    // const todaysPromos = filterBusinessPromosForToday(resolvedPromotions, weekday);
-
     return mergeOne({
       activity: { ...activity, events: resolvedEvents, promotions: resolvedPromotions },
       business,
+      whenAtISO,
+      openNowOnly,
     });
   });
 
-  // highlighted first, then regular (keeps current order within each bucket)
   const highlighted = [];
   const regular = [];
 
@@ -209,22 +250,19 @@ export default function buildDisplayList({
 
   const combined = [...highlighted, ...regular];
 
-  // category filter (cuisine match)
   const hasCategoryFilter = Array.isArray(categoryFilter) && categoryFilter.length > 0;
   const categoryFiltered = hasCategoryFilter
     ? combined.filter((item) => {
-        const cuisine = toLower(item?.cuisine);
-        if (!cuisine) return false;
-        return categoryFilter.some((f) => cuisine === toLower(f));
-      })
+      const cuisine = toLower(item?.cuisine);
+      if (!cuisine) return false;
+      return categoryFilter.some((f) => cuisine === toLower(f));
+    })
     : combined;
 
-  // open-now filter (uses normalized openNow)
   const openFiltered = openNowOnly
     ? categoryFiltered.filter((item) => item?.openNow === true)
     : categoryFiltered;
 
-  // sort option (optional)
   const sorted = sortOption ? sortActivities(openFiltered, sortOption) : openFiltered;
 
   return sorted;

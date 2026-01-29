@@ -25,6 +25,8 @@ const WheelPicker = ({ selectedValue, onValueChange, options, visible, onClose }
         }
     }, [visible]);
 
+    if (!visible) return;
+
     return (
         <Modal visible={visible} transparent >
             <TouchableWithoutFeedback onPress={handleDone}>

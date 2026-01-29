@@ -1,36 +1,95 @@
 const { evaluatePlace } = require("../search/filters");
 const { fetchNearbyPage } = require("../google/nearbyClient");
-const { NEXT_TOKEN_WAIT_MS, MAX_GOOGLE_CALLS_PER_REQUEST, MAX_PAGES_PER_COMBO, MAX_SEEN_IDS } = require("./constants");
+const {
+  NEXT_TOKEN_WAIT_MS,
+  MAX_GOOGLE_CALLS_PER_REQUEST,
+  MAX_PAGES_PER_COMBO,
+  MAX_SEEN_IDS,
+} = require("./constants");
 const { anyCombosRemaining } = require("./state");
 
-async function fillPending(state, wantCount, { apiKey, log, diag, parseDiningMode }) {
-  const combos = Array.isArray(state.combos) ? state.combos : [];
-  const comboMeta = Array.isArray(state.comboMeta) ? state.comboMeta : [];
+function ensureArray(v) {
+  return Array.isArray(v) ? v : [];
+}
 
-  state.seenIds = Array.isArray(state.seenIds) ? state.seenIds : [];
-  state.pending = Array.isArray(state.pending) ? state.pending : [];
+function ensureComboMeta(state) {
+  state.combos = ensureArray(state.combos);
+
+  const meta = ensureArray(state.comboMeta);
+  if (meta.length !== state.combos.length) {
+    state.comboMeta = state.combos.map(() => ({
+      pagesFetched: 0,
+      nextPageToken: null,
+      tokenReadyAt: 0,
+      exhausted: false,
+    }));
+    return;
+  }
+
+  state.comboMeta = meta.map((m) => ({
+    pagesFetched: Number(m?.pagesFetched || 0),
+    nextPageToken: m?.nextPageToken || null,
+    tokenReadyAt: Number(m?.tokenReadyAt || 0),
+    exhausted: !!m?.exhausted,
+  }));
+}
+
+function pickNextCombo({ combos, comboMeta, startIndex, visitedThisCall }) {
+  if (!combos.length) return -1;
+
+  for (let i = 0; i < combos.length; i++) {
+    const idx = (startIndex + i) % combos.length;
+    if (comboMeta[idx]?.exhausted) continue;
+    if (visitedThisCall.has(idx)) continue;
+    return idx;
+  }
+
+  for (let i = 0; i < combos.length; i++) {
+    const idx = (startIndex + i) % combos.length;
+    if (!comboMeta[idx]?.exhausted) return idx;
+  }
+
+  return -1;
+}
+
+async function fillPending(state, wantCount, { apiKey, diag, parseDiningMode }) {
+  state.seenIds = ensureArray(state.seenIds);
+  state.pending = ensureArray(state.pending);
+  state.comboIndex = Number(state.comboIndex || 0);
+  state.query = state.query && typeof state.query === "object" ? state.query : null;
+
+  ensureComboMeta(state);
+
+  const combos = state.combos;
+  const comboMeta = state.comboMeta;
+
   const seenSet = new Set(state.seenIds);
-
-  state._visitedCombos = Array.isArray(state._visitedCombos) ? state._visitedCombos : [];
-  const visited = new Set(state._visitedCombos);
+  const visitedThisCall = new Set();
 
   while (
-    (state.pending.length < wantCount || visited.size < combos.length) &&
+    state.pending.length < wantCount &&
     diag.fetch.googleCalls < MAX_GOOGLE_CALLS_PER_REQUEST
   ) {
-    if (!combos.length) { diag.fetch.stoppedBecause = "noCombos"; break; }
-
-    let picked = -1;
-    for (let i = 0; i < combos.length; i++) {
-      const idx = (state.comboIndex + i) % combos.length;
-      if (!comboMeta[idx]?.exhausted) { picked = idx; break; }
+    if (!combos.length) {
+      diag.fetch.stoppedBecause = "noCombos";
+      break;
     }
-    if (picked === -1) { diag.fetch.stoppedBecause = "allExhausted"; break; }
+
+    const picked = pickNextCombo({
+      combos,
+      comboMeta,
+      startIndex: state.comboIndex,
+      visitedThisCall,
+    });
+
+    if (picked === -1) {
+      diag.fetch.stoppedBecause = "allExhausted";
+      break;
+    }
 
     const combo = combos[picked] || {};
     const m = comboMeta[picked] || (comboMeta[picked] = {});
-    visited.add(picked);
-    state._visitedCombos = Array.from(visited);
+    visitedThisCall.add(picked);
 
     if ((m.pagesFetched || 0) >= MAX_PAGES_PER_COMBO) {
       m.exhausted = true;
@@ -48,47 +107,68 @@ async function fillPending(state, wantCount, { apiKey, log, diag, parseDiningMod
 
     let data;
     try {
-      data = await fetchNearbyPage({ state, combo, meta: m, apiKey });
-    } catch (e) {
+      data = await fetchNearbyPage({
+        state,
+        combo,
+        meta: m,
+        apiKey,
+        query: state.query,
+      });
+    } catch {
       m.exhausted = true;
       state.comboIndex = (picked + 1) % combos.length;
       continue;
     }
 
     const status = data?.status;
+
     if (status === "INVALID_REQUEST" && m.nextPageToken) {
       m.tokenReadyAt = Date.now() + NEXT_TOKEN_WAIT_MS;
       state.comboIndex = (picked + 1) % combos.length;
       continue;
     }
+
     if (status === "ZERO_RESULTS" || status !== "OK") {
       m.exhausted = true;
       state.comboIndex = (picked + 1) % combos.length;
       continue;
     }
 
-    const results = Array.isArray(data?.results) ? data.results : [];
+    const results = ensureArray(data?.results);
     diag.fetch.resultsSeen += results.length;
 
     for (const rawPlace of results) {
-      const id = rawPlace?.place_id;
-      if (!id) { diag.bump("missingId"); continue; }
-      if (seenSet.has(id)) { diag.bump("dup"); continue; }
+      if (state.pending.length >= wantCount) break;
 
-      const evalRes = evaluatePlace(rawPlace, state, { parseDiningMode });
+      const id = rawPlace?.place_id;
+      if (!id) {
+        diag.bump("missingId");
+        continue;
+      }
+      if (seenSet.has(id)) {
+        diag.bump("dup");
+        continue;
+      }
+
+      const evalRes = evaluatePlace(rawPlace, state, {
+        parseDiningMode,
+        query: state.query,
+      });
+
       if (!evalRes.ok) {
         evalRes.reasons.forEach((r) => diag.bump(r));
         continue;
       }
 
       const distanceMiles = evalRes.distMeters / 1609.34;
-      const openNow = typeof rawPlace?.opening_hours?.open_now === "boolean"
-        ? rawPlace.opening_hours.open_now
-        : null;
+      const openNow =
+        typeof rawPlace?.opening_hours?.open_now === "boolean"
+          ? rawPlace.opening_hours.open_now
+          : null;
 
       state.pending.push({
         name: rawPlace?.name || null,
-        types: Array.isArray(rawPlace?.types) ? rawPlace.types : [],
+        types: ensureArray(rawPlace?.types),
         address: rawPlace?.vicinity || null,
         place_id: id,
         openNow,
@@ -113,8 +193,6 @@ async function fillPending(state, wantCount, { apiKey, log, diag, parseDiningMod
           if (old) seenSet.delete(old);
         }
       }
-
-      if (state.pending.length >= wantCount && visited.size >= combos.length) break;
     }
 
     m.pagesFetched = (m.pagesFetched || 0) + 1;
@@ -131,10 +209,6 @@ async function fillPending(state, wantCount, { apiKey, log, diag, parseDiningMod
     }
 
     state.comboIndex = (picked + 1) % combos.length;
-    if (state.pending.length >= wantCount && visited.size >= combos.length) {
-      diag.fetch.stoppedBecause = "wantCount";
-      break;
-    }
   }
 
   if (!diag.fetch.stoppedBecause && diag.fetch.googleCalls >= MAX_GOOGLE_CALLS_PER_REQUEST) {

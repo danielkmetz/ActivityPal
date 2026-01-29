@@ -11,22 +11,11 @@ function normalizeErr(e) {
   };
 }
 
-/**
- * Fetch a single Google Nearby Search page for a specific combo + its meta.
- *
- * NOTE:
- * - We do NOT loop pages here. Caller owns pagination.
- * - We do NOT sleep/retry INVALID_REQUEST here. Caller owns tokenReadyAt gating.
- *
- * Params:
- *  - state: your cursor state (originLat/originLng/radiusMeters/rankByDistance)
- *  - combo: { type, keyword }
- *  - meta:  { nextPageToken }  (optional)
- *  - apiKey: string
- */
 async function fetchNearbyPage({ state, combo, meta, apiKey }) {
   const type = combo?.type || null;
   const keyword = combo?.keyword || null;
+
+  const openNowOnly = !!state?.query?.placesFilters?.openNowOnly;
 
   const baseUrl = buildNearbyBaseUrl({
     lat: state.originLat,
@@ -36,6 +25,9 @@ async function fetchNearbyPage({ state, combo, meta, apiKey }) {
     keyword,
     rankbyDistance: !!state.rankByDistance,
     apiKey,
+
+    // NEW
+    openNowOnly,
   });
 
   const url = buildNearbyUrl(baseUrl, meta?.nextPageToken || null);
@@ -45,7 +37,6 @@ async function fetchNearbyPage({ state, combo, meta, apiKey }) {
     return r?.data || {};
   } catch (e) {
     const err = normalizeErr(e);
-    // Throw an error so the caller can mark the combo exhausted if desired
     const out = new Error("Google nearbysearch request failed");
     out.details = err;
     out.url = url;

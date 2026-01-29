@@ -6,9 +6,10 @@ import { useDispatch, useSelector } from "react-redux";
 import { useNavigation } from "@react-navigation/native";
 import SearchModal from "../Home/SearchModal";
 import SocialHeader from "../Social/SocialHeader";
+import ActivitiesHeaderButtons from "./ActivitiesHeaderButtons";
 import { openSearchModal } from "../../Slices/ModalSlice";
 import { openLocationModal } from "../../Slices/LocationSlice";
-import { selectGooglePlaces, clearGooglePlaces } from "../../Slices/GooglePlacesSlice";
+import { selectPlacesItems, clearGooglePlaces } from "../../Slices/GooglePlacesSlice";
 import { resetPagination } from "../../Slices/PaginationSlice";
 import { selectIsBusiness } from "../../Slices/UserSlice";
 import { getHeaderTitle } from './getTitle';
@@ -26,7 +27,7 @@ export default function Header({
     const navigation = useNavigation();
 
     const userToMessage = useSelector(selectUserToMessage);
-    const activities = useSelector(selectGooglePlaces) || [];
+    const activities = useSelector(selectPlacesItems) || [];
     const isBusiness = useSelector(selectIsBusiness);
     const conversations = useSelector(selectConversations) || [];
     const categoryFilter = useSelector(selectCategoryFilter);
@@ -69,7 +70,7 @@ export default function Header({
         currentRoute === "InviteDetails" ||
         currentRoute === "Social" ||
         currentRoute === "FriendDiscovery" ||
-        currentRoute === "MyPlans"; 
+        currentRoute === "MyPlans";
 
     const handleOpenSearch = () => dispatch(openSearchModal());
     const handleOpenFollowingModal = () => navigation.navigate("SearchFollowing");
@@ -77,7 +78,6 @@ export default function Header({
     const handleOpenDMs = () => navigation.navigate("DirectMessages");
     const handleOpenLocationModal = () => dispatch(openLocationModal());
     const goBack = () => navigation.goBack();
-
     const onOpenPreferences = () => dispatch(openPreferences());
     const onOpenFilter = () => navigation.navigate("FilterSort", { availableCuisines });
     const onToggleMapView = () => dispatch(toggleMapView());
@@ -95,22 +95,14 @@ export default function Header({
                 ]}
             >
                 {currentRoute === "Activities" && activitiesRendered ? (
-                    <View style={styles.activityHeaderButtons}>
-                        <TouchableOpacity style={styles.headerButton} onPress={onOpenPreferences}>
-                            <Text style={styles.headerButtonText}>Preferences</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.headerButton} onPress={onOpenFilter}>
-                            <Text style={styles.headerButtonText}>
-                                {categoryFilter ? `Filter: ${categoryFilter.replace(/_/g, " ")}` : "Filter/Sort"}
-                            </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.headerButton} onPress={onToggleMapView}>
-                            <Text style={styles.headerButtonText}>{isMapView ? "List View" : "Map View"}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.headerButton} onPress={onClear}>
-                            <Text style={styles.headerButtonText}>Clear</Text>
-                        </TouchableOpacity>
-                    </View>
+                    <ActivitiesHeaderButtons
+                        onOpenPreferences={onOpenPreferences}
+                        onOpenFilter={onOpenFilter}
+                        onToggleMapView={onToggleMapView}
+                        onClear={onClear}
+                        categoryFilter={categoryFilter}
+                        isMapView={isMapView}
+                    />
                 ) : (
                     <>
                         <View style={styles.headerContent}>
@@ -211,25 +203,6 @@ const styles = StyleSheet.create({
         marginHorizontal: -20,   // cancel header padding so this can be full-width
         paddingHorizontal: 16,   // SocialHeader layout padding
         paddingBottom: 12,
-    },
-    activityHeaderButtons: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        gap: 5,
-        paddingBottom: 10,
-        paddingTop: 10,
-    },
-    headerButton: {
-        flex: 1,
-        backgroundColor: "#006666",
-        paddingVertical: 7,
-        borderRadius: 6,
-        alignItems: "center",
-    },
-    headerButtonText: {
-        color: "white",
-        fontWeight: "bold",
-        fontSize: 13,
-        textAlign: "center",
-    },
+    }
+
 });

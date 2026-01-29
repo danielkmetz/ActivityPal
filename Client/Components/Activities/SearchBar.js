@@ -150,7 +150,7 @@ export default function SearchBar({ lat, lng, onSelectPlace }) {
 }
 
 const styles = StyleSheet.create({
-    searchContainer: { width: "100%", alignSelf: "center", marginTop: 30, paddingHorizontal: 10 },
+    searchContainer: { width: "100%", alignSelf: "center", paddingHorizontal: 10 },
     searchInput: { height: 40, borderWidth: 1, borderColor: "#ccc", borderRadius: 15, paddingHorizontal: 10, backgroundColor: "white" },
     listView: { position: "absolute", top: 50, left: 10, right: 10, backgroundColor: "#fff", zIndex: 1000, borderRadius: 10, elevation: 4, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, maxHeight: 320, overflow: "hidden" },
     loadingRow: { flexDirection: "row", alignItems: "center", padding: 10, borderBottomWidth: 1, borderBottomColor: "#eee" },

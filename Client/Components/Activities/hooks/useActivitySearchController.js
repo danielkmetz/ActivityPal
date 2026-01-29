@@ -1,150 +1,87 @@
-import { useCallback, useMemo } from "react";
-import { fetchGooglePlaces, fetchDining, clearGooglePlaces } from "../../../Slices/GooglePlacesSlice";
-import { resetPage } from "../../../Slices/PaginationSlice";
+import { useCallback } from "react";
+import {
+  startActivitiesSearch,
+  loadMorePlaces,
+  loadMoreEvents,
+} from "../../../Slices/GooglePlacesSlice";
+import { milesToMeters } from "../../../functions";
 
-/**
- * Owns "search orchestration" for ActivityPage:
- * - start a new search (quickFilter / activityType / Dining)
- * - reset server-paged list state
- * - load-more for server paged results
- *
- * Cursor pagination:
- * - Dining now uses cursor-based paging from meta.cursor/meta.hasMore
- * - places2 can stay offset/page-based (serverPage + 1)
- */
 export default function useActivitySearchController({
   dispatch,
   lat,
   lng,
   perPage,
-  manualDistance,
-  manualDistanceDining,
-  manualBudget,
-  status,
-  loadingMore,
-  hasMore,
-  cursor, // NEW: Dining cursor from meta.cursor
-  lastQuery,
-  serverPage, // still used for places2 offset pagination
-  onNewSearchReset,
-} = {}) {
-  const quickFilterTypes = useMemo(
-    () =>
-      new Set([
-        "dateNight",
-        "drinksAndDining",
-        "outdoor",
-        "movieNight",
-        "gaming",
-        "artAndCulture",
-        "familyFun",
-        "petFriendly",
-        "liveMusic",
-        "whatsClose",
-      ]),
-    []
-  );
 
-  const handleActivityFetch = useCallback(
-    (type, isCustom = false, customParams = {}) => {
+  statusByStream,
+  loadingMoreByStream,
+  hasMoreByStream,
+  lastSearch,
+  onNewSearchReset,
+
+  // ✅ defaults
+  defaultRadiusMeters = milesToMeters(7),
+  defaultDiningRadiusMeters = milesToMeters(5),
+} = {}) {
+  const startSearch = useCallback(
+    (query) => {
       if (!lat || !lng) return;
 
       if (typeof onNewSearchReset === "function") onNewSearchReset();
 
-      // Reset list state
-      dispatch(clearGooglePlaces());
-      dispatch(resetPage());
+      const qIn = query && typeof query === "object" ? query : {};
 
-      const isQuickFilter = quickFilterTypes.has(type);
+      // Determine if this search should use dining pipeline
+      const isDining =
+        qIn.placeCategory === "food_drink" ||
+        qIn.activityType === "Dining" ||
+        qIn.quickFilter === "Dining";
 
-      const common = {
+      const radiusMeters =
+        Number(qIn.radius ?? qIn.radiusMeters) ||
+        (isDining ? defaultDiningRadiusMeters : defaultRadiusMeters);
+
+      // ✅ enforce canonical defaults
+      const q = {
+        ...qIn,
         lat,
         lng,
-        radius: isCustom ? customParams.radius : manualDistance,
-        budget: isCustom ? customParams.budget : manualBudget,
-        page: 1, // only relevant for places2 endpoint
-        perPage,
+        perPage: qIn.perPage || perPage,
+        radius: radiusMeters, // backend expects `radius` (meters) in your new flow
       };
 
-      if (type === "Dining") {
-        // Dining is now cursor-paged: starting a new session => cursor: null
-        dispatch(
-          fetchDining({
-            lat,
-            lng,
-            activityType: type,
-            radius: isCustom ? customParams.radius : manualDistanceDining,
-            budget: isCustom ? customParams.budget : manualBudget,
-            isCustom,
-            perPage,
-            cursor: null,
-          })
-        );
-        return;
-      }
-
-      dispatch(
-        fetchGooglePlaces({
-          ...common,
-          ...(isQuickFilter ? { quickFilter: type } : { activityType: type }),
-        })
-      );
+      dispatch(startActivitiesSearch(q));
     },
     [
+      dispatch,
       lat,
       lng,
       perPage,
-      manualDistance,
-      manualDistanceDining,
-      manualBudget,
-      dispatch,
       onNewSearchReset,
-      quickFilterTypes,
+      defaultRadiusMeters,
+      defaultDiningRadiusMeters,
     ]
   );
 
-  const handleLoadMore = useCallback(() => {
-    if (status === "loading") return;
-    if (loadingMore) return;
-    if (!hasMore) return;
+  const loadMore = useCallback(
+    (stream) => {
+      if (!stream) return;
+      if (!lastSearch) return;
 
-    // Need a prior query to know which endpoint to continue
-    if (!lastQuery) return;
+      if (statusByStream?.[stream] === "loading") return;
+      if (loadingMoreByStream?.[stream]) return;
+      if (!hasMoreByStream?.[stream]) return;
 
-    const perPageToUse = lastQuery?.perPage || perPage;
+      if (stream === "places") {
+        dispatch(loadMorePlaces({ lastSearch }));
+        return;
+      }
 
-    // ---- Dining: cursor-based pagination ----
-    if (lastQuery?.activityType === "Dining" && !lastQuery?.quickFilter) {
-      // If cursor is missing, there is nothing to continue
-      if (!cursor) return;
+      if (stream === "events") {
+        dispatch(loadMoreEvents({ lastSearch }));
+      }
+    },
+    [dispatch, lastSearch, statusByStream, loadingMoreByStream, hasMoreByStream]
+  );
 
-      // Send cursor + (optionally) lastQuery fields; backend ignores them when cursor is present
-      dispatch(
-        fetchDining({
-          ...lastQuery,
-          cursor,
-          perPage: perPageToUse,
-        })
-      );
-      return;
-    }
-
-    // ---- places2: offset/page-based pagination ----
-    if (!lastQuery?.lat || !lastQuery?.lng) return;
-
-    const nextPage = (serverPage || 1) + 1;
-
-    dispatch(
-      fetchGooglePlaces({
-        ...lastQuery,
-        page: nextPage,
-        perPage: perPageToUse,
-      })
-    );
-  }, [status, loadingMore, hasMore, lastQuery, cursor, serverPage, perPage, dispatch]);
-
-  return {
-    handleActivityFetch,
-    handleLoadMore,
-  };
+  return { startSearch, loadMore };
 }
