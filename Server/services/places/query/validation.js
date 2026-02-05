@@ -2,10 +2,23 @@ function parseCursor(raw) {
   return typeof raw === "string" && raw.trim() ? raw.trim() : null;
 }
 
-function parsePerPage(raw, { MIN_PER_PAGE, MAX_PER_PAGE }) {
-  const n = Number(raw || 15);
-  if (!Number.isFinite(n)) return MIN_PER_PAGE;
-  return Math.min(MAX_PER_PAGE, Math.max(MIN_PER_PAGE, Math.floor(n)));
+function parsePerPage(raw, opts = {}) {
+  // Back-compat: allow { MIN_PER_PAGE, MAX_PER_PAGE } shape
+  const min =
+    Number.isFinite(opts.min) ? opts.min :
+      Number.isFinite(opts.MIN_PER_PAGE) ? opts.MIN_PER_PAGE :
+        5;
+
+  const max =
+    Number.isFinite(opts.max) ? opts.max :
+      Number.isFinite(opts.MAX_PER_PAGE) ? opts.MAX_PER_PAGE :
+        25;
+
+  const fallback = Number.isFinite(opts.fallback) ? opts.fallback : 15;
+
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(n)));
 }
 
 function parseBool(v, fallback = false) {
@@ -42,7 +55,8 @@ function parseVibes(v) {
     if (typeof it !== "string") continue;
     const s = it.trim();
     if (!s) continue;
-    if (out.includes(s)) continue;
+    const key = s.toLowerCase();
+    if (out.some((x) => x.toLowerCase() === key)) continue;
     out.push(s);
     if (out.length >= 2) break; // hard cap
   }
@@ -51,7 +65,7 @@ function parseVibes(v) {
 
 // supports either: "today" | "weekend" | etc OR { kind: "date", date: "YYYY-MM-DD" }
 function parseWhen(v) {
-  if (v && typeof v === "object") {
+  if (v && typeof v === "object" && !Array.isArray(v)) {
     const kind = parseEnum(v.kind, new Set(["date"]), null);
     const date = parseNullableString(v.date, { maxLen: 32 });
     if (kind === "date" && date) return { kind, date };
@@ -66,9 +80,9 @@ function parseWhen(v) {
 }
 
 function parsePlacesFilters(v) {
-  if (!v || typeof v !== "object") return null;
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
 
-  const avoid = v.avoid && typeof v.avoid === "object" ? v.avoid : {};
+  const avoid = v.avoid && typeof v.avoid === "object" && !Array.isArray(v.avoid) ? v.avoid : {};
 
   const minRatingRaw = v.minRating;
   const minRating =
@@ -92,11 +106,10 @@ function parsePlacesFilters(v) {
 }
 
 function parseEventFilters(v) {
-  if (!v || typeof v !== "object") return null;
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
 
   const sort = parseEnum(v.sort, new Set(["date", "distance", "relevance"]), "date");
 
-  // keep category as a string (your event categories will evolve)
   const category = parseNullableString(v.category, { maxLen: 40 });
 
   return {
@@ -106,20 +119,42 @@ function parseEventFilters(v) {
   };
 }
 
-function validateNewSearchBody(body) {
-  const lat = Number(body?.lat);
-  const lng = Number(body?.lng);
+function parseTimeZone(v) {
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  return s ? s.slice(0, 64) : null;
+}
 
-  // Accept either `radius` or `radiusMeters`
-  const radiusMeters = Number(
-    typeof body?.radiusMeters !== "undefined" ? body.radiusMeters : body?.radius
-  );
+function parseTzOffsetMinutes(v) {
+  const n = v === "" || v == null ? null : Number(v);
+  if (!Number.isFinite(n)) return null;
+  if (Math.abs(n) > 14 * 60) return null;
+  return Math.trunc(n);
+}
+
+function parseWhenAtISO(v) {
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  if (!s) return null;
+  const d = new Date(s);
+  if (!Number.isFinite(d.getTime())) return null;
+  return d.toISOString();
+}
+
+function validateNewSearchQuery(q) {
+  const lat = Number(q?.lat);
+  const lng = Number(q?.lng);
+
+  // accept radiusMeters OR legacy radius
+  const radiusMetersRaw =
+    typeof q?.radiusMeters !== "undefined" ? q.radiusMeters : q?.radius;
+
+  const radiusMeters = Number(radiusMetersRaw);
 
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return { ok: false, status: 400, error: "Invalid lat/lng" };
   }
 
-  // Keep your cap (50km)
   if (!Number.isFinite(radiusMeters) || radiusMeters <= 0 || radiusMeters > 50000) {
     return {
       ok: false,
@@ -128,25 +163,26 @@ function validateNewSearchBody(body) {
     };
   }
 
-  const mode = parseEnum(body?.mode, new Set(["places", "events", "mixed"]), "places");
+  const mode = parseEnum(q?.mode, new Set(["places", "events", "mixed"]), "places");
 
-  // Your new categories (expand later without breaking)
   const placeCategory = parseEnum(
-    body?.placeCategory,
+    q?.placeCategory,
     new Set(["any", "food_drink", "entertainment", "outdoor", "indoor", "family"]),
     null
   );
-  const eventCategory = parseNullableString(body?.eventCategory, { maxLen: 40 });
 
-  // Back-compat: you still use `activityType` in cursor state today
-  const activityType = parseNullableString(body?.activityType, { maxLen: 40 });
-  const quickFilter = parseNullableString(body?.quickFilter, { maxLen: 40 });
+  const eventCategory = parseNullableString(q?.eventCategory, { maxLen: 40 });
+  const activityType = parseNullableString(q?.activityType, { maxLen: 40 });
+  const quickFilter = parseNullableString(q?.quickFilter, { maxLen: 40 });
+  const budget = parseBudget(q?.budget);
 
-  const budget = parseBudget(body?.budget);
-  const isCustom = parseBool(body?.isCustom, false);
+  const includeUnpriced = typeof q?.includeUnpriced === "boolean"
+    ? q.includeUnpriced
+    : (q?.includeUnpriced === "true" ? true : (q?.includeUnpriced === "false" ? false : true));
 
-  // keep your existing diningMode contract
-  const diningModeRaw = typeof body?.diningMode === "string" ? body.diningMode.trim() : "";
+  const isCustom = parseBool(q?.isCustom, false);
+
+  const diningModeRaw = typeof q?.diningMode === "string" ? q.diningMode.trim() : "";
   const diningMode =
     diningModeRaw === "quick_bite" || diningModeRaw === "quickbite" || diningModeRaw === "quick"
       ? "quick_bite"
@@ -154,15 +190,16 @@ function validateNewSearchBody(body) {
         ? "sit_down"
         : undefined;
 
-  const when = parseWhen(body?.when);
-  const who = parseNullableString(body?.who, { maxLen: 40 });
-  const vibes = parseVibes(body?.vibes);
-
-  const keyword = parseNullableString(body?.keyword, { maxLen: 80 });
-  const familyFriendly = parseBool(body?.familyFriendly, false);
-
-  const placesFilters = parsePlacesFilters(body?.placesFilters);
-  const eventFilters = parseEventFilters(body?.eventFilters);
+  const when = parseWhen(q?.when);
+  const whenAtISO = parseWhenAtISO(q?.whenAtISO);
+  const who = parseNullableString(q?.who, { maxLen: 40 });
+  const vibes = parseVibes(q?.vibes);
+  const timeZone = parseTimeZone(q?.timeZone ?? q?.timezone);
+  const tzOffsetMinutes = parseTzOffsetMinutes(q?.tzOffsetMinutes ?? q?.tzOffset);
+  const keyword = parseNullableString(q?.keyword, { maxLen: 80 });
+  const familyFriendly = parseBool(q?.familyFriendly, false);
+  const placesFilters = parsePlacesFilters(q?.placesFilters);
+  const eventFilters = parseEventFilters(q?.eventFilters);
 
   return {
     ok: true,
@@ -170,24 +207,23 @@ function validateNewSearchBody(body) {
       lat,
       lng,
       radiusMeters,
-
-      // expanded prefs
       mode,
       placeCategory: placeCategory && placeCategory !== "any" ? placeCategory : null,
       eventCategory: eventCategory && eventCategory !== "any" ? eventCategory : null,
       when,
+      whenAtISO,
+      timeZone,
+      tzOffsetMinutes,
       who,
       vibes,
       keyword,
       familyFriendly,
-
       placesFilters,
       eventFilters,
-
-      // back-compat fields
       activityType: activityType || null,
       quickFilter: quickFilter || null,
       budget,
+      includeUnpriced,
       isCustom,
       diningMode,
     },
@@ -197,5 +233,5 @@ function validateNewSearchBody(body) {
 module.exports = {
   parseCursor,
   parsePerPage,
-  validateNewSearchBody,
+  validateNewSearchQuery,
 };

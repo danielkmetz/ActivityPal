@@ -1,4 +1,4 @@
-const { isFastFood } = require("../../../utils/isFastFood");
+const { isFastFood } = require("../../../utils/places/curation/isFastFood");
 const { haversineDistance } = require("../../../utils/haversineDistance");
 const {
   hardExcludedTypes,

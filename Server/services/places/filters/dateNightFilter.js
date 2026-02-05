@@ -1,8 +1,8 @@
-const KID_NAME_RE =
-  /\b(kid|kids|child|children|toddler|birthday|bday|play\s?place|playplace|trampoline|bounce|jump|urban\s?air|kids\s?empire|epic\s?air)\b/i;
+const { isFastFood, matchFastFoodChain } = require("../../../utils/places/curation/isFastFood"); 
+
+const KID_NAME_RE = /\b(kid|kids|child|children|toddler|birthday|bday|play\s?place|playplace|trampoline|bounce|jump|urban\s?air|kids\s?empire|epic\s?air)\b/i;
 
 const KID_TYPES = new Set([
-  // choose only types you actually see in responses
   "playground",
   "amusement_park",
   "water_park",
@@ -16,7 +16,6 @@ const KID_TYPES = new Set([
 const ADULT_SIGNAL_TYPES = new Set([
   "bar",
   "wine_bar",
-  "pub",
   "night_club",
   "restaurant",
   "fine_dining_restaurant",
@@ -27,16 +26,40 @@ const ADULT_SIGNAL_TYPES = new Set([
   "karaoke",
 ]);
 
-function isDateNightReject(place) {
-  // ✅ Support both:
-  // - mapped objects { name, types }
-  // - raw Places objects { displayName: { text }, types }
-  const name = String(place?.name || place?.displayName?.text || "");
-  const types = Array.isArray(place?.types) ? place.types : [];
+const FAST_FOOD_TYPES = new Set([
+  "fast_food_restaurant",
+  "meal_takeaway",
+  "meal_delivery",
+  "sandwich_shop",
+]);
 
+function getPlaceName(place) {
+  return String(place?.name || place?.displayName?.text || "");
+}
+
+function getPlaceTypes(place) {
+  return Array.isArray(place?.types) ? place.types : [];
+}
+
+function isDateNightReject(place, ctx = {}) {
+  const name = getPlaceName(place);
+  const types = getPlaceTypes(place);
+
+  // 1) Hard reject by types when Google labels it clearly
+  if (types.some((t) => FAST_FOOD_TYPES.has(t))) {
+    return { reject: true, reason: "fast_food_type" };
+  }
+
+  // 2) Hard reject by name using YOUR string-based matcher
+  if (isFastFood(name)) {
+    // optional debug hook
+    if (ctx?.log) ctx.log("dateNight fastFood reject", { name, chain: matchFastFoodChain(name) });
+    return { reject: true, reason: "fast_food_name" };
+  }
+
+  // existing kid filter
   if (KID_NAME_RE.test(name)) return { reject: true, reason: "kid_name" };
 
-  // If it looks like a kid venue AND doesn’t have adult signals, reject it.
   const hasKidType = types.some((t) => KID_TYPES.has(t));
   const hasAdultSignal = types.some((t) => ADULT_SIGNAL_TYPES.has(t));
   if (hasKidType && !hasAdultSignal) return { reject: true, reason: "kid_type" };

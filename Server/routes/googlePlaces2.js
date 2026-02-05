@@ -9,16 +9,14 @@ const pLimitPkg = require("p-limit");
 const pLimit = pLimitPkg.default || pLimitPkg;
 const Event = require("../models/Events");
 const Promotion = require("../models/Promotions");
-const { getCuratedPlacesNearbyV1 } = require("../services/places/v1/curatePlacesNearby");
+const { getCuratedPlacesNearbyV1 } = require("../services/places/handlers/curatePlacesNearby");
+const { normalizePlacesRequest } = require("../services/places/query/query");
 
-const googleApiKey = process.env.GOOGLE_PLACES2;
-
+const googleApiKey = process.env.GOOGLE_KEY;
 const MAX_DISTANCE_METERS = 8046.72; // 5 miles
-
-const PHOTO_URL_TTL_MS = 1000 * 60 * 30; // 30 min (tune this)
+const PHOTO_URL_TTL_MS = 1000 * 60 * 30; // 30 min
 const photoCache = new Map(); // key -> { url, exp }
 
-// basic cache helpers
 function cacheGet(key) {
   const hit = photoCache.get(key);
   if (!hit) return null;
@@ -34,23 +32,6 @@ function cacheSet(key, url) {
 
 const isV1PhotoName = (s) => /^places\/[^/]+\/photos\/[^/]+$/.test(s);
 const isLegacyPhotoRef = (s) => /^[A-Za-z0-9_-]{10,}$/.test(s);
-
-// ---- Canonical query extraction ----
-// Frontend sometimes sends { query: {...} } and sometimes sends fields top-level.
-// Normalize to one query object.
-function getIncomingQuery(body) {
-  const q =
-    body && typeof body.query === "object" && body.query
-      ? body.query
-      : body || {};
-  return q;
-}
-
-function normalizeRadiusMeters(q) {
-  const r = q.radiusMeters ?? q.radius;
-  const n = Number(r);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
 
 async function resolvePhotoUrl({ name, max = 400 }, ctx = {}) {
   const rawName = String(name || "").trim();
@@ -85,7 +66,6 @@ async function resolvePhotoUrl({ name, max = 400 }, ctx = {}) {
       `&key=${googleApiKey}`;
   }
 
-  // Don’t follow redirects. Grab Location header.
   const r = await axios.get(url, {
     headers,
     maxRedirects: 0,
@@ -100,183 +80,98 @@ async function resolvePhotoUrl({ name, max = 400 }, ctx = {}) {
 }
 
 router.post("/places-nearby", async (req, res) => {
+  const reqId = Math.random().toString(16).slice(2, 10);
+
   try {
     const apiKey = process.env.GOOGLE_PLACES2;
-    if (!apiKey) {
+    if (!(typeof apiKey === "string" && apiKey.length > 10)) {
       return res
         .status(500)
         .json({ error: "Server misconfigured (Google Places key missing)." });
     }
 
-    // normalize incoming request into a canonical query object
-    const qRaw = getIncomingQuery(req.body);
+    // ---- STRICT wrapper-only normalization ----
+    const norm = normalizePlacesRequest(req.body, {
+      strictWrapper: true,
+      perPageOpts: { min: 5, max: 25, fallback: 15 },
+    });
 
-    const lat = Number(qRaw.lat);
-    const lng = Number(qRaw.lng);
-
-    const radiusMeters = normalizeRadiusMeters(qRaw) ?? 10000;
-    const page = Number(qRaw.page ?? req.body.page ?? 1);
-    const perPage = Number(qRaw.perPage ?? req.body.perPage ?? 15);
-
-    const activityType = qRaw.activityType ?? null;
-    const quickFilter = qRaw.quickFilter ?? null;
-    const placeCategory = qRaw.placeCategory ?? null;
-    const keyword = qRaw.keyword ?? null;
-
-    const vibes = qRaw.vibes ?? null;
-    const familyFriendly = qRaw.familyFriendly ?? null;
-    const placesFilters = qRaw.placesFilters ?? null;
-    const budget = qRaw.budget ?? null;
-
-    const whenAtISO = qRaw.whenAtISO ?? null;
-
-    // Validate whenAtISO if present
-    if (whenAtISO && Number.isNaN(new Date(whenAtISO).getTime())) {
-      return res.status(400).json({ error: "Invalid whenAtISO" });
+    if (!norm.ok) {
+      return res.status(norm.status || 400).json({ error: norm.error });
     }
 
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      return res.status(400).json({ error: "Missing or invalid lat/lng" });
-    }
-
-    if (!Number.isFinite(radiusMeters) || radiusMeters <= 0 || radiusMeters > 50000) {
+    const qIn = norm.qIn || {};
+    
+    // STRICT: reject legacy offset paging
+    if (typeof qIn.page !== "undefined" || typeof req.body?.page !== "undefined") {
       return res.status(400).json({
-        error: "Invalid radius (meters). Must be 0 < radius <= 50000",
+        error: "Offset paging is not supported. Use cursor-based pagination (meta.cursor).",
       });
     }
 
-    const canonicalQuery = {
-      ...qRaw,
-      whenAtISO,
-      lat,
-      lng,
-      radius: radiusMeters, // canonical
-      radiusMeters,
-      page,
-      perPage,
-      activityType,
-      quickFilter,
-      placeCategory,
-      keyword,
-      vibes,
-      familyFriendly,
-      placesFilters,
-      budget,
-    };
+    // keep your ISO validation (only matters for new searches)
+    if (norm.kind === "new" && qIn.whenAtISO && Number.isNaN(new Date(qIn.whenAtISO).getTime())) {
+      return res.status(400).json({ error: "Invalid whenAtISO" });
+    }
+
+    const canonicalQuery =
+      norm.kind === "cursor"
+        ? {
+          cursor: norm.value.cursor,
+          perPage: norm.value.perPage,
+          queryHash: norm.value.queryHash,
+          debug: norm.value.debug === true,
+          reqId,
+        }
+        : {
+          ...norm.value, // validated + canonicalized: lat/lng/radiusMeters/etc (+ perPage/debug/queryHash)
+          cursor: null,
+          reqId,
+          ...(typeof qIn.prefetchAll === "boolean" ? { prefetchAll: qIn.prefetchAll } : {}),
+          ...(qIn.whenAtISO ? { whenAtISO: qIn.whenAtISO } : {}),
+        };
 
     const out = await getCuratedPlacesNearbyV1({
       apiKey,
       query: canonicalQuery,
-
-      // legacy
-      activityType,
-      quickFilter,
-      placeCategory,
-      keyword,
-      vibes,
-      familyFriendly,
-      placesFilters,
-
-      lat,
-      lng,
-      radiusMeters,
-      budget,
-      page,
-      perPage,
+      now: new Date(),
       log: null,
     });
 
     if (out?.error) {
-      return res
-        .status(out.error.status || 500)
-        .json({ error: out.error.message || "Error" });
+      return res.status(out.error.status || 500).json({
+        error: out.error.message || "Error",
+      });
     }
 
     return res.json(out);
   } catch (e) {
-    return res
-      .status(500)
-      .json({ error: "Something went wrong with the nearby search." });
+    return res.status(500).json({ error: "Something went wrong with the nearby search." });
   }
 });
 
 router.post("/place-photos/resolve", async (req, res) => {
-  const reqId = Math.random().toString(16).slice(2, 10);
-  const startedAt = Date.now();
-
-  // flip to false in production if you want
-  const DEBUG = false;
-
   try {
     const photos = Array.isArray(req.body?.photos) ? req.body.photos : [];
 
-    if (DEBUG) {
-      console.log(`[place-photos][${reqId}] start`, {
-        receivedCount: photos.length,
-        bodyKeys: req.body ? Object.keys(req.body) : [],
-      });
-    }
-
     if (!photos.length) {
-      if (DEBUG)
-        console.log(`[place-photos][${reqId}] empty -> 200`, {
-          ms: Date.now() - startedAt,
-        });
       return res.json({ items: [] });
     }
 
-    // hard cap to prevent abuse
     const capped = photos.slice(0, 50);
-
-    // basic stats: unique names + validity
-    const names = capped
-      .map((p) => String(p?.name || "").trim())
-      .filter(Boolean);
-    const uniqueNames = new Set(names);
-
-    if (DEBUG) {
-      console.log(`[place-photos][${reqId}] capped`, {
-        cappedCount: capped.length,
-        uniqueCount: uniqueNames.size,
-        sampleNames: Array.from(uniqueNames).slice(0, 5),
-      });
-    }
 
     const limit = pLimit(6);
 
-    let valid = 0;
-    let rejected = 0;
-    let resolved = 0;
-    let nullUrl = 0;
-
-    // OPTIONAL: sample per-photo timing (only log first N)
-    const TIMING_SAMPLE_N = 8;
-
     const items = await Promise.all(
-      capped.map((p, idx) =>
+      capped.map((p) =>
         limit(async () => {
-          const t0 = Date.now();
-
           const rawName = String(p?.name || "").trim();
           const maxIn = Number(p?.max || 400);
 
           const ok = isV1PhotoName(rawName) || isLegacyPhotoRef(rawName);
           if (!ok) {
-            rejected += 1;
-
-            if (DEBUG && idx < TIMING_SAMPLE_N) {
-              console.log(`[place-photos][${reqId}] reject`, {
-                idx,
-                name: rawName,
-                maxIn,
-                ms: Date.now() - t0,
-              });
-            }
-
             return { name: rawName, url: null };
           }
-
-          valid += 1;
 
           const safeMax = Number.isFinite(maxIn)
             ? Math.min(1600, Math.max(50, maxIn))
@@ -284,43 +179,13 @@ router.post("/place-photos/resolve", async (req, res) => {
 
           const url = await resolvePhotoUrl({ name: rawName, max: safeMax });
 
-          if (url) resolved += 1;
-          else nullUrl += 1;
-
-          if (DEBUG && idx < TIMING_SAMPLE_N) {
-            console.log(`[place-photos][${reqId}] resolved`, {
-              idx,
-              name: rawName,
-              safeMax,
-              url: url ? "ok" : "null",
-              ms: Date.now() - t0,
-            });
-          }
-
           return { name: rawName, url: url || null };
         })
       )
     );
 
-    if (DEBUG) {
-      console.log(`[place-photos][${reqId}] done`, {
-        receivedCount: photos.length,
-        cappedCount: capped.length,
-        uniqueCount: uniqueNames.size,
-        valid,
-        rejected,
-        resolved,
-        nullUrl,
-        ms: Date.now() - startedAt,
-      });
-    }
-
     return res.json({ items });
-  } catch (e) {
-    console.log(`[place-photos][${reqId}] ERROR`, {
-      msg: e?.message || String(e),
-      ms: Date.now() - startedAt,
-    });
+  } catch {
     return res.status(500).json({ error: "Failed to resolve photos" });
   }
 });
@@ -348,9 +213,7 @@ router.post("/events-and-promos-nearby", async (req, res) => {
       const user = await User.findById(userId).lean();
 
       if (user?.favorites?.length > 0) {
-        userFavorites = new Set(
-          user.favorites.map((fav) => String(fav.placeId))
-        );
+        userFavorites = new Set(user.favorites.map((fav) => String(fav.placeId)));
       }
 
       const [reviews, checkIns, invites] = await Promise.all([
@@ -370,10 +233,8 @@ router.post("/events-and-promos-nearby", async (req, res) => {
 
       for (const r of reviews || []) {
         const pid = String(r.placeId);
-        const rating =
-          typeof r?.details?.rating === "number" ? r.details.rating : null;
-        if (!reviewCounts[pid])
-          reviewCounts[pid] = { positive: 0, neutral: 0, negative: 0 };
+        const rating = typeof r?.details?.rating === "number" ? r.details.rating : null;
+        if (!reviewCounts[pid]) reviewCounts[pid] = { positive: 0, neutral: 0, negative: 0 };
         if (rating != null) {
           if (rating >= 4) reviewCounts[pid].positive += 1;
           else if (rating === 3) reviewCounts[pid].neutral += 1;
@@ -418,9 +279,7 @@ router.post("/events-and-promos-nearby", async (req, res) => {
 
     const yesterday = new Date(now);
     yesterday.setDate(now.getDate() - 1);
-    const yesterdayWeekday = yesterday.toLocaleString("en-US", {
-      weekday: "long",
-    });
+    const yesterdayWeekday = yesterday.toLocaleString("en-US", { weekday: "long" });
 
     const startOfYesterday = new Date(yesterday);
     startOfYesterday.setHours(0, 0, 0, 0);

@@ -1,7 +1,3 @@
-// filterConfig.js
-
-// 1) Truly universal exclusions only.
-// DO NOT hard-exclude stuff users might actually want (casino/golf_course).
 const hardExcludedTypes = new Set([
   "school",
   "doctor",
@@ -12,10 +8,8 @@ const hardExcludedTypes = new Set([
   "gas_station",
 ]);
 
-// keep "store" as soft exclude (only reject when not food-signal)
 const softExcludedTypes = new Set(["store"]);
 
-// used to decide whether a "store" is actually food-related
 const foodSignalTypes = new Set([
   "restaurant",
   "bar",
@@ -26,17 +20,9 @@ const foodSignalTypes = new Set([
   "meal_delivery",
 ]);
 
-// name-pattern rejects
-const gasStationNamePattern =
-  /\b(speedway|speedy|bp|shell|mobil|exxon|citgo|chevron|amoco|sunoco|marathon|valero|conoco)\b|circle\s?k|thorntons|\b7[-\s]?eleven\b|casey'?s|kum\s?&\s?go|love'?s|pilot|\bqt\b|quiktrip/i;
+const gasStationNamePattern = /\b(speedway|speedy|bp|shell|mobil|exxon|citgo|chevron|amoco|sunoco|marathon|valero|conoco)\b|circle\s?k|thorntons|\b7[-\s]?eleven\b|casey'?s|kum\s?&\s?go|love'?s|pilot|\bqt\b|quiktrip/i;
 
 const countryClubNamePattern = /Country Club|Golf Course|Golf Club|Links/i;
-
-// -------------------------------
-// Search combos (normalized form)
-// -------------------------------
-// A combo is: { type: "restaurant" } OR { type: "establishment", keyword: "escape room" }
-// Keep these small; your cursor engine expands by paging, not by huge combo lists.
 
 const QUICK_FILTER_COMBOS = {
   dateNight: [
@@ -47,15 +33,12 @@ const QUICK_FILTER_COMBOS = {
     { type: "restaurant" },
     { type: "bar" },
   ],
-
-  // Make sure this key matches your frontend quickFilterTypes set
   drinksAndDining: [
     { type: "restaurant" },
     { type: "bar" },
     { type: "cafe" },
     { type: "establishment", keyword: "cocktail bar wine bar brewery" },
   ],
-
   outdoor: [
     { type: "park" },
     { type: "tourist_attraction" },
@@ -63,25 +46,21 @@ const QUICK_FILTER_COMBOS = {
     { type: "natural_feature" },
     { type: "botanical_garden" },
   ],
-
   movieNight: [
     { type: "movie_theater" },
     { type: "establishment", keyword: "drive-in movie theater imax" },
   ],
-
   gaming: [
     { type: "establishment", keyword: "arcade" },
     { type: "bowling_alley" },
     { type: "establishment", keyword: "laser tag" },
     { type: "establishment", keyword: "escape room" },
   ],
-
   artAndCulture: [
     { type: "museum" },
     { type: "art_gallery" },
     { type: "establishment", keyword: "theater performing arts" },
   ],
-
   familyFun: [
     { type: "zoo" },
     { type: "aquarium" },
@@ -90,13 +69,11 @@ const QUICK_FILTER_COMBOS = {
     { type: "amusement_park" },
     { type: "establishment", keyword: "trampoline park family entertainment" },
   ],
-
   petFriendly: [
     // there is no reliable “pet friendly” type, so keyword it
     { type: "establishment", keyword: "pet friendly" },
     { type: "park" },
   ],
-
   liveMusic: [
     // avoid relying on dubious types; keyword is safer
     { type: "establishment", keyword: "live music" },
@@ -104,7 +81,6 @@ const QUICK_FILTER_COMBOS = {
     { type: "establishment", keyword: "concert" },
     { type: "bar" }, // often works better than "night_club"
   ],
-
   whatsClose: [{ type: "establishment" }],
 };
 
@@ -112,7 +88,6 @@ const QUICK_FILTER_COMBOS = {
 // These should line up with PLACE_CATEGORY_OPTIONS values (ex: "food_drink").
 const PLACE_CATEGORY_COMBOS = {
   food_drink: [{ type: "restaurant" }, { type: "bar" }, { type: "cafe" }],
-
   entertainment: [
     { type: "movie_theater" },
     { type: "bowling_alley" },
@@ -123,7 +98,6 @@ const PLACE_CATEGORY_COMBOS = {
     // NOTE: casino is NOT hard-excluded anymore — let prefs handle it
     { type: "casino" },
   ],
-
   outdoor: [
     { type: "park" },
     { type: "natural_feature" },
@@ -131,7 +105,6 @@ const PLACE_CATEGORY_COMBOS = {
     { type: "tourist_attraction" },
     { type: "botanical_garden" },
   ],
-
   indoor: [
     { type: "museum" },
     { type: "art_gallery" },
@@ -142,7 +115,6 @@ const PLACE_CATEGORY_COMBOS = {
     { type: "casino" },
     { type: "establishment", keyword: "escape room indoor mini golf trampoline" },
   ],
-
   family: [
     { type: "zoo" },
     { type: "aquarium" },
@@ -151,9 +123,6 @@ const PLACE_CATEGORY_COMBOS = {
     { type: "amusement_park" },
     { type: "establishment", keyword: "children museum family entertainment playground" },
   ],
-
-  // "any" should not explode your combos count.
-  // Keep it broad and let ranking do the work.
   any: [{ type: "establishment" }],
 };
 
@@ -182,12 +151,8 @@ module.exports = {
   foodSignalTypes,
   gasStationNamePattern,
   countryClubNamePattern,
-
-  // new normalized sources of truth
   QUICK_FILTER_COMBOS,
   PLACE_CATEGORY_COMBOS,
-
-  // legacy exports (keep until fully migrated)
   quickFilters,
   activityTypeKeywords,
 };

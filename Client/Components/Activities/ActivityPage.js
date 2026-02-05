@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from "react";
+import React, { useMemo, useRef, useCallback } from "react";
 import { View, FlatList, StyleSheet, Text, ActivityIndicator, TouchableWithoutFeedback, Keyboard, Animated } from "react-native";
 import { useSelector, useDispatch } from "react-redux";
 import { useNavigation } from "@react-navigation/native";
@@ -8,8 +8,7 @@ import Events from "./Events";
 import ActivityMap from "../Map/Map";
 import SearchBar from "./SearchBar";
 import QuickFilters from "./QuickFilters";
-import { selectBusinessData, selectIsMapView, toggleMapView, openPreferences, selectEvents as selectOverlayEvents } from "../../Slices/PlacesSlice";
-import { selectEventType } from "../../Slices/PreferencesSlice";
+import { selectBusinessData, selectIsMapView, toggleMapView, openPreferences } from "../../Slices/PlacesSlice";
 import { selectCoordinates, selectManualCoordinates } from "../../Slices/LocationSlice";
 import { milesToMeters } from "../../functions";
 import { selectPagination, selectSortOptions, resetPagination } from "../../Slices/PaginationSlice";
@@ -17,7 +16,7 @@ import buildDisplayList from "../../utils/Activities/buildDisplayList";
 import useKeyboardOpen from "../../utils/ui/useKeyboardOpen";
 import { filterIcons } from "./filterIcons";
 import useActivitySearchController from "./hooks/useActivitySearchController";
-import ActivitiesHeaderButtons from '../Header/ActivitiesHeaderButtons';
+import ActivitiesHeaderButtons from "../Header/ActivitiesHeaderButtons";
 import {
   selectPlacesItems,
   selectEventsItems,
@@ -28,7 +27,7 @@ import {
   selectPlacesHasMore,
   selectEventsHasMore,
   selectLastSearch,
-  startActivitiesSearch, // orchestration thunk
+  clearGooglePlaces,
 } from "../../Slices/GooglePlacesSlice";
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
@@ -37,41 +36,26 @@ const ActivityPage = ({ scrollY, onScroll }) => {
   const dispatch = useDispatch();
   const navigation = useNavigation();
   const listRef = useRef(null);
-
   // ----- location -----
   const autoCoordinates = useSelector(selectCoordinates);
   const manualCoordinates = useSelector(selectManualCoordinates);
-  const coordinates = manualCoordinates ? manualCoordinates : autoCoordinates;
+  const coordinates = manualCoordinates || autoCoordinates;
   const lat = coordinates?.lat;
   const lng = coordinates?.lng;
-
   // ----- UI prefs -----
   const isMapView = useSelector(selectIsMapView);
   const sortOption = useSelector(selectSortOptions);
   const { perPage, categoryFilter, openNow: isOpenNow } = useSelector(selectPagination);
-
-  // You still have this in your app; leaving it here but it should eventually die.
-  // Mode should be controlled by lastSearch.mode, not an unrelated toggle.
-  const legacyEventType = useSelector(selectEventType);
-
-  // ----- streams (NEW) -----
+  // ----- streams -----
   const placesItems = useSelector(selectPlacesItems);
   const eventsItems = useSelector(selectEventsItems);
-
   const placesStatus = useSelector(selectPlacesStatus);
   const eventsStatus = useSelector(selectEventsStatus);
   const placesLoadingMore = useSelector(selectPlacesLoadingMore);
   const eventsLoadingMore = useSelector(selectEventsLoadingMore);
-
   const placesHasMore = useSelector(selectPlacesHasMore);
   const eventsHasMore = useSelector(selectEventsHasMore);
-
   const lastSearch = useSelector(selectLastSearch);
-
-  // Existing overlay events from PlacesSlice (if you still need them)
-  // If this is old/unused, delete it.
-  const overlayEvents = useSelector(selectOverlayEvents) || [];
-
   const businessData = useSelector(selectBusinessData) || [];
 
   // ----- derive mode -----
@@ -109,24 +93,23 @@ const ActivityPage = ({ scrollY, onScroll }) => {
     defaultDiningRadiusMeters: milesToMeters(5),
   });
 
-  const handleQuickFilterPress = (key) => {
-    // This maps the UI quick filter key to the backend query
-    // Backend expects quickFilter for places2, and may use activityType for dining cursor route.
-    const isDining = key === "Dining";
+  const handleQuickFilterPress = useCallback(
+    (key) => {
+      const isDining = key === "Dining";
 
-    const query = {
-      mode: "places",
-      source: "quickFilter",
+      // Keep the query minimal; the controller should inject lat/lng/perPage/radiusMeters.
+      const query = {
+        mode: "places",
+        source: "quickFilter",
+        ...(isDining
+          ? { placeCategory: "food_drink", activityType: "Dining" }
+          : { quickFilter: key }),
+      };
 
-      // IMPORTANT: your fetchPlacesPage uses placeCategory === "food_drink" to route to dining cursor pipeline.
-      // If you want Dining to use that pipeline, you must set placeCategory.
-      ...(isDining
-        ? { placeCategory: "food_drink", activityType: "Dining" }
-        : { quickFilter: key }),
-    };
-
-    startSearch(query);
-  };
+      startSearch(query);
+    },
+    [startSearch]
+  );
 
   const handlePress = (data, details) => {
     const formattedBusiness = {
@@ -142,7 +125,6 @@ const ActivityPage = ({ scrollY, onScroll }) => {
     navigation.navigate("BusinessProfile", { business: formattedBusiness });
   };
 
-  // Build a good places list (your existing helper)
   const placesDisplayList = useMemo(() => {
     return buildDisplayList({
       activities: placesItems,
@@ -151,16 +133,14 @@ const ActivityPage = ({ scrollY, onScroll }) => {
       openNowOnly: isOpenNow,
       sortOption,
       whenAtISO: lastSearch?.whenAtISO ?? null,
-      debug: __DEV__, // or a toggle
+      debug: __DEV__,
     });
   }, [placesItems, businessData, categoryFilter, isOpenNow, sortOption, lastSearch?.whenAtISO]);
 
-  // Events list (simple for now; sort in the backend ideally)
   const eventsDisplayList = useMemo(() => {
     return Array.isArray(eventsItems) ? eventsItems : [];
   }, [eventsItems]);
 
-  // Mixed mode: tag items so renderItem can pick the right component
   const displayList = useMemo(() => {
     const taggedPlaces = showPlaces
       ? (Array.isArray(placesDisplayList) ? placesDisplayList : []).map((p) => ({
@@ -176,23 +156,18 @@ const ActivityPage = ({ scrollY, onScroll }) => {
       }))
       : [];
 
-    // If you want more sophisticated interleaving, do it here.
-    // For now: events first, then places.
-    return mode === "mixed" ? [...taggedEvents, ...taggedPlaces] : showEvents ? taggedEvents : taggedPlaces;
+    if (mode === "mixed") return [...taggedEvents, ...taggedPlaces];
+    return showEvents ? taggedEvents : taggedPlaces;
   }, [mode, showPlaces, showEvents, placesDisplayList, eventsDisplayList]);
 
+  const hasResults = displayList.length > 0;
+
   const initialLoading =
-    (showPlaces && placesStatus === "loading" && (placesItems?.length || 0) === 0) ||
-    (showEvents && eventsStatus === "loading" && (eventsItems?.length || 0) === 0);
+    ((showPlaces && placesStatus === "loading" && (placesItems?.length || 0) === 0) ||
+      (showEvents && eventsStatus === "loading" && (eventsItems?.length || 0) === 0)) &&
+    !hasResults;
 
-  const anyLoadingMore =
-    (showPlaces && placesLoadingMore) ||
-    (showEvents && eventsLoadingMore);
-
-  const hasAnyResults =
-    (Array.isArray(placesItems) && placesItems.length > 0) ||
-    (Array.isArray(eventsItems) && eventsItems.length > 0) ||
-    (Array.isArray(overlayEvents) && overlayEvents.length > 0);
+  const anyLoadingMore = (showPlaces && placesLoadingMore) || (showEvents && eventsLoadingMore);
 
   const availableCuisines = useMemo(() => {
     const set = new Set();
@@ -204,106 +179,159 @@ const ActivityPage = ({ scrollY, onScroll }) => {
     return Array.from(set);
   }, [placesItems]);
 
-  // If your legacyEventType is still used to force event rendering,
-  // this keeps your current UI behavior. But it conflicts with "mode".
-  // You should remove legacyEventType and rely on mode/_itemType.
-  const renderItem = ({ item }) => {
-    if (item?._itemType === "event" || legacyEventType === "Event") {
-      return <Events event={item} />;
-    }
+  const renderItem = useCallback(({ item }) => {
+    if (item?._itemType === "event") return <Events event={item} />;
     return <Activities activity={item} />;
-  };
+  }, []);
 
-  // Map view should only show places (markers). Mixed/events should stay list.
+  const keyExtractor = useCallback((item, index) => {
+    // deterministic, stable keys
+    const id = item?.place_id || item?.id || item?._id;
+    return id ? String(id) : `idx:${index}`;
+  }, []);
+
+  // Map view should only show places markers (not events).
   const canShowMap = isMapView && showPlaces;
+
+  const handleEndReached = useCallback(() => {
+    // cursor/pagination gating is handled in the controller, but choose stream intelligently here.
+    if (mode === "events") {
+      loadMore("events");
+      return;
+    }
+
+    if (mode === "mixed") {
+      // Policy: prefer loading more places (the heavier stream people scroll for),
+      // but if places are exhausted and events still have more, load events.
+      if (placesHasMore) loadMore("places");
+      else if (eventsHasMore) loadMore("events");
+      return;
+    }
+
+    // mode === "places"
+    loadMore("places");
+  }, [mode, loadMore, placesHasMore, eventsHasMore]);
+
+  const Header = useMemo(() => {
+    return (
+      <View>
+        <View style={styles.scrollSpacer} />
+        <ActivitiesHeaderButtons
+          onOpenPreferences={() => dispatch(openPreferences())}
+          onOpenFilter={() => navigation.navigate("FilterSort", { availableCuisines })}
+          onToggleMapView={() => dispatch(toggleMapView())}
+          onClear={() => {
+            dispatch(clearGooglePlaces());
+            dispatch(resetPagination());
+          }}
+          categoryFilter={categoryFilter}
+          isMapView={isMapView}
+          disableMapToggle={!showPlaces} // map only makes sense when places are visible
+          disableClear={!hasResults}
+          style={{ paddingHorizontal: 10 }}
+        />
+        <SearchBar lat={lat} lng={lng} onSelectPlace={handlePress} />
+        {!hasResults && (
+          <QuickFilters keyboardOpen={keyboardOpen} onFilterPress={handleQuickFilterPress} icons={filterIcons} />
+        )}
+      </View>
+    );
+  }, [
+    dispatch,
+    navigation,
+    availableCuisines,
+    categoryFilter,
+    isMapView,
+    showPlaces,
+    hasResults,
+    lat,
+    lng,
+    handleQuickFilterPress,
+    keyboardOpen,
+  ]);
+
+  const useAnimated = scrollY instanceof Animated.Value && typeof onScroll === "function";
 
   return (
     <View style={styles.safeArea}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <View style={{ flex: 1 }}>
-          <View style={hasAnyResults ? styles.containerPopulated : styles.container}>
+          <View style={hasResults ? styles.containerPopulated : styles.container}>
             {initialLoading ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#2196F3" />
               </View>
+            ) : canShowMap ? (
+              <View style={{ flex: 1 }}>
+                {Header}
+                <ActivityMap
+                  activities={placesDisplayList}
+                  onEndReached={() => loadMore("places")}
+                  loadingMore={anyLoadingMore}
+                />
+              </View>
+            ) : useAnimated ? (
+              <AnimatedFlatList
+                data={displayList}
+                keyExtractor={keyExtractor}
+                renderItem={renderItem}
+                ref={listRef}
+                initialNumToRender={Math.min(15, Number(perPage) || 15)}
+                windowSize={6}
+                contentContainerStyle={styles.list}
+                showsVerticalScrollIndicator={false}
+                onEndReached={handleEndReached}
+                onEndReachedThreshold={0.5}
+                onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+                  useNativeDriver: true,
+                  listener: onScroll,
+                })}
+                scrollEventThrottle={16}
+                ListHeaderComponent={Header}
+                ListFooterComponent={
+                  anyLoadingMore ? (
+                    <ActivityIndicator size="small" color="#2196F3" style={{ marginVertical: 10 }} />
+                  ) : null
+                }
+                ListEmptyComponent={
+                  <Text style={{ textAlign: "center", marginTop: 20 }}>
+                    No results. Try changing filters or expanding the radius.
+                  </Text>
+                }
+              />
             ) : (
-              <>
-                {hasAnyResults ? (
-                  <View style={{ flex: 1 }}>
-                    {!canShowMap && scrollY instanceof Animated.Value && typeof onScroll === "function" ? (
-                      <AnimatedFlatList
-                        data={displayList}
-                        keyExtractor={(item) => {
-                          const key = item?.place_id || item?.id || item?._id || item?.reference;
-                          return String(key || Math.random());
-                        }}
-                        renderItem={renderItem}
-                        initialNumToRender={perPage}
-                        ref={listRef}
-                        windowSize={5}
-                        contentContainerStyle={styles.list}
-                        showsVerticalScrollIndicator={false}
-                        onEndReached={() => {
-                          if (mode === "events") loadMore("events");
-                          else loadMore("places"); // "places" or "mixed" -> load more places first
-                        }}
-                        onEndReachedThreshold={0.5}
-                        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
-                          useNativeDriver: true,
-                          listener: onScroll,
-                        })}
-                        scrollEventThrottle={16}
-                        ListHeaderComponent={<View style={styles.scrollSpacer} />}
-                        ListFooterComponent={
-                          anyLoadingMore ? (
-                            <ActivityIndicator size="small" color="#2196F3" style={{ marginVertical: 10 }} />
-                          ) : null
-                        }
-                        ListEmptyComponent={<Text style={{ textAlign: "center", marginTop: 20 }}>No results</Text>}
-                      />
-                    ) : (
-                      <ActivityMap
-                        activities={placesDisplayList}
-                        onEndReached={() => loadMore("places")}
-                        loadingMore={anyLoadingMore}
-                      />
-                    )}
-                  </View>
-                ) : (
-                  <>
-                    <ActivitiesHeaderButtons
-                      onOpenPreferences={() => dispatch(openPreferences())}
-                      onOpenFilter={() => navigation.navigate("FilterSort", { availableCuisines })}
-                      onToggleMapView={() => dispatch(toggleMapView())}
-                      onClear={() => {
-                        dispatch(clearGooglePlaces());
-                        dispatch(resetPagination());
-                      }}
-                      categoryFilter={categoryFilter}
-                      isMapView={isMapView}
-                      disableMapToggle={!hasAnyResults}  // map view is pointless with nothing
-                      disableClear={!hasAnyResults}      // optional
-                      style={{ paddingHorizontal: 10 }}  // optional spacing tweak
-                    />
-                    <SearchBar lat={lat} lng={lng} onSelectPlace={handlePress} />
-                    <QuickFilters
-                      keyboardOpen={keyboardOpen}
-                      onFilterPress={handleQuickFilterPress}
-                      icons={filterIcons}
-                    />
-                  </>
-                )}
-              </>
+              <FlatList
+                data={displayList}
+                keyExtractor={keyExtractor}
+                renderItem={renderItem}
+                ref={listRef}
+                initialNumToRender={Math.min(15, Number(perPage) || 15)}
+                windowSize={6}
+                contentContainerStyle={styles.list}
+                showsVerticalScrollIndicator={false}
+                onEndReached={handleEndReached}
+                onEndReachedThreshold={0.5}
+                ListHeaderComponent={Header}
+                ListFooterComponent={
+                  anyLoadingMore ? (
+                    <ActivityIndicator size="small" color="#2196F3" style={{ marginVertical: 10 }} />
+                  ) : null
+                }
+              />
             )}
           </View>
           <PreferencesModal
             onSubmitCustomSearch={(submittedMode, payload) => {
               if (!lat || !lng) return;
 
+              // normalize radius field so controller can do the right thing
+              const radiusMeters = Number(payload?.radiusMeters ?? payload?.radius);
+
               startSearch({
                 source: "custom",
                 mode: submittedMode || payload?.mode || "places",
                 ...payload,
+                ...(Number.isFinite(radiusMeters) ? { radiusMeters } : null),
               });
             }}
           />
@@ -317,7 +345,7 @@ export default ActivityPage;
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#008080" },
-  scrollSpacer: { backgroundColor: "#008080", marginTop: 100 },
+  scrollSpacer: { backgroundColor: "#008080" },
   container: { flex: 1, backgroundColor: "#f5f5f5", paddingBottom: 50, marginTop: 120 },
   containerPopulated: { flex: 1, backgroundColor: "#f5f5f5" },
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },

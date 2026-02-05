@@ -24,7 +24,6 @@ const QuickFilters = ({ keyboardOpen, onFilterPress, stylesOverride = {}, icons 
   return (
     <>
       <Text style={[styles.filterTitle, stylesOverride.filterTitle]}>Quick Filters</Text>
-
       <View style={[styles.filterContainer, stylesOverride.filterContainer]}>
         {data.map(({ key, label }) => {
           const IconRenderer = typeof icons[key] === 'function' ? icons[key] : null;

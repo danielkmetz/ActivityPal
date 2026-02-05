@@ -1,6 +1,7 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import axios from "axios";
 import { updateNearbySuggestions } from "../utils/posts/UpdateNearbySuggestions";
+import { getDeviceTimeZone, getDeviceTzOffsetMinutes } from "../utils/timezone"; // adjust path
 
 const BASE_URL = process.env.EXPO_PUBLIC_SERVER_URL;
 const PHOTO_PREFETCH_MAX = 25;
@@ -77,77 +78,109 @@ export const resolvePlacePhotos = createAsyncThunk(
 
 export const fetchPlacesPage = createAsyncThunk(
   "GooglePlaces/fetchPlacesPage",
-  async ({ query, cursor = null, page = 1 }, { rejectWithValue, dispatch, getState, signal }) => {
+  async (
+    { query, cursor = null, queryHash = null },
+    { rejectWithValue, dispatch, getState, signal }
+  ) => {
     try {
-      const perPage = query?.perPage || 15;
+      const perPage = Number(query?.perPage) || 15;
       const provider = pickPlacesProvider(query);
+
+      const timeZone = getDeviceTimeZone();
+      const tzOffsetMinutes = getDeviceTzOffsetMinutes();
 
       let response;
 
       if (provider === "dining") {
+        // Leave dining as-is for now (you said only places-nearby endpoint is changing)
         const body = cursor
-          ? { cursor, perPage }
+          ? { cursor, perPage, queryHash: queryHash || undefined }
           : {
-              lat: query.lat,
-              lng: query.lng,
-              activityType: "Dining",
-              radius: query.radius,
-              budget: query.budget,
-              isCustom: query.source === "custom",
-              perPage,
+            lat: query.lat,
+            lng: query.lng,
+            activityType: "Dining",
+            radius: query.radius, // keep until dining backend is also strict
+            budget: query.budget,
+            isCustom: query.source === "custom",
+            perPage,
 
-              when: query.when ?? null,
-              customWhen: query.customWhen ?? null,
-              // (optional) if you have it now:
-              whenAtISO: query.whenAtISO ?? null,
+            when: query.when ?? null,
+            customWhen: query.customWhen ?? null,
+            whenAtISO: query.whenAtISO ?? null,
 
-              who: query.who,
-              vibes: query.vibes,
-              keyword: query.keyword,
-              familyFriendly: query.familyFriendly,
-              placesFilters: query.placesFilters,
-              placeCategory: query.placeCategory,
-            };
+            who: query.who ?? null,
+            vibes: Array.isArray(query.vibes) ? query.vibes : null,
+            keyword: query.keyword ?? null,
+            familyFriendly: !!query.familyFriendly,
+            placesFilters: query.placesFilters ?? null,
+            placeCategory: query.placeCategory ?? null,
+          };
 
         response = await axios.post(`${BASE_URL}/google/places`, body, { signal });
       } else {
-        const body = {
-          lat: query.lat,
-          lng: query.lng,
-          radius: query.radius,
-          budget: query.budget,
-          page,
-          perPage,
+        // STRICT PLACES2 CONTRACT:
+        // - MUST be { query: {...} }
+        // - MUST use cursor (no page)
+        // - MUST use radiusMeters (no radius alias)
+        // - continuation requests only need { cursor, perPage, queryHash }
+        const radiusMeters = Number(query?.radiusMeters);
 
-          quickFilter: query.quickFilter ?? null,
-          activityType: query.activityType ?? null,
-          placeCategory: query.placeCategory ?? null,
+        if (!cursor) {
+          // new search: require the full geo inputs
+          if (!Number.isFinite(Number(query?.lat)) || !Number.isFinite(Number(query?.lng))) {
+            return rejectWithValue({ error: "Missing or invalid lat/lng for new search." });
+          }
+          if (!Number.isFinite(radiusMeters) || radiusMeters <= 0) {
+            return rejectWithValue({ error: "Missing or invalid radiusMeters for new search." });
+          }
+        }
 
-          when: query.when ?? null,
-          customWhen: query.customWhen ?? null,
-          // (optional) if you have it now:
-          whenAtISO: query.whenAtISO ?? null,
+        const wrapped = cursor
+          ? {
+            query: {
+              cursor,
+              perPage,
+              queryHash: queryHash || undefined,
+            },
+          }
+          : {
+            query: {
+              lat: Number(query.lat),
+              lng: Number(query.lng),
+              radiusMeters,
+              perPage,
 
-          who: query.who,
-          vibes: query.vibes,
-          keyword: query.keyword,
-          familyFriendly: query.familyFriendly,
-          placesFilters: query.placesFilters,
-        };
+              timeZone,
+              tzOffsetMinutes,
 
-        response = await axios.post(`${BASE_URL}/places2/places-nearby`, body, { signal });
+              budget: query.budget ?? null,
+
+              quickFilter: query.quickFilter ?? null,
+              activityType: query.activityType ?? null,
+              placeCategory: query.placeCategory ?? null,
+
+              when: query.when ?? null,
+              customWhen: query.customWhen ?? null,
+              whenAtISO: query.whenAtISO ?? null,
+
+              who: query.who ?? null,
+              vibes: Array.isArray(query.vibes) ? query.vibes : null,
+              keyword: query.keyword ?? null,
+              familyFriendly: !!query.familyFriendly,
+              placesFilters: query.placesFilters ?? null,
+            },
+          };
+
+        response = await axios.post(`${BASE_URL}/places2/places-nearby`, wrapped, { signal });
       }
 
-      // LOG RAW RESPONSE SHAPE
-      const data = response?.data;
-      const curatedPlaces = Array.isArray(data?.curatedPlaces) ? data.curatedPlaces : null;
-      const meta = data?.meta ?? null;
+      const data = response?.data || {};
+      const places = Array.isArray(data.curatedPlaces) ? data.curatedPlaces : [];
+      const meta = data?.meta && typeof data.meta === "object" ? data.meta : null;
 
-      const places = curatedPlaces || [];
-      // photo prefetch only for places
+      // Photo prefetch only for places
       const cache = getState().GooglePlaces?.photoCache || {};
       const limit = Math.min(PHOTO_PREFETCH_MAX, perPage * 2);
-
       const photosToResolve = pickPhotosToResolve({ places, cache, limit });
 
       if (photosToResolve.length) {
@@ -158,15 +191,12 @@ export const fetchPlacesPage = createAsyncThunk(
         places,
         meta,
         provider,
-        append: !!cursor || page > 1,
-        page,
+        append: !!cursor, // cursor-only paging
         perPage,
       };
     } catch (err) {
-      const status = err?.response?.status ?? null;
       const data = err?.response?.data ?? null;
-
-      return rejectWithValue(data || err.message);
+      return rejectWithValue(data || { error: err?.message || "Request failed" });
     }
   }
 );
@@ -238,9 +268,12 @@ const initialState = {
     status: "idle",
     loadingMore: false,
     provider: "places2",
-    page: 1,
     perPage: 15,
+
+    // ✅ cursor pipeline (both dining + places2)
     cursor: null,
+    queryHash: null,
+
     hasMore: false,
     meta: null,
   },
@@ -277,9 +310,15 @@ const GooglePlacesSlice = createSlice({
       state.lastSearch = query;
       state.error = null;
 
-      // IMPORTANT: do NOT wipe photoCache on new searches (better UX / perf)
-      state.places = { ...initialState.places, perPage: query?.perPage || initialState.places.perPage };
-      state.events = { ...initialState.events, perPage: query?.perPage || initialState.events.perPage };
+      state.places = {
+        ...initialState.places,
+        perPage: query?.perPage || initialState.places.perPage,
+      };
+
+      state.events = {
+        ...initialState.events,
+        perPage: query?.perPage || initialState.events.perPage,
+      };
     },
     clearNearbySuggestions: (state) => {
       state.nearbySuggestions = [];
@@ -303,7 +342,7 @@ const GooglePlacesSlice = createSlice({
       // Places stream
       // ------------------------
       .addCase(fetchPlacesPage.pending, (state, action) => {
-        const isAppend = !!action.meta.arg?.cursor || (action.meta.arg?.page || 1) > 1;
+        const isAppend = !!action.meta.arg?.cursor;
         state.error = null;
 
         if (isAppend) {
@@ -314,31 +353,25 @@ const GooglePlacesSlice = createSlice({
         }
       })
       .addCase(fetchPlacesPage.fulfilled, (state, action) => {
-        const { places, meta, provider, append, page, perPage } = action.payload || {};
-
+        const { places, meta, provider, append, perPage } = action.payload || {};
         const incoming = Array.isArray(places) ? places : [];
+
         state.places.status = "succeeded";
         state.places.loadingMore = false;
+
         state.places.meta = meta || null;
         state.places.provider = provider || state.places.provider;
-        state.places.page = page || 1;
         state.places.perPage = perPage || state.places.perPage;
 
-        if (provider === "dining") {
-          state.places.cursor = meta?.cursor || null;
-          state.places.hasMore = computeHasMoreFallback({
-            meta,
-            incomingCount: incoming.length,
-            perPage: state.places.perPage,
-          });
-        } else {
-          state.places.cursor = null;
-          state.places.hasMore = computeHasMoreFallback({
-            meta,
-            incomingCount: incoming.length,
-            perPage: state.places.perPage,
-          });
-        }
+        // ✅ cursor + queryHash are used for BOTH dining + places2
+        state.places.cursor = meta?.cursor || null;
+        state.places.queryHash = meta?.queryHash || state.places.queryHash || null;
+
+        state.places.hasMore = computeHasMoreFallback({
+          meta,
+          incomingCount: incoming.length,
+          perPage: state.places.perPage,
+        });
 
         if (!append) {
           state.places.items = incoming;
@@ -519,8 +552,8 @@ export const startActivitiesSearch = (query) => async (dispatch) => {
   const showPlaces = mode === "places" || mode === "mixed";
   const showEvents = mode === "events" || mode === "mixed";
 
-  if (showPlaces) dispatch(fetchPlacesPage({ query, page: 1 }));
-  if (showEvents) dispatch(fetchEventsPage({ query, page: 1 }));
+  if (showPlaces) dispatch(fetchPlacesPage({ query }));   // ✅ no page
+  if (showEvents) dispatch(fetchEventsPage({ query, page: 1 })); // events still page/cursor
 };
 
 export const loadMorePlaces = ({ lastSearch } = {}) => (dispatch, getState) => {
@@ -528,17 +561,12 @@ export const loadMorePlaces = ({ lastSearch } = {}) => (dispatch, getState) => {
   const q = lastSearch || state.lastSearch;
   if (!q) return;
 
-  const provider = pickPlacesProvider(q);
+  const cursor = state.places?.cursor;
+  if (!cursor) return;
 
-  if (provider === "dining") {
-    const cursor = state.places?.cursor;
-    if (!cursor) return;
-    dispatch(fetchPlacesPage({ query: q, cursor }));
-    return;
-  }
+  const queryHash = state.places?.queryHash || state.places?.meta?.queryHash || null;
 
-  const nextPage = (state.places?.page || 1) + 1;
-  dispatch(fetchPlacesPage({ query: q, page: nextPage }));
+  dispatch(fetchPlacesPage({ query: q, cursor, queryHash }));
 };
 
 export const loadMoreEvents = ({ lastSearch } = {}) => (dispatch, getState) => {

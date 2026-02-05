@@ -1,3 +1,5 @@
+// search/combos.js
+
 const {
   QUICK_FILTER_COMBOS,
   PLACE_CATEGORY_COMBOS,
@@ -21,15 +23,6 @@ const V1_FALLBACK_TYPES = [
   "movie_theater",
   "bowling_alley",
 ];
-
-function safeKeys(obj, max = 20) {
-  try {
-    const keys = Object.keys(obj || {});
-    return keys.length > max ? [...keys.slice(0, max), `…(+${keys.length - max})`] : keys;
-  } catch {
-    return [];
-  }
-}
 
 function parseDiningMode(v) {
   const s = String(v || "").toLowerCase().trim();
@@ -99,7 +92,7 @@ function normalizePlaceCategory(pc) {
     outdoors: "outdoor",
     outdoor: "outdoor",
     "outdoor_recreation": "outdoor",
-    // add your real keys here
+
     "food-drink": "food_drink",
     fooddrink: "food_drink",
   };
@@ -107,12 +100,47 @@ function normalizePlaceCategory(pc) {
   return aliases[s] || s;
 }
 
-function summarizeCombos(combos, max = 6) {
-  const arr = Array.isArray(combos) ? combos : [];
-  return arr.slice(0, max).map((c) => ({
-    type: c?.type,
-    keyword: c?.keyword || null,
-  }));
+// --- NEW: extract keywords from config combos (for v1 text fallback) ---
+function extractKeywordsFromConfigCombos(list) {
+  const out = [];
+  const arr = Array.isArray(list) ? list : [];
+  for (const c of arr) {
+    const kw = String(c?.keyword || "").trim();
+    if (kw) out.push(kw);
+  }
+  return out;
+}
+
+function compactTextQueryFromKeywords(keywords, limit = 3) {
+  const ks = Array.isArray(keywords) ? keywords : [];
+  const seen = new Set();
+  const kept = [];
+
+  for (const raw of ks) {
+    const k = String(raw || "").trim();
+    if (!k) continue;
+    const key = k.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push(k);
+    if (kept.length >= limit) break;
+  }
+
+  return kept.length ? kept.join(" ") : null;
+}
+
+// --- NEW: group includedTypes into a few nearby streams (2–4 calls, not 8–10) ---
+function groupTypes(types, { groupSize = 3, maxGroups = 4 } = {}) {
+  const t = Array.isArray(types) ? types.filter(Boolean) : [];
+  const out = [];
+  let i = 0;
+
+  while (i < t.length && out.length < maxGroups) {
+    out.push(t.slice(i, i + groupSize));
+    i += groupSize;
+  }
+
+  return out;
 }
 
 /**
@@ -120,7 +148,7 @@ function summarizeCombos(combos, max = 6) {
  *
  * provider:
  *  - "legacy"   => allows {type:"establishment", keyword:"..."} patterns
- *  - "v1Nearby" => NO "establishment" (invalid), keyword is ignored anyway by searchNearby
+ *  - "v1Nearby" => NO "establishment" (invalid), keyword ignored by searchNearby
  */
 function buildSearchCombos({
   provider = "legacy", // "legacy" | "v1Nearby"
@@ -250,8 +278,97 @@ function buildSearchCombos({
   return dedupeAndCap(finalCombos, MAX_COMBOS);
 }
 
+/**
+ * NEW: v1Nearby plan builder.
+ * Produces:
+ *  - nearbyTypeGroups: grouped includedTypes arrays for 2–4 nearby calls
+ *  - textFallbackQuery: a compact text query built from keyword-y config, to run only as fallback
+ *
+ * IMPORTANT:
+ * - This does NOT create actual engine streams. It just returns “what to run.”
+ */
+function buildV1NearbyPlan({
+  activityType,
+  quickFilter,
+  placeCategory,
+  diningMode,
+  placesFilters,
+} = {}) {
+  const avoidBars =
+    !!placesFilters?.avoid?.bars ||
+    !!placesFilters?.avoidBars;
+
+  const mode = activityType === "Dining" ? parseDiningMode(diningMode) : null;
+
+  const pcNorm = normalizePlaceCategory(placeCategory);
+
+  let typedCombos = [];
+  let keywordHints = [];
+
+  // Prefer quickFilter combos if present
+  if (quickFilter) {
+    const q = String(quickFilter).trim();
+    const fromNew = Array.isArray(QUICK_FILTER_COMBOS?.[q]) ? QUICK_FILTER_COMBOS[q] : null;
+
+    if (fromNew) {
+      typedCombos = fromNew.filter((c) => c && c.type && String(c.type) !== "establishment");
+      keywordHints = extractKeywordsFromConfigCombos(fromNew);
+    } else {
+      // legacy quickFilters is string array; treat as keyword hints for text fallback
+      const legacy = Array.isArray(quickFilters?.[q]) ? quickFilters[q] : [];
+      keywordHints = legacy.map((x) => String(x || "").trim()).filter(Boolean);
+      typedCombos = []; // none
+    }
+  } else if (pcNorm && pcNorm !== "any") {
+    const fromNew = Array.isArray(PLACE_CATEGORY_COMBOS?.[pcNorm]) ? PLACE_CATEGORY_COMBOS[pcNorm] : null;
+    if (fromNew) {
+      typedCombos = fromNew.filter((c) => c && c.type && String(c.type) !== "establishment");
+      keywordHints = extractKeywordsFromConfigCombos(fromNew);
+    }
+  }
+
+  // Dining special-case if nothing typed yet
+  if (!typedCombos.length && activityType === "Dining") {
+    if (mode === "quick_bite") {
+      typedCombos = [{ type: "cafe" }, { type: "bakery" }, { type: "meal_takeaway" }];
+    } else {
+      typedCombos = [{ type: "restaurant" }, { type: "bar" }, { type: "cafe" }];
+    }
+  }
+
+  // Apply avoidBars to typed
+  if (avoidBars) {
+    typedCombos = typedCombos.filter((c) => String(c?.type || "") !== "bar");
+  }
+
+  // Extract unique types in order
+  const seen = new Set();
+  const types = [];
+  for (const c of typedCombos) {
+    const t = String(c?.type || "").trim();
+    if (!t) continue;
+    if (seen.has(t)) continue;
+    seen.add(t);
+    types.push(t);
+  }
+
+  // Hard fallback types if still empty
+  const finalTypes = types.length
+    ? types
+    : (avoidBars ? V1_FALLBACK_TYPES.filter((t) => t !== "bar") : V1_FALLBACK_TYPES);
+
+  // Group into a few nearby calls
+  const nearbyTypeGroups = groupTypes(finalTypes, { groupSize: 3, maxGroups: 4 });
+
+  // Compact text fallback query from keyword-ish config hints
+  const textFallbackQuery = compactTextQueryFromKeywords(keywordHints, 3);
+
+  return { nearbyTypeGroups, textFallbackQuery };
+}
+
 module.exports = {
   parseDiningMode,
   shouldRankByDistance,
   buildSearchCombos,
+  buildV1NearbyPlan,
 };

@@ -1,3 +1,3 @@
 module.exports = {
-  placesHandler: require("./handler").placesHandler,
+  placesHandler: require("./handlers/handler").placesHandler,
 };

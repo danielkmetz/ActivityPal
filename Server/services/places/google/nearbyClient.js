@@ -1,15 +1,6 @@
 const axios = require("axios");
 const { buildNearbyBaseUrl, buildNearbyUrl } = require("./urlBuilders");
-
-function normalizeErr(e) {
-  return {
-    name: e?.name,
-    message: e?.message,
-    code: e?.code,
-    status: e?.response?.status,
-    dataStatus: e?.response?.data?.status,
-  };
-}
+const { normalizeErr } = require('../../../utils/normalization/normalizeErr');
 
 async function fetchNearbyPage({ state, combo, meta, apiKey }) {
   const type = combo?.type || null;
